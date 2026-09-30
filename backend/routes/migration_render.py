@@ -11,7 +11,10 @@ AdminSettings (section « Migration vers Render ») lance, en arrière-plan :
   2. FICHIERS — copie vers R2 :
        - des objets du stockage Emergent (Object Storage) : chemins trouvés dans
          `stored_objects`, `files.storage_path`, et toute référence
-         « /api/files/... » ou « storage_path » rencontrée dans la base ;
+         « /api/files/... » ou « storage_path » rencontrée dans la base
+         (hors collections de journaux) ; une référence « /api/files/<id> »
+         désigne un document de la collection `files` et est traduite en son
+         `storage_path` ; « /api/files/ai/... » désigne un fichier du disque ;
        - des fichiers du disque local (UPLOAD_DIR, snapshots).
   3. SECRETS — les variables d'environnement du serveur (JWT_SECRET, clés
      Stripe, R2, Gemini...) sont regroupées dans un fichier CHIFFRÉ
@@ -42,13 +45,25 @@ Robustesse (v2) :
     lieu de figer la sauvegarde indéfiniment ;
   - la conversion JSON / compression est faite hors de la boucle principale
     pour ne pas ralentir le site pendant la copie.
+
+Échecs de fichiers (lot 46) :
+  - un objet introuvable (404) est « absent à la source » : compté à part
+    (`fichiers_absents`), il n'empêche pas le statut « Terminée » ;
+  - trop de requêtes (429), erreur serveur (5xx), délai dépassé ou coupure
+    réseau : jusqu'à ESSAIS_MAX essais avec une attente croissante ;
+  - chaque échec garde son code HTTP, sa cause et son origine (manifeste,
+    suivi, collection `migration_echecs`), exportables en CSV ;
+  - « Réessayer les échecs » relance uniquement l'étape Fichiers (reprise :
+    les objets déjà présents dans R2 sont sautés, la base n'est pas recopiée).
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import csv
 import gzip
 import hashlib
+import io
 import json
 import logging
 import os
@@ -58,8 +73,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
+import httpx
 from bson import json_util
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -73,7 +89,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/migration", tags=["Migration vers Render"])
 
 # Collections jamais copiées (suivi de la migration elle-même)
-EXCLUES = {"migration_jobs", "migration_coffre"}
+EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs"}
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
@@ -106,9 +122,38 @@ ENV_A_SAUVER = [
     "WEBHOOK_CRON_SECRET",
 ]
 
-# Références à des fichiers du stockage Emergent trouvées dans les documents
-RE_API_FILES = re.compile(r"/api/files/([A-Za-z0-9_\-./%~]+)")
+# Références à des fichiers du stockage Emergent trouvées dans les documents.
+# Tout ce qui suit « /api/files/ » jusqu'à un espace, un guillemet, un chevron, une
+# parenthèse fermante ou une barre oblique inverse : les accents sont conservés, et
+# dans le JSON sérialisé un guillemet échappé (\") s'arrête sur la barre oblique inverse.
+RE_API_FILES = re.compile(r'/api/files/([^\s"\'<>\\)]+)')
 RE_STORAGE_PATH = re.compile(r'"storage_path"\s*:\s*"([^"]+)"')
+
+# Préfixe des objets de l'application dans le stockage Emergent (même valeur que storage.APP_NAME)
+PREFIXE_STOCKAGE = os.environ.get("APP_STORAGE_NAME", "sawali")
+
+# Collections de JOURNAUX : copiées comme les autres, mais on n'y cherche pas de
+# références de fichiers (URL anciennes, tronquées ou déjà servies autrement).
+SANS_REFERENCES = {
+    "api_traces", "error_registry", "activity_events", "document_logs", "wa_webhook_logs",
+    "meta_webhook_events", "access_logs", "catalog_events", "ai_usage_events", "llm_usage_log",
+    "voice_notifications_log", "payroll_webhook_log", "demo_expiry_events", "webhook_events_stripe",
+    "planning_digest_events", "incidents_webhook_log", "liluvine_wa_autoreply_log", "vidal_sync_log",
+    "vidal_api_calls_log", "impersonation_journal", "stock_sync_journal", "secret_change_audit",
+    "officine_audit_log", "officines_audit", "vault_audit", "vidal_prescription_audit",
+    "wa_reply_router_audit", "suggestion_override_audit", "linkedin_posts_audit", "twitter_posts_audit",
+    "tiktok_posts_audit", "instagram_posts_audit", "facebook_posts_audit",
+}
+# Même traitement pour toute collection dont le nom se termine ainsi (journaux ajoutés plus tard)
+SUFFIXES_JOURNAUX = ("_log", "_logs", "_traces", "_audit", "_journal")
+
+# Nouvelles tentatives de lecture d'un objet Emergent (429, 5xx, délai dépassé, coupure réseau)
+ESSAIS_MAX = 3
+ATTENTES_ESSAIS = (2.0, 6.0)  # secondes d'attente avant le 2e puis le 3e essai
+CAUSE_ABSENT = "absent à la source"
+ECHECS_SUIVI_MAX = 500  # vraies erreurs détaillées dans le suivi (écran)
+ABSENTS_SUIVI_MAX = 200  # absents à la source détaillés dans le suivi (écran)
+ECHECS_STOCKES_MAX = 20_000  # échecs conservés par sauvegarde dans `migration_echecs` (export CSV)
 
 # Dossiers locaux copiés vers R2 (les chemins par défaut sont ceux d'Emergent)
 _RACINE = Path(os.environ.get("APP_ROOT") or Path(__file__).resolve().parents[2])  # /app sur Emergent
@@ -153,6 +198,60 @@ def _lire_objet_emergent(chemin: str):
     """Lit un objet du stockage Emergent -> (octets, type MIME). Lève une exception si absent."""
     import storage as stockage_emergent
     return stockage_emergent.fetch_bytes(chemin)
+
+
+def _sans_references(nom: str) -> bool:
+    """Vrai pour une collection de journaux : on n'y cherche pas de références de fichiers."""
+    return nom in SANS_REFERENCES or nom.endswith(SUFFIXES_JOURNAUX)
+
+
+def _classer_erreur(exc: BaseException) -> tuple:
+    """Exception de lecture/écriture -> (code HTTP ou None, cause lisible, nouvelle tentative utile ?).
+    storage.fetch_bytes lève httpx.HTTPStatusError (raise_for_status), httpx.TimeoutException,
+    httpx.TransportError, ou RuntimeError si le stockage Emergent n'est pas initialisé."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 404:
+            return code, CAUSE_ABSENT, False
+        if code == 429:
+            return code, "trop de requêtes", True
+        if code >= 500:
+            return code, "erreur du serveur source", True
+        if code in (401, 403):
+            return code, "accès refusé", False
+        return code, "erreur HTTP", False
+    if isinstance(exc, httpx.TimeoutException):
+        return None, "délai dépassé", True
+    if isinstance(exc, httpx.TransportError):
+        return None, "erreur réseau", True
+    if isinstance(exc, RuntimeError) and "non disponible" in str(exc):
+        return None, "stockage Emergent indisponible", False
+    return None, "autre erreur", False
+
+
+class EchecLecture(Exception):
+    """Lecture d'un objet Emergent impossible après les essais autorisés."""
+
+    def __init__(self, exc: BaseException, code: Optional[int], cause: str, essais: int):
+        super().__init__(str(exc))
+        self.code, self.cause, self.essais = code, cause, essais
+
+
+async def _lire_avec_essais(chemin: str) -> tuple:
+    """Lit un objet Emergent -> (octets, type MIME, nombre d'essais).
+    Jusqu'à ESSAIS_MAX essais, avec une attente croissante, pour les erreurs passagères
+    (429, 5xx, délai dépassé, réseau) ; un 404 ou un refus d'accès échoue tout de suite."""
+    essai = 0
+    while True:
+        essai += 1
+        try:
+            donnees, type_mime = await asyncio.to_thread(_lire_objet_emergent, chemin)
+            return donnees, type_mime, essai
+        except Exception as exc:  # noqa: BLE001
+            code, cause, reessayable = _classer_erreur(exc)
+            if not reessayable or essai >= ESSAIS_MAX:
+                raise EchecLecture(exc, code, cause, essai) from exc
+            await asyncio.sleep(ATTENTES_ESSAIS[min(essai - 1, len(ATTENTES_ESSAIS) - 1)])
 
 
 def _chiffrer(donnees: bytes, mot_de_passe: str) -> Dict[str, Any]:
@@ -296,7 +395,8 @@ async def inventaire(_: dict = Depends(get_current_admin)):
 # Lancement et suivi
 # ---------------------------------------------------------------------------
 class Cible(BaseModel):
-    mongo_uri: str = Field(..., min_length=10, description="URI MongoDB Atlas de la nouvelle base")
+    # Obligatoire seulement si la base est copiée (« Réessayer les échecs » ne copie que les fichiers)
+    mongo_uri: str = Field("", max_length=2000, description="URI MongoDB Atlas de la nouvelle base")
     mongo_db: str = Field("sawali", min_length=1, max_length=60)
     remplacer: bool = False  # True : vide chaque collection cible avant copie (bascule finale)
     r2_account_id: str = Field(..., min_length=4)
@@ -349,13 +449,17 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
         raise HTTPException(400, "Mot de passe des secrets : 12 caractères minimum")
     if not (cible.copier_base or cible.copier_fichiers or cible.sauver_secrets):
         raise HTTPException(400, "Choisissez au moins un élément à sauvegarder")
+    if cible.copier_base and len(cible.mongo_uri or "") < 10:
+        raise HTTPException(400, "URI MongoDB Atlas manquante")
 
-    # Vérification des connexions AVANT de lancer quoi que ce soit
-    try:
-        client = _client_cible(cible.mongo_uri)
-        await client.admin.command("ping")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(400, f"Connexion à MongoDB Atlas impossible : {str(exc)[:200]}")
+    # Vérification des connexions AVANT de lancer quoi que ce soit (Atlas seulement si la base est copiée)
+    client = None
+    if cible.copier_base:
+        try:
+            client = _client_cible(cible.mongo_uri)
+            await client.admin.command("ping")
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"Connexion à MongoDB Atlas impossible : {str(exc)[:200]}")
     r2 = _client_r2(cible.r2_account_id, cible.r2_access_key_id, cible.r2_secret_access_key)
     try:
         await asyncio.to_thread(r2.head_bucket, Bucket=cible.r2_bucket)
@@ -370,15 +474,20 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
     if precedente and precedente["cible"].get("mongo_hote") == _hote(cible.mongo_uri) \
             and precedente["cible"].get("mongo_db") == cible.mongo_db:
         deja_faites = [r for r in precedente.get("resultats_collections", []) if r.get("ok")]
+    # Hôte Atlas affiché : celui de la sauvegarde reprise quand la base n'est pas recopiée
+    mongo_hote = (_hote(cible.mongo_uri) if cible.mongo_uri
+                  else (precedente or {}).get("cible", {}).get("mongo_hote", "—"))
     job = {
         "id": job_id, "statut": "EN_COURS", "etape": "Démarrage", "debut": _maintenant(), "fin": None,
         "lance_par": admin.get("email", ""),
         # Description de la cible SANS identifiants
-        "cible": {"mongo_hote": _hote(cible.mongo_uri), "mongo_db": cible.mongo_db, "remplacer": cible.remplacer,
+        "cible": {"mongo_hote": mongo_hote, "mongo_db": cible.mongo_db, "remplacer": cible.remplacer,
                   "r2_bucket": cible.r2_bucket, "prefixe": prefixe},
         "options": {"base": cible.copier_base, "fichiers": cible.copier_fichiers, "secrets": cible.sauver_secrets},
         "collections_total": 0, "collections_faites": 0, "documents_copies": 0,
         "resultats_collections": [], "fichiers_total": 0, "fichiers_copies": 0, "fichiers_echecs": 0,
+        # Lot 46 : absents à la source (404) comptés à part ; échecs regroupés par cause
+        "fichiers_absents": 0, "echecs_par_cause": {}, "absents_fichiers": [],
         "echecs_fichiers": [], "secrets": None, "secrets_chiffres": None, "journal": [],
         # Suivi en direct : signe de vie + collection en cours ; reprise éventuelle
         "battement": _maintenant(), "en_cours": None, "arret_demande": False,
@@ -395,6 +504,16 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
     _TACHES.add(tache)  # référence forte tant que la tâche tourne
     tache.add_done_callback(_TACHES.discard)
     return {"id": job_id, "prefixe": prefixe}
+
+
+@router.post("/jobs/{job_id}/reessayer-echecs", status_code=202)
+async def reessayer_echecs(job_id: str, cible: Cible, admin: dict = Depends(get_current_admin)):
+    """« Réessayer les échecs » : reprise de l'étape Fichiers SEULEMENT (ni base, ni secrets).
+    Les objets déjà présents dans R2 sont sautés ; seuls les manquants sont relus et copiés.
+    Seuls les identifiants R2 sont nécessaires."""
+    cible = cible.model_copy(update={"reprendre": job_id, "copier_base": False, "copier_fichiers": True,
+                                     "sauver_secrets": False, "remplacer": False})
+    return await lancer(cible, admin)
 
 
 @router.post("/jobs/{job_id}/arreter")
@@ -417,7 +536,8 @@ async def arreter_job(job_id: str, _: dict = Depends(get_current_admin)):
 async def lister_jobs(_: dict = Depends(get_current_admin)):
     await _marquer_orphelines()
     return await db.migration_jobs.find({}, {"_id": 0, "secrets_chiffres": 0, "journal": 0,
-                                               "resultats_collections": 0, "echecs_fichiers": 0}
+                                               "resultats_collections": 0, "echecs_fichiers": 0,
+                                               "absents_fichiers": 0}
                                         ).sort("debut", -1).to_list(20)
 
 
@@ -438,6 +558,37 @@ async def telecharger_secrets(job_id: str, _: dict = Depends(get_current_admin))
         raise HTTPException(404, "Aucun fichier de secrets pour cette sauvegarde")
     return Response(content=json.dumps(job["secrets_chiffres"], indent=2), media_type="application/json",
                     headers={"Content-Disposition": f'attachment; filename="sawali-secrets-{job_id}.enc.json"'})
+
+
+# Colonnes de l'export CSV des échecs de fichiers
+COLONNES_CSV = ("type", "source", "origine", "cause", "code_http", "essais", "erreur", "cle_r2")
+
+
+@router.get("/jobs/{job_id}/echecs.csv")
+async def exporter_echecs(job_id: str, _: dict = Depends(get_current_admin)):
+    """Échecs de fichiers d'une sauvegarde en CSV (UTF-8 avec BOM pour Excel, séparateur « ; »).
+    Vraies erreurs d'abord, puis absents à la source. Lu depuis la base : aucun identifiant R2 requis.
+    Les sauvegardes antérieures au lot 46 n'ont que la liste du suivi (500 premiers échecs)."""
+    job = await db.migration_jobs.find_one({"id": job_id}, {"_id": 0, "echecs_fichiers": 1, "cible": 1})
+    if not job:
+        raise HTTPException(404, "Sauvegarde introuvable")
+    lignes = await db.migration_echecs.find({"job_id": job_id}, {"_id": 0}).sort(
+        [("absent", 1), ("cause", 1), ("source", 1)]).to_list(ECHECS_STOCKES_MAX)
+    if not lignes:
+        lignes = job.get("echecs_fichiers") or []
+    sortie = io.StringIO()
+    ecrivain = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
+    ecrivain.writerow(COLONNES_CSV)
+    for e in lignes:
+        ecrivain.writerow([
+            "absent à la source" if e.get("absent") else "erreur",
+            e.get("source", ""), e.get("origine", ""), e.get("cause", ""),
+            e.get("code") if e.get("code") is not None else "", e.get("essais", ""),
+            (e.get("erreur") or "").replace("\r", " ").replace("\n", " "), e.get("cle", ""),
+        ])
+    nom = f"sawali-migration-echecs-{(job.get('cible') or {}).get('prefixe') or job_id}.csv"
+    return Response(content=("\ufeff" + sortie.getvalue()).encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nom}"'})
 
 
 # ---------------------------------------------------------------------------
@@ -471,13 +622,22 @@ async def _battement(job_id: str, en_cours: Optional[Dict[str, Any]] = None, for
 
 async def _executer(job_id: str, cible: Cible, client, r2, prefixe: str,
                     deja_faites: Optional[set] = None, reprise: bool = False) -> None:
-    references: set = set()
+    # Références de fichiers trouvées dans la base : {(genre, valeur): collection d'origine}
+    references: Dict[tuple, str] = {}
     manifeste: Dict[str, Any] = {"prefixe": prefixe, "debut": _maintenant(), "collections": [], "fichiers": []}
     erreurs = 0
     try:
         if cible.copier_base:
             erreurs += await _copier_base(job_id, cible, client, r2, prefixe, references, manifeste,
                                           deja_faites or set())
+        elif cible.copier_fichiers:
+            # Fichiers seuls (ex. « Réessayer les échecs ») : on relit la base sans la copier,
+            # uniquement pour retrouver les références de fichiers
+            await _maj(job_id, "Base non recopiée : relecture des références de fichiers", etape="Références")
+            noms = sorted(n for n in await db.list_collection_names()
+                          if not n.startswith("system.") and n not in EXCLUES and not _sans_references(n))
+            for nom in noms:
+                await _relire_references(job_id, nom, references)
         if cible.copier_fichiers:
             erreurs += await _copier_fichiers(job_id, cible, r2, prefixe, references, manifeste, reprise)
         if cible.sauver_secrets:
@@ -498,24 +658,50 @@ async def _executer(job_id: str, cible: Cible, client, r2, prefixe: str,
                    en_cours=None)
     finally:
         try:
-            client.close()
+            if client is not None:
+                client.close()
         except Exception:  # noqa: BLE001
             pass
 
 
-def _serialiser_lot(docs: List[dict]) -> tuple:
+def _serialiser_lot(docs: List[dict], extraire: bool = True) -> tuple:
     """Lot de documents -> (octets EJSON, une ligne par document ; références de fichiers trouvées).
+    Références : ensemble de couples ("api", ce qui suit /api/files/) ou ("stockage", valeur de storage_path).
+    extraire=False pour les collections de journaux (aucune référence relevée).
     Exécuté dans un fil séparé pour ne pas bloquer le site pendant la copie."""
     morceaux, refs = [], set()
     for doc in docs:
         ligne = json_util.dumps(doc, json_options=json_util.CANONICAL_JSON_OPTIONS, ensure_ascii=False)
         morceaux.append(ligne + "\n")
+        if not extraire:
+            continue
         # Références à des fichiers (pour l'étape Fichiers)
         if "/api/files/" in ligne:
-            refs.update(RE_API_FILES.findall(ligne))
+            refs.update(("api", r) for r in RE_API_FILES.findall(ligne))
         if "storage_path" in ligne:
-            refs.update(RE_STORAGE_PATH.findall(ligne))
+            refs.update(("stockage", r) for r in RE_STORAGE_PATH.findall(ligne))
     return "".join(morceaux).encode("utf-8"), refs
+
+
+def _ajouter_references(references: Dict[tuple, str], refs: set, nom: str) -> None:
+    """Ajoute les références d'un lot en retenant la première collection où chacune a été vue."""
+    for r in refs:
+        references.setdefault(r, nom)
+
+
+async def _relire_references(job_id: str, nom: str, references: Dict[tuple, str]) -> None:
+    """Relit une collection SANS la copier, seulement pour relever ses références de fichiers."""
+    if _sans_references(nom):
+        return
+    lot_refs: List[dict] = []
+    async for doc in db[nom].find({}, batch_size=LOT):
+        lot_refs.append(doc)
+        if len(lot_refs) >= LOT:
+            _ajouter_references(references, (await asyncio.to_thread(_serialiser_lot, lot_refs))[1], nom)
+            lot_refs = []
+            await _battement(job_id, {"collection": nom, "copies": 0, "total": 0, "saut": True})
+    if lot_refs:
+        _ajouter_references(references, (await asyncio.to_thread(_serialiser_lot, lot_refs))[1], nom)
 
 
 async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste, deja_faites=frozenset()) -> int:
@@ -534,15 +720,7 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
         if nom in deja_faites:
             # Reprise : collection déjà copiée et contrôlée. On relit seulement ses références de fichiers
             # (sans les copier à nouveau) pour que l'étape Fichiers reste complète.
-            lot_refs: List[dict] = []
-            async for doc in src.find({}, batch_size=LOT):
-                lot_refs.append(doc)
-                if len(lot_refs) >= LOT:
-                    references.update((await asyncio.to_thread(_serialiser_lot, lot_refs))[1])
-                    lot_refs = []
-                    await _battement(job_id, {"collection": nom, "copies": 0, "total": 0, "saut": True})
-            if lot_refs:
-                references.update((await asyncio.to_thread(_serialiser_lot, lot_refs))[1])
+            await _relire_references(job_id, nom, references)
             await _maj(job_id, f"  = {nom} : déjà copiée (reprise)")
             continue
         n_source = await src.count_documents({})
@@ -558,10 +736,10 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                 async def ecrire_lot(docs: List[dict]) -> None:
                     """Archive (hors boucle principale) puis écrit le lot dans Atlas ; publie l'avancement."""
                     nonlocal copies
-                    donnees, refs = await asyncio.to_thread(_serialiser_lot, docs)
+                    donnees, refs = await asyncio.to_thread(_serialiser_lot, docs, not _sans_references(nom))
                     await asyncio.to_thread(gz.write, donnees)
                     empreinte.update(donnees)
-                    references.update(refs)
+                    _ajouter_references(references, refs, nom)
                     await dst.bulk_write([ReplaceOne({"_id": d["_id"]}, d, upsert=True) for d in docs],
                                          ordered=False)
                     copies += len(docs)
@@ -607,20 +785,76 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
     return anomalies
 
 
-async def _chemins_emergent(references: set) -> List[str]:
-    """Tous les chemins d'objets du stockage Emergent connus (registre + références trouvées)."""
-    chemins = set()
+def _normaliser_chemin(brut: Any) -> str:
+    """Référence brute -> chemin propre : sans paramètres d'URL (?…, #…), décodé (%20 -> espace),
+    sans « / » initial ni ponctuation de fin de phrase."""
+    if not brut or not isinstance(brut, str):
+        return ""
+    c = brut.strip().split("?", 1)[0].split("#", 1)[0]
+    c = unquote(c).strip().rstrip(".,;:!")
+    return c.lstrip("/")
+
+
+def _cle_canonique(chemin: str) -> str:
+    """Forme comparable d'un chemin (storage.fetch_bytes ajoute le préfixe s'il manque) : sert au dédoublonnage."""
+    return chemin if chemin.startswith(f"{PREFIXE_STOCKAGE}/") else f"{PREFIXE_STOCKAGE}/{chemin}"
+
+
+def _traduire_reference(ref: str, fichiers: Dict[str, Optional[str]]) -> tuple:
+    """Ce qui suit « /api/files/ » -> (chemin de stockage ou None, motif).
+      - « sawali/... » : chemin du stockage objet (route proxy), gardé tel quel ;
+      - « ai/... »     : fichier du disque (routes/ai_media.py), déjà copié avec les fichiers locaux ;
+      - sinon          : IDENTIFIANT de la collection `files` (route serve_file, ex. <uuid>.pdf),
+                         traduit en son `storage_path` (id = premier segment, sans extension).
+    `fichiers` : {id: storage_path ou None si le fichier n'est que sur le disque}."""
+    chemin = _normaliser_chemin(ref)
+    if not chemin:
+        return None, "vide"
+    if chemin.startswith(f"{PREFIXE_STOCKAGE}/"):
+        return chemin, "chemin"
+    if chemin.startswith("ai/"):
+        return None, "disque"
+    segment = chemin.split("/", 1)[0]
+    for ident in (segment.split(".", 1)[0], segment):
+        if ident in fichiers:
+            sp = _normaliser_chemin(fichiers[ident])
+            return (sp, "traduit") if sp else (None, "disque")
+    return None, "inconnu"
+
+
+async def _chemins_emergent(references: Dict[tuple, str]) -> tuple:
+    """Tous les chemins d'objets du stockage Emergent connus -> ({chemin: origine}, compteurs des ignorés).
+    Sources : registre `stored_objects`, `files.storage_path`, puis les références relevées dans la base
+    (« /api/files/... » traduites, « storage_path » gardées). Dédoublonnage sur la forme canonique."""
+    chemins: Dict[str, str] = {}
+    vus: set = set()
+    ignores = {"disque": 0, "inconnu": 0}
+
+    def ajouter(brut: Any, origine: str) -> None:
+        c = _normaliser_chemin(brut)
+        if c and _cle_canonique(c) not in vus:
+            vus.add(_cle_canonique(c))
+            chemins[c] = origine
+
     async for o in db.stored_objects.find({}, {"_id": 0, "storage_path": 1, "path": 1}):
-        chemins.add(o.get("storage_path") or o.get("path"))
-    async for f in db.files.find({"storage_path": {"$nin": [None, ""]}}, {"_id": 0, "storage_path": 1}):
-        chemins.add(f["storage_path"])
-    chemins.update(references)
-    # Normalisation : pas de « / » initial, pas de paramètres d'URL
-    propres = set()
-    for c in chemins:
-        if c and isinstance(c, str):
-            propres.add(c.split("?")[0].split("#")[0].lstrip("/"))
-    return sorted(propres)
+        ajouter(o.get("storage_path") or o.get("path"), "stored_objects")
+    # Identifiants des documents `files` (pour traduire /api/files/<id>) + leurs chemins de stockage
+    fichiers: Dict[str, Optional[str]] = {}
+    async for f in db.files.find({}, {"_id": 0, "id": 1, "storage_path": 1}):
+        if f.get("id"):
+            fichiers[str(f["id"])] = f.get("storage_path") or None
+        if f.get("storage_path"):
+            ajouter(f["storage_path"], "files.storage_path")
+    for (genre, valeur), collection in sorted(references.items()):
+        if genre == "stockage":
+            ajouter(valeur, f"{collection} (storage_path)")
+            continue
+        chemin, motif = _traduire_reference(valeur, fichiers)
+        if chemin:
+            ajouter(chemin, f"{collection} (/api/files)")
+        elif motif in ignores:
+            ignores[motif] += 1
+    return chemins, ignores
 
 
 def _existe_dans_r2(r2, bucket: str, cle: str) -> bool:
@@ -633,61 +867,101 @@ def _existe_dans_r2(r2, bucket: str, cle: str) -> bool:
 
 
 async def _copier_fichiers(job_id, cible, r2, prefixe, references, manifeste, reprise: bool = False) -> int:
-    """Copie des objets Emergent et des fichiers locaux vers R2. Renvoie le nombre d'échecs."""
-    chemins = await _chemins_emergent(references)
+    """Copie des objets Emergent et des fichiers locaux vers R2.
+    Renvoie le nombre de VRAIES erreurs (les absents à la source ne comptent pas)."""
+    chemins, ignores = await _chemins_emergent(references)
     locaux: List[tuple] = []
     for dossier, sous in ((DOSSIER_UPLOADS, "uploads"), (DOSSIER_SNAPSHOTS, "snapshots")):
         if dossier.exists():
             locaux += [(f, f"{sous}/{f.relative_to(dossier).as_posix()}") for f in dossier.rglob("*") if f.is_file()]
     total = len(chemins) + len(locaux)
-    await _maj(job_id, f"Fichiers : {len(chemins)} objet(s) Emergent + {len(locaux)} fichier(s) locaux",
-               etape="Fichiers", fichiers_total=total)
-    echecs, faits = 0, 0
+    await _maj(job_id, f"Fichiers : {len(chemins)} objet(s) Emergent + {len(locaux)} fichier(s) locaux "
+                       f"(références ignorées : {ignores['disque']} fichier(s) disque, "
+                       f"{ignores['inconnu']} identifiant(s) inconnu(s))",
+               etape="Fichiers", fichiers_total=total, references_ignorees=ignores)
+    echecs, absents, faits, stockes = 0, 0, 0, 0
 
-    async def noter(ok: bool, source: str, cle: str, octets: int = 0, sha: str = "", erreur: str = ""):
-        nonlocal echecs, faits
+    async def noter(ok: bool, source: str, cle: str, octets: int = 0, sha: str = "", erreur: str = "",
+                    code: Optional[int] = None, cause: str = "", origine: str = "", essais: int = 1):
+        """Enregistre le résultat d'un fichier : manifeste, compteurs, détail des échecs (suivi + base)."""
+        nonlocal echecs, absents, faits, stockes
         faits += 1
+        absent = not ok and cause == CAUSE_ABSENT
         manifeste["fichiers"].append({"source": source, "cle": cle, "ok": ok, "octets": octets, "sha256": sha,
-                                      "erreur": erreur})
-        champs = {"$inc": {"fichiers_copies" if ok else "fichiers_echecs": 1}}
+                                      "erreur": erreur, "code": code, "cause": cause, "origine": origine,
+                                      "essais": essais})
+        compteur = "fichiers_copies" if ok else ("fichiers_absents" if absent else "fichiers_echecs")
+        champs: Dict[str, Any] = {"$inc": {compteur: 1}}
         if not ok:
-            echecs += 1
-            if echecs <= 500:
-                champs["$push"] = {"echecs_fichiers": {"source": source, "erreur": erreur[:200]}}
+            # Regroupement par cause (et code HTTP) pour l'écran
+            groupe = f"{cause} (HTTP {code})" if code else cause
+            champs["$inc"][f"echecs_par_cause.{groupe}"] = 1
+            detail = {"source": source, "erreur": erreur[:200], "code": code, "cause": cause, "origine": origine}
+            if absent:
+                absents += 1
+                if absents <= ABSENTS_SUIVI_MAX:
+                    champs["$push"] = {"absents_fichiers": detail}
+            else:
+                echecs += 1
+                if echecs <= ECHECS_SUIVI_MAX:
+                    champs["$push"] = {"echecs_fichiers": detail}
+            # Tous les échecs (jusqu'à ECHECS_STOCKES_MAX) sont gardés pour l'export CSV
+            if stockes < ECHECS_STOCKES_MAX:
+                stockes += 1
+                await db.migration_echecs.insert_one({**detail, "job_id": job_id, "cle": cle, "absent": absent,
+                                                      "erreur": erreur[:1000], "essais": essais,
+                                                      "date": _maintenant()})
         await db.migration_jobs.update_one({"id": job_id}, champs)
         await _battement(job_id, {"fichier": source[-80:], "faits": faits, "total": total})
         if faits % 100 == 0:
             await _maj(job_id, f"  {faits}/{total} fichiers traités")
 
-    async def deja_dans_r2(source: str, cle: str) -> bool:
+    async def deja_dans_r2(source: str, cle: str, origine: str) -> bool:
         """En reprise : fichier déjà copié lors de la sauvegarde précédente -> compté comme copié."""
         if reprise and await asyncio.to_thread(_existe_dans_r2, r2, cible.r2_bucket, cle):
-            await noter(True, source, cle, erreur="déjà présent (reprise)")
+            await noter(True, source, cle, erreur="déjà présent (reprise)", origine=origine)
             return True
         return False
 
-    for chemin in chemins:
+    for chemin, origine in chemins.items():
         cle = f"{prefixe}/objets/{chemin}"
-        if await deja_dans_r2(chemin, cle):
+        if await deja_dans_r2(chemin, cle, origine):
+            continue
+        # Lecture avec nouvelles tentatives, puis écriture dans R2 (boto3 réessaie lui-même)
+        try:
+            donnees, type_mime, essais = await _lire_avec_essais(chemin)
+        except EchecLecture as exc:
+            await noter(False, chemin, cle, erreur=str(exc), code=exc.code, cause=exc.cause, origine=origine,
+                        essais=exc.essais)
             continue
         try:
-            donnees, type_mime = await asyncio.to_thread(_lire_objet_emergent, chemin)
             await asyncio.to_thread(r2.put_object, Bucket=cible.r2_bucket, Key=cle, Body=donnees,
                                     ContentType=type_mime or "application/octet-stream")
-            await noter(True, chemin, cle, len(donnees), hashlib.sha256(donnees).hexdigest())
+            await noter(True, chemin, cle, len(donnees), hashlib.sha256(donnees).hexdigest(), origine=origine,
+                        essais=essais)
         except Exception as exc:  # noqa: BLE001
-            await noter(False, chemin, cle, erreur=str(exc))
+            # botocore.ClientError porte le code HTTP de R2 dans exc.response
+            reponse = getattr(exc, "response", None)
+            code = reponse.get("ResponseMetadata", {}).get("HTTPStatusCode") if isinstance(reponse, dict) else None
+            await noter(False, chemin, cle, erreur=str(exc), code=code, cause="écriture R2", origine=origine,
+                        essais=essais)
     for fichier, relatif in locaux:
         cle = f"{prefixe}/{relatif}"
-        if await deja_dans_r2(str(fichier), cle):
+        origine = f"disque ({relatif.split('/', 1)[0]})"
+        if await deja_dans_r2(str(fichier), cle, origine):
             continue
         try:
             donnees = await asyncio.to_thread(fichier.read_bytes)
-            await asyncio.to_thread(r2.put_object, Bucket=cible.r2_bucket, Key=cle, Body=donnees)
-            await noter(True, str(fichier), cle, len(donnees), hashlib.sha256(donnees).hexdigest())
         except Exception as exc:  # noqa: BLE001
-            await noter(False, str(fichier), cle, erreur=str(exc))
-    await _maj(job_id, f"Fichiers terminés : {faits - echecs} copié(s), {echecs} échec(s)")
+            await noter(False, str(fichier), cle, erreur=str(exc), cause="lecture disque", origine=origine)
+            continue
+        try:
+            await asyncio.to_thread(r2.put_object, Bucket=cible.r2_bucket, Key=cle, Body=donnees)
+            await noter(True, str(fichier), cle, len(donnees), hashlib.sha256(donnees).hexdigest(), origine=origine)
+        except Exception as exc:  # noqa: BLE001
+            await noter(False, str(fichier), cle, erreur=str(exc), cause="écriture R2", origine=origine)
+    await _maj(job_id, f"Fichiers terminés : {faits - echecs - absents} copié(s), {absents} absent(s) à la source "
+                       f"(ignorés), {echecs} vraie(s) erreur(s)")
     return echecs
 
 

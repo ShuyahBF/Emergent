@@ -14,6 +14,65 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-30 — Lot 44 appliqué ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_44_d115e18.patch` (base `4d44e6e`, 1 commit).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, aucun testing_agent, aucun lint, aucune vérif UI, aucune ré-analyse.
+
+### Lot 44 — « Voir en tant que » + comptes de test en un clic
+
+**Motivation** : super-admin doit pouvoir tester le parcours d'un utilisateur suivi sans accès à sa boîte email (OTP).
+
+- **Bouton œil** dans Admin → Utilisateurs suivis + Admin → Clients : ouvre le portail vu par ce compte dans un nouvel onglet, **30 min max**. Refusé pour comptes plateforme (Admin/Superviseur), grisé pour utilisateur suivi sans identifiant, refusé pour compte désactivé/suspendu.
+- **Bandeau rouge permanent** en haut du portail : « Vous voyez le portail en tant que … (rôle) — expire à HH:MM » avec case **« Lecture seule »** cochée par défaut + bouton **« Revenir à mon compte »**.
+- **Contrôle serveur** :
+  - Lecture seule → toute écriture (POST/PUT/PATCH/DELETE) reçoit 403 « Mode lecture seule ». Seules 2 lectures POST autorisées (aperçu destinataires sondage + résolution groupes contacts).
+  - **Interdits permanents même case décochée** : changer mot de passe/e-mail/téléphone/2FA/profil/KYC, supprimer compte, toute route `/api/auth/`, ouvrir un autre « Voir en tant que » depuis la session.
+  - Réglage enregistré côté session : recocher bloque aussitôt.
+  - Session close/expirée → 401 + retour auto au compte admin.
+- **Jeton séparé en `sessionStorage`** : jeton admin non touché — autres onglets admin restent sur le compte admin. « Déconnexion » depuis le portail ramène au compte admin sans le déconnecter.
+- **Journal** : Paramètres Admin → Diagnostics & Logs → « Journal des sessions Voir en tant que ». Sessions (admin, cible, début, expiration, fin, IP, navigateur, statut) + actions (méthode, chemin, statut, heure, changements de mode). Journal d'activité existant reçoit aussi début/fin.
+
+**Comptes de test** :
+- Bouton **« Créer / remettre à neuf les comptes de test »** dans Admin → Utilisateurs suivis (mot de passe ≥ 10 caractères, jamais réaffiché).
+- Serveur crée : client **« TEST SAWALI »** (code `TEST`, adresse `test.client@<domaine interne>`) + 12 utilisateurs suivis (un par rôle : consultation, edition, moderation, administrateur, superviseur, comptable, caissier, traducteur, medecin, secretaire-medicale, pharmacien, admin-limite). Soit 13 comptes.
+- Adresses sur domaine interne → **OTP affiché à l'écran** (règle existante).
+- Fonctions activées sur client TEST : Formulaires/Sondages, OCR pièces, Ordonnances et stock, Maintenance des équipements, WhatsApp, Chat interne.
+- **Badge TEST** dans listes admin + bouton « Copier » + lien `/login?email=…` qui pré-remplit.
+- Adresse ou code `TEST` déjà utilisé par vrai compte → 409, rien créé.
+- Relancer bouton = remise à neuf (mot de passe, statut, fonctions) sans effacer données.
+- **« Supprimer les comptes de test »** : efface comptes + tous documents rattachés (`client_id`, `user_id`, `owner_id`, `tenant_id`, `created_by_id`, `parent_client_id`, `user_account_id`). Journaux conservés.
+- Comptes de test masqués dans Outils+ sauf pour Admin.
+
+### Fichiers
+- **Nouveaux backend** : `backend/routes/voir_en_tant_que.py`.
+- **Nouveaux frontend** : `BandeauVoirEnTantQue.jsx`, `lib/voirEnTantQue.js`, `pages/admin/sections/ComptesTestPanel.jsx`, `JournalVoirEnTantQueSection.jsx`.
+- **Modifiés backend** : `p20_branchement_routeurs.py`, `p03_admin_clients_usage.py`.
+- **Modifiés frontend** : `lib/api.js`, `contexts/AuthContext.jsx`, `App.js`, `AdminTrackedUsers.jsx`, `AdminClients.jsx`, `AdminSettings.jsx`, `pages/auth/Login.jsx`, `InternalChatPanel.jsx`, `FormAnalyticsDetail.jsx`, `Formations.jsx`, `LiluvinePro.jsx`, `Planning.jsx`.
+
+### Base de données
+- Nouvelle collection `impersonation_journal` (sessions + actions).
+- Nouveau champ `est_test` dans `users` et `tracked_users`.
+
+### Variables d'environnement
+- **Aucune nouvelle**. Réutilise `JWT_SECRET` + règle domaines internes existante.
+
+### Limites connues (rappels utilisateur)
+- Envois programmés/relances créés en mode écriture partiront au nom du compte cible.
+- WhatsApp activé sur TEST → envoi en mode écriture = vrai envoi.
+- Lectures GET modificatrices (« marquer comme lu ») non bloquées.
+- Contrôle sur en-tête `Authorization` uniquement — jetons en query + WebSockets non couverts.
+- Comptes de test sans téléphone → modifier Médecin/Pharmacien depuis admin demandera un numéro.
+- Connexion directe avec compte de test → fenêtre privée obligatoire.
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous routers montés).
+- Commit appliqué : `43f8693`.
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-09-30 — Lots 42 + 43 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
 
 **Patch source** : `sawali-portal-corrections_42_to_43_b1d835f.patch` (base `81b2c20`, 2 commits).

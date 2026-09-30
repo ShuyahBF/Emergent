@@ -14,6 +14,54 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-30 — Lots 42 + 43 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_42_to_43_b1d835f.patch` (base `81b2c20`, 2 commits).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, aucun testing_agent, aucun lint, aucune vérif UI, aucune ré-analyse.
+
+### Lot 42 — Plages horaires, envois programmés, envoi lien formulaire, planning, Outils+
+- **Lien de sondage « plus disponible »** : correction — un sondage créé par Admin/Superviseur garde toujours son lien actif. Le compte de la plateforme (`admin@sawalismartsystems.com`) est considéré comme ayant « Formulaires et Sondages ». Règle Lot 34 inchangée pour les clients.
+- **Plages horaires d'envoi** (Paramètres Admin → Communications) : jours + plages (défaut lun-sam, 08:00-12:00 et 15:00-19:00, Ouagadougou). Actives seulement si « Restreindre les envois » coché. États nouveaux `scheduled`, `waiting`, `cancelled`. Planificateur toutes les minutes.
+- **Envois programmés** : bloc « Quand envoyer ? » (Maintenant / Programmer le), affichage en haut des résultats du sondage avec bouton « Annuler ».
+- **Envoi du lien d'un formulaire** : bouton « Envoyer » sur formulaires publics. Historique + Nouvel envoi. Jetons `{{lien}}`, `{{formulaire}}`, `{{formulaire_numero}}`, `{{name}}`, `{{jeton}}`. Tracé dans la conversation du contact.
+- **Planning médecins — correction Lot 41** : séparateur `:` et non `;`. `OUOBA JF 77000155` → `OUOBA JF : 77000155`. `;` (forme Lot 41) remplacé par `:`.
+- **Outils+ : comptes plateforme** : affiche aussi comptes Superviseur et compte SAWALI-2S en tête de liste avec badge « Superviseur » / « Plateforme ». Ces comptes ont toujours accès eux-mêmes, l'activation vaut pour leurs utilisateurs suivis.
+- **Nouveaux fichiers** : `backend/routes/plages_envoi.py`, `backend/routes/envois_formulaires.py`, `frontend/src/pages/admin/sections/PlagesEnvoiSection.jsx`, `frontend/src/components/EnvoiProgrammation.jsx`, `frontend/src/components/SuiviEnvois.jsx`, `frontend/src/components/EnvoisFormulaireModal.jsx`.
+- **Fichiers modifiés** : `wa_surveys.py`, `fonctions_clients.py`, `planning.py`, `p20_branchement_routeurs.py`, `SurveySendModal.jsx`, `SurveyResults.jsx`, `FormsList.jsx`, `AdminSettings.jsx`, `FonctionsClients.jsx`.
+- **Nouvelles collections** : `parametres_plateforme` (document `plages_envoi`), `form_envois`.
+
+### Lot 43 — Maintenance des équipements (photos, WhatsApp, paiement, facture)
+- **Client = compte client (tenant)** : pour Admin/Superviseur, liste « Client » = comptes clients SAWALI (au lieu de contacts annuaire). Téléphone repris = numéro WhatsApp du compte ou son téléphone. Modifiable. Autres comptes gardent contacts d'annuaire. Saisie libre reste possible.
+- **Prix du diagnostic** : défaut 10 000 FCFA modifiable par fiche. **Équipe** : texte libre. Les deux figurent sur le bon imprimé.
+- **Photos** JPEG/PNG (5 Mo, 12 max/fiche) avec outil d'annotation identique à la discussion WhatsApp (flèches, cercles, texte, numéros, flou). Téléchargeables, supprimables, apparaissent sur le bon.
+- **Envoyer par WhatsApp** au numéro de la fiche :
+  - Fenêtre 24h ouverte : résumé de la fiche (ou texte libre) + photos.
+  - Hors 24h : modèle Meta au choix avec jetons `{{numero}}`, `{{client}}`, `{{materiel}}`, `{{motif}}`, `{{statut}}`, `{{diagnostic}}`, `{{equipe}}`, `{{prix}}`, `{{lien_paiement}}`. La 1re photo sert d'en-tête image. Autres photos refusées hors 24h.
+  - Contrôle : modèle à en-tête image + aucune photo → message rouge et bouton désactivé.
+  - Envoi tracé dans conversation du contact + sur la fiche.
+- **Lien de paiement Mobile Money PawaPay** (`/pay/<code>`) : montant du diagnostic, usage unique, numéro pré-rempli, opérateurs du compte réparateur. Badge « payé / en attente » sur fiche + liste.
+- **Facturer** : facture ou proforma dans la Caisse, ligne « Diagnostic » + lignes libres (pièces, main-d'œuvre). Numéro s'affiche sur la fiche. Une seule facture par fiche.
+- **Nouveaux fichiers** : `frontend/src/components/MaintenanceActions.jsx`.
+- **Fichiers modifiés** : `backend/routes/maintenance_equipements.py`, `backend/routes/cashier.py` (paramètre `source` accepté, default inchangé `portfolio_report`), `p20_branchement_routeurs.py`, `frontend/src/pages/portal/MaintenanceEquipements.jsx`.
+- **Nouveaux champs sur `maintenance_fiches`** : `compte_client_id`, `prix_diagnostic`, `equipe`, `photos`, `lien_paiement`, `facture`, `envois_whatsapp`. Liens de paiement → `payment_links`. Factures → `invoices`.
+
+### Variables d'environnement
+- **Aucune nouvelle**. Réutilise config PawaPay + WhatsApp Meta (plateforme + `tenant_smart_comm` par client) déjà en place.
+
+### Limites connues à retenir (rappels utilisateur)
+- Preview : le planificateur ne tourne pas (envoi programmé/en attente ne part pas seul — tester en prod).
+- Fenêtre 24h WhatsApp évaluée à l'envoi réel — pour envois programmés, préférer modèle Meta.
+- Aucune reprise des rendez-vous déjà enregistrés en forme `NOM ; téléphone` (Lot 41).
+- Une seule facture par fiche de maintenance ; paiement reçu ne change pas le statut de la fiche.
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous les routers montés).
+- Commits appliqués : `7d3d210` (Lot 42) + `8325875` (Lot 43).
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-09-30 — Lots 40 + 41 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
 
 **Patch source** : `sawali-portal-corrections_40_to_41_1eb1819.patch` (base `fdc6aab`, 2 commits).

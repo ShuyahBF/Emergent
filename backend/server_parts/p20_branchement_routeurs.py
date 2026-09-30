@@ -384,8 +384,35 @@ _HOOKS_APRES_PAIEMENT.append(_liluvine_formulaire["apres_paiement"])
 
 # Lot 41 — Maintenance des équipements confiés (fonction activable) : routes/maintenance_equipements.py
 from routes.maintenance_equipements import attach_maintenance_routes as _attach_maintenance  # noqa: E402
+
+
+import object_storage as _obj_storage_mnt  # noqa: E402 — lot 43 (même module que plus bas)
+
+
+async def _maintenance_mnos(compte_id: str) -> list:
+    """Lot 43 — opérateurs Mobile Money du compte (sinon ceux de la plateforme par défaut)."""
+    u = await db.users.find_one({"id": compte_id}, {"_id": 0, "pawapay_mnos": 1}) or {}
+    return _normalize_pawapay_mnos(u.get("pawapay_mnos")) or list(DEFAULT_CLIENT_PAWAPAY_MNOS)
+
+
+async def _maintenance_paiements_autorises(user: dict) -> bool:
+    """Lot 43 — même règle que les liens de paiement du portail (fonction « payments »)."""
+    if _is_admin_or_superviseur(user):
+        return True
+    parent = await db.users.find_one({"id": user.get("client_id") or user["id"]}, {"_id": 0, "features": 1}) or {}
+    return bool(_normalize_features(parent.get("features")).get("payments"))
+
+
 _attach_maintenance(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
-                    slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur)
+                    slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur,
+                    # Lot 43 — photos, envoi WhatsApp, lien de paiement, facturation
+                    save_and_log=_obj_storage_mnt.save_and_log,
+                    base_publique=lambda: _public_base_url() or _PUBLIC_BASE_URL,
+                    wa_send_text=_wa_send_text, wa_send_media=_wa_send_media, wa_send_template=_wa_send_template,
+                    build_components=_build_components, fenetres_ouvertes=_wa_surveys["open_window_digits"],
+                    gen_slug=_gen_slug, mnos_du_compte=_maintenance_mnos,
+                    paiements_autorises=_maintenance_paiements_autorises,
+                    create_invoice_for_client=getattr(_cashier_router, "create_invoice_for_client", None))
 
 # Lot 41 — calendrier dans la discussion WhatsApp : moments occupés (RDV, planning, Google
 # Calendar de la plateforme, créneaux bloqués) et lien public de disponibilités.

@@ -4,13 +4,18 @@
   réception, type de matériel (liste extensible), état (mauvais, moyen, bon), motif, diagnostic,
   remplacement de pièces, dates d'entrée et de sortie, statut (reçu → rendu).
   Bon de dépôt / de restitution imprimable. Fonction activable (SMART Communications).
-  API : /me/maintenance et /me/maintenance-types (backend/routes/maintenance_equipements.py).
+  Lot 43 — client choisi parmi les COMPTES CLIENTS (Admin / Superviseur ; les autres comptes :
+  leurs contacts), téléphone = numéro qui reçoit les alertes de la société ; prix du
+  diagnostic (10 000 F par défaut) et équipe ; photos annotées, envoi WhatsApp, lien de
+  paiement et « Facturer » (components/MaintenanceActions.jsx).
+  API : /me/maintenance, /me/maintenance-types, /me/maintenance-clients (backend/routes/maintenance_equipements.py).
 */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Plus, Printer, Search, Trash2, Wrench, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import MaintenanceActions from "@/components/MaintenanceActions";   // lot 43
 
 const STATUTS = {
   recu: ["Reçu", "bg-slate-100 text-slate-700"],
@@ -24,9 +29,11 @@ const champ = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm f
 const erreur = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
 const dateFr = (d) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const aujourdhui = () => new Date().toISOString().slice(0, 10);
-const VIDE = { contact_id: "", client_nom: "", client_telephone: "", date_reception: aujourdhui(), type_materiel: "",
+const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
+const VIDE = { compte_client_id: "", contact_id: "", client_nom: "", client_telephone: "", date_reception: aujourdhui(), type_materiel: "",
   marque_modele: "", numero_serie: "", etat_materiel: "moyen", motif: "", diagnostic: "", remplacement_pieces: false,
-  pieces: "", observations: "", date_entree: aujourdhui(), date_sortie: "", statut: "recu" };
+  pieces: "", observations: "", date_entree: aujourdhui(), date_sortie: "", statut: "recu",
+  prix_diagnostic: 10000, equipe: "" };   // lot 43 : prix du diagnostic par défaut, noms de l'équipe
 
 // Bon de dépôt / de restitution (imprimé avec le navigateur)
 function Bon({ fiche, onClose }) {
@@ -51,11 +58,16 @@ function Bon({ fiche, onClose }) {
               ["Motif", fiche.motif], ["Diagnostic", fiche.diagnostic || "—"],
               ["Remplacement de pièces", fiche.remplacement_pieces ? `Oui — ${fiche.pieces || ""}` : "Non"],
               ["Entrée en atelier", dateFr(fiche.date_entree)], ["Sortie", dateFr(fiche.date_sortie)],
+              ["Équipe", fiche.equipe || "—"], ["Prix du diagnostic", fcfa(fiche.prix_diagnostic)],
               ["Observations", fiche.observations || "—"]].map(([l, v]) => (
               <tr key={l} className="border-b border-slate-100 align-top"><td className="py-1.5 pr-3 font-semibold w-48">{l}</td><td className="py-1.5 whitespace-pre-line">{v}</td></tr>
             ))}
           </tbody>
         </table>
+        {/* Lot 43 — photos de l'équipement ou des pièces */}
+        {(fiche.photos || []).length > 0 && (
+          <div className="flex flex-wrap gap-2">{fiche.photos.map((p) => <img key={p.id} src={p.url} alt="" className="h-24 w-24 object-cover rounded" />)}</div>
+        )}
         <div className="grid grid-cols-2 gap-6 pt-6 text-xs text-slate-500">
           <p>Signature du client :</p><p>Signature du technicien :</p>
         </div>
@@ -64,8 +76,10 @@ function Bon({ fiche, onClose }) {
   );
 }
 
-function FormulaireFiche({ fiche, types, contacts, onAjoutType, onClose, onEnregistre }) {
+function FormulaireFiche({ fiche, types, clients, onAjoutType, onClose, onEnregistre, onRafraichir }) {
   const [f, setF] = useState(() => (fiche ? { ...VIDE, ...fiche, contact_id: fiche.contact_id || "",
+    compte_client_id: fiche.compte_client_id || "", equipe: fiche.equipe || "",
+    prix_diagnostic: fiche.prix_diagnostic ?? 10000,
     date_reception: (fiche.date_reception || "").slice(0, 10), date_entree: (fiche.date_entree || "").slice(0, 10),
     date_sortie: (fiche.date_sortie || "").slice(0, 10) } : { ...VIDE }));
   const [occupe, setOccupe] = useState(false);
@@ -73,7 +87,9 @@ function FormulaireFiche({ fiche, types, contacts, onAjoutType, onClose, onEnreg
 
   const enregistrer = async () => {
     setOccupe(true);
-    const corps = { ...f, contact_id: f.contact_id || null, date_sortie: f.date_sortie || null, date_entree: f.date_entree || null };
+    const corps = { ...f, contact_id: f.contact_id || null, compte_client_id: f.compte_client_id || null,
+      prix_diagnostic: Number(f.prix_diagnostic) || 0, date_sortie: f.date_sortie || null, date_entree: f.date_entree || null };
+    delete corps.photos; delete corps.lien_paiement; delete corps.facture; delete corps.envois_whatsapp;
     try {
       const r = fiche ? await apiClient.put(`/me/maintenance/${fiche.id}`, corps) : await apiClient.post("/me/maintenance", corps);
       toast.success(fiche ? "Fiche mise à jour" : `Fiche ${r.data.numero} créée`);
@@ -90,20 +106,29 @@ function FormulaireFiche({ fiche, types, contacts, onAjoutType, onClose, onEnreg
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-xs text-slate-600">Client (annuaire)
-            <select className={champ} value={f.contact_id} onChange={(e) => maj({ contact_id: e.target.value })}>
+          {/* Lot 43 — comptes clients (tenants) pour l'Admin / le Superviseur, contacts sinon ;
+              le téléphone repris est celui qui reçoit les alertes et messages de la société */}
+          <label className="text-xs text-slate-600">{clients.type === "compte" ? "Client (compte SAWALI)" : "Client (annuaire)"}
+            <select className={champ} value={f.compte_client_id ? `compte:${f.compte_client_id}` : f.contact_id ? `contact:${f.contact_id}` : ""}
+              onChange={(e) => {
+                const [t, id] = e.target.value.split(":");
+                const c = clients.items.find((x) => x.type === t && x.id === id);
+                maj({ compte_client_id: t === "compte" ? id : "", contact_id: t === "contact" ? id : "",
+                  client_telephone: c?.telephone || "", client_nom: c ? c.nom : f.client_nom });
+              }} data-testid="maintenance-client">
               <option value="">— Saisir le client à la main —</option>
-              {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` · ${c.company}` : ""}</option>)}
+              {clients.items.map((c) => <option key={`${c.type}:${c.id}`} value={`${c.type}:${c.id}`}>{c.nom}{c.code ? ` · ${c.code}` : ""}</option>)}
             </select>
           </label>
-          {!f.contact_id && (
+          {!f.contact_id && !f.compte_client_id && (
             <label className="text-xs text-slate-600">Nom du client *
               <input className={champ} value={f.client_nom} onChange={(e) => maj({ client_nom: e.target.value })} />
             </label>
           )}
           <label className="text-xs text-slate-600">Téléphone
             <input className={champ} value={f.client_telephone} onChange={(e) => maj({ client_telephone: e.target.value })}
-              placeholder={f.contact_id ? "celui de l'annuaire par défaut" : ""} />
+              placeholder={f.compte_client_id ? "numéro des alertes de la société" : f.contact_id ? "celui de l'annuaire par défaut" : ""} />
+            {f.compte_client_id && <span className="text-[10px] text-slate-400">Numéro qui reçoit les alertes et messages de la société</span>}
           </label>
           <label className="text-xs text-slate-600">Date de réception
             <input type="date" className={champ} value={f.date_reception} onChange={(e) => maj({ date_reception: e.target.value })} />
@@ -161,13 +186,24 @@ function FormulaireFiche({ fiche, types, contacts, onAjoutType, onClose, onEnreg
               {Object.entries(STATUTS).filter(([k]) => k !== "rendu" || f.date_sortie).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
+          <label className="text-xs text-slate-600">Prix du diagnostic (FCFA)
+            <input type="number" min={0} step={500} className={champ} value={f.prix_diagnostic}
+              onChange={(e) => maj({ prix_diagnostic: e.target.value })} data-testid="maintenance-prix" />
+          </label>
+          <label className="text-xs text-slate-600">Équipe (noms)
+            <input className={champ} value={f.equipe || ""} maxLength={300} placeholder="ex. Issa, Awa"
+              onChange={(e) => maj({ equipe: e.target.value })} data-testid="maintenance-equipe" />
+          </label>
           <label className="text-xs text-slate-600 sm:col-span-2">Observations
             <textarea className={champ} rows={2} value={f.observations || ""} onChange={(e) => maj({ observations: e.target.value })} />
           </label>
         </div>
+        {/* Lot 43 — photos, WhatsApp, lien de paiement, facturation (fiche enregistrée) */}
+        {fiche?.id ? <MaintenanceActions fiche={fiche} onChange={onRafraichir} />
+          : <p className="text-[11px] text-slate-500">Enregistrez la fiche pour ajouter des photos, l'envoyer par WhatsApp, créer un lien de paiement ou la facturer.</p>}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button onClick={enregistrer} disabled={occupe || !f.type_materiel || !f.motif.trim() || (!f.contact_id && !f.client_nom.trim())}
+          <Button onClick={enregistrer} disabled={occupe || !f.type_materiel || !f.motif.trim() || (!f.contact_id && !f.compte_client_id && !f.client_nom.trim())}
             data-testid="maintenance-enregistrer">
             {occupe && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Enregistrer
           </Button>
@@ -181,7 +217,7 @@ export default function MaintenanceEquipements() {
   const [donnees, setDonnees] = useState(null);
   const [refus, setRefus] = useState("");
   const [types, setTypes] = useState([]);
-  const [contacts, setContacts] = useState([]);
+  const [clients, setClients] = useState({ type: "contact", items: [] });   // lot 43
   const [q, setQ] = useState("");
   const [statut, setStatut] = useState("");
   const [type, setType] = useState("");
@@ -198,7 +234,7 @@ export default function MaintenanceEquipements() {
   const chargerTypes = () => apiClient.get("/me/maintenance-types").then((r) => setTypes(r.data.tous || [])).catch(() => {});
   useEffect(() => {
     chargerTypes();
-    apiClient.get("/me/contacts").then((r) => setContacts(Array.isArray(r.data) ? r.data : r.data?.items || [])).catch(() => {});
+    apiClient.get("/me/maintenance-clients").then((r) => setClients(r.data)).catch(() => {});
   }, []);
 
   const ajouterType = async () => {
@@ -213,7 +249,12 @@ export default function MaintenanceEquipements() {
     catch (e) { toast.error(erreur(e, "Suppression impossible")); }
   };
   const compte = donnees?.compte || {};
-  const contactsTries = useMemo(() => [...contacts].sort((a, b) => (a.name || "").localeCompare(b.name || "")), [contacts]);
+  // Lot 43 — fiche ouverte relue après une action (photo, lien de paiement, facture, envoi)
+  const rafraichirFiche = async () => {
+    if (!edition?.id) return;
+    try { const r = await apiClient.get(`/me/maintenance/${edition.id}`); setEdition(r.data); } catch { /* fiche supprimée */ }
+    charger();
+  };
 
   if (refus) return <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">{refus}</div>;
   return (
@@ -259,7 +300,12 @@ export default function MaintenanceEquipements() {
                 <td className="p-2">{dateFr(f.date_reception)}</td>
                 <td className="p-2 text-xs">{dateFr(f.date_entree)} → {dateFr(f.date_sortie)}</td>
                 <td className="p-2 text-xs">{f.remplacement_pieces ? <span className="text-amber-700">Oui{f.pieces ? ` : ${f.pieces}` : ""}</span> : "Non"}</td>
-                <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUTS[f.statut]?.[1]}`}>{STATUTS[f.statut]?.[0]}</span></td>
+                <td className="p-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUTS[f.statut]?.[1]}`}>{STATUTS[f.statut]?.[0]}</span>
+                  {/* Lot 43 — paiement et facture */}
+                  {f.lien_paiement && <span className={`block mt-0.5 text-[10px] ${f.lien_paiement.paye ? "text-emerald-700" : "text-amber-700"}`}>{f.lien_paiement.paye ? "Payé" : "Paiement en attente"}</span>}
+                  {f.facture && <span className="block text-[10px] text-indigo-700">{f.facture.numero}</span>}
+                </td>
                 <td className="p-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   <button type="button" title="Bon de dépôt / de restitution" onClick={() => setBon(f)} className="p-1 text-slate-500 hover:text-slate-800"><Printer className="h-4 w-4" /></button>
                   <button type="button" title="Supprimer" onClick={() => supprimer(f)} className="p-1 text-rose-500 hover:text-rose-700"><Trash2 className="h-4 w-4" /></button>
@@ -270,7 +316,8 @@ export default function MaintenanceEquipements() {
         </table>
       </div>
       {edition && (
-        <FormulaireFiche fiche={edition === "nouvelle" ? null : edition} types={types} contacts={contactsTries}
+        <FormulaireFiche key={edition === "nouvelle" ? "nouvelle" : edition.id} fiche={edition === "nouvelle" ? null : edition}
+          types={types} clients={clients} onRafraichir={rafraichirFiche}
           onAjoutType={ajouterType} onClose={() => setEdition(null)}
           onEnregistre={(f) => { setEdition(null); charger(); if (!edition?.id) setBon(f); }} />
       )}

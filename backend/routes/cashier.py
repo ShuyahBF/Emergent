@@ -2685,7 +2685,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     async def create_invoice_for_client(user: dict, client_user: dict, items: List[dict], *,
                                         notes: Optional[str] = None, due_date: Optional[str] = None,
-                                        kind: str = "invoice") -> dict:
+                                        kind: str = "invoice", source: str = "portfolio_report") -> dict:
         if kind not in ("proforma", "invoice"):
             raise HTTPException(status_code=400, detail="kind doit être 'proforma' ou 'invoice'")
         if not items:
@@ -2727,7 +2727,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "created_at": _now_iso(), "paid_at": None, "paid_via_receipt_id": None, "cancelled_at": None,
             "qr_token": token, "qr_url": await _build_verify_url(token),
             "tenant_id": tid, "tenant_snapshot": await _resolve_client_lie(user),
-            "source": "portfolio_report",
+            "source": source,                   # lot 43 : « maintenance » depuis une fiche de maintenance
         }
         await db.invoices.insert_one(doc.copy())
         doc.pop("_id", None)

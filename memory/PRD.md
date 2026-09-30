@@ -14,6 +14,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-30 — Lot 47 appliqué ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_47_3a45342-1.patch` (base `12bd26a`, 1 commit).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, aucun testing_agent, aucun lint, aucune vérif UI, aucune ré-analyse.
+
+### Lot 47 — Migration Render (flux, médias, programmation, rétention, rapport Liluvine) + Maintenance (intervention, prête à facturer) + Parc informatique
+
+Trois modules abordés en un seul commit :
+
+**1. Migration vers Render** :
+- Copie en flux (streaming) + option médias à inclure/exclure.
+- Sauvegardes programmées avec règle de rétention.
+- Rapport Liluvine (résumé lisible pour l'humain).
+- Nouveau planificateur : `[migration-programmation] planificateur non démarré (preview ou DISABLE_SCHEDULER)` — actif uniquement en prod.
+
+**2. Maintenance des équipements** :
+- Ajout d'une phase « Intervention » distincte du diagnostic.
+- Nouvel état « prête à facturer » avant la facturation.
+- Complète la chaîne diagnostic → intervention → facturation.
+
+**3. Parc informatique** :
+- Nouveau module : inventaire des équipements (postes, imprimantes, réseau…).
+- Interventions rattachées à un équipement.
+- Rapports d'intervention signés (signature électronique).
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous routers montés + nouveau planificateur migration branché).
+- Commit appliqué : `ff8e3f7`.
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-09-30 — Lots 45 + 46 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
 
 **Patch source** : `sawali-portal-corrections_45_to_46_8175ff9.patch` (base `3c2c5c9`, 2 commits).

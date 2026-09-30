@@ -14,6 +14,47 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-30 — Lots 40 + 41 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_40_to_41_1eb1819.patch` (base `fdc6aab`, 2 commits).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, aucun testing_agent, aucun lint, aucune vérif UI, aucune ré-analyse.
+
+### Lot 40 — Carrousel WhatsApp
+- **Nouveau** `backend/routes/carrousel_whatsapp.py` : carrousel WhatsApp 2-10 cartes (produits de la caisse ou cartes libres), destinataires avec consentement, campagnes tracées, boutons suivis via `/api/public/carrousel/l/{code}`.
+- **Nouveau** `frontend/src/pages/portal/CarrouselWhatsApp.jsx` : page portail + Admin avec aperçu, galerie images (JPEG/PNG ≤ 5 Mo), URL publique en https, contacts avec `accepte_whatsapp`.
+- `backend/server_parts/p03_admin_clients_usage.py` : clé activable `whatsapp_carrousel` (désactivée par défaut, exige aussi `whatsapp`).
+- `frontend/src/App.js` + `PortalLayout.jsx` : routes `/portal/whatsapp-carrousel` + `/admin/whatsapp-carrousel`, menu grisé tant que non activé.
+- Modèles Meta à créer par l'utilisateur : `<nom>_2` à `<nom>_10` catégorie Marketing avec `{{1}}` et `{{2}}` + bouton URL dynamique.
+- Nouvelles collections : `carrousel_campagnes`, `carrousel_liens`. Journalisation dans `whatsapp_messages` avec `bulk:true, carrousel_id`.
+
+### Lot 41 — Formulaires, sondages, « !formulaire », inbox, planning, calendrier WA, maintenance
+- **Formulaires/Sondages** : ordre par glisser (poignée ⠿) + « 3/8 », bulle verte (formulaires) et bleue (sondages) sur menu et onglets, puce verte par item non consulté (`fs_vus` par utilisateur), nouvelles automatisations `form.submitted` + `survey.responded` avec jetons (`{{formulaire}}`, `{{sondage}}`, `{{repondant}}`, `{{nb_reponses}}`).
+- **Correction erreur Meta #132000** : en-tête de modèle à variable complété avant envoi (`whatsapp_helpers.py`) — champ « En-tête » prérempli avec titre du sondage, valeur d'exemple Meta en fallback. Bouton « Renvoyer les échecs » sur résultats.
+- **!formulaire** :
+  - Forçage Admin (« Forcer la réalisation ») : mise en ligne sans paiement pour commandes en attente / erreur / code manquant. Badge AUTO / FORCÉ (`mode_realisation`) au journal, sur carte, dans bilan et facture (ligne `[FORCÉ]` au tarif non encaissé + ligne `[AUTO]` à 0 FCFA).
+  - Code de confirmation 6 chiffres (15 min, 3 essais) après réception de pièce jointe, avant analyse/tarif/paiement.
+  - Classement photos par IA (`EMERGENT_LLM_KEY`) : refus des selfies/paysages avant tout traitement.
+  - **Liste noire** : après 3 demandes non valables en 30 jours, numéro bloqué. Journal + copies des pièces jointes + déblocage Admin. Collection `liluvine_liste_noire`.
+- **« Outils+ »** : renommage du lien latéral « SMART Communications » côté portail + Admin (adresses inchangées `/portal/smart-communications` + `/admin/smart-communications`). L'onglet fiche client reste « SMART Communications ».
+- **Inbox unifiée** (`UnifiedInbox.jsx`) : correction long fil (affichait 50 premiers → derniers), rafraîchissement liste 20s / conversation 10s sans sablier, en-tête contact fixe, annuaire gardé 60 s côté serveur.
+- **Calendrier WhatsApp** dans discussion (Centre Messagerie + Inbox) : bouton 📅 → semaine style Google Calendar (RDV portail, planning médecins, agenda Google plateforme grisés, créneaux bloqués `creneaux_bloques`), « Partager au contact » → lien `/disponibilites/<jeton>` valable 14 j, page publique ne montre que « occupé ». Nouveau `backend/routes/calendrier_partage.py` + `frontend/src/components/CalendrierModal.jsx` + `CalendrierSemaine.jsx` + `pages/public/Disponibilites.jsx`.
+- **Webhook planning médecins** : `OUOBA Jean : 77000155` → `OUOBA Jean ; 77000155` (`;` inséré devant numéro).
+- **Maintenance des équipements** : nouvelle fonction activable `maintenance_equipements` (désactivée par défaut, Admin ou Superviseur). Numéro auto `MNT-<CODE>-<AAAA>-0001`, état/motif/diagnostic/pièces, bon de dépôt et de restitution imprimable. Nouveau `backend/routes/maintenance_equipements.py` + `frontend/src/pages/portal/MaintenanceEquipements.jsx`. Collections `maintenance_fiches`, `maintenance_types`, `compteurs`.
+- **Nouveautés formulaires** : nouveau `backend/routes/nouveautes_formulaires.py` + `frontend/src/lib/nouveautesFormulaires.js`.
+- **Synthèse Liluvine** (`routes/synthese.py`) : reprend soumissions/réponses de la journée + commandes `!formulaire` (reçues, AUTO, FORCÉ, en attente paiement, erreur).
+
+### Variables d'environnement
+- **Aucune nouvelle**. Réutilise `PUBLIC_BASE_URL` (https obligatoire), `EMERGENT_LLM_KEY`, config WhatsApp existante (plateforme + `tenant_smart_comm` par client), Google Calendar existant.
+- Paramètres Admin : `wa_carrousel_modele` + `wa_carrousel_langue` à renseigner sur la page Admin « Carrousel WhatsApp ».
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous les routers montés — VIDAL, WhatsApp, planning, gestion_stocks, story_studio, etc.).
+- Commits appliqués : `bc5c957` (Lot 40) + `ce5050d` (Lot 41).
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-09-29 — Lots 38 + 39 appliqués (fork iter suivante) ✅ APPLIQUÉ (aucun test — QA utilisateur)
 
 **Patch source** : `sawali-portal-corrections_38_to_39_8f10f21.patch` (base `f9fc130`, 2 commits).

@@ -14,6 +14,63 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-30 — Lots 45 + 46 appliqués ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_45_to_46_8175ff9.patch` (base `3c2c5c9`, 2 commits).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, aucun testing_agent, aucun lint, aucune vérif UI, aucune ré-analyse.
+
+### Lot 45 — « Voir en tant que » : compte de connexion retrouvé (lien absent/rompu)
+
+**Bug corrigé** : dans Admin → Utilisateurs suivis, l'œil « Voir en tant que » affichait « Compte de connexion introuvable » sur un vrai utilisateur suivi.
+**Cause** : `user_account_id` sur la fiche suivie pointe parfois vers un compte qui n'existe plus (compte recréé, données reprises, ancienne fiche). L'utilisateur se connecte bien via e-mail.
+**Correction serveur** (dans cet ordre) :
+1. Compte rattaché à la fiche (`tracked_user_id`).
+2. Compte avec le même e-mail (insensible à la casse).
+Jamais un compte Admin/Superviseur ni le compte d'un autre utilisateur suivi. Une fois retrouvé, le lien est **réparé** pour les fois suivantes.
+Si aucun compte n'existe : nouveau message clair « Cet utilisateur suivi n'a pas de compte de connexion (lien absent ou rompu) : cliquez sur « Définir un mot de passe » pour le (re)créer, puis réessayez. »
+L'œil n'est plus grisé d'avance faute de lien — reste actif pour toute fiche active, réponse côté serveur.
+
+**Fichiers** : `backend/routes/voir_en_tant_que.py`, `frontend/src/pages/admin/AdminTrackedUsers.jsx`.
+
+### Lot 46 — Migration vers Render : 629 fichiers en échec triés
+
+**Contexte** : dernière sauvegarde indiquait 629 fichiers en échec sur 1188. La plupart ne sont pas des fichiers perdus mais de faux chemins placés dans la liste à copier.
+
+**Corrections apportées** :
+1. **Traduction des références** :
+   - `/api/files/<identifiant>` → traduit en `files.storage_path` (le vrai chemin stockage).
+   - `/api/files/ai/…` → ignorés (déjà copiés avec les fichiers locaux).
+   - Chemins décodés (`%20`, accents) + dédoublonnés.
+   - Journal affiche « références ignorées : N fichier(s) disque, M identifiant(s) inconnu(s) ».
+2. **Journaux non scannés** pour liens fichiers : `api_traces`, `error_registry`, `activity_events`, journaux webhooks, toute collection en `_log`, `_logs`, `_traces`, `_audit`, `_journal`. Collections restent copiées normalement.
+3. **Classement des échecs** :
+   - 404 → « absent à la source » (pas une vraie erreur, n'empêche pas « Terminée »).
+   - 429, 5xx, délai, coupure → jusqu'à **3 essais**.
+   - Manifeste + suivi enregistrent code HTTP, cause, origine du chemin, nombre d'essais.
+   - Tous les échecs → nouvelle collection `migration_echecs` (max 20 000/sauvegarde, non copiée vers cible).
+4. **Export CSV** UTF-8 BOM séparateur `;`, vraies erreurs en tête, lisible dans Excel, sans identifiants R2.
+5. **« Réessayer les échecs »** : seuls fichiers, base non recopiée, fichiers déjà dans R2 sautés.
+6. **Écran** : ligne « X copiés · Y absents à la source (ignorés) · Z vraies erreurs », échecs regroupés par cause et code, boutons « Exporter CSV » + « Réessayer les échecs ».
+
+**Fichiers** : `backend/routes/migration_render.py`, `frontend/src/pages/admin/sections/MigrationRenderSection.jsx`. Nouvelle collection `migration_echecs`.
+
+### Variables d'environnement
+- **Aucune nouvelle**.
+
+### Limites connues (rappels utilisateur)
+- Adresse fichier avec espace brut (non `%20`) coupée à l'espace.
+- `/api/files/<identifiant>` inconnu de la collection `files` → ignoré + compté dans journal.
+- « Réessayer les échecs » vérifie présence R2 de chaque fichier — plus long qu'une simple relance.
+- `migration_echecs` non purgée d'une sauvegarde à l'autre.
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous routers montés).
+- Commits appliqués : `e0bf950` (Lot 45) + `c4941fc` (Lot 46).
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-09-30 — Lot 44 appliqué ✅ APPLIQUÉ (aucun test — QA utilisateur)
 
 **Patch source** : `sawali-portal-corrections_44_d115e18.patch` (base `4d44e6e`, 1 commit).

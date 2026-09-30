@@ -23,7 +23,9 @@ FONCTIONS_SUPERVISEUR = {"forms_surveys": "Formulaires et Sondages", "ocr_pieces
                          # Lot 39 — photo d'ordonnance → disponibilité dans le stock du client
                          "ordonnances_stock": "Ordonnances et stock",
                          # Lot 41 — matériel confié pour réparation (fiches de dépôt / restitution)
-                         "maintenance_equipements": "Maintenance des équipements"}
+                         "maintenance_equipements": "Maintenance des équipements",
+                         # Lot 47 — parc informatique des clients (équipements, interventions, rapports signés)
+                         "parc_informatique": "Parc informatique"}
 # Comptes listés : les rôles « métier » (l'Admin et le Superviseur ont tout) ; lot 42 : on
 # ajoute les comptes Superviseur et le compte de la plateforme, pour leurs utilisateurs suivis.
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
@@ -35,6 +37,7 @@ class FonctionsClientUpdate(BaseModel):
     ocr_pieces: Optional[bool] = None
     ordonnances_stock: Optional[bool] = None
     maintenance_equipements: Optional[bool] = None   # lot 41
+    parc_informatique: Optional[bool] = None         # lot 47
 
 
 def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_supervisor,

@@ -15,7 +15,7 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Bot, FileText, Loader2, Pill, Save, ScanText, Search, ShieldCheck, Wrench } from "lucide-react";
+import { Bot, FileText, Loader2, Monitor, Pill, Save, ScanText, Search, ShieldCheck, Wrench } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -338,6 +338,7 @@ const FONCTIONS = [
   { cle: "ocr_pieces", label: "OCR sur Pièces", icon: ScanText, couleur: "bg-teal-600" },
   { cle: "ordonnances_stock", label: "Ordonnances et stock", icon: Pill, couleur: "bg-emerald-600" },   // lot 39
   { cle: "maintenance_equipements", label: "Maintenance des équipements", icon: Wrench, couleur: "bg-orange-600" },   // lot 41
+  { cle: "parc_informatique", label: "Parc informatique", icon: Monitor, couleur: "bg-sky-600" },   // lot 47
 ];
 
 // Interrupteur accessible (bouton à bascule)
@@ -398,7 +399,7 @@ export default function FonctionsClients() {
         </h1>
         <p className="text-sm text-slate-500 mt-1">
           Activez pour chaque client les fonctions <b>Formulaires et Sondages</b>, <b>OCR sur Pièces</b>,
-          <b> Ordonnances et stock</b> et <b>Maintenance des équipements</b>.
+          <b> Ordonnances et stock</b>, <b>Maintenance des équipements</b> et <b>Parc informatique</b>.
           Elles sont désactivées par défaut ; leurs utilisateurs suivis en héritent. L'Admin et le Superviseur y ont
           toujours accès.
         </p>

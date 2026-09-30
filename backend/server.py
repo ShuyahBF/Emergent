@@ -1144,6 +1144,27 @@ _inclure_partie("p20_branchement_routeurs.py")  # Branchement des routeurs des m
 from routes.migration_render import router as _migration_render_router  # noqa: E402
 api.include_router(_migration_render_router)
 
+# Lot 47 — sauvegardes de migration programmées, rétention dans R2 et rapport Liluvine à l'admin.
+# Envoi WhatsApp (texte ou modèle Meta) et e-mail : fonctions existantes du serveur.
+from routes.migration_programmation import (  # noqa: E402
+    router as _migration_programmation_router, configurer as _migration_programmation_configurer,
+    demarrer as _migration_programmation_demarrer,
+)
+api.include_router(_migration_programmation_router)
+_migration_programmation_configurer(envoyer_wa_texte=_wa_send_text, envoyer_wa_modele=_wa_send_template,
+                                    email_defaut=SUPER_ADMIN_EMAIL)
+
+
+@app.on_event("startup")
+async def _demarrer_migration_programmation():
+    """Boucle des sauvegardes programmées (toutes les 60 s). Jamais dans la preview (sa base est
+    une copie de la production) : mêmes règles que le planificateur (DISABLE_SCHEDULER, SCHEDULER_IN_PREVIEW)."""
+    if os.environ.get("DISABLE_SCHEDULER") == "1" or (
+            _is_preview_environment() and os.environ.get("SCHEDULER_IN_PREVIEW") != "1"):
+        logger.info("[migration-programmation] planificateur non démarré (preview ou DISABLE_SCHEDULER)")
+        return
+    _migration_programmation_demarrer()
+
 app.include_router(api)
 
 

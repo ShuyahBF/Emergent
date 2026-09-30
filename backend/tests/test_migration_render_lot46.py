@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,13 @@ class FauxR2:
     def put_object(self, Bucket, Key, Body, **_):  # noqa: N803 (signature boto3)
         self.objets[Key] = Body
 
+    # Lot 47 : envois en flux (depuis un fichier temporaire ou directement depuis le disque)
+    def upload_fileobj(self, Fileobj, Bucket, Key, **_):  # noqa: N803
+        self.objets[Key] = Fileobj.read()
+
+    def upload_file(self, Filename, Bucket, Key, **_):  # noqa: N803
+        self.objets[Key] = Path(Filename).read_bytes()
+
     def head_object(self, Bucket, Key):  # noqa: N803
         if Key not in self.objets:
             raise KeyError(Key)
@@ -65,7 +73,13 @@ def env(monkeypatch, tmp_path):
             raise erreur_http(429)
         return f"contenu:{chemin}".encode(), "application/octet-stream"
 
-    monkeypatch.setattr(mr, "_lire_objet_emergent", faux_fetch)
+    # Lot 47 : la lecture se fait en flux ; le contenu simulé est rendu en un seul morceau
+    @contextmanager
+    def faux_flux(chemin):
+        donnees, type_mime = faux_fetch(chemin)
+        yield iter([donnees]), type_mime, len(donnees)
+
+    monkeypatch.setattr(mr, "_flux_objet_emergent", faux_flux)
     return base, appels
 
 

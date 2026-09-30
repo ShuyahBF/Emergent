@@ -414,6 +414,33 @@ _attach_maintenance(api=api, db=db, get_current_user=get_current_user, fonction_
                     paiements_autorises=_maintenance_paiements_autorises,
                     create_invoice_for_client=getattr(_cashier_router, "create_invoice_for_client", None))
 
+# Lot 47 — Parc informatique (fonction activable) : équipements, interventions, rapport public
+# signé par le responsable du client — routes/parc_informatique.py.
+from routes.parc_informatique import attach_parc_routes as _attach_parc  # noqa: E402
+
+
+async def _parc_envoyer_email(a: str, sujet: str, corps_html: str, texte: str) -> bool:
+    """Lot 47 — envoi du lien du rapport par e-mail (SMTP existant)."""
+    from email_service import send_email as _send_email_parc
+    return bool(await _send_email_parc(a, sujet, corps_html, texte))
+
+
+async def _parc_notifier_admin(sujet: str, texte: str) -> dict:
+    """Lot 47 — rapport signé : message « 🤖 Liluvine » aux numéros admin (même envoi que le
+    rapport des sauvegardes programmées : texte dans les 24 h, sinon modèle réglé, sinon e-mail)."""
+    from routes.migration_programmation import envoyer_rapport as _rapport_liluvine, lire_reglage as _reglage_liluvine
+    return await _rapport_liluvine(sujet, texte, await _reglage_liluvine(), important=True)
+
+
+_attach_parc(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
+             slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur,
+             save_and_log=_obj_storage_mnt.save_and_log,
+             base_publique=lambda: _public_base_url() or _PUBLIC_BASE_URL,
+             wa_send_text=_wa_send_text, wa_send_template=_wa_send_template,
+             build_components=_build_components, fenetres_ouvertes=_wa_surveys["open_window_digits"],
+             envoyer_email=_parc_envoyer_email, notifier_admin=_parc_notifier_admin,
+             client_ip=_client_ip_from_request)
+
 # Lot 44 — « Voir en tant que » (super-admin, lecture seule par défaut, journal) et comptes
 # de test en un clic : routes/voir_en_tant_que.py. Le contrôle des sessions « en tant que »
 # est un intergiciel HTTP placé devant toutes les routes (ajouté au plus près des routes).

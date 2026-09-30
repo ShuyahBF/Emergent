@@ -5,9 +5,11 @@
 // Backend : backend/routes/migration_render.py (/api/admin/migration/*).
 // Les identifiants saisis ici ne sont JAMAIS enregistrés en clair par le serveur ;
 // ils peuvent être mémorisés dans un coffre CHIFFRÉ (restitués avec son mot de passe).
+// Lot 47 : sauvegardes programmées (tous les N jours à heure fixe), rétention dans R2
+// et rapport envoyé à l'admin par Liluvine (bloc « Sauvegardes programmées et rétention »).
 // =====================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Database, Cloud, KeyRound, Play, RefreshCw, Download, CheckCircle2, XCircle, AlertTriangle, Square, RotateCcw, Lock, Unlock, Trash2 } from "lucide-react";
+import { Database, Cloud, KeyRound, Play, RefreshCw, Download, CheckCircle2, XCircle, AlertTriangle, Square, RotateCcw, Lock, Unlock, Trash2, CalendarClock, Save } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
@@ -35,6 +37,17 @@ const Statut = ({ valeur }) => {
 
 // Octets -> texte lisible
 const taille = (o) => (o > 1048576 ? `${(o / 1048576).toFixed(1)} Mo` : o > 1024 ? `${Math.round(o / 1024)} Ko` : `${o || 0} o`);
+// Octets -> Mo avec une décimale (avancement du fichier en cours)
+const enMo = (o) => ((o || 0) / 1048576).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+// Fichier en cours (signe de vie périodique) : octets reçus / taille, puis octets envoyés à R2
+const AvancementFichier = ({ cours }) => {
+  if (!cours?.recus && !cours?.taille && !cours?.envoyes) return null;
+  const sur = cours.taille ? `${enMo(cours.taille)} Mo` : "taille inconnue";
+  return cours.phase === "envoi"
+    ? <span className="text-slate-500">· envoi vers R2 : {enMo(cours.envoyes)} / {sur}</span>
+    : <span className="text-slate-500">· reçu {enMo(cours.recus)} / {sur}</span>;
+};
 
 // Barre de progression simple
 const Barre = ({ fait, total }) => {
@@ -46,10 +59,225 @@ const Barre = ({ fait, total }) => {
   );
 };
 
+// Date ISO -> « 30/09/2026 14:05 » (heure du navigateur)
+const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
+
+// Réglage par défaut des sauvegardes programmées (le serveur renvoie le réglage enregistré)
+const REGLAGE_DEFAUT = {
+  actif: false, tous_les: 1, heure: "03:00", fuseau: "Africa/Ouagadougou",
+  base: true, fichiers: true, medias: true,
+  retention_jours: 14, garder_min: 3, purge_manuelles: true,
+  rapport_si_ok: true, modele_wa: "", modele_wa_langue: "fr",
+};
+
+// =====================================================================
+// Sauvegardes programmées et rétention (Admin) : réglage, identifiants
+// conservés chiffrés par le serveur (jamais renvoyés), purge des anciennes
+// sauvegardes dans R2 et rapport envoyé par Liluvine.
+// Backend : backend/routes/migration_programmation.py
+// =====================================================================
+const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisation }) => {
+  const [etat, setEtat] = useState(null); // réglage + état renvoyés par le serveur
+  const [reglage, setReglage] = useState(REGLAGE_DEFAUT);
+  const [occupe, setOccupe] = useState("");
+
+  // État du serveur ; le réglage affiché n'est remplacé qu'au premier chargement,
+  // pour ne pas effacer une saisie en cours quand l'historique se met à jour
+  const chargerEtat = useCallback(async (avecReglage = false) => {
+    try {
+      const { data } = await apiClient.get("/admin/migration/programmation");
+      setEtat(data);
+      if (avecReglage) setReglage({ ...REGLAGE_DEFAUT, ...data.reglage });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Programmation indisponible");
+    }
+  }, []);
+  useEffect(() => { chargerEtat(true); }, [chargerEtat]);
+  // Rechargé aussi quand l'historique change (fin d'une sauvegarde, purge...)
+  useEffect(() => { if (actualisation) chargerEtat(); }, [chargerEtat, actualisation]);
+
+  const majR = (champ) => (e) => {
+    const v = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    setReglage((r) => ({ ...r, [champ]: v }));
+  };
+
+  // Action serveur avec indicateur d'attente et message d'erreur
+  const agir = async (nom, appel, succes) => {
+    setOccupe(nom);
+    try {
+      const reponse = await appel();
+      if (succes) toast.success(typeof succes === "function" ? succes(reponse.data) : succes);
+      return reponse.data;
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Action impossible");
+      return null;
+    } finally {
+      setOccupe("");
+    }
+  };
+
+  const enregistrer = async () => {
+    const data = await agir("reglage", () => apiClient.put("/admin/migration/programmation", reglage), "Programmation enregistrée");
+    if (data) { setEtat(data); setReglage({ ...REGLAGE_DEFAUT, ...data.reglage }); }
+  };
+
+  // Identifiants saisis plus haut (ou restaurés du coffre) -> gardés chiffrés par le serveur
+  const utiliserIdentifiants = async () => {
+    const { mongo_uri, mongo_db, r2_account_id, r2_access_key_id, r2_secret_access_key, r2_bucket } = form;
+    if (!r2_account_id || !r2_access_key_id || !r2_secret_access_key || !r2_bucket) {
+      toast.error("Saisissez ou restaurez (coffre) les identifiants R2 (et l'URI Atlas si la base est sauvegardée).");
+      return;
+    }
+    const data = await agir("identifiants",
+      () => apiClient.put("/admin/migration/programmation/identifiants", { mongo_uri, mongo_db, r2_account_id, r2_access_key_id, r2_secret_access_key, r2_bucket }),
+      "Identifiants vérifiés et enregistrés (chiffrés) pour les sauvegardes programmées");
+    if (data) setEtat(data);
+  };
+
+  const oublierIdentifiants = async () => {
+    if (!window.confirm("Effacer les identifiants des sauvegardes programmées ? La programmation sera désactivée.")) return;
+    const data = await agir("oubli", () => apiClient.delete("/admin/migration/programmation/identifiants"), "Identifiants effacés");
+    if (data) { setEtat(data); setReglage({ ...REGLAGE_DEFAUT, ...data.reglage }); }
+  };
+
+  const lancerMaintenant = async () => {
+    if (!window.confirm("Lancer maintenant une sauvegarde avec les réglages enregistrés (mode fusion) ? Rapport et purge suivront.")) return;
+    const data = await agir("lancer", () => apiClient.post("/admin/migration/programmation/lancer"), (d) => `Sauvegarde lancée (${d.prefixe})`);
+    if (data) { suivre(data.id); chargerEtat(); }
+  };
+
+  const purgerMaintenant = async () => {
+    if (!window.confirm(`Supprimer de R2 les sauvegardes de plus de ${reglage.retention_jours} jour(s), en gardant toujours les ${reglage.garder_min} dernières réussies ? (réglage enregistré)`)) return;
+    const data = await agir("purge", () => apiClient.post("/admin/migration/programmation/purger"),
+      (d) => `${d.supprimees.length} sauvegarde(s) supprimée(s), ${taille(d.octets)} libéré(s)`);
+    if (data) { chargerEtat(); charger(); }
+  };
+
+  const champ = "rounded-lg border border-slate-300 px-3 py-2 text-sm";
+  const ids = etat?.identifiants || { existe: false };
+  const derniere = etat?.derniere_execution;
+  const purge = etat?.derniere_purge;
+
+  return (
+    <div className="space-y-4 rounded-xl border border-slate-200 p-4" data-testid="migration-programmation">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold"><CalendarClock className="h-4 w-4" /> Sauvegardes programmées et rétention</p>
+        <span className="text-xs text-slate-500">
+          Prochaine exécution : <b>{etat?.prochaine_execution ? dateHeure(etat.prochaine_execution) : "aucune"}</b>
+          {etat?.attente && <> · en attente ({etat.attente})</>}
+        </span>
+      </div>
+
+      {/* Identifiants des sauvegardes programmées : jamais renvoyés par le serveur */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm">
+        <Lock className="h-4 w-4 text-slate-500" />
+        {ids.existe ? (
+          <span className="text-xs text-slate-600">
+            Identifiants enregistrés le {dateHeure(ids.cree_le)} par {ids.par} · Atlas {ids.mongo_hote || "— (fichiers seulement)"} / {ids.mongo_db} · bucket <b>{ids.r2_bucket}</b>
+            {!ids.lisibles && <b className="ml-1 text-red-700">— illisibles (clé du serveur changée) : enregistrez-les à nouveau</b>}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-600">Aucun identifiant enregistré pour les sauvegardes programmées.</span>
+        )}
+        <button type="button" onClick={utiliserIdentifiants} disabled={!!occupe}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50 sm:ml-auto">
+          <KeyRound className="h-3 w-3" /> {occupe === "identifiants" ? "Vérification…" : "Utiliser ces identifiants pour les sauvegardes programmées"}
+        </button>
+        {ids.existe && (
+          <button type="button" onClick={oublierIdentifiants} disabled={!!occupe} className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-red-700 hover:underline">
+            <Trash2 className="h-3 w-3" /> Oublier
+          </button>
+        )}
+        <p className="w-full text-xs text-slate-500">
+          Prend l'URI Atlas et les clés R2 saisies plus haut, vérifie les connexions puis les garde chiffrés sur le serveur (AES-256, clé du serveur).
+          Ils ne sont jamais réaffichés. {ids.source_cle && `Clé utilisée : ${ids.source_cle}.`}
+        </p>
+      </div>
+
+      {/* Réglage */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-2 text-sm">
+          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={reglage.actif} onChange={majR("actif")} /> Activer les sauvegardes programmées</label>
+          <div className="flex flex-wrap items-center gap-2">
+            Tous les <input type="number" min={1} max={365} className={`${champ} w-20`} value={reglage.tous_les} onChange={majR("tous_les")} /> jour(s) à
+            <input type="time" className={champ} value={reglage.heure} onChange={majR("heure")} />
+            <span className="text-xs text-slate-500">({reglage.fuseau})</span>
+          </div>
+          <p className="text-xs text-slate-500">1 = tous les jours. Serveur arrêté à l'heure prévue : la sauvegarde est faite au redémarrage, une seule fois.</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={reglage.base} onChange={majR("base")} /> Base de données</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={reglage.fichiers} onChange={majR("fichiers")} /> Fichiers</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={reglage.medias} onChange={majR("medias")} disabled={!reglage.fichiers} /> Médias (vidéos et sons)</label>
+            <label className="flex items-center gap-2 text-slate-400" title={etat?.explication_secrets}><input type="checkbox" checked={false} disabled /> Variables d'environnement</label>
+          </div>
+          <p className="text-xs text-slate-500">Toujours en mode fusion (jamais « Remplacer »). {etat?.explication_secrets}</p>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            Garder les sauvegardes <input type="number" min={1} max={3650} className={`${champ} w-20`} value={reglage.retention_jours} onChange={majR("retention_jours")} /> jour(s),
+            et toujours les <input type="number" min={1} max={100} className={`${champ} w-16`} value={reglage.garder_min} onChange={majR("garder_min")} /> dernières réussies
+          </div>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={reglage.purge_manuelles} onChange={majR("purge_manuelles")} /> Appliquer aussi la rétention aux sauvegardes manuelles</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={reglage.rapport_si_ok} onChange={majR("rapport_si_ok")} /> M'envoyer le rapport même quand tout va bien</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={`${champ} w-56`} placeholder="Modèle Meta (hors fenêtre 24 h)" value={reglage.modele_wa} onChange={majR("modele_wa")} />
+            <input className={`${champ} w-20`} placeholder="fr" value={reglage.modele_wa_langue} onChange={majR("modele_wa_langue")} />
+          </div>
+          <p className="text-xs text-slate-500">
+            Rapport signé Liluvine envoyé par WhatsApp aux numéros admin de Liluvine (Paramètres → Liluvine). Si l'admin n'a pas écrit à Liluvine depuis 24 h,
+            le modèle Meta indiqué (une variable {"{{1}}"}) est utilisé ; sinon, ou en cas d'échec, le rapport part par e-mail. Un échec est toujours signalé.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={enregistrer} disabled={!!occupe}
+          className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
+          <Save className="h-4 w-4" /> Enregistrer
+        </button>
+        <button type="button" onClick={lancerMaintenant} disabled={!!occupe || enCours || !ids.existe}
+          className="inline-flex items-center gap-1 rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50">
+          <Play className="h-4 w-4" /> Lancer maintenant avec ces réglages
+        </button>
+        <button type="button" onClick={purgerMaintenant} disabled={!!occupe || !ids.existe}
+          className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+          <Trash2 className="h-4 w-4" /> {occupe === "purge" ? "Purge…" : "Purger maintenant"}
+        </button>
+      </div>
+
+      {/* Dernière exécution programmée et dernière purge */}
+      <div className="grid gap-2 text-xs sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-100 p-2">
+          <p className="font-semibold">Dernière exécution programmée</p>
+          {derniere ? (
+            <p className="mt-1 flex flex-wrap items-center gap-2">
+              {dateHeure(derniere.debut)} <Statut valeur={derniere.statut} /> {derniere.prefixe && <span className="font-mono">{derniere.prefixe}</span>}
+              {derniere.erreur && <span className="text-red-700">{derniere.erreur}</span>}
+              {derniere.rapport && <span className="text-slate-500">· rapport {derniere.rapport.envoye ? "envoyé" : "non envoyé"}</span>}
+            </p>
+          ) : <p className="mt-1 text-slate-500">Aucune</p>}
+        </div>
+        <div className="rounded-lg border border-slate-100 p-2">
+          <p className="font-semibold">Dernière purge</p>
+          {purge && !purge.erreur ? (
+            <p className="mt-1 text-slate-600">
+              {dateHeure(purge.le)} · {purge.supprimees?.length || 0} sauvegarde(s) supprimée(s), {taille(purge.octets)} libéré(s) · {purge.gardees} gardée(s)
+              {purge.erreurs > 0 && <b className="text-red-700"> · {purge.erreurs} objet(s) non supprimé(s)</b>}
+            </p>
+          ) : <p className="mt-1 text-slate-500">{purge?.erreur || "Aucune"}</p>}
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-500">Les sauvegardes supprimées de R2 par la rétention restent dans l'historique ci-dessous avec le badge « purgée ».</p>
+    </div>
+  );
+};
+
 const CHAMPS_VIDES = {
   mongo_uri: "", mongo_db: "sawali", remplacer: false,
   r2_account_id: "", r2_access_key_id: "", r2_secret_access_key: "", r2_bucket: "sawali-migration",
   copier_base: true, copier_fichiers: true, sauver_secrets: true, mot_de_passe_secrets: "",
+  copier_medias: true, // décoché : vidéos et sons non copiés (choix conservé en reprise)
   reprendre: null, // identifiant de la sauvegarde à reprendre (null = nouvelle sauvegarde)
 };
 
@@ -177,7 +405,11 @@ const MigrationRenderSection = () => {
 
   // Préparation d'une reprise : les identifiants (jamais enregistrés) doivent être ressaisis
   const preparerReprise = (j) => {
-    setForm((f) => ({ ...f, reprendre: j.id, remplacer: false, mongo_db: j.cible?.mongo_db || f.mongo_db, r2_bucket: j.cible?.r2_bucket || f.r2_bucket }));
+    // Le choix « Copier les médias » de la sauvegarde reprise est conservé (le serveur l'impose aussi).
+    // Une sauvegarde plus ancienne, sans ce choix enregistré, laisse la case modifiable.
+    const choixMedias = typeof j.options?.medias === "boolean";
+    setForm((f) => ({ ...f, reprendre: j.id, remplacer: false, mongo_db: j.cible?.mongo_db || f.mongo_db, r2_bucket: j.cible?.r2_bucket || f.r2_bucket,
+      copier_medias: choixMedias ? j.options.medias : f.copier_medias, medias_verrouille: choixMedias }));
     toast.info("Ressaisissez l'URI Atlas, les clés R2 et le mot de passe, puis cliquez sur « Reprendre ».");
     document.querySelector('[data-testid="migration-render-section"]')?.scrollIntoView({ behavior: "smooth" });
   };
@@ -330,6 +562,10 @@ const MigrationRenderSection = () => {
         <label className="flex items-center gap-2"><input type="checkbox" checked={form.copier_base} onChange={maj("copier_base")} /> Base de données</label>
         <label className="flex items-center gap-2"><input type="checkbox" checked={form.copier_fichiers} onChange={maj("copier_fichiers")} /> Fichiers</label>
         <label className="flex items-center gap-2"><input type="checkbox" checked={form.sauver_secrets} onChange={maj("sauver_secrets")} /> Variables d'environnement (chiffrées)</label>
+        {/* Décoché : vidéos et sons (reconnus à l'extension ou au type annoncé) ne sont pas copiés ; en reprise, choix de la sauvegarde reprise */}
+        <label className="flex items-center gap-2" title={form.reprendre && form.medias_verrouille ? "En reprise, le choix de la sauvegarde reprise est conservé" : ""}>
+          <input type="checkbox" checked={form.copier_medias} onChange={maj("copier_medias")} disabled={!form.copier_fichiers || (!!form.reprendre && !!form.medias_verrouille)} /> Copier les médias (vidéos et sons)
+        </label>
       </div>
       {form.sauver_secrets && (
         <div className="max-w-md">
@@ -367,7 +603,9 @@ const MigrationRenderSection = () => {
               {job.en_cours?.saut && (
                 <span>Relecture de <b className="font-mono">{job.en_cours.collection}</b> (déjà copiée)</span>
               )}
-              {job.en_cours?.fichier && <span>Fichier {job.en_cours.faits}/{job.en_cours.total} : <span className="font-mono">{job.en_cours.fichier}</span></span>}
+              {job.en_cours?.fichier && (
+                <span>Fichier {job.en_cours.faits}/{job.en_cours.total} : <span className="font-mono">{job.en_cours.fichier}</span> <AvancementFichier cours={job.en_cours} /></span>
+              )}
               {job.battement && <span className="text-slate-500">dernier signe de vie il y a {depuis(job.battement)}</span>}
               <button type="button" onClick={() => arreter(job.id)} className="ml-auto inline-flex items-center gap-1 font-semibold text-red-700 hover:underline">
                 <Square className="h-3 w-3" /> Arrêter
@@ -418,9 +656,12 @@ const MigrationRenderSection = () => {
               <p>
                 Fichiers ({job.fichiers_total}) : <b>{job.fichiers_copies || 0} copiés</b>
                 {" · "}<span className="text-slate-500">{job.fichiers_absents || 0} absents à la source (ignorés)</span>
+                {(job.options?.medias === false || job.fichiers_medias_ignores > 0) && (
+                  <>{" · "}<span className="text-slate-500">{job.fichiers_medias_ignores || 0} médias ignorés (option)</span></>
+                )}
                 {" · "}<span className={job.fichiers_echecs ? "font-semibold text-red-700" : ""}>{job.fichiers_echecs || 0} vraies erreurs</span>
               </p>
-              <Barre fait={(job.fichiers_copies || 0) + (job.fichiers_absents || 0) + (job.fichiers_echecs || 0)} total={job.fichiers_total} />
+              <Barre fait={(job.fichiers_copies || 0) + (job.fichiers_absents || 0) + (job.fichiers_medias_ignores || 0) + (job.fichiers_echecs || 0)} total={job.fichiers_total} />
             </div>
           )}
           {/* Échecs groupés par cause / code HTTP + actions */}
@@ -505,6 +746,9 @@ const MigrationRenderSection = () => {
         </div>
       )}
 
+      {/* ---------- Sauvegardes programmées et rétention ---------- */}
+      <ProgrammationSauvegardes form={form} enCours={enCours} charger={charger} suivre={suivre} actualisation={jobs} />
+
       {/* ---------- Historique ---------- */}
       {jobs.length > 0 && (
         <div className="text-sm">
@@ -517,6 +761,8 @@ const MigrationRenderSection = () => {
               <li key={j.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <span className="font-mono text-xs">{j.cible?.prefixe}</span>
                 <Statut valeur={j.statut} />
+                {j.programmee && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">programmée</span>}
+                {j.purgee && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700" title={`Supprimée de R2 le ${dateHeure(j.purgee_le)}`}>purgée</span>}
                 <span className="text-xs text-slate-500">{j.collections_faites}/{j.collections_total} coll. · {j.fichiers_copies}/{j.fichiers_total} fichiers · par {j.lance_par}</span>
                 <button type="button" onClick={() => suivre(j.id)} className="ml-auto text-xs font-semibold text-sky-700 hover:underline">Détail</button>
               </li>

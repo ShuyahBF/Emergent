@@ -8,6 +8,8 @@
   leurs contacts), téléphone = numéro qui reçoit les alertes de la société ; prix du
   diagnostic (10 000 F par défaut) et équipe ; photos annotées, envoi WhatsApp, lien de
   paiement et « Facturer » (components/MaintenanceActions.jsx).
+  Lot 47 — intervention en cours / arrêtée / terminée (badges, boutons dans la liste et la
+  fiche, historique), filtre et compteur « Prêtes à facturer », état et durée sur le bon.
   API : /me/maintenance, /me/maintenance-types, /me/maintenance-clients (backend/routes/maintenance_equipements.py).
 */
 import React, { useCallback, useEffect, useState } from "react";
@@ -15,7 +17,7 @@ import { toast } from "sonner";
 import { Loader2, Plus, Printer, Search, Trash2, Wrench, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import MaintenanceActions from "@/components/MaintenanceActions";   // lot 43
+import MaintenanceActions, { BadgesIntervention, BoutonsIntervention, INTERVENTIONS, dateHeureFr, dureeFr } from "@/components/MaintenanceActions";   // lots 43 et 47
 
 const STATUTS = {
   recu: ["Reçu", "bg-slate-100 text-slate-700"],
@@ -59,11 +61,29 @@ function Bon({ fiche, onClose }) {
               ["Remplacement de pièces", fiche.remplacement_pieces ? `Oui — ${fiche.pieces || ""}` : "Non"],
               ["Entrée en atelier", dateFr(fiche.date_entree)], ["Sortie", dateFr(fiche.date_sortie)],
               ["Équipe", fiche.equipe || "—"], ["Prix du diagnostic", fcfa(fiche.prix_diagnostic)],
-              ["Observations", fiche.observations || "—"]].map(([l, v]) => (
+              ["Observations", fiche.observations || "—"],
+              // Lot 47 — état de l'intervention et durée totale, s'il y en a eu
+              ...(fiche.etat_intervention ? [["Intervention", INTERVENTIONS[fiche.etat_intervention]?.[0]]] : []),
+              ...(fiche.duree_totale_minutes > 0 ? [["Durée d'intervention", dureeFr(fiche.duree_totale_minutes)]] : [])].map(([l, v]) => (
               <tr key={l} className="border-b border-slate-100 align-top"><td className="py-1.5 pr-3 font-semibold w-48">{l}</td><td className="py-1.5 whitespace-pre-line">{v}</td></tr>
             ))}
           </tbody>
         </table>
+        {/* Lot 47 — historique des interventions */}
+        {(fiche.interventions || []).length > 0 && (
+          <table className="w-full text-xs">
+            <thead className="text-left text-slate-500"><tr><th className="py-1">Début</th><th>Fin</th><th>Durée</th><th>Équipe</th></tr></thead>
+            <tbody>
+              {fiche.interventions.map((i) => (
+                <tr key={i.id} className="border-t border-slate-100">
+                  <td className="py-1">{dateHeureFr(i.debut)}</td>
+                  <td>{i.fin ? `${dateHeureFr(i.fin)} (${INTERVENTIONS[i.etat_fin]?.[0] || ""})` : "en cours"}</td>
+                  <td>{i.fin ? dureeFr(i.duree_minutes) : "—"}</td><td>{i.equipe || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         {/* Lot 43 — photos de l'équipement ou des pièces */}
         {(fiche.photos || []).length > 0 && (
           <div className="flex flex-wrap gap-2">{fiche.photos.map((p) => <img key={p.id} src={p.url} alt="" className="h-24 w-24 object-cover rounded" />)}</div>
@@ -90,6 +110,8 @@ function FormulaireFiche({ fiche, types, clients, onAjoutType, onClose, onEnregi
     const corps = { ...f, contact_id: f.contact_id || null, compte_client_id: f.compte_client_id || null,
       prix_diagnostic: Number(f.prix_diagnostic) || 0, date_sortie: f.date_sortie || null, date_entree: f.date_entree || null };
     delete corps.photos; delete corps.lien_paiement; delete corps.facture; delete corps.envois_whatsapp;
+    // Lot 47 — l'intervention se change par ses boutons, jamais par l'enregistrement de la fiche
+    ["etat_intervention", "interventions", "intervention_ouverte", "duree_totale_minutes", "prete_a_facturer"].forEach((k) => delete corps[k]);
     try {
       const r = fiche ? await apiClient.put(`/me/maintenance/${fiche.id}`, corps) : await apiClient.post("/me/maintenance", corps);
       toast.success(fiche ? "Fiche mise à jour" : `Fiche ${r.data.numero} créée`);
@@ -221,15 +243,16 @@ export default function MaintenanceEquipements() {
   const [q, setQ] = useState("");
   const [statut, setStatut] = useState("");
   const [type, setType] = useState("");
+  const [prete, setPrete] = useState(false);          // lot 47 : filtre « Prêtes à facturer »
   const [edition, setEdition] = useState(null);       // null | "nouvelle" | fiche
   const [bon, setBon] = useState(null);
 
   const charger = useCallback(async () => {
     try {
-      const r = await apiClient.get("/me/maintenance", { params: { q: q || undefined, statut: statut || undefined, type_materiel: type || undefined } });
+      const r = await apiClient.get("/me/maintenance", { params: { q: q || undefined, statut: statut || undefined, type_materiel: type || undefined, prete: prete || undefined } });
       setDonnees(r.data);
     } catch (e) { setRefus(erreur(e, "Module indisponible")); }
-  }, [q, statut, type]);
+  }, [q, statut, type, prete]);
   useEffect(() => { const t = setTimeout(charger, 250); return () => clearTimeout(t); }, [charger]);
   const chargerTypes = () => apiClient.get("/me/maintenance-types").then((r) => setTypes(r.data.tous || [])).catch(() => {});
   useEffect(() => {
@@ -249,6 +272,7 @@ export default function MaintenanceEquipements() {
     catch (e) { toast.error(erreur(e, "Suppression impossible")); }
   };
   const compte = donnees?.compte || {};
+  const compteIntervention = donnees?.compte_intervention || {};   // lot 47
   // Lot 43 — fiche ouverte relue après une action (photo, lien de paiement, facture, envoi)
   const rafraichirFiche = async () => {
     if (!edition?.id) return;
@@ -271,6 +295,16 @@ export default function MaintenanceEquipements() {
             {l}{compte[k] != null && !statut ? ` (${compte[k]})` : ""}
           </button>
         ))}
+        {/* Lot 47 — fiches dont l'intervention est fermée et non encore facturées */}
+        <button type="button" onClick={() => setPrete(!prete)} data-testid="maintenance-filtre-prete"
+          className={`rounded-full px-3 py-1 text-xs ring-1 bg-violet-100 text-violet-700 ${prete ? "ring-2 ring-violet-500" : "ring-transparent"}`}>
+          Prêtes à facturer ({compteIntervention.prete_a_facturer ?? 0})
+        </button>
+        {compteIntervention.en_cours > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse" /> {compteIntervention.en_cours} intervention(s) en cours
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">
@@ -286,11 +320,11 @@ export default function MaintenanceEquipements() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
             <tr><th className="p-2">N°</th><th className="p-2">Client</th><th className="p-2">Matériel</th><th className="p-2">État</th>
-              <th className="p-2">Reçu</th><th className="p-2">Entrée / sortie</th><th className="p-2">Pièces</th><th className="p-2">Statut</th><th className="p-2" /></tr>
+              <th className="p-2">Reçu</th><th className="p-2">Entrée / sortie</th><th className="p-2">Pièces</th><th className="p-2">Statut</th><th className="p-2">Intervention</th><th className="p-2" /></tr>
           </thead>
           <tbody>
-            {!donnees && <tr><td colSpan={9} className="p-4 text-center"><Loader2 className="h-4 w-4 animate-spin inline" /></td></tr>}
-            {donnees?.fiches.length === 0 && <tr><td colSpan={9} className="p-4 text-center text-slate-400">Aucune fiche.</td></tr>}
+            {!donnees && <tr><td colSpan={10} className="p-4 text-center"><Loader2 className="h-4 w-4 animate-spin inline" /></td></tr>}
+            {donnees?.fiches.length === 0 && <tr><td colSpan={10} className="p-4 text-center text-slate-400">Aucune fiche.</td></tr>}
             {(donnees?.fiches || []).map((f) => (
               <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setEdition(f)}>
                 <td className="p-2 font-mono text-xs">{f.numero}</td>
@@ -305,6 +339,12 @@ export default function MaintenanceEquipements() {
                   {/* Lot 43 — paiement et facture */}
                   {f.lien_paiement && <span className={`block mt-0.5 text-[10px] ${f.lien_paiement.paye ? "text-emerald-700" : "text-amber-700"}`}>{f.lien_paiement.paye ? "Payé" : "Paiement en attente"}</span>}
                   {f.facture && <span className="block text-[10px] text-indigo-700">{f.facture.numero}</span>}
+                </td>
+                {/* Lot 47 — état, durée et bouton de l'intervention */}
+                <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-wrap gap-1"><BadgesIntervention fiche={f} /></div>
+                  {f.duree_totale_minutes > 0 && <span className="block text-[10px] text-slate-500">{dureeFr(f.duree_totale_minutes)}</span>}
+                  <div className="mt-1"><BoutonsIntervention fiche={f} compact onChange={charger} /></div>
                 </td>
                 <td className="p-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   <button type="button" title="Bon de dépôt / de restitution" onClick={() => setBon(f)} className="p-1 text-slate-500 hover:text-slate-800"><Printer className="h-4 w-4" /></button>

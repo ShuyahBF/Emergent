@@ -25,6 +25,17 @@ Lot 43 :
   - lien de paiement Mobile Money (montant du diagnostic par défaut) et « Facturer »
     (facture ou proforma dans la Caisse).
 
+Lot 47 — INTERVENTION (distincte du statut de suivi, qui reste inchangé) :
+  - champ `etat_intervention` : aucune (défaut, fiches existantes), « en_cours »,
+    « arrete », « termine » ;
+  - « En cours » OUVRE une intervention (début, équipe, auteur, note) ; une seule ouverte
+    à la fois, on peut en rouvrir une nouvelle après un arrêt ou une fin ;
+  - « Arrêtée » ou « Terminée » la FERME (fin, durée en minutes, auteur, motif / note) et
+    la fiche devient « Prête à facturer » (sauf si elle est déjà facturée) ;
+  - « Facturer » (facture) est refusé tant qu'une intervention est ouverte ; le récapitulatif
+    des interventions est ajouté aux notes de la facture, puis « Prête à facturer » retombe.
+    Une fiche sans intervention (antérieure au lot 47) reste facturable comme avant.
+
   GET    /api/me/maintenance                 fiches (filtres q, statut, type)
   POST   /api/me/maintenance                 nouvelle fiche (numéro automatique)
   GET    /api/me/maintenance/{id}            une fiche
@@ -39,6 +50,7 @@ Lot 43 :
   POST   /api/me/maintenance/{id}/whatsapp      envoi de la fiche (et des photos) par WhatsApp
   POST   /api/me/maintenance/{id}/lien-paiement lien de paiement Mobile Money
   POST   /api/me/maintenance/{id}/facturer      facture (ou proforma) dans la Caisse
+  POST   /api/me/maintenance/{id}/intervention  {etat, note} : ouvre / ferme une intervention — lot 47
 
 Collections : maintenance_fiches, maintenance_types, compteurs (+ payment_links, invoices).
 """
@@ -63,6 +75,11 @@ PRIX_DIAGNOSTIC_DEFAUT = 10000                 # lot 43 : FCFA, modifiable sur c
 PHOTOS_MAX = 12
 PHOTO_MAX_OCTETS = 5 * 1024 * 1024             # limite Meta d'une image WhatsApp
 TYPES_PHOTO = {"image/jpeg": "jpg", "image/png": "png"}
+# Lot 47 — état de l'intervention (None = aucune intervention : fiches existantes)
+ETATS_INTERVENTION = ("en_cours", "arrete", "termine")
+LIBELLES_INTERVENTION = {None: "—", "en_cours": "En cours", "arrete": "Arrêtée", "termine": "Terminée"}
+# Champs gérés uniquement par la route /intervention et la facturation (jamais par le PUT)
+CHAMPS_INTERVENTION = ("etat_intervention", "interventions", "prete_a_facturer")
 ROLES_COMPTES = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 
 
@@ -115,6 +132,12 @@ class FacturerIn(BaseModel):
     lignes: List[Dict[str, Any]] = Field(default_factory=list)  # {label, quantity, unit_price_ht} en plus du diagnostic
 
 
+class InterventionIn(BaseModel):
+    """Lot 47 — « en_cours » ouvre une intervention, « arrete » / « termine » la ferme."""
+    etat: Literal["en_cours", "arrete", "termine"]
+    note: Optional[str] = Field(None, max_length=1000)   # note d'ouverture, motif d'arrêt ou note de fin
+
+
 class TypeIn(BaseModel):
     libelle: str = Field(..., min_length=2, max_length=80)
 
@@ -132,6 +155,50 @@ def montant_fr(n: Any) -> str:
         return f"{int(round(float(n or 0))):,}".replace(",", " ")
     except (TypeError, ValueError):
         return "0"
+
+
+def duree_fr(minutes: Any) -> str:
+    """Lot 47 — 95 -> « 1 h 35 min », 40 -> « 40 min »."""
+    m = int(minutes or 0)
+    return f"{m // 60} h {m % 60:02d} min" if m >= 60 else f"{m} min"
+
+
+def _date_heure(iso: Optional[str]) -> str:
+    """Lot 47 — « 2026-09-30T08:05:00+00:00 » -> « 30/09/2026 08:05 » (heure UTC = heure de Ouagadougou)."""
+    try:
+        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def infos_intervention(f: Dict[str, Any]) -> Dict[str, Any]:
+    """Lot 47 — champs d'intervention exposés dans la liste et la fiche : état (None si
+    aucune), historique, intervention ouverte, durée totale des interventions fermées, prête
+    à facturer. Les fiches antérieures au lot 47 n'ont aucun de ces champs."""
+    interventions = list(f.get("interventions") or [])
+    ouverte = next((i for i in interventions if not i.get("fin")), None)
+    total = sum(int(i.get("duree_minutes") or 0) for i in interventions if i.get("fin"))
+    etat = f.get("etat_intervention") if f.get("etat_intervention") in ETATS_INTERVENTION else None
+    return {"etat_intervention": etat, "interventions": interventions, "intervention_ouverte": ouverte,
+            "duree_totale_minutes": total, "prete_a_facturer": bool(f.get("prete_a_facturer"))}
+
+
+def recap_interventions(f: Dict[str, Any]) -> str:
+    """Lot 47 — récapitulatif des interventions (notes de la facture) : dates, durées, équipe."""
+    infos = infos_intervention(f)
+    if not infos["interventions"]:
+        return ""
+    lignes = ["Interventions :"]
+    for n, i in enumerate(infos["interventions"], 1):
+        fin = f"{_date_heure(i.get('fin'))} ({duree_fr(i.get('duree_minutes'))})" if i.get("fin") else "en cours"
+        ligne = f"{n}. {_date_heure(i.get('debut'))} → {fin} — {LIBELLES_INTERVENTION.get(i.get('etat_fin'), '')}".rstrip(" —")
+        if i.get("equipe"):
+            ligne += f" — Équipe : {i['equipe']}"
+        if i.get("motif"):
+            ligne += f" — Motif : {i['motif']}"
+        lignes.append(ligne)
+    lignes.append(f"Durée totale : {duree_fr(infos['duree_totale_minutes'])}")
+    return "\n".join(lignes)
 
 
 def texte_fiche(f: Dict[str, Any], lien_paiement: Optional[str] = None) -> str:
@@ -152,6 +219,14 @@ def texte_fiche(f: Dict[str, Any], lien_paiement: Optional[str] = None) -> str:
         lignes.append(f"Pièces à remplacer : {f.get('pieces') or 'oui'}")
     if f.get("equipe"):
         lignes.append(f"Équipe : {f['equipe']}")
+    # Lot 47 — état de l'intervention et durée totale, s'il y en a eu
+    infos = infos_intervention(f)
+    if infos["etat_intervention"]:
+        lignes.append(f"Intervention : {LIBELLES_INTERVENTION[infos['etat_intervention']]}"
+                      + (f" (depuis le {_date_heure(infos['intervention_ouverte'].get('debut'))})"
+                         if infos["intervention_ouverte"] else ""))
+    if infos["duree_totale_minutes"]:
+        lignes.append(f"Durée d'intervention : {duree_fr(infos['duree_totale_minutes'])}")
     if f.get("date_sortie"):
         lignes.append(f"Restitué le : {f['date_sortie'][:10]}")
     lignes.append(f"Prix du diagnostic : *{montant_fr(f.get('prix_diagnostic'))} FCFA*")
@@ -282,7 +357,7 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
     # ---- Fiches -------------------------------------------------------------------------
     @api.get("/me/maintenance", tags=["Maintenance"])
     async def lister(q: Optional[str] = None, statut: Optional[str] = None, type_materiel: Optional[str] = None,
-                     user: dict = Depends(utilisateur)):
+                     prete: bool = False, user: dict = Depends(utilisateur)):
         filtre: Dict[str, Any] = dict(_perimetre(user))
         if type_materiel:
             filtre["type_materiel"] = type_materiel
@@ -293,13 +368,19 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
         fiches = await db.maintenance_fiches.find(filtre, {"_id": 0}).sort("date_reception", -1).to_list(1000)
         for f in fiches:
             f["statut"] = statut_de(f)
+            f.update(infos_intervention(f))                      # lot 47
         await _etat_paiement(fiches)
         if statut:
             fiches = [f for f in fiches if f["statut"] == statut]
+        # Lot 47 — compteurs d'intervention (avant le filtre « Prêtes à facturer »)
+        compte_intervention = {"en_cours": sum(1 for f in fiches if f["etat_intervention"] == "en_cours"),
+                               "prete_a_facturer": sum(1 for f in fiches if f["prete_a_facturer"])}
+        if prete:
+            fiches = [f for f in fiches if f["prete_a_facturer"]]
         compte = {s: 0 for s in STATUTS}
         for f in fiches:
             compte[f["statut"]] += 1
-        return {"fiches": fiches, "compte": compte}
+        return {"fiches": fiches, "compte": compte, "compte_intervention": compte_intervention}
 
     @api.post("/me/maintenance", tags=["Maintenance"])
     async def creer(data: FicheIn, user: dict = Depends(utilisateur)):
@@ -311,12 +392,13 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
         doc["date_reception"] = doc.get("date_reception") or _maintenant()[:10]
         doc["statut"] = statut_de(doc)
         await db.maintenance_fiches.insert_one(dict(doc))
-        return doc
+        return {**doc, **infos_intervention(doc)}
 
     @api.get("/me/maintenance/{fid}", tags=["Maintenance"])
     async def lire(fid: str, user: dict = Depends(utilisateur)):
         f = await _fiche(user, fid)
         f["statut"] = statut_de(f)
+        f.update(infos_intervention(f))                          # lot 47
         await _etat_paiement([f])
         return f
 
@@ -326,6 +408,10 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
         maj = {**await _client(user, data), **_champs(data), "maj_le": _maintenant(),
                "maj_par": user.get("full_name") or user.get("email") or user["id"]}
         maj["statut"] = statut_de(maj)
+        # Lot 47 — l'état d'intervention ne se modifie que par /intervention (FicheIn ne le
+        # contient pas ; garde-fou si un champ s'y glissait un jour)
+        for k in CHAMPS_INTERVENTION:
+            maj.pop(k, None)
         await db.maintenance_fiches.update_one({"id": fid}, {"$set": maj})
         return await lire(fid, user)
 
@@ -475,7 +561,10 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
                    "materiel": f"{f.get('type_materiel')}" + (f" {f['marque_modele']}" if f.get("marque_modele") else ""),
                    "statut": LIBELLES_STATUT.get(statut_de(f), ""), "diagnostic": f.get("diagnostic") or "",
                    "prix": f"{montant_fr(f.get('prix_diagnostic'))} FCFA", "equipe": f.get("equipe") or "",
-                   "lien_paiement": lien or "", "motif": f.get("motif") or ""}
+                   "lien_paiement": lien or "", "motif": f.get("motif") or "",
+                   # Lot 47 — état de l'intervention et durée totale
+                   "intervention": LIBELLES_INTERVENTION.get(infos_intervention(f)["etat_intervention"], ""),
+                   "duree": duree_fr(infos_intervention(f)["duree_totale_minutes"])}
             if data.header_image and not photos:
                 # Meta refuse un modèle à en-tête image envoyé sans image : message clair avant l'envoi
                 raise HTTPException(status_code=400, detail=(
@@ -517,6 +606,12 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
         f = await _fiche(user, fid)
         if data.kind == "invoice" and (f.get("facture") or {}).get("kind") == "invoice":
             raise HTTPException(status_code=409, detail=f"Fiche déjà facturée ({f['facture']['numero']})")
+        # Lot 47 — pas de facture tant qu'une intervention est ouverte. Une fiche sans
+        # intervention (antérieure au lot 47) reste facturable ; la proforma (devis) reste
+        # possible à tout moment.
+        infos = infos_intervention(f)
+        if data.kind == "invoice" and infos["intervention_ouverte"]:
+            raise HTTPException(status_code=409, detail="Fermez l'intervention (Arrêtée ou Terminée) avant de facturer")
         lignes = []
         if f.get("prix_diagnostic"):
             lignes.append({"label": f"Diagnostic {f.get('type_materiel')}"
@@ -540,11 +635,62 @@ def attach_maintenance_routes(*, api, db, get_current_user, fonction_active=None
                   "email": client.get("email"), "phone": client.get("phone") or f.get("client_telephone"),
                   "whatsapp": client.get("whatsapp_number") or f.get("client_telephone"),
                   **{k: client.get(k) for k in ("billing_address", "city", "nif", "ifu", "rccm") if client.get(k)}}
-        facture = await create_invoice_for_client(user, client, lignes, notes=f"Maintenance — fiche {f['numero']}",
+        # Lot 47 — récapitulatif des interventions (dates, durées, équipe) dans les notes
+        notes = "\n\n".join(x for x in (f"Maintenance — fiche {f['numero']}", recap_interventions(f)) if x)
+        facture = await create_invoice_for_client(user, client, lignes, notes=notes,
                                                   kind=data.kind, source="maintenance")
         ref = {"id": facture["id"], "numero": facture.get("number"), "kind": data.kind,
                "montant": facture.get("net_to_pay"), "le": _maintenant()}
-        await db.maintenance_fiches.update_one({"id": fid}, {"$set": {"facture": ref}})
+        maj: Dict[str, Any] = {"facture": ref}
+        if data.kind == "invoice":
+            maj["prete_a_facturer"] = False                     # lot 47 : facturée
+        await db.maintenance_fiches.update_one({"id": fid}, {"$set": maj})
         return ref
+
+    # ---- Lot 47 : intervention en cours / arrêtée / terminée ---------------------------------
+    @api.post("/me/maintenance/{fid}/intervention", tags=["Maintenance"])
+    async def changer_intervention(fid: str, data: InterventionIn, user: dict = Depends(utilisateur)):
+        f = await _fiche(user, fid)                  # mêmes droits que la modification de la fiche
+        auteur = {"id": user.get("id"), "nom": user.get("full_name") or user.get("email") or user.get("id")}
+        note = (data.note or "").strip() or None
+        maintenant = _maintenant()
+        ouverte = infos_intervention(f)["intervention_ouverte"]
+        if data.etat == "en_cours":
+            # Ouverture : une seule intervention ouverte à la fois
+            if ouverte:
+                raise HTTPException(status_code=409, detail="Une intervention est déjà en cours sur cette fiche")
+            intervention = {"id": secrets.token_hex(6), "debut": maintenant, "fin": None, "duree_minutes": None,
+                            "equipe": f.get("equipe"), "ouverte_par": auteur, "note": note}
+            # Filtre sur l'état : deux clics simultanés n'ouvrent pas deux interventions
+            r = await db.maintenance_fiches.update_one(
+                {"id": fid, "etat_intervention": {"$ne": "en_cours"}},
+                {"$push": {"interventions": intervention},
+                 "$set": {"etat_intervention": "en_cours", "maj_le": maintenant}})
+            if not r.modified_count:
+                raise HTTPException(status_code=409, detail="Une intervention est déjà en cours sur cette fiche")
+        else:
+            # Fermeture (Arrêtée ou Terminée) : durée en minutes, fiche prête à facturer
+            if not ouverte:
+                raise HTTPException(status_code=409, detail="Aucune intervention en cours : démarrez-la d'abord")
+            try:
+                duree = max(0, round((datetime.fromisoformat(maintenant)
+                                      - datetime.fromisoformat(ouverte["debut"])).total_seconds() / 60))
+            except (TypeError, ValueError):
+                duree = 0
+            maj: Dict[str, Any] = {"interventions.$.fin": maintenant, "interventions.$.duree_minutes": duree,
+                                   "interventions.$.fermee_par": auteur, "interventions.$.etat_fin": data.etat,
+                                   "etat_intervention": data.etat, "maj_le": maintenant}
+            if data.etat == "arrete":
+                maj["interventions.$.motif"] = note
+            else:
+                maj["interventions.$.note_fin"] = note
+            # « Prête à facturer » sauf si une facture (pas une proforma) existe déjà
+            if (f.get("facture") or {}).get("kind") != "invoice":
+                maj["prete_a_facturer"] = True
+            r = await db.maintenance_fiches.update_one(
+                {"id": fid, "etat_intervention": "en_cours", "interventions.id": ouverte["id"]}, {"$set": maj})
+            if not r.modified_count:
+                raise HTTPException(status_code=409, detail="Aucune intervention en cours : démarrez-la d'abord")
+        return await lire(fid, user)
 
     return {"statut_de": statut_de}

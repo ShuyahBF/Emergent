@@ -303,6 +303,7 @@ DEFAULT_CLIENT_FEATURES = {
     "ordonnances_stock": False,  # Lot 39 — Ordonnances et stock (photo → disponibilité, réservation)
     "whatsapp_carrousel": False,  # Lot 40 — Carrousel WhatsApp (Admin seulement ; exige aussi « whatsapp »)
     "maintenance_equipements": False,  # Lot 41 — Maintenance des équipements confiés (Admin + Superviseur)
+    "parc_informatique": False,  # Lot 47 — Parc informatique : équipements, interventions, rapports signés
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -579,6 +580,7 @@ class ClientFeaturesUpdate(BaseModel):
     ordonnances_stock: Optional[bool] = None
     whatsapp_carrousel: Optional[bool] = None  # Lot 40
     maintenance_equipements: Optional[bool] = None  # Lot 41
+    parc_informatique: Optional[bool] = None  # Lot 47
     # Iter38r-fix9p (correction) — OCR pricing & quotas per tenant.
     # Read by routes/liluvine_kb.py with fallback on settings.global.
     kb_ocr_xof_per_page: Optional[int] = None

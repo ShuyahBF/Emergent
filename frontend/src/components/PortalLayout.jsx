@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
@@ -121,6 +121,8 @@ const clientLinks = [
   { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
   // Lot 41 — matériel confié pour réparation (fonction activable).
   { to: "/portal/maintenance", label: "Maintenance des équipements", icon: Wrench, featureGate: "maintenance_equipements" },
+  // Lot 47 — parc informatique du client : équipements, interventions, rapports signés (fonction activable).
+  { to: "/portal/parc", label: "Parc informatique", icon: Monitor, featureGate: "parc_informatique" },
 ];
 
 const adminLinks = [
@@ -175,6 +177,7 @@ const adminLinks = [
   { to: "/admin/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
   { to: "/admin/ordonnances-stock", label: "Ordonnances et stock", icon: Pill },   // lot 39
   { to: "/admin/maintenance", label: "Maintenance des équipements", icon: Wrench },   // lot 41
+  { to: "/admin/parc", label: "Parc informatique", icon: Monitor },   // lot 47
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)

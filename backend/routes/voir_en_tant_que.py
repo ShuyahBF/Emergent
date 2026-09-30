@@ -107,6 +107,7 @@ FONCTIONS_TEST = {
     "ocr_pieces": True,               # OCR sur Pièces
     "ordonnances_stock": True,        # Ordonnances et stock
     "maintenance_equipements": True,  # Maintenance des équipements
+    "parc_informatique": True,        # Parc informatique (lot 47)
     "whatsapp": True,                 # menus WhatsApp (envois réels : voir limites)
     "internal_chat": True,            # discussion interne entre utilisateurs suivis
 }

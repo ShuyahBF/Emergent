@@ -445,7 +445,17 @@ export default function FonctionsClients() {
             {affiches.map((c) => (
               <tr key={c.id} className="border-t border-slate-100" data-testid={`fonctions-client-${c.id}`}>
                 <td className="px-4 py-2">
-                  <p className="font-medium text-slate-800">{c.company || c.full_name || c.email}</p>
+                  <p className="font-medium text-slate-800">
+                    {c.company || c.full_name || c.email}
+                    {/* Lot 42 — compte Superviseur ou de la plateforme SAWALI : accès toujours ouvert pour
+                        lui-même, le réglage vaut pour ses utilisateurs suivis */}
+                    {c.plateforme && (
+                      <span className="ml-2 align-middle text-[10px] rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5"
+                        title="Ce compte a toujours accès ; l'activation vaut pour ses utilisateurs suivis">
+                        {c.role === "superviseur" ? "Superviseur" : "Plateforme"}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-slate-500">{[c.client_code, c.full_name !== c.company ? c.full_name : null, c.email].filter(Boolean).join(" · ")}</p>
                 </td>
                 {FONCTIONS.map((f) => (

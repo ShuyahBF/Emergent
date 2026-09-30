@@ -131,6 +131,7 @@ class SendRequest(BaseModel):
     text_message: Optional[str] = None
     title: Optional[str] = None
     channel: str = "whatsapp"           # lot 35 : whatsapp | sms (text_message = texte du SMS)
+    programme_le: Optional[str] = None  # lot 42 : date/heure d'envoi programmée (heure de la plateforme)
 
 
 class PublicAnswer(BaseModel):
@@ -340,6 +341,7 @@ def attach_wa_survey_routes(
     sms_send=None,                       # lot 35 — async (numéro, texte) -> {ok, status, api_message, provider}
     enforce_sms_quota=None,              # lot 35 — async (user, nombre) -> None
     on_reponse=None,                     # lot 41 — async (sondage, invitation) : automatisation « survey.responded »
+    plages=None,                         # lot 42 — {attente, programme} de routes/plages_envoi.py
 ) -> Dict[str, Any]:
     """Branche les routes des sondages WhatsApp. Renvoie {"resume": coroutine}
     à lancer au démarrage (reprise d'un envoi interrompu par un redémarrage)."""
@@ -613,6 +615,14 @@ def attach_wa_survey_routes(
             {"id": {"$in": camp.get("invite_ids") or []}, "pending_campaign_id": camp_id}, {"_id": 0}).to_list(None)
         window = await _open_window_digits(["".join(ch for ch in (i.get("phone") or "") if ch.isdigit()) for i in pending])
         for inv in pending:
+            # Lot 42 — envoi annulé, ou hors des plages horaires fixées par l'Admin :
+            # on s'arrête ; le planificateur relance l'envoi à l'ouverture de la plage suivante.
+            if camp_id in _annules:
+                _annules.discard(camp_id)
+                _running.pop(camp_id, None)
+                return
+            if await _mettre_en_attente(camp_id):
+                return
             inv["_window_open"] = "".join(ch for ch in (inv.get("phone") or "") if ch.isdigit()) in window
             try:
                 res = await _send_one(camp, survey, inv)
@@ -672,13 +682,70 @@ def attach_wa_survey_routes(
                 except Exception:  # noqa: BLE001
                     logger.warning("[wa-surveys] trace du message impossible", exc_info=True)
             await asyncio.sleep(SEND_PAUSE_SECONDS)
-        await db.wa_survey_campaigns.update_one({"id": camp_id}, {"$set": {"status": "done", "finished_at": _now()}})
+        # Lot 42 — « running » seulement : un envoi annulé entre-temps reste « annulé »
+        await db.wa_survey_campaigns.update_one({"id": camp_id, "status": "running"},
+                                                {"$set": {"status": "done", "finished_at": _now()}})
         _running.pop(camp_id, None)
 
     def _launch(camp_id: str) -> None:
         if camp_id in _running and not _running[camp_id].done():
             return
         _running[camp_id] = asyncio.create_task(_run_campaign(camp_id))
+
+    # ---- Lot 42 : plages horaires, envois programmés, annulation ----------
+    _annules: set = set()
+
+    async def _mettre_en_attente(camp_id: str) -> bool:
+        """Hors plage horaire : l'envoi passe « en attente » jusqu'à la prochaine ouverture."""
+        if plages is None:
+            return False
+        ouverture = await plages["attente"]()
+        if ouverture is None:
+            return False
+        await db.wa_survey_campaigns.update_one({"id": camp_id, "status": "running"}, {"$set": {
+            "status": "waiting", "reprise_a": ouverture.isoformat(), "updated_at": _now()}})
+        _running.pop(camp_id, None)
+        return True
+
+    async def lancer_echus() -> int:
+        """Démarre les envois programmés arrivés à échéance et reprend ceux qui attendaient
+        l'ouverture d'une plage horaire. Appelé chaque minute par le planificateur."""
+        n = 0
+        maintenant = _now()
+        async for c in db.wa_survey_campaigns.find(
+                {"status": {"$in": ["scheduled", "waiting"]}, "reprise_a": {"$lte": maintenant}}, {"_id": 0, "id": 1}):
+            r = await db.wa_survey_campaigns.update_one(
+                {"id": c["id"], "status": {"$in": ["scheduled", "waiting"]}},
+                {"$set": {"status": "running", "updated_at": _now()}})
+            if r.modified_count:
+                _launch(c["id"])
+                n += 1
+        return n
+
+    async def _planificateur() -> None:
+        while True:
+            try:
+                await lancer_echus()
+            except Exception:  # noqa: BLE001 — une erreur passagère ne stoppe pas le planificateur
+                logger.warning("[wa-surveys] planificateur", exc_info=True)
+            await asyncio.sleep(60)
+
+    @api.delete("/me/wa-surveys/{sid}/campaigns/{cid}", tags=["Sondages WhatsApp"])
+    async def cancel_campaign(sid: str, cid: str, user: dict = Depends(get_current_user)):
+        """Annule un envoi programmé, en attente de plage ou en cours (les messages déjà partis restent)."""
+        await _get_survey(sid, user)
+        r = await db.wa_survey_campaigns.update_one(
+            {"id": cid, "survey_id": sid, "status": {"$in": ["scheduled", "waiting", "running"]}},
+            {"$set": {"status": "cancelled", "cancelled_at": _now(), "updated_at": _now(),
+                      "cancelled_by": user.get("full_name") or user.get("email")}})
+        if not r.modified_count:
+            raise HTTPException(status_code=409, detail="Cet envoi est déjà terminé ou annulé")
+        if cid in _running and not _running[cid].done():
+            _annules.add(cid)
+        await db.wa_survey_invites.update_many({"pending_campaign_id": cid, "status": "queued"},
+                                               {"$set": {"status": "skipped", "error": "Envoi annulé"}})
+        await db.wa_survey_invites.update_many({"pending_campaign_id": cid}, {"$set": {"pending_campaign_id": None}})
+        return {"ok": True}
 
     @api.post("/me/wa-surveys/{sid}/send", tags=["Sondages WhatsApp"])
     async def send_survey(sid: str, payload: SendRequest, request: Request, user: dict = Depends(get_current_user)):
@@ -696,6 +763,8 @@ def attach_wa_survey_routes(
             if not await wa_enabled_for(user):
                 raise HTTPException(status_code=403, detail="WhatsApp non autorisé pour votre compte")
         survey = await _get_survey(sid, user)
+        # Lot 42 — date d'envoi programmée (contrôlée avant toute écriture)
+        quand = await plages["programme"](payload.programme_le) if plages is not None else None
         if not survey.get("questions"):
             raise HTTPException(status_code=400, detail="Ce sondage n'a aucune question")
         if survey.get("status") == "closed":
@@ -779,11 +848,15 @@ def attach_wa_survey_routes(
             "created_by_id": user["id"], "created_by_label": user.get("full_name") or user.get("email"),
             "created_at": _now(), "updated_at": _now(),
         }
+        if quand and quand > datetime.now(timezone.utc):
+            # Lot 42 — envoi programmé : le planificateur le démarre à l'heure dite
+            camp.update({"status": "scheduled", "programme_le": quand.isoformat(), "reprise_a": quand.isoformat()})
         await db.wa_survey_campaigns.insert_one(camp.copy())
         await db.wa_survey_invites.update_many(
             {"id": {"$in": camp["invite_ids"]}},
             {"$set": {"pending_campaign_id": camp["id"]}, "$addToSet": {"campaign_ids": camp["id"]}})
-        _launch(camp["id"])
+        if camp["status"] == "running":
+            _launch(camp["id"])                    # hors plage horaire, il passera aussitôt « en attente »
         camp.pop("invite_ids", None)
         return {"ok": True, "campaign": camp}
 
@@ -946,6 +1019,13 @@ def attach_wa_survey_routes(
                         headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
 
     # ---- Page publique (sans compte) --------------------------------------
+    async def _cree_par_plateforme(s: dict) -> bool:
+        """Lot 42 — sondage créé par un Admin ou un Superviseur ?"""
+        if not s.get("created_by_id"):
+            return False
+        u = await db.users.find_one({"id": s["created_by_id"]}, {"_id": 0, "role": 1})
+        return bool(u) and is_admin_like(u)
+
     async def _public_ctx(token: str):
         inv = await db.wa_survey_invites.find_one({"token": token}, {"_id": 0})
         if not inv:
@@ -954,7 +1034,10 @@ def attach_wa_survey_routes(
         if not s:
             raise HTTPException(status_code=404, detail="Ce sondage n'existe plus")
         # Lot 34 — « Formulaires et Sondages » désactivé pour le client propriétaire : lien inactif.
-        if owner_enabled is not None and not await owner_enabled(s.get("client_id")):
+        # Lot 42 — sauf pour un sondage créé par l'Admin ou le Superviseur (sondages de SAWALI,
+        # éventuellement rattachés à un client pour la facturation) : son lien restait refusé.
+        if owner_enabled is not None and not await owner_enabled(s.get("client_id")) \
+                and not await _cree_par_plateforme(s):
             raise HTTPException(status_code=404, detail="Ce sondage n'est plus disponible")
         closed = s.get("status") == "closed"
         if not closed and s.get("closes_at"):
@@ -1021,5 +1104,10 @@ def attach_wa_survey_routes(
             pass
         async for c in db.wa_survey_campaigns.find({"status": "running"}, {"_id": 0, "id": 1}):
             _launch(c["id"])
+        if plages is not None and not _planif.get("tache"):
+            _planif["tache"] = asyncio.create_task(_planificateur())   # lot 42
 
-    return {"resume": resume, "run_campaign": _run_campaign, "running": _running}
+    _planif: Dict[str, Any] = {}
+    return {"resume": resume, "run_campaign": _run_campaign, "running": _running,
+            "lancer_echus": lancer_echus,                                     # lot 42
+            "resolve_contacts": _resolve_contacts, "open_window_digits": _open_window_digits}

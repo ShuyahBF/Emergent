@@ -21,6 +21,7 @@ import { ArrowLeft, Send, RefreshCw, Download, Edit, Users, Eye, CheckCircle2, A
 import SurveySendModal from "@/components/SurveySendModal";
 import { SURVEY_STATUS } from "@/pages/portal/Surveys";
 import { marquerVu } from "@/lib/nouveautesFormulaires";   // lot 41
+import SuiviEnvois from "@/components/SuiviEnvois";            // lot 42
 
 const PALETTE = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#64748b"];
 const INVITE_STATUS = {
@@ -149,6 +150,12 @@ export default function SurveyResults() {
     return () => clearInterval(t);
   }, [running, load]);
 
+  // Lot 42 — annulation d'un envoi programmé ou en attente de la plage horaire
+  const annulerEnvoi = async (cid) => {
+    try { await apiClient.delete(`/me/wa-surveys/${sid}/campaigns/${cid}`); toast.success("Envoi annulé"); load(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Annulation impossible"); }
+  };
+
   const exportCsv = async () => {
     try {
       const r = await apiClient.get(`/me/wa-surveys/${sid}/export.csv${dateFrom || dateTo ? `?${params}` : ""}`, { responseType: "blob" });
@@ -215,7 +222,7 @@ export default function SurveyResults() {
         <label className="text-xs text-slate-600">Envoi
           <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
             <option value="">Tous les envois</option>
-            {campaigns.map((c) => <option key={c.id} value={c.id}>{fmt(c.created_at)} · {c.kind === "reminder" ? "relance" : "envoi"} · {c.total} dest.</option>)}
+            {campaigns.map((c) => <option key={c.id} value={c.id}>{fmt(c.created_at)} · {c.kind === "reminder" ? "relance" : "envoi"} · {c.total} dest.{c.status === "scheduled" ? " · programmé" : c.status === "waiting" ? " · en attente" : c.status === "cancelled" ? " · annulé" : ""}</option>)}
           </select>
         </label>
         <label className="text-xs text-slate-600">Du
@@ -228,6 +235,9 @@ export default function SurveyResults() {
           <button onClick={() => { setCampaignId(""); setDateFrom(""); setDateTo(""); }} className="text-xs text-sawali-blue hover:underline pb-2">Effacer les filtres</button>
         )}
       </div>
+
+      {/* Lot 42 — envois programmés ou en attente de la plage horaire (annulables) */}
+      <SuiviEnvois items={campaigns} onAnnuler={annulerEnvoi} />
 
       {/* Envois en cours */}
       {campaigns.filter((c) => c.status === "running").map((c) => (

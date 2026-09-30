@@ -280,6 +280,11 @@ async def _signaler_reponse_sondage(sondage: dict, invitation: dict) -> None:
         except Exception:  # noqa: BLE001
             logger.warning("[automations] survey.responded non émis", exc_info=True)
     asyncio.create_task(_go())
+# Lot 42 — plages horaires d'envoi (Paramètres de l'Admin) : les envois de sondages et de
+# liens de formulaires n'ont lieu que dans ces plages, et reprennent seuls à la suivante.
+from routes.plages_envoi import attach_plages_envoi_routes as _attach_plages_envoi  # noqa: E402
+_plages_envoi = _attach_plages_envoi(api=api, db=db, get_current_admin=get_current_admin,
+                                     get_current_user=get_current_user)
 # Lot 34 — routes des sondages réservées aux comptes dont « Formulaires et Sondages »
 # est activé (SMART Communications) ; liens publics : même contrôle sur le propriétaire.
 _wa_surveys = _attach_wa_surveys(
@@ -297,6 +302,23 @@ _wa_surveys = _attach_wa_surveys(
     sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
     enforce_sms_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_SMS, increment=n),
     on_reponse=_signaler_reponse_sondage,          # lot 41 : automatisation « survey.responded »
+    plages=_plages_envoi,                          # lot 42 : plages horaires et envois programmés
+)
+
+# Lot 42 — envoi du lien d'un formulaire public à des contacts (WhatsApp ou SMS),
+# immédiat ou programmé, dans les plages horaires ; destinataires calculés comme les sondages.
+from routes.envois_formulaires import attach_envois_formulaires_routes as _attach_envois_formulaires  # noqa: E402
+_envois_formulaires = _attach_envois_formulaires(
+    api=api, db=db, get_current_user=_utilisateur_formulaires, uuid_fn=_uuid,
+    can_send_wa=_can_send_wa, is_admin_like=_is_admin_or_superviseur, wa_enabled_for=_wa_enabled_for,
+    enforce_demo_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_WA, increment=n),
+    wa_send_template=_wa_send_template, wa_send_text=_wa_send_text,
+    build_recipient_ctx=_build_recipient_ctx, build_components=_build_components,
+    public_base_url=_public_base_url, resolve_contacts=_wa_surveys["resolve_contacts"],
+    open_window_digits=_wa_surveys["open_window_digits"], plages=_plages_envoi,
+    is_preview_env=_is_preview_environment, sms_enabled_for=_sms_enabled_for,
+    sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
+    enforce_sms_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_SMS, increment=n),
 )
 
 
@@ -318,6 +340,7 @@ _attach_portfolio_billing(
 async def _resume_wa_surveys():
     """Reprend un envoi de sondage interrompu par un redémarrage (hors preview)."""
     asyncio.create_task(_wa_surveys["resume"]())
+    asyncio.create_task(_envois_formulaires["demarrer"]())      # lot 42 : envois de formulaires
 
 # Iter40 (2026-02) — Form categories (max 6 per tenant)
 from routes.form_categories import attach_form_categories_routes as _attach_form_categories  # noqa: E402

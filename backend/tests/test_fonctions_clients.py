@@ -111,9 +111,11 @@ def test_superviseur_liste_et_active(env):
     assert liste["fonctions"] == {"forms_surveys": "Formulaires et Sondages", "ocr_pieces": "OCR sur Pièces",
                                   "ordonnances_stock": "Ordonnances et stock",
                                   "maintenance_equipements": "Maintenance des équipements"}   # lot 41
-    # Comptes clients seulement : ni Admin, ni Superviseur, ni utilisateur suivi ; triés par nom.
-    assert [c["id"] for c in liste["clients"]] == ["medecin_c", "pharma_a", "pharma_b"]
-    assert [(c["forms_surveys"], c["ocr_pieces"]) for c in liste["clients"]] == [(False, True), (True, False), (False, False)]
+    # Comptes clients (ni Admin, ni utilisateur suivi), triés par nom ; lot 42 : le compte
+    # Superviseur apparaît en tête, marqué « plateforme » (pour ses utilisateurs suivis).
+    assert [c["id"] for c in liste["clients"]] == ["sup", "medecin_c", "pharma_a", "pharma_b"]
+    assert [c["plateforme"] for c in liste["clients"]] == [True, False, False, False]
+    assert [(c["forms_surveys"], c["ocr_pieces"]) for c in liste["clients"][1:]] == [(False, True), (True, False), (False, False)]
     # Le Superviseur active l'OCR pour la pharmacie B : accès ouvert aussitôt.
     r = env.client.put("/api/supervision/fonctions-clients/pharma_b", headers=_h("sup"), json={"ocr_pieces": True})
     assert r.status_code == 200 and r.json() == {"id": "pharma_b", "forms_surveys": False, "ocr_pieces": True,

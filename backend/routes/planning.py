@@ -150,9 +150,10 @@ _TEL_FIN_PATIENT = re.compile(r"^(?P<nom>.*?)[\s:;,\-–]*(?P<tel>\+?\d[\d .\-]{
 
 
 def separer_patient_telephone(patient: str) -> tuple:
-    """Lot 41 — « NOM : 77000155 » → (« NOM ; 77000155 », « 77000155 »).
-    Le « ; » est inséré devant le numéro s'il n'y en a pas (séparateur attendu entre le nom
-    et le numéro) ; le numéro trouvé sert de téléphone du patient s'il n'est pas envoyé à part.
+    """Lot 41, corrigé au lot 42 — « OUOBA JF 77000155 » → (« OUOBA JF : 77000155 », « 77000155 »).
+    Le « : » est le séparateur attendu entre le nom et le numéro de téléphone : il est inséré
+    devant le numéro s'il manque (ou remplace un autre séparateur, « ; » compris) ; le numéro
+    trouvé sert de téléphone du patient s'il n'est pas envoyé à part.
     Texte sans numéro final : inchangé, téléphone None."""
     texte = (patient or "").strip()
     m = _TEL_FIN_PATIENT.match(texte)
@@ -162,7 +163,7 @@ def separer_patient_telephone(patient: str) -> tuple:
     tel = m.group("tel").strip()
     if len("".join(ch for ch in tel if ch.isdigit())) < 8 or not nom:
         return texte, None
-    return f"{nom} ; {tel}", tel
+    return f"{nom} : {tel}", tel
 
 
 def _find_free_slot(
@@ -531,7 +532,7 @@ def attach_planning_routes(
         external_id = (body.get("external_id") or body.get("externalId") or "").strip() or None
         # Iter43-fix24az-n — coordonnées patient pour les rappels WA 1h avant RDV
         patient_phone_raw = (body.get("patient_phone") or body.get("phone") or "").strip() or None
-        # Lot 41 — « NOM : 77000155 » : « ; » inséré devant le numéro, numéro repris s'il manque
+        # Lot 41 / 42 — « NOM 77000155 » → « NOM : 77000155 » ; numéro repris s'il manque
         patient, tel_dans_nom = separer_patient_telephone(patient)
         patient_phone_raw = patient_phone_raw or tel_dans_nom
         patient_email = (body.get("patient_email") or "").strip().lower() or None

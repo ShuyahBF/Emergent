@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star } from "lucide-react";
+import { FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star, Send } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
+import EnvoisFormulaireModal from "@/components/EnvoisFormulaireModal";   // lot 42
 import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 import ImportDocumentModal from "@/components/ImportDocumentModal";
 import { lireNouveautes, titrePuce } from "@/lib/nouveautesFormulaires";   // lot 41
@@ -14,6 +15,7 @@ export default function FormsList() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("mine");
   const [shareForm, setShareForm] = useState(null);
+  const [envoiForm, setEnvoiForm] = useState(null);      // lot 42 : envoi du lien par WhatsApp / SMS
   // Iter34t — Modal-based "Nouveau formulaire" flow with title validation
   // and autocomplete suggestions (existing titles for the same client scope).
   const [createOpen, setCreateOpen] = useState(false);
@@ -291,6 +293,10 @@ export default function FormsList() {
                     {f.is_public && (
                       <button onClick={() => setShareForm(f)} className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2.5 py-1.5 hover:bg-emerald-700" data-testid={`form-share-${f.id}`} title="Partager publiquement"><Share2 className="h-3.5 w-3.5" /> Partager</button>
                     )}
+                    {/* Lot 42 — envoi du lien à des contacts (WhatsApp / SMS), immédiat ou programmé */}
+                    {f.is_public && (
+                      <button onClick={() => setEnvoiForm(f)} className="inline-flex items-center gap-1 text-[11px] rounded bg-teal-600 text-white px-2.5 py-1.5 hover:bg-teal-700" data-testid={`form-envoyer-${f.id}`} title="Envoyer le lien par WhatsApp ou SMS"><Send className="h-3.5 w-3.5" /> Envoyer</button>
+                    )}
                     <button onClick={() => del(f.id)} className="inline-flex items-center gap-1 text-[11px] rounded bg-rose-500 text-white px-2.5 py-1.5 hover:bg-rose-600" data-testid={`form-delete-${f.id}`}><Trash2 className="h-3.5 w-3.5" /></button>
                   </>
                 ) : (
@@ -303,6 +309,7 @@ export default function FormsList() {
       )}
 
       {shareForm && <ShareFormModal form={shareForm} onClose={() => setShareForm(null)} />}
+      {envoiForm && <EnvoisFormulaireModal form={envoiForm} onClose={() => setEnvoiForm(null)} />}
       {importOpen && (
         <ImportDocumentModal cible="formulaire" lienEditeur={(id) => `/portal/forms/${id}/edit`}
           onClose={() => { setImportOpen(false); load(); }} />

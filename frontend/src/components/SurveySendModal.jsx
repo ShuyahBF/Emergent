@@ -17,17 +17,26 @@
   encore répondu ; seule l'étape « Message » est affichée.
   Lot 35 — canal au choix : WhatsApp (ci-dessus) ou SMS (même lien personnel,
   texte libre, ni modèle Meta ni fenêtre de 24 h ; module SMS du compte requis).
+  Lot 42 — « Quand envoyer ? » : maintenant ou à une date programmée, dans les plages
+  horaires fixées par l'Admin. `kind="form"` : même fenêtre pour envoyer le lien d'un
+  formulaire public (prop `survey` = le formulaire ; POST /me/forms/{id}/envois).
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { X, Users, Search, Shuffle, Send, CheckSquare, Square, MessageCircle, Loader2, Smartphone } from "lucide-react";
+import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 42
 
 // Lot 35 — message SMS proposé (même texte que le serveur, routes/wa_surveys.DEFAULT_SMS)
 const SMS_PAR_DEFAUT = "Bonjour {{name}}, merci de repondre a notre sondage « {{sondage}} » : {{lien}}";
+// Lot 42 — mêmes textes pour l'envoi du lien d'un formulaire (routes/envois_formulaires.py)
+const SMS_FORMULAIRE = "Bonjour {{name}}, merci de remplir notre formulaire « {{formulaire}} » : {{lien}}";
+const MESSAGE_FORMULAIRE = "Bonjour {{name}}, merci de remplir notre formulaire « {{formulaire}} » : {{lien}}";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
-export default function SurveySendModal({ survey, reminder = false, renvoiEchecs = false, waitingCount = 0, onClose, onSent }) {
+export default function SurveySendModal({ survey, kind = "survey", reminder = false, renvoiEchecs = false, waitingCount = 0, onClose, onSent }) {
+  const estFormulaire = kind === "form";                    // lot 42 : envoi du lien d'un formulaire
+  const mot = estFormulaire ? "formulaire" : "sondage";
   // Lot 41 — `renvoiEchecs` : même fenêtre que la relance, mais pour les invitations en échec / non envoyées
   const [step, setStep] = useState(reminder ? 2 : 1);
   // Sources de destinataires
@@ -55,9 +64,10 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
   // Sans elle, Meta refusait l'envoi (erreur #132000, « header: number of localizable_params (0) »).
   const [headerText, setHeaderText] = useState("");
   const [buttonVars, setButtonVars] = useState([]);
-  const [textMessage, setTextMessage] = useState(survey.message_text || "");
+  const [textMessage, setTextMessage] = useState(estFormulaire ? MESSAGE_FORMULAIRE : survey.message_text || "");
   const [canal, setCanal] = useState("whatsapp");          // lot 35 : whatsapp | sms
-  const [smsMessage, setSmsMessage] = useState(SMS_PAR_DEFAUT);
+  const [smsMessage, setSmsMessage] = useState(estFormulaire ? SMS_FORMULAIRE : SMS_PAR_DEFAUT);
+  const [programmeLe, setProgrammeLe] = useState("");      // lot 42 : vide = envoi immédiat
   const [sending, setSending] = useState(false);
 
   // Chargement des listes (clients, groupes, contacts, modèles Meta)
@@ -66,7 +76,7 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
     Promise.all([
       safe(apiClient.get("/me/clients-roster")), safe(apiClient.get("/me/contact-groups")),
       safe(apiClient.get("/me/contacts")), safe(apiClient.get("/me/whatsapp/templates")),
-      survey.message_text ? Promise.resolve(null) : safe(apiClient.get(`/me/wa-surveys/${survey.id}`)),
+      survey.message_text || estFormulaire ? Promise.resolve(null) : safe(apiClient.get(`/me/wa-surveys/${survey.id}`)),
     ]).then(([r, g, c, t, full]) => {
       setRoster(Array.isArray(r) ? r : r?.items || []);
       setGroups(Array.isArray(g) ? g : g?.items || []);
@@ -74,18 +84,18 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
       setTemplates(t?.items || []);
       if (full?.message_text) setTextMessage(full.message_text);
     });
-  }, [survey.id, survey.message_text]);
+  }, [survey.id, survey.message_text, estFormulaire]);
 
   const template = useMemo(() => templates.find((t) => t.name === templateName) || null, [templates, templateName]);
   const parsed = useMemo(() => (template ? parseTemplate(template) : null), [template]);
   // Valeurs proposées : 1re variable = nom, dernière = lien ; bouton lien = jeton
   useEffect(() => {
     if (!parsed) { setBodyVars([]); setButtonVars([]); setHeaderText(""); return; }
-    setHeaderText(parsed.header?.format === "TEXT" && parsed.header.varCount > 0 ? "{{sondage}}" : "");
+    setHeaderText(parsed.header?.format === "TEXT" && parsed.header.varCount > 0 ? `{{${mot}}}` : "");
     const n = parsed.body.varCount || 0;
     setBodyVars(Array.from({ length: n }, (_, i) => (i === n - 1 ? "{{lien}}" : i === 0 ? "{{name}}" : "")));
     setButtonVars((parsed.buttons || []).map((b) => Array.from({ length: b.urlVarCount || 0 }, () => "{{jeton}}")));
-  }, [parsed]);
+  }, [parsed, mot]);
 
   const filteredRoster = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();
@@ -106,7 +116,8 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
     try {
       const r = await apiClient.post("/me/wa-surveys/recipients/preview", {
         client_ids: clientIds, group_ids: groupIds, contact_ids: contactIds, company: company.trim() || null,
-        survey_id: survey.id, exclude_invited: excludeInvited, sample_size: parseInt(sampleSize, 10) || null,
+        survey_id: estFormulaire ? null : survey.id, exclude_invited: !estFormulaire && excludeInvited,
+        sample_size: parseInt(sampleSize, 10) || null,
       });
       setPreview(r.data);
       setChecked(new Set((r.data.items || []).map((i) => i.id)));
@@ -126,19 +137,24 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
     if (canal === "whatsapp" && mode === "template" && !templateName) { toast.error("Choisissez un modèle Meta"); return; }
     setSending(true);
     try {
-      const r = await apiClient.post(`/me/wa-surveys/${survey.id}/send`, canal === "sms" ? {
+      // Lot 42 — même contenu pour un formulaire, vers sa propre route ; date programmée éventuelle
+      const url = estFormulaire ? `/me/forms/${survey.id}/envois` : `/me/wa-surveys/${survey.id}/send`;
+      const r = await apiClient.post(url, canal === "sms" ? {
         contact_ids: reminder ? [] : selected.map((i) => i.id), reminder: reminder && !renvoiEchecs, renvoi_echecs: renvoiEchecs,
-        channel: "sms", text_message: smsMessage,
+        channel: "sms", text_message: smsMessage, programme_le: programmeLe || null,
       } : {
         contact_ids: reminder ? [] : selected.map((i) => i.id), reminder: reminder && !renvoiEchecs, renvoi_echecs: renvoiEchecs, mode,
         template_name: mode === "text" ? null : templateName || null,
         language_code: template?.language || "fr", variables: mode === "text" ? [] : bodyVars,
         header_text: mode !== "text" && headerText ? headerText : null,   // lot 41
         button_specs: parsed && mode !== "text" ? buildButtonSpecs(parsed, buttonVars) : null,
-        text_message: textMessage,
+        text_message: textMessage, programme_le: programmeLe || null,
       });
-      toast.success(`Envoi lancé vers ${r.data?.campaign?.total || 0} destinataire(s) — suivez la progression dans les résultats`);
-      onSent?.(r.data?.campaign);
+      const envoi = r.data?.campaign || r.data?.envoi;
+      toast.success(envoi?.status === "scheduled"
+        ? `Envoi programmé pour ${envoi.total} destinataire(s)`
+        : `Envoi lancé vers ${envoi?.total || 0} destinataire(s) — suivez la progression`);
+      onSent?.(envoi);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Envoi impossible");
     } finally {
@@ -216,10 +232,12 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
             </section>
             {/* Options d'échantillonnage */}
             <section className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 p-3">
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={excludeInvited} onChange={(e) => setExcludeInvited(e.target.checked)} />
-                Exclure les contacts déjà invités à ce sondage
-              </label>
+              {!estFormulaire && (
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={excludeInvited} onChange={(e) => setExcludeInvited(e.target.checked)} />
+                  Exclure les contacts déjà invités à ce sondage
+                </label>
+              )}
               <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                 <Shuffle className="h-4 w-4 text-slate-500" /> Échantillon aléatoire de
                 <input type="number" min={1} value={sampleSize} onChange={(e) => setSampleSize(e.target.value)} placeholder="tous"
@@ -290,8 +308,8 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
                 <textarea value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} rows={3} maxLength={800}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="send-sms-text" />
                 <p className="text-[11px] text-slate-500">
-                  <code>{"{{lien}}"}</code> = lien personnel du sondage (ajouté à la fin s'il manque) · <code>{"{{name}}"}</code> = nom du
-                  contact · <code>{"{{sondage}}"}</code> = titre. {smsMessage.length} caractère(s) avant remplacement — un SMS compte
+                  <code>{"{{lien}}"}</code> = lien {estFormulaire ? "du formulaire" : "personnel du sondage"} (ajouté à la fin s'il manque) · <code>{"{{name}}"}</code> = nom du
+                  contact · <code>{`{{${mot}}}`}</code> = titre. {smsMessage.length} caractère(s) avant remplacement — un SMS compte
                   160 caractères, préférez un texte court et sans accents.
                 </p>
               </section>
@@ -343,8 +361,9 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
                       </label>
                     ) : null))}
                     <p className="text-[11px] text-slate-500">
-                      <code>{"{{lien}}"}</code> = lien personnel du sondage (obligatoire dans une variable) · <code>{"{{name}}"}</code> = nom du contact ·
-                      bouton dont l'adresse se termine par une variable (ex. …/s/{"{{1}}"}) : <code>{"{{jeton}}"}</code>.
+                      <code>{"{{lien}}"}</code> = lien {estFormulaire ? "du formulaire" : "personnel du sondage"} (obligatoire dans une variable) · <code>{"{{name}}"}</code> = nom du contact ·
+                      <code>{`{{${mot}}}`}</code> = titre · bouton dont l'adresse se termine par une variable
+                      (ex. …/{estFormulaire ? "f" : "s"}/{"{{1}}"}) : <code>{"{{jeton}}"}</code>.
                     </p>
                   </>
                 )}
@@ -359,12 +378,15 @@ export default function SurveySendModal({ survey, reminder = false, renvoiEchecs
               </section>
             )}
             </>)}
+            {/* Lot 42 — maintenant ou à une date programmée, dans les plages horaires de l'Admin */}
+            <EnvoiProgrammation value={programmeLe} onChange={setProgrammeLe} />
             <div className="flex justify-between gap-2">
               {!reminder ? <button onClick={() => setStep(1)} className="text-sm text-slate-600 hover:underline">← Destinataires</button> : <span />}
               <button onClick={send} disabled={sending || (canal === "whatsapp" && mode === "template" && !templateName) || (canal === "sms" && !smsMessage.trim())}
                 data-testid="send-confirm"
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {programmeLe ? "Programmer — " : ""}
                 {renvoiEchecs ? `Renvoyer${canal === "sms" ? " par SMS" : ""}` : reminder ? `Relancer${canal === "sms" ? " par SMS" : ""}` : `Envoyer à ${selected.length}${canal === "sms" ? " par SMS" : ""}`}
               </button>
             </div>

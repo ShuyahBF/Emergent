@@ -31,6 +31,7 @@ import WaSilentDropsSection from "@/pages/admin/sections/WaSilentDropsSection";
 import WaNotificationSoundSection from "@/pages/admin/sections/WaNotificationSoundSection";
 import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
+import PlagesEnvoiSection from "@/pages/admin/sections/PlagesEnvoiSection";   // lot 42
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import TemplatesOtpSection from "@/pages/admin/sections/TemplatesOtpSection";
@@ -60,6 +61,8 @@ import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSectio
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 42 — plages horaires d'envoi des sondages et formulaires
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-09-30",
   // 2026-02 (fork) — Configurable WhatsApp inbound notification sound
   "🔔 WhatsApp — Son de notification (message entrant)": "2026-02-14",
   // S-iter39o (2026-02 post-handoff) — Qdrant RAG
@@ -829,6 +832,11 @@ export default function AdminSettings() {
 
       <Filterable title="🛡️ WhatsApp — Silent Drops (surveillance rejets Meta 2xx sans message_id)" anchorId="s-wa-silent-drops">
         <WaSilentDropsSection />
+      </Filterable>
+
+      {/* Lot 42 — jours et heures pendant lesquels les sondages et liens de formulaires peuvent partir */}
+      <Filterable title="🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)" anchorId="s-plages-envoi" category="comms">
+        <PlagesEnvoiSection />
       </Filterable>
 
       <Filterable title="🔔 WhatsApp — Son de notification (message entrant)" anchorId="s-wa-notification-sound">

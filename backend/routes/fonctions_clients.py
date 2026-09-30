@@ -24,7 +24,8 @@ FONCTIONS_SUPERVISEUR = {"forms_surveys": "Formulaires et Sondages", "ocr_pieces
                          "ordonnances_stock": "Ordonnances et stock",
                          # Lot 41 — matériel confié pour réparation (fiches de dépôt / restitution)
                          "maintenance_equipements": "Maintenance des équipements"}
-# Comptes listés : les rôles « métier » (pas l'Admin ni le Superviseur, qui ont tout).
+# Comptes listés : les rôles « métier » (l'Admin et le Superviseur ont tout) ; lot 42 : on
+# ajoute les comptes Superviseur et le compte de la plateforme, pour leurs utilisateurs suivis.
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 
@@ -56,9 +57,17 @@ def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_s
         ou d'un sondage : le répondant n'est pas connecté)."""
         if not compte_id:
             return False
-        compte = await db.users.find_one({"id": compte_id},
-                                         {"_id": 0, "id": 1, "role": 1, "client_id": 1, "parent_client_id": 1})
-        return bool(compte) and await fonction_active(compte, cle)
+        compte = await db.users.find_one({"id": compte_id}, {"_id": 0, "id": 1, "role": 1, "email": 1,
+                                                             "client_id": 1, "parent_client_id": 1})
+        if not compte:
+            return False
+        # Lot 42 — compte de la plateforme SAWALI (celui de l'Admin ou du Superviseur, qui
+        # n'apparaît pas dans la liste des comptes clients) : ses liens publics restent actifs.
+        if (compte.get("email") or "").lower() == COMPTE_PLATEFORME or await db.users.find_one(
+                {"role": {"$in": ["admin", "superviseur"]},
+                 "$or": [{"client_id": compte_id}, {"parent_client_id": compte_id}]}, {"_id": 0, "id": 1}):
+            return True
+        return await fonction_active(compte, cle)
 
     def exiger_fonction(cle: str):
         """Dépendance FastAPI : utilisateur connecté ET fonction `cle` activée (sinon 403)."""
@@ -73,11 +82,15 @@ def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_s
 
     @api.get("/supervision/fonctions-clients", tags=["Admin"])
     async def lister(_: dict = Depends(get_admin_or_supervisor)):
-        """Comptes clients (pas les utilisateurs suivis : ils héritent de leur client)."""
+        """Comptes clients (pas les utilisateurs suivis : ils héritent de leur client).
+        Lot 42 — aussi les comptes Superviseur et le compte de la plateforme SAWALI
+        (ex. SAWALI-2S) : eux-mêmes ont toujours accès, mais leurs utilisateurs suivis
+        héritent de ces réglages ; ils sont signalés par `plateforme`."""
         requete = {
-            "role": {"$in": ROLES_CLIENTS},
-            "email": {"$nin": [COMPTE_PLATEFORME]},
-            "$or": [{"parent_client_id": {"$exists": False}}, {"parent_client_id": {"$in": [None, ""]}}],
+            "$and": [
+                {"$or": [{"role": {"$in": ROLES_CLIENTS + ["superviseur"]}}, {"email": COMPTE_PLATEFORME}]},
+                {"$or": [{"parent_client_id": {"$exists": False}}, {"parent_client_id": {"$in": [None, ""]}}]},
+            ],
         }
         comptes = await db.users.find(requete, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1,
                                                  "client_code": 1, "role": 1, "features": 1}).to_list(3000)
@@ -86,8 +99,12 @@ def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_s
             f = normalize_features(c.get("features"))
             lignes.append({"id": c["id"], "company": c.get("company"), "full_name": c.get("full_name"),
                            "email": c.get("email"), "client_code": c.get("client_code"), "role": c.get("role"),
+                           "plateforme": c.get("role") not in ROLES_CLIENTS
+                           or (c.get("email") or "").lower() == COMPTE_PLATEFORME,
                            **{cle: bool(f.get(cle)) for cle in FONCTIONS_SUPERVISEUR}})
-        lignes.sort(key=lambda x: (x.get("company") or x.get("full_name") or x.get("email") or "").lower())
+        # Comptes de la plateforme en tête, puis les clients par ordre alphabétique
+        lignes.sort(key=lambda x: (not x["plateforme"],
+                                   (x.get("company") or x.get("full_name") or x.get("email") or "").lower()))
         return {"fonctions": FONCTIONS_SUPERVISEUR, "clients": lignes}
 
     @api.put("/supervision/fonctions-clients/{client_id}", tags=["Admin"])

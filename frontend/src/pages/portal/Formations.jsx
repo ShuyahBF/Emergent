@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { apiClient } from "@/lib/api";
+import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'onglet
 import { GraduationCap, Coins, Users, Layers, ArrowLeft, ChevronRight, Send, Loader2, Star, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -248,7 +248,7 @@ function ModuleViewer({ fid, module, onClose }) {
         const url = `/api/me/formations/${fid}/modules/${module.id}/visit/${visitIdRef.current}/close`;
         try {
           // sendBeacon survives page unload
-          const tok = localStorage.getItem("sawali_token");
+          const tok = jetonCourant();
           const blob = new Blob([JSON.stringify({})], { type: "application/json" });
           // sendBeacon doesn't allow custom headers; fallback to fetch keepalive
           const base = process.env.REACT_APP_BACKEND_URL || "";

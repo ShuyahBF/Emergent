@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiClient, API } from "@/lib/api";
+import { apiClient, API, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'onglet
 import {
   BarChart3, Globe, Lock, RefreshCw, MapPin, Users, UserX, Download, Eye, TrendingUp, UserCheck,
 } from "lucide-react";
@@ -69,7 +69,7 @@ export default function FormAnalyticsDetail() {
 
   const exportCsv = async () => {
     try {
-      const token = localStorage.getItem("sawali_token");
+      const token = jetonCourant();
       const url = `${API}/me/forms/${fid}/analytics/export.csv?date_from=${dateFrom}&date_to=${dateTo}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!resp.ok) {

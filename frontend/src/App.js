@@ -199,6 +199,7 @@ import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
 import WebhookResultModal from "@/components/WebhookResultModal";
+import BandeauVoirEnTantQue from "@/components/BandeauVoirEnTantQue";   // lot 44
 
 import ApiDocs from "@/pages/ApiDocs";
 
@@ -256,6 +257,8 @@ export default function App() {
       <I18nProvider>
         <BrowserRouter>
         <Toaster richColors position="top-right" />
+        {/* Lot 44 — bandeau rouge « Voir en tant que » (toutes les pages de l'onglet) */}
+        <BandeauVoirEnTantQue />
         <WebhookResultModal />
         <RouteTracker />
         <GlobalRouteLoader />

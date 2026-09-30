@@ -64,10 +64,17 @@ async def me_access_clients_list(user: dict = Depends(get_current_user)):
     if not (role_ok or tracked_ok):
         raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs / superviseurs / modérateurs")
     # Return the same shape /admin/clients uses so the FE can swap without changes.
-    items = await db.users.find(
+    filtre: Dict[str, Any] = {
         # Lot 25 — Les deux orthographes du rôle modérateur sont listées.
-        {"role": {"$in": ["client", "superviseur", "admin", "moderateur", "moderator"]},
-         "email": {"$nin": [SUPER_ADMIN_EMAIL]}},
+        "role": {"$in": ["client", "superviseur", "admin", "moderateur", "moderator"]},
+        "email": {"$nin": [SUPER_ADMIN_EMAIL]},
+    }
+    # Lot 44 — les comptes de test (est_test) ne sont proposés qu'à l'Admin et aux
+    # comptes de test eux-mêmes, jamais aux vrais clients.
+    if user.get("role") != "admin" and not user.get("est_test"):
+        filtre["est_test"] = {"$ne": True}
+    items = await db.users.find(
+        filtre,
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
     ).sort("full_name", 1).to_list(1000)
     return items

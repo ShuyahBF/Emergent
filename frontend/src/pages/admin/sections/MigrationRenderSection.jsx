@@ -182,6 +182,40 @@ const MigrationRenderSection = () => {
     document.querySelector('[data-testid="migration-render-section"]')?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // « Réessayer les échecs » : reprise de l'étape Fichiers seulement (ni base, ni secrets).
+  // Les objets déjà présents dans R2 sont sautés. Seuls les identifiants R2 sont nécessaires.
+  const reessayerEchecs = async (j) => {
+    const { r2_account_id, r2_access_key_id, r2_secret_access_key } = form;
+    if (!r2_account_id || !r2_access_key_id || !r2_secret_access_key) {
+      toast.error("Saisissez ou restaurez (coffre) les identifiants R2, puis réessayez.");
+      return;
+    }
+    if (!window.confirm("Réessayer les fichiers en échec ? Seuls les fichiers absents de R2 seront recopiés (la base n'est pas recopiée).")) return;
+    setEnvoi(true);
+    try {
+      const { data } = await apiClient.post(`/admin/migration/jobs/${j.id}/reessayer-echecs`, { ...form, r2_bucket: j.cible?.r2_bucket || form.r2_bucket });
+      toast.success(`Nouvelle tentative lancée (${data.prefixe})`);
+      suivre(data.id);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Nouvelle tentative impossible");
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  // Export CSV des fichiers en échec (UTF-8 avec BOM, séparateur « ; », ouvrable dans Excel)
+  const exporterEchecs = async (j) => {
+    try {
+      const { data } = await apiClient.get(`/admin/migration/jobs/${j.id}/echecs.csv`, { responseType: "blob" });
+      const url = URL.createObjectURL(data);
+      const a = document.createElement("a");
+      a.href = url; a.download = `sawali-migration-echecs-${j.cible?.prefixe || j.id}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Export impossible");
+    }
+  };
+
   // Téléchargement du fichier des secrets chiffré
   const telechargerSecrets = async (id) => {
     try {
@@ -378,10 +412,41 @@ const MigrationRenderSection = () => {
               </div>
             );
           })()}
+          {/* Fichiers : copiés / absents à la source (ignorés, n'empêchent pas « Terminée ») / vraies erreurs */}
           {job.options?.fichiers && job.fichiers_total > 0 && (
             <div className="space-y-1 text-sm">
-              <p>Fichiers : {job.fichiers_copies}/{job.fichiers_total} copiés{job.fichiers_echecs ? ` · ${job.fichiers_echecs} échec(s)` : ""}</p>
-              <Barre fait={job.fichiers_copies + job.fichiers_echecs} total={job.fichiers_total} />
+              <p>
+                Fichiers ({job.fichiers_total}) : <b>{job.fichiers_copies || 0} copiés</b>
+                {" · "}<span className="text-slate-500">{job.fichiers_absents || 0} absents à la source (ignorés)</span>
+                {" · "}<span className={job.fichiers_echecs ? "font-semibold text-red-700" : ""}>{job.fichiers_echecs || 0} vraies erreurs</span>
+              </p>
+              <Barre fait={(job.fichiers_copies || 0) + (job.fichiers_absents || 0) + (job.fichiers_echecs || 0)} total={job.fichiers_total} />
+            </div>
+          )}
+          {/* Échecs groupés par cause / code HTTP + actions */}
+          {job.statut !== "EN_COURS" && (job.fichiers_echecs > 0 || job.fichiers_absents > 0 || job.echecs_fichiers?.length > 0) && (
+            <div className="space-y-2 rounded-lg bg-orange-50 px-3 py-2 text-sm">
+              {job.echecs_par_cause && Object.keys(job.echecs_par_cause).length > 0 && (
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {Object.entries(job.echecs_par_cause).sort((a, b) => b[1] - a[1]).map(([cause, n]) => (
+                    <li key={cause} className={cause.startsWith("absent") ? "text-slate-500" : "font-semibold text-orange-800"}>
+                      {cause} : {n}{cause.startsWith("absent") ? " (ignorés)" : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => exporterEchecs(job)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">
+                  <Download className="h-3 w-3" /> Exporter CSV
+                </button>
+                {job.fichiers_echecs > 0 && REPRENABLES.includes(job.statut) && (
+                  <button type="button" onClick={() => reessayerEchecs(job)} disabled={envoi || enCours}
+                    className="inline-flex items-center gap-1 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50">
+                    <RotateCcw className="h-3 w-3" /> Réessayer les échecs
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {job.secrets && (
@@ -409,11 +474,27 @@ const MigrationRenderSection = () => {
               </table>
             </details>
           )}
+          {/* Détail : vraies erreurs d'abord, puis absents à la source (liste complète dans l'export CSV) */}
           {job.echecs_fichiers?.length > 0 && (
             <details className="text-sm">
-              <summary className="flex cursor-pointer items-center gap-1 font-semibold text-orange-700"><AlertTriangle className="h-4 w-4" /> Fichiers en échec ({job.fichiers_echecs})</summary>
+              <summary className="flex cursor-pointer items-center gap-1 font-semibold text-orange-700"><AlertTriangle className="h-4 w-4" /> Vraies erreurs ({job.fichiers_echecs})</summary>
               <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-xs">
-                {job.echecs_fichiers.map((e) => <li key={e.source}>{e.source} — {e.erreur}</li>)}
+                {job.echecs_fichiers.map((e, i) => (
+                  <li key={`${e.source}-${i}`}>
+                    {e.source} — {e.cause ? `${e.cause}${e.code ? ` (HTTP ${e.code})` : ""}` : e.erreur}
+                    {e.origine && <span className="text-slate-500"> · {e.origine}</span>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {job.absents_fichiers?.length > 0 && (
+            <details className="text-sm">
+              <summary className="cursor-pointer font-semibold text-slate-600">Absents à la source, ignorés ({job.fichiers_absents})</summary>
+              <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-xs text-slate-600">
+                {job.absents_fichiers.map((e, i) => (
+                  <li key={`${e.source}-${i}`}>{e.source}{e.origine && <span className="text-slate-400"> · {e.origine}</span>}</li>
+                ))}
               </ul>
             </details>
           )}

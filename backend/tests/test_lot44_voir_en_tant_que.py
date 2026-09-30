@@ -370,3 +370,26 @@ def test_comptes_test_conflit_vrai_compte(env):
     r = c.post("/api/admin/comptes-test", headers=h(jeton_normal("admin")), json={"mot_de_passe": "MotDePasse-2026"})
     assert r.status_code == 409
     assert lire_bd(env, "users", {"est_test": True}) == []
+
+
+# ---------------------------------------------------------------------------
+# Lot 45 — lien rompu entre la fiche suivie et son compte de connexion
+# ---------------------------------------------------------------------------
+def test_lien_rompu_repare(env):
+    c, db = env["c"], env["db"]
+    # Lien pointant vers un compte disparu : retrouvé par `tracked_user_id`, puis lien réparé
+    c.portal.call(db.tracked_users.update_one, {"id": "tu-med"}, {"$set": {"user_account_id": "disparu"}})
+    assert ouvrir(c, cible="tu-med").json()["cible"]["id"] == "med"
+    assert lire_bd(env, "tracked_users", {"id": "tu-med"})[0]["user_account_id"] == "med"
+    # Aucun lien, compte retrouvé par l'e-mail (casse différente)
+    c.portal.call(db.users.insert_one, {"id": "u-ali", "role": "client", "full_name": "Ali",
+                                        "email": "Ali@X.com", "account_status": "active"})
+    c.portal.call(db.tracked_users.insert_one, {"id": "tu-ali", "client_id": "phl", "name": "Ali",
+                                                "email": "ali@x.com", "role": "Consultation"})
+    assert ouvrir(c, cible="tu-ali").json()["cible"]["id"] == "u-ali"
+    assert lire_bd(env, "tracked_users", {"id": "tu-ali"})[0]["user_account_id"] == "u-ali"
+    # Jamais un compte de la plateforme, même avec le même e-mail
+    c.portal.call(db.tracked_users.insert_one, {"id": "tu-sup", "client_id": "phl", "name": "X",
+                                                "email": "sup@x.com", "role": "Consultation"})
+    r = ouvrir(c, cible="tu-sup")
+    assert r.status_code == 400 and "Définir un mot de passe" in r.json()["detail"]

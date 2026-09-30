@@ -288,13 +288,32 @@ def attach_voir_en_tant_que_routes(
         suivi = await db.tracked_users.find_one({"id": user_id}, {"_id": 0})
         if not suivi:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-        if not suivi.get("user_account_id"):
-            raise HTTPException(status_code=400, detail=(
-                "Cet utilisateur suivi n'a pas d'identifiant de connexion : "
-                "définissez d'abord un mot de passe."))
-        cible = await db.users.find_one({"id": suivi["user_account_id"]}, {"_id": 0, "password_hash": 0})
+        projection = {"_id": 0, "password_hash": 0}
+        cible = None
+        # 1) Lien enregistré sur la fiche suivie (cas normal)
+        if suivi.get("user_account_id"):
+            cible = await db.users.find_one({"id": suivi["user_account_id"]}, projection)
+        # 2) Lien absent ou rompu (compte recréé, migration, ancienne fiche) : on cherche
+        #    le compte de connexion rattaché à cette fiche, puis celui qui porte son e-mail
+        #    (c'est par l'e-mail que l'utilisateur se connecte).
         if not cible:
-            raise HTTPException(status_code=404, detail="Compte de connexion introuvable")
+            cible = await db.users.find_one({"tracked_user_id": suivi["id"]}, projection)
+        email = (suivi.get("email") or "").strip()
+        if not cible and email:
+            cible = await db.users.find_one(
+                {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}, projection)
+            # Par sécurité : jamais un compte de la plateforme, ni celui d'un autre suivi
+            if cible and (cible.get("role") in ROLES_PLATEFORME or
+                          (cible.get("tracked_user_id") and cible.get("tracked_user_id") != suivi["id"])):
+                cible = None
+        if not cible:
+            raise HTTPException(status_code=400, detail=(
+                "Cet utilisateur suivi n'a pas de compte de connexion (lien absent ou rompu) : "
+                "cliquez sur « Définir un mot de passe » pour le (re)créer, puis réessayez."))
+        # Lien réparé sur la fiche suivie, pour les fois suivantes
+        if suivi.get("user_account_id") != cible["id"]:
+            await db.tracked_users.update_one(
+                {"id": suivi["id"]}, {"$set": {"user_account_id": cible["id"], "has_password": True}})
         return cible
 
     def _accueil(cible: dict) -> str:

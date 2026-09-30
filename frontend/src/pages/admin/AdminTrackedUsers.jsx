@@ -285,13 +285,13 @@ export default function AdminTrackedUsers() {
                   </td>
                   <td className="px-4 py-3">{u.status}</td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    {/* Lot 44 — « Voir en tant que » : Admin uniquement, compte avec identifiant et actif */}
+                    {/* Lot 44 — « Voir en tant que » : Admin uniquement, fiche active (le serveur retrouve le compte de connexion) */}
                     {moi?.role === "admin" && (
                       <button
                         onClick={() => voirEnTantQue(u)}
-                        disabled={!u.has_password || !u.user_account_id || u.status !== "active"}
+                        disabled={u.status !== "active"}
                         className="text-slate-500 hover:text-rose-600 mr-3 disabled:opacity-30 disabled:cursor-not-allowed"
-                        title={u.has_password && u.user_account_id ? (u.status === "active" ? "Voir en tant que" : "Compte inactif") : "Voir en tant que : définissez d'abord un mot de passe"}
+                        title={u.status === "active" ? "Voir en tant que" : "Compte inactif"}
                         data-testid={`voir-en-tant-que-${u.id}`}
                       >
                         <Eye className="h-4 w-4 inline" />

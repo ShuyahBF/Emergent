@@ -48,6 +48,7 @@ import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
 import QdrantRagSection from "@/components/QdrantRagSection";
 import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSection";
+import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -1176,6 +1177,10 @@ export default function AdminSettings() {
       {/* Migration vers Render : sauvegarde complète vers MongoDB Atlas + Cloudflare R2 */}
       <Filterable title="Migration vers Render (sauvegarde complète)" anchorId="s-migration-render" category="diagnostics">
         <MigrationRenderSection />
+      </Filterable>
+      {/* Lot 44 — journal des sessions « Voir en tant que » (Admin) */}
+      <Filterable title="Journal des sessions « Voir en tant que »" anchorId="s-voir-en-tant-que" category="diagnostics">
+        <JournalVoirEnTantQueSection />
       </Filterable>
       <Filterable title="Stockage de fichiers (Object Storage)" anchorId="s-file-storage" category="diagnostics">
         <FileStorageSection />

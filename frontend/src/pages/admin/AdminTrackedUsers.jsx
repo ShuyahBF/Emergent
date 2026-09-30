@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy, HardDriveUpload } from "lucide-react";
+import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy, HardDriveUpload, Eye } from "lucide-react";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
+// Lot 44 — « Voir en tant que » et comptes de test en un clic
+import { useAuth } from "@/contexts/AuthContext";
+import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
+import ComptesTestPanel from "@/pages/admin/sections/ComptesTestPanel";
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien"];
 const TRANSLATOR_LANGS = [
@@ -14,6 +18,7 @@ const TRANSLATOR_LANGS = [
 const empty = { client_id: "", name: "", email: "", phone: "", whatsapp_number: "", role: "Consultation", department: "", company: "", status: "active" };
 
 export default function AdminTrackedUsers() {
+  const { user: moi } = useAuth();
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
   const [filterClient, setFilterClient] = useState("");
@@ -114,6 +119,13 @@ export default function AdminTrackedUsers() {
     } finally { setTransferring(false); }
   };
 
+  // Lot 44 — ouvre une session « Voir en tant que » cet utilisateur suivi (Admin uniquement)
+  const voirEnTantQue = async (u) => {
+    try {
+      await ouvrirVoirEnTantQue(u.id, u.name || u.email, "/admin/tracked-users");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Ouverture impossible"); }
+  };
+
   const revoke = async (u) => {
     if (!window.confirm(`Révoquer l'accès portail de ${u.name} ?`)) return;
     try {
@@ -158,6 +170,8 @@ export default function AdminTrackedUsers() {
             <option value="">Tous les clients</option>
             {clients.map((c) => <option key={c.id} value={c.id}>{c.full_name}{c.company ? ` — ${c.company}` : ""}</option>)}
           </select>
+          {/* Lot 44 — comptes de test en un clic (Admin) */}
+          {moi?.role === "admin" && <ComptesTestPanel onChange={() => load().catch(() => {})} />}
           <button onClick={() => open()} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-tracked-btn">
             <Plus className="h-4 w-4" /> Nouvel utilisateur
           </button>
@@ -252,7 +266,11 @@ export default function AdminTrackedUsers() {
                       data-testid={`tracked-select-${u.id}`}
                     />
                   </td>
-                  <td className="px-4 py-3 font-medium">{u.name}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {u.name}
+                    {/* Lot 44 — compte de test */}
+                    {u.est_test && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${u.id}`}>TEST</span>}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{u.email || "-"}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded ${u.role === "Superviseur" ? "bg-sawali-blue/10 text-sawali-blue border border-sawali-blue/30" : "bg-slate-100 text-slate-700"}`}>{u.role || "-"}</span>
@@ -267,6 +285,18 @@ export default function AdminTrackedUsers() {
                   </td>
                   <td className="px-4 py-3">{u.status}</td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
+                    {/* Lot 44 — « Voir en tant que » : Admin uniquement, compte avec identifiant et actif */}
+                    {moi?.role === "admin" && (
+                      <button
+                        onClick={() => voirEnTantQue(u)}
+                        disabled={!u.has_password || !u.user_account_id || u.status !== "active"}
+                        className="text-slate-500 hover:text-rose-600 mr-3 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={u.has_password && u.user_account_id ? (u.status === "active" ? "Voir en tant que" : "Compte inactif") : "Voir en tant que : définissez d'abord un mot de passe"}
+                        data-testid={`voir-en-tant-que-${u.id}`}
+                      >
+                        <Eye className="h-4 w-4 inline" />
+                      </button>
+                    )}
                     <button
                       onClick={() => setPwdDialog(u)}
                       className="text-slate-500 hover:text-sawali-blue mr-3 inline-flex items-center gap-1"

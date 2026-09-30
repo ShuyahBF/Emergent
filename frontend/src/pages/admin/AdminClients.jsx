@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench, Wallet } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench, Wallet, Eye } from "lucide-react";
 import { toast } from "sonner";
+// Lot 44 — « Voir en tant que » (Admin)
+import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
 const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "", contract_access_mode: "" };
@@ -402,6 +404,8 @@ export default function AdminClients() {
                           </span>
                         )}
                         <span>{c.full_name}</span>
+                        {/* Lot 44 — compte de test */}
+                        {c.est_test && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${c.id}`}>TEST</span>}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{c.email}</td>
@@ -483,6 +487,19 @@ export default function AdminClients() {
                       ) : (
                         <button onClick={() => setPrimary(c.id)} title="Désigner comme client primaire (Superviseur)" className="text-slate-400 hover:text-amber-500 mr-3" data-testid={`set-primary-${c.id}`}>
                           <Star className="h-4 w-4 inline" />
+                        </button>
+                      )}
+                      {/* Lot 44 — « Voir en tant que » ce compte (jamais un Admin / Superviseur ni un compte inactif) */}
+                      {!["admin", "superviseur"].includes(c.role) && (
+                        <button
+                          onClick={() => ouvrirVoirEnTantQue(c.id, c.full_name || c.email, "/admin/clients")
+                            .catch((err) => toast.error(err?.response?.data?.detail || "Ouverture impossible"))}
+                          disabled={c.account_status !== "active"}
+                          className="text-slate-500 hover:text-rose-600 mr-3 disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={c.account_status === "active" ? "Voir en tant que" : "Compte inactif ou suspendu"}
+                          data-testid={`voir-en-tant-que-client-${c.id}`}
+                        >
+                          <Eye className="h-4 w-4 inline" />
                         </button>
                       )}
                       <Link to={`/admin/clients/${c.id}/timeline`} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`timeline-client-${c.id}`} title="Timeline CRM"><Activity className="h-4 w-4 inline" /></Link>

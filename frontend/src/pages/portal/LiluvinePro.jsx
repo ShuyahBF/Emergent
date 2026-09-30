@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { apiClient } from "@/lib/api";
+import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'onglet
 import { toast } from "sonner";
 import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle, HelpCircle, Image as ImageIcon, X } from "lucide-react";
 import LiluvineMessageContent from "@/components/LiluvineMessageContent";
@@ -216,7 +216,7 @@ export default function LiluvinePro() {
     try {
       // Iter38r-fix9t — SSE pseudo-streaming (Haiku 4.5 + chunked typewriter)
       const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
-      const token = localStorage.getItem("sawali_token") || "";
+      const token = jetonCourant() || "";
       const resp = await fetch(`${apiBase}/api/me/liluvine-pro/chat/stream`, {
         method: "POST",
         headers: {

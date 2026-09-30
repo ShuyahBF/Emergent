@@ -13,7 +13,8 @@ export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [step, setStep] = useState(searchParams.get("wa") === "1" ? "wa_phone" : "credentials"); // credentials | otp | wa_phone | wa_otp
-  const [email, setEmail] = useState("");
+  // Lot 44 — adresse pré-remplie par le lien de connexion des comptes de test (?email=…)
+  const [email, setEmail] = useState(() => searchParams.get("email") || "");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
   const [captchaCfg, setCaptchaCfg] = useState({ enabled: false, site_key: null });

@@ -10,7 +10,7 @@
  *   - Auto-refresh toutes les 15s (temps réel)
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { apiClient } from "@/lib/api";
+import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'onglet
 import { toast } from "sonner";
 // Iter43-fix24az-ad — Mini heatmap 30 jours en panneau latéral
 import PlanningHeatmap from "@/components/PlanningHeatmap";
@@ -187,7 +187,7 @@ export default function Planning() {
   // polling 30s pour tenir même si CF ferme le stream.
   useEffect(() => {
     if (!me) return;
-    const token = localStorage.getItem("sawali_token");
+    const token = jetonCourant();
     if (!token) return;
     const params = new URLSearchParams({ token });
     if (selectedMedecinId) params.append("medecin_id", selectedMedecinId);

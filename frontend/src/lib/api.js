@@ -6,8 +6,59 @@ export const API = `${BACKEND_URL}/api`;
 
 export const apiClient = axios.create({ baseURL: API });
 
+// =====================================================================
+// Lot 44 — « Voir en tant que » (super-admin).
+// Le jeton « en tant que » est rangé dans le sessionStorage de l'ONGLET : il
+// remplace le jeton de l'Admin pour cet onglet seulement. Le jeton de l'Admin
+// reste en place dans le localStorage (les autres onglets gardent le compte
+// Admin) et redevient actif dès que les clés ci-dessous sont effacées.
+// =====================================================================
+export const CLE_IMP_JETON = "sawali_imp_token";   // jeton de la cible (30 min)
+export const CLE_IMP_USER = "sawali_imp_user";     // profil de la cible
+export const CLE_IMP_INFO = "sawali_imp_info";     // {session_id, cible_nom, cible_role, admin_nom, ro, expire_le, retour}
+
+const lireSession = (cle) => {
+  try { return typeof sessionStorage !== "undefined" ? sessionStorage.getItem(cle) : null; } catch { return null; }
+};
+
+/** Vrai si cet onglet navigue « en tant que » un autre compte. */
+export function sessionImpActive() {
+  return !!lireSession(CLE_IMP_JETON);
+}
+
+/** Informations de la session « en tant que » de cet onglet (ou null). */
+export function infoImp() {
+  try { return JSON.parse(lireSession(CLE_IMP_INFO) || "null"); } catch { return null; }
+}
+
+/** Jeton à envoyer : celui de la session « en tant que » s'il y en a une, sinon celui du compte. */
+export function jetonCourant() {
+  return lireSession(CLE_IMP_JETON) || (typeof localStorage !== "undefined" ? localStorage.getItem("sawali_token") : null);
+}
+
+/**
+ * Quitte la session « en tant que » de cet onglet : efface le jeton de la cible
+ * (le jeton de l'Admin, resté dans le localStorage, reprend la main) puis, si
+ * demandé, recharge la page d'origine (fiche admin d'où la session a été ouverte).
+ */
+export function quitterSessionImp({ rediriger = true } = {}) {
+  // Déjà quittée (ex. appel en double après un 401) : on ne relance pas de redirection.
+  if (!sessionImpActive()) return false;
+  const info = infoImp();
+  try {
+    sessionStorage.removeItem(CLE_IMP_JETON);
+    sessionStorage.removeItem(CLE_IMP_USER);
+    sessionStorage.removeItem(CLE_IMP_INFO);
+  } catch { /* noop */ }
+  if (rediriger && typeof window !== "undefined") {
+    window.location.href = (info && info.retour) || "/admin";
+  }
+  return true;
+}
+
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem("sawali_token");
+  // Lot 44 — jeton de la session « en tant que » de l'onglet en priorité
+  const token = jetonCourant();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   config.metadata = { startTime: Date.now() };
   return config;
@@ -138,6 +189,12 @@ apiClient.interceptors.response.use(
       const url = err.config?.url || "";
       const isAuthEndpoint = url.includes("/auth/");
       const isTelemetry = NO_LOGOUT_ON_401.some((p) => url.includes(p));
+      // Lot 44 — session « en tant que » expirée ou close : retour au compte de
+      // l'Admin (son jeton est intact), sans le déconnecter.
+      if (sessionImpActive() && !isTelemetry) {
+        quitterSessionImp();
+        return Promise.reject(err);
+      }
       // Only force a logout-redirect when the user WAS logged in. Anonymous
       // visitors of public marketing pages whose components opportunistically
       // call /me/* endpoints get a 401 — that's expected, do NOT bounce them

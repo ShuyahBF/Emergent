@@ -414,6 +414,29 @@ _attach_maintenance(api=api, db=db, get_current_user=get_current_user, fonction_
                     paiements_autorises=_maintenance_paiements_autorises,
                     create_invoice_for_client=getattr(_cashier_router, "create_invoice_for_client", None))
 
+# Lot 44 — « Voir en tant que » (super-admin, lecture seule par défaut, journal) et comptes
+# de test en un clic : routes/voir_en_tant_que.py. Le contrôle des sessions « en tant que »
+# est un intergiciel HTTP placé devant toutes les routes (ajouté au plus près des routes).
+from routes.voir_en_tant_que import attach_voir_en_tant_que_routes as _attach_voir_en_tant_que  # noqa: E402
+import jwt as _pyjwt_imp  # noqa: E402
+from auth import JWT_SECRET as _JWT_SECRET_IMP, JWT_ALGORITHM as _JWT_ALGO_IMP, decode_token as _decode_token_imp  # noqa: E402
+
+
+async def _journal_voir_en_tant_que(*, action: str, admin: dict, cible_id: Optional[str], label: str):
+    """Lot 44 — entrée du journal d'activité (visible par l'Admin de la plateforme)."""
+    await _log_activity(client_id=admin.get("id"), kind="voir_en_tant_que", action=action, label=label,
+                        actor=admin, target_id=cible_id)
+
+
+_attach_voir_en_tant_que(
+    app=app, api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin,
+    encode_jwt=lambda charge: _pyjwt_imp.encode(charge, _JWT_SECRET_IMP, algorithm=_JWT_ALGO_IMP),
+    decode_jwt=_decode_token_imp, hash_password=hash_password, client_ip=_client_ip_from_request,
+    roles_suivi=TRACKED_USER_ROLES, to_user_public=_to_user_public,
+    # le lien de connexion des comptes de test suit l'adresse d'où l'Admin travaille
+    base_publique=lambda req: _public_base_url(req) or _PUBLIC_BASE_URL,
+    journal_activite=_journal_voir_en_tant_que, super_admin_email=SUPER_ADMIN_EMAIL)
+
 # Lot 41 — calendrier dans la discussion WhatsApp : moments occupés (RDV, planning, Google
 # Calendar de la plateforme, créneaux bloqués) et lien public de disponibilités.
 from routes.calendrier_partage import attach_calendrier_partage_routes as _attach_calendrier  # noqa: E402

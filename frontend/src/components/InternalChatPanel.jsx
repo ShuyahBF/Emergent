@@ -12,7 +12,7 @@
  * every 30s as defensive backup.
  */
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { apiClient } from "@/lib/api";
+import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'onglet
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
@@ -87,7 +87,7 @@ function highlightTerm(text, term) {
 
 export default function InternalChatPanel() {
   const { user } = useAuth();
-  const token = typeof window !== "undefined" ? localStorage.getItem("sawali_token") : null;
+  const token = typeof window !== "undefined" ? jetonCourant() : null;
   const [open, setOpen] = useState(false);
   const [clients, setClients] = useState([]);
   const [activeClientId, setActiveClientId] = useState(null);

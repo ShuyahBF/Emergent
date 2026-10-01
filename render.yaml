@@ -1,0 +1,162 @@
+# =============================================================================
+# SAWALI — Blueprint Render (répétition générale, phase 1 de la procédure de
+# bascule Emergent → Render).
+#
+# Ce fichier décrit 2 services :
+#   1. sawali-backend  : le serveur FastAPI (dossier backend/), offre payante
+#                        « starter » TOUJOURS ALLUMÉE (le planificateur des
+#                        rappels / rapports / sauvegardes ne doit pas dormir).
+#   2. sawali-frontend : le site React (dossier frontend/), servi en statique ;
+#                        toutes les adresses /api/* sont relayées au backend,
+#                        si bien que les URL publiques restent identiques à
+#                        celles d'Emergent (webhooks Meta, Loois, Stripe...).
+#
+# SECRETS : aucune valeur n'est écrite ici. Chaque variable marquée
+# « sync: false » est demandée par Render au moment où vous appliquez le
+# Blueprint : recopiez-la depuis le fichier chiffré des secrets.
+#
+# RÉPÉTITION : DISABLE_SCHEDULER=1 empêche tout envoi en double (rappels,
+# rapports WhatsApp, sauvegardes) tant qu'Emergent reste en production.
+# Le jour J, on supprime cette variable (étape 4.5 de la procédure).
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1) Backend FastAPI
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sawali-backend
+    runtime: python
+    plan: starter                 # payant, jamais mis en veille
+    region: frankfurt             # même région que vos autres services
+    repo: https://github.com/ShuyahBF/emergent
+    branch: conflict_290926_1025  # branche publiée par Emergent (à ajuster si Emergent en crée une nouvelle)
+    autoDeploy: false             # répétition : on déploie à la main, version figée
+    rootDir: backend
+    # L'index supplémentaire fournit le paquet « emergentintegrations »
+    # (IA et stockage de fichiers) : à vérifier au premier build.
+    buildCommand: pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      # --- Versions d'exécution (pas des secrets) ---
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      # --- Planificateur coupé pendant la répétition (à supprimer le jour J) ---
+      - key: DISABLE_SCHEDULER
+        value: "1"
+      # --- Base de données : MongoDB Atlas (cible de la sauvegarde) ---
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        sync: false
+      # --- Clés de session et de chiffrement : STRICTEMENT identiques à Emergent ---
+      - key: JWT_SECRET
+        sync: false
+      - key: LINK_JWT_SECRET
+        sync: false
+      - key: JWT_ALGORITHM
+        sync: false
+      - key: JWT_EXPIRE_HOURS
+        sync: false
+      - key: MIGRATION_COFFRE_CLE
+        sync: false
+      # --- Fichiers et IA via Emergent (jusqu'au lot « portabilité ») ---
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: APP_STORAGE_NAME
+        sync: false
+      # --- Adresses publiques : *.onrender.com pendant la répétition, domaine le jour J ---
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: PUBLIC_BACKEND_URL
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: SAWALI_PUBLIC_BASE_URL
+        sync: false
+      # --- Comptes d'administration initiaux ---
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      # --- Services externes (recopier ceux qui existent dans le fichier des secrets) ---
+      - key: GOOGLE_GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STOCK_TABLE
+        sync: false
+      - key: R2_STOCKS_ACCOUNT_ID
+        sync: false
+      - key: R2_STOCKS_ACCESS_KEY_ID
+        sync: false
+      - key: R2_STOCKS_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_STOCKS_BUCKET
+        sync: false
+      - key: R2_VIDAL_ACCOUNT_ID
+        sync: false
+      - key: R2_VIDAL_ACCESS_KEY_ID
+        sync: false
+      - key: R2_VIDAL_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_VIDAL_BUCKET
+        sync: false
+      - key: STOCK_SYNC_TOKEN
+        sync: false
+      - key: WA_PLANNING_RECAP_SECRET
+        sync: false
+      - key: USD_TO_XOF_RATE
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 2) Frontend React (site statique)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sawali-frontend
+    runtime: static
+    repo: https://github.com/ShuyahBF/emergent
+    branch: conflict_290926_1025
+    autoDeploy: false
+    rootDir: frontend
+    buildCommand: yarn install && yarn build
+    staticPublishPath: build
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Adresse PUBLIQUE du site lui-même (figée au build) : les appels
+      # partent vers <site>/api/... et sont relayés au backend ci-dessous.
+      # Répétition : https://sawali-frontend.onrender.com ; jour J : https://sawalismartsystems.com
+      - key: REACT_APP_BACKEND_URL
+        sync: false
+    routes:
+      # 1) Toute l'API est relayée au backend (même adresse qu'avant pour les webhooks).
+      #    À ajuster si Render attribue une autre adresse au backend.
+      - type: rewrite
+        source: /api/*
+        destination: https://sawali-backend.onrender.com/api/*
+      # 2) Application à page unique : toute autre adresse affiche index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html

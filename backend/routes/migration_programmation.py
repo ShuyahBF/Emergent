@@ -44,6 +44,14 @@ Complète routes/migration_render.py (même moteur de sauvegarde, mêmes collect
 5. RAPPORT « 🤖 Liluvine » par WhatsApp aux numéros admin de Liluvine (fenêtre 24 h : texte ;
    sinon modèle Meta s'il est réglé), avec repli par e-mail si aucun WhatsApp n'est parti.
 
+6. LOT 48 — RAPPORTS ARCHIVÉS ET DESTINATAIRES DU BLOC
+   - chaque rapport (sauvegarde programmée ou manuelle, échec au démarrage, purge) est archivé
+     dans `migration_rapports` avec le journal de ses envois (routes/migration_rapports.py) ;
+   - « Numéros WhatsApp du rapport » (`rapport_wa`) et « E-mails du rapport » (`rapport_emails`)
+     du bloc passent AVANT les numéros / adresses repris des autres réglages ; vides = comme avant ;
+   - chaque envoi garde le code d'erreur Meta et son explication en clair (131042 : paiement du
+     compte WhatsApp Business, 131047 : hors fenêtre de 24 h...).
+
   GET    /api/admin/migration/programmation                  réglage + état (sans identifiants)
   PUT    /api/admin/migration/programmation                  enregistrement du réglage
   PUT    /api/admin/migration/programmation/identifiants     identifiants (vérifiés puis chiffrés)
@@ -62,7 +70,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -85,6 +93,8 @@ REUSSIS = ("TERMINEE", "TERMINEE_AVEC_ERREURS")
 FINAUX = ("TERMINEE", "TERMINEE_AVEC_ERREURS", "ECHEC", "INTERROMPUE")
 LOT_SUPPRESSION = 1000  # clés par appel delete_objects (maximum S3/R2)
 DESTINATAIRES_WA_MAX = 5
+EMAILS_MAX = 10  # adresses « E-mails du rapport » au plus
+RE_EMAIL = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 # Clé de chiffrement de secours du code (auth.py) : jamais acceptée comme clé du coffre
 CLE_DE_SECOURS = "fallback-insecure"
 
@@ -93,6 +103,8 @@ DEFAUT: Dict[str, Any] = {
     "base": True, "fichiers": True, "medias": True,
     "retention_jours": 14, "garder_min": 3, "purge_manuelles": True,
     "rapport_si_ok": True, "modele_wa": "", "modele_wa_langue": "fr",
+    # Lot 48 : destinataires propres au rapport (prioritaires s'ils sont remplis)
+    "rapport_wa": [], "rapport_emails": [],
 }
 STATUTS_TEXTE = {
     "TERMINEE": "✅ Terminée", "TERMINEE_AVEC_ERREURS": "⚠️ Terminée avec anomalies",
@@ -145,11 +157,63 @@ def normaliser(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         raise ValueError("Sauvegardes réussies toujours gardées : 1 à 100")
     if cfg["actif"] and not (cfg["base"] or cfg["fichiers"]):
         raise ValueError("Choisissez au moins la base ou les fichiers")
+    numeros, emails = _verifier_destinataires(cfg.get("rapport_wa"), cfg.get("rapport_emails"))
     return {"actif": bool(cfg["actif"]), "tous_les": tous_les, "heure": heure, "fuseau": cfg["fuseau"],
             "base": bool(cfg["base"]), "fichiers": bool(cfg["fichiers"]), "medias": bool(cfg["medias"]),
             "retention_jours": retention, "garder_min": garder, "purge_manuelles": bool(cfg["purge_manuelles"]),
             "rapport_si_ok": bool(cfg["rapport_si_ok"]), "modele_wa": str(cfg["modele_wa"] or "").strip()[:120],
-            "modele_wa_langue": str(cfg["modele_wa_langue"] or "fr").strip()[:12] or "fr"}
+            "modele_wa_langue": str(cfg["modele_wa_langue"] or "fr").strip()[:12] or "fr",
+            "rapport_wa": numeros, "rapport_emails": emails}
+
+
+# ---------------------------------------------------------------------------
+# Listes de destinataires (lot 48)
+# ---------------------------------------------------------------------------
+def _morceaux(brut: Any, separateurs: str) -> List[str]:
+    """Liste ou texte (« a, b ; c ») -> éléments non vides, sans espaces autour."""
+    elements = brut if isinstance(brut, (list, tuple)) else [brut]
+    sortie: List[str] = []
+    for e in elements:
+        sortie += [m.strip() for m in re.split(separateurs, str(e or "")) if m.strip()]
+    return sortie
+
+
+def liste_numeros(brut: Any) -> List[str]:
+    """Numéros WhatsApp (liste ou texte séparé par virgules) -> chiffres seuls, dédoublonnés.
+    Les éléments trop courts (moins de 6 chiffres) sont écartés."""
+    vus: List[str] = []
+    for m in _morceaux(brut, r"[,;\n]+"):
+        c = _chiffres(m)
+        if len(c) >= 6 and c not in vus:
+            vus.append(c)
+    return vus
+
+
+def liste_emails(brut: Any) -> List[str]:
+    """Adresses e-mail (liste ou texte séparé par virgules, points-virgules ou espaces),
+    dédoublonnées ; les éléments sans forme d'adresse sont écartés."""
+    vues: List[str] = []
+    for m in _morceaux(brut, r"[,;\s]+"):
+        if RE_EMAIL.match(m) and m.lower() not in (v.lower() for v in vues):
+            vues.append(m)
+    return vues
+
+
+def _verifier_destinataires(numeros: Any, emails: Any) -> tuple:
+    """Champs du bloc -> (numéros, e-mails) propres ; ValueError avec un message clair si un
+    élément est illisible ou s'il y en a trop."""
+    for m in _morceaux(numeros, r"[,;\n]+"):
+        if len(_chiffres(m)) < 6:
+            raise ValueError(f"Numéro WhatsApp du rapport illisible : « {m} » (indicatif pays + numéro)")
+    for m in _morceaux(emails, r"[,;\s]+"):
+        if not RE_EMAIL.match(m):
+            raise ValueError(f"E-mail du rapport illisible : « {m} »")
+    n, e = liste_numeros(numeros), liste_emails(emails)
+    if len(n) > DESTINATAIRES_WA_MAX:
+        raise ValueError(f"Numéros WhatsApp du rapport : {DESTINATAIRES_WA_MAX} au plus")
+    if len(e) > EMAILS_MAX:
+        raise ValueError(f"E-mails du rapport : {EMAILS_MAX} au plus")
+    return n, e
 
 
 def _a_l_heure(cfg: Dict[str, Any], jour) -> datetime:
@@ -413,16 +477,61 @@ def _chiffres(n: Any) -> str:
 def _destinataires_wa(reglages_globaux: Dict[str, Any]) -> List[str]:
     """Numéros admin de Liluvine (Paramètres → Liluvine), comme le récapitulatif d'import de
     sauvegarde ; à défaut le numéro d'escalade de Liluvine, puis le WhatsApp de l'entreprise."""
-    bruts = list(reglages_globaux.get("liluvine_remote_admin_phones") or [])
-    if not bruts:
-        bruts = [reglages_globaux.get("liluvine_escalation_wa_phone") or reglages_globaux.get("llm_budget_notify_wa_phone")
-                 or reglages_globaux.get("company_whatsapp")]
-    vus: List[str] = []
-    for b in bruts:
-        c = _chiffres(b)
-        if len(c) >= 6 and c not in vus:
-            vus.append(c)
-    return vus[:DESTINATAIRES_WA_MAX]
+    return destinataires_rapport(reglages_globaux, {})["whatsapp"]
+
+
+# Origine de chaque numéro / adresse par défaut, telle que l'admin la retrouve dans les Paramètres
+SOURCES_WA = (
+    ("liluvine_remote_admin_phones", "Jauge d'occupation du Support technique → Contrôle via WhatsApp "
+                                     "(numéros autorisés)"),
+    ("liluvine_escalation_wa_phone", "Liluvine PRO appelle l'admin quand elle est bloquée → numéro WhatsApp de l'admin"),
+    ("llm_budget_notify_wa_phone", "Budget IA → Numéro WhatsApp de l'admin pour les alertes"),
+    ("company_whatsapp", "Coordonnées de l'entreprise → WhatsApp"),
+)
+SOURCES_EMAIL = (
+    ("auto_snapshot_email_to", "Sauvegarde de la base (Snapshot) → e-mail des sauvegardes automatiques"),
+    ("health_email_to", "Santé applicative → Email destinataire"),
+)
+SOURCE_BLOC_WA = "champ « Numéros WhatsApp du rapport » de ce bloc"
+SOURCE_BLOC_EMAIL = "champ « E-mails du rapport » de ce bloc"
+
+
+def destinataires_rapport(globaux: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Destinataires du prochain rapport et leur origine (lot 48).
+    WhatsApp : champ du bloc s'il est rempli, sinon le premier réglage renseigné de SOURCES_WA
+    (les numéros autorisés de la Jauge peuvent être une liste ou un texte séparé par virgules).
+    E-mail (repli si aucun WhatsApp n'est remis) : champ du bloc, sinon SOURCES_EMAIL, sinon
+    l'adresse du super-administrateur."""
+    numeros, source_wa = liste_numeros(cfg.get("rapport_wa")), SOURCE_BLOC_WA
+    if not numeros:
+        source_wa = None
+        for cle, libelle in SOURCES_WA:
+            numeros = liste_numeros(globaux.get(cle))
+            if numeros:
+                source_wa = libelle
+                break
+    emails, source_email = liste_emails(cfg.get("rapport_emails")), SOURCE_BLOC_EMAIL
+    if not emails:
+        source_email = None
+        for cle, libelle in SOURCES_EMAIL:
+            emails = liste_emails(globaux.get(cle))
+            if emails:
+                source_email = libelle
+                break
+    if not emails and liste_emails(_EMAIL_DEFAUT["adresse"]):
+        emails, source_email = liste_emails(_EMAIL_DEFAUT["adresse"]), "adresse du super-administrateur (SUPER_ADMIN_EMAIL)"
+    numeros = numeros[:DESTINATAIRES_WA_MAX]
+    # Phrase affichée sous les champs du bloc : où partira le prochain rapport
+    morceaux = []
+    if numeros:
+        morceaux.append(f"WhatsApp {', '.join('+' + n for n in numeros)} (source : {source_wa})")
+    if emails:
+        role = "e-mail de repli si aucun WhatsApp n'est remis" if numeros else "e-mail"
+        morceaux.append(f"{role} {', '.join(emails)} (source : {source_email})")
+    ligne = ("Le prochain rapport partira vers : " + " ; ".join(morceaux) if morceaux else
+             "Aucun destinataire : renseignez les numéros WhatsApp ou les e-mails du rapport dans ce bloc")
+    return {"whatsapp": numeros, "source_whatsapp": source_wa, "emails": emails, "source_email": source_email,
+            "ligne": ligne}
 
 
 async def _fenetre_ouverte(chiffres: str, maintenant: datetime) -> bool:
@@ -441,52 +550,171 @@ def _une_ligne(texte: str, maximum: int = 1000) -> str:
     return re.sub(r"\s{2,}", " ", t)[:maximum]
 
 
+# ---------------------------------------------------------------------------
+# Erreurs Meta traduites en clair (lot 48)
+# ---------------------------------------------------------------------------
+ERREURS_META: Dict[int, str] = {
+    131042: "Paiement du compte WhatsApp Business à régulariser chez Meta (moyen de paiement)",
+    131047: "Hors fenêtre de 24 h : un modèle est nécessaire",
+    470: "Hors fenêtre de 24 h : un modèle est nécessaire",
+    132000: "Modèle : nombre de variables ou nom/langue incorrects",
+    132001: "Modèle : nombre de variables ou nom/langue incorrects",
+    132005: "Modèle : texte des variables trop long",
+    132007: "Modèle : contenu refusé par la politique de Meta",
+    132012: "Modèle : format des variables incorrect",
+    132015: "Modèle mis en pause par Meta (qualité insuffisante)",
+    132016: "Modèle désactivé par Meta",
+    131026: "Numéro injoignable / pas sur WhatsApp",
+    131051: "Type de message non pris en charge par WhatsApp",
+    131049: "Message non remis par Meta pour préserver l'engagement : réessayez plus tard",
+    131056: "Trop de messages envoyés à ce numéro en peu de temps : réessayez plus tard",
+    131048: "Envoi limité par Meta (signalements ou qualité du numéro)",
+    131031: "Compte WhatsApp Business verrouillé par Meta",
+    131021: "Le destinataire est le numéro d'envoi lui-même",
+    131008: "Paramètre obligatoire manquant",
+    131009: "Valeur de paramètre incorrecte",
+    131000: "Erreur passagère chez Meta : réessayez",
+    131016: "Service WhatsApp momentanément indisponible : réessayez",
+    130429: "Débit maximal d'envoi atteint : réessayez plus tard",
+    130472: "Numéro du destinataire inclus dans une expérience Meta : message non remis",
+    368: "Compte temporairement bloqué par Meta (non-respect de la politique)",
+    190: "Jeton d'accès WhatsApp expiré ou invalide (Paramètres → WhatsApp)",
+    100: "Paramètre invalide dans la requête envoyée à Meta",
+}
+RE_CODE_META = re.compile(r"\(#(\d{3,6})\)|\b(13\d{4}|470)\b")
+
+
+def traduire_erreur_meta(code: Any, message: Any = None) -> tuple:
+    """(code d'erreur Meta, message) -> (code entier ou None, explication en clair ou None).
+    Sans code fourni, il est cherché dans le message (« (#131042) ... »)."""
+    try:
+        n = int(code) if code not in (None, "") else None
+    except (TypeError, ValueError):
+        n = None
+    if n is None and message:
+        m = RE_CODE_META.search(str(message))
+        if m:
+            n = int(m.group(1) or m.group(2))
+    return n, ERREURS_META.get(n) if n is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Envois unitaires, chacun décrit par une ligne du journal des envois (lot 48)
+# ---------------------------------------------------------------------------
+def _ligne_journal(canal: str, a: str, par: str, lot: str, maintenant: datetime, **champs) -> Dict[str, Any]:
+    """Ligne du journal des envois. `etat` : accepte (Meta a pris le message ; son issue arrive
+    plus tard par le webhook), envoye, remis, lu, echec."""
+    return {"le": _iso(maintenant), "par": par, "lot": lot, "canal": canal, "a": a, "mode": None, "modele": None,
+            "langue": None, "ok": False, "etat": "echec", "code": None, "erreur": None, "explication": None,
+            "message_id": None, **champs}
+
+
+async def envoyer_wa(numero: str, texte: str, *, modele: str = "", langue: str = "fr", par: str = "auto",
+                     lot: str = "", maintenant: Optional[datetime] = None,
+                     forcer_modele: bool = False) -> Dict[str, Any]:
+    """Un WhatsApp : texte libre si le destinataire a écrit depuis moins de 24 h (sauf
+    `forcer_modele`), sinon le modèle Meta indiqué avec le rapport en variable {{1}}.
+    -> ligne du journal (jamais d'exception)."""
+    maintenant = maintenant or _maintenant()
+    ligne = _ligne_journal("whatsapp", numero, par, lot, maintenant)
+    try:
+        if not forcer_modele and _ENVOIS["texte"] and await _fenetre_ouverte(numero, maintenant):
+            ligne["mode"] = "texte"
+            r = await _ENVOIS["texte"](numero, texte)
+        elif modele and _ENVOIS["modele"]:
+            ligne.update(mode="modele", modele=modele, langue=langue or "fr")
+            composants = [{"type": "body", "parameters": [{"type": "text", "text": _une_ligne(texte)}]}]
+            r = await _ENVOIS["modele"](numero, modele, langue or "fr", composants)
+        else:
+            ligne.update(mode="aucun", erreur="hors fenêtre de 24 h et aucun modèle Meta réglé",
+                         explication=ERREURS_META[131047])
+            return ligne
+    except Exception as exc:  # noqa: BLE001
+        ligne.update(erreur=str(exc)[:200])
+        return ligne
+    r = r or {}
+    if r.get("ok"):
+        # Meta a accepté le message : un refus (ex. 131042) peut encore arriver par le webhook
+        ligne.update(ok=True, etat="accepte" if r.get("message_id") else "envoye", message_id=r.get("message_id"))
+    else:
+        code, explication = traduire_erreur_meta(r.get("error_code"), r.get("error"))
+        ligne.update(erreur=str(r.get("error") or "échec sans détail")[:300], code=code, explication=explication)
+    return ligne
+
+
+def html_rapport(sujet: str, texte: str) -> str:
+    """Rapport en HTML lisible pour l'e-mail : titre, lignes « Libellé : valeur » en tableau,
+    autres lignes en paragraphes."""
+    lignes = [brute for brute in texte.splitlines() if brute.strip()]
+    titre = html.escape(lignes[0] if lignes else sujet)
+    corps = []
+    for ligne in lignes[1:]:
+        if " : " in ligne and not ligne.startswith("  "):
+            cle, valeur = ligne.split(" : ", 1)
+            corps.append(f"<tr><td style=\"padding:4px 12px 4px 0;color:#475569;vertical-align:top;white-space:nowrap\">"
+                         f"{html.escape(cle)}</td><td style=\"padding:4px 0\"><b>{html.escape(valeur)}</b></td></tr>")
+        else:
+            corps.append(f"<tr><td colspan=\"2\" style=\"padding:4px 0\">{html.escape(ligne)}</td></tr>")
+    return ("<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#0f172a\">"
+            f"<h2 style=\"font-size:18px;margin:0 0 12px\">{titre}</h2>"
+            f"<table style=\"border-collapse:collapse\">{''.join(corps)}</table>"
+            "<p style=\"margin-top:16px;color:#64748b;font-size:12px\">Rapport archivé dans SAWALI : "
+            "Paramètres → Migration vers Render → Historique → Rapport.</p></div>")
+
+
+async def envoyer_email(adresse: str, sujet: str, texte: str, *, par: str = "auto", lot: str = "",
+                        maintenant: Optional[datetime] = None) -> Dict[str, Any]:
+    """Un e-mail (SMTP existant, HTML lisible + texte) -> ligne du journal (jamais d'exception)."""
+    ligne = _ligne_journal("email", adresse, par, lot, maintenant or _maintenant(), mode="smtp")
+    try:
+        envoi = _ENVOIS["email"]
+        if envoi is None:
+            from email_service import send_email as envoi
+        ok = bool(await envoi(adresse, f"[SAWALI] {sujet}", html_rapport(sujet, texte), texte))
+        ligne.update(ok=ok, etat="envoye" if ok else "echec", erreur=None if ok else "envoi SMTP refusé ou non configuré")
+    except Exception as exc:  # noqa: BLE001
+        ligne.update(erreur=str(exc)[:200])
+    return ligne
+
+
 async def envoyer_rapport(sujet: str, texte: str, cfg: Dict[str, Any], important: bool,
                           maintenant: Optional[datetime] = None) -> Dict[str, Any]:
     """Envoie le rapport à l'admin. `important` (échec, anomalie, erreur de purge) : toujours envoyé ;
     sinon seulement si « M'envoyer le rapport même quand tout va bien » est coché.
     WhatsApp : texte dans la fenêtre de 24 h, sinon modèle Meta réglé (une variable {{1}}) ;
-    e-mail (SMTP existant) si aucun WhatsApp n'est parti."""
+    e-mail (SMTP existant) si aucun WhatsApp n'est parti.
+    Lot 48 : destinataires du bloc d'abord ; `envois` = lignes du journal (archivées avec le rapport)."""
     maintenant = maintenant or _maintenant()
     if not important and not cfg.get("rapport_si_ok", True):
-        return {"envoye": False, "motif": "tout va bien : rapport non demandé"}
+        return {"envoye": False, "motif": "tout va bien : rapport non demandé", "envois": []}
     globaux = await mr.db.settings.find_one({"_id": "global"}) or {}
-    resultat: Dict[str, Any] = {"envoye": False, "whatsapp": [], "email": None}
-    for numero in _destinataires_wa(globaux):
-        try:
-            if await _fenetre_ouverte(numero, maintenant) and _ENVOIS["texte"]:
-                mode, r = "texte", await _ENVOIS["texte"](numero, texte)
-            elif cfg.get("modele_wa") and _ENVOIS["modele"]:
-                composants = [{"type": "body", "parameters": [{"type": "text", "text": _une_ligne(texte)}]}]
-                mode, r = "modèle", await _ENVOIS["modele"](numero, cfg["modele_wa"], cfg.get("modele_wa_langue") or "fr",
-                                                             composants)
-            else:
-                mode, r = "aucun", {"ok": False, "error": "hors fenêtre de 24 h et aucun modèle Meta réglé"}
-        except Exception as exc:  # noqa: BLE001
-            mode, r = "erreur", {"ok": False, "error": str(exc)[:200]}
-        resultat["whatsapp"].append({"a": numero, "mode": mode, "ok": bool(r.get("ok")),
-                                     "erreur": None if r.get("ok") else str(r.get("error") or "")[:200]})
+    dest = destinataires_rapport(globaux, cfg)
+    lot = f"auto-{_iso(maintenant)}"
+    resultat: Dict[str, Any] = {"envoye": False, "whatsapp": [], "email": None, "envois": []}
+    for numero in dest["whatsapp"]:
+        ligne = await envoyer_wa(numero, texte, modele=cfg.get("modele_wa") or "",
+                                 langue=cfg.get("modele_wa_langue") or "fr", lot=lot, maintenant=maintenant)
+        resultat["envois"].append(ligne)
+        mode = {"modele": "modèle"}.get(ligne["mode"], ligne["mode"] or "erreur")
+        resultat["whatsapp"].append({"a": numero, "mode": mode, "ok": ligne["ok"], "erreur": ligne["erreur"],
+                                     "code": ligne["code"], "explication": ligne["explication"]})
     if any(w["ok"] for w in resultat["whatsapp"]):
         resultat["envoye"] = True
         return resultat
-    # Repli : e-mail à l'adresse des sauvegardes (ou du rapport de santé, ou du super-admin)
-    adresse = (globaux.get("auto_snapshot_email_to") or globaux.get("health_email_to")
-               or _EMAIL_DEFAUT["adresse"] or "").strip()
-    if adresse and "@" in adresse:
-        try:
-            envoi = _ENVOIS["email"]
-            if envoi is None:
-                from email_service import send_email as envoi
-            corps = f"<pre style=\"font-family:Arial,sans-serif;white-space:pre-wrap\">{html.escape(texte)}</pre>"
-            ok = bool(await envoi(adresse, f"[SAWALI] {sujet}", corps, texte))
-            resultat["email"] = {"a": adresse, "ok": ok}
-            resultat["envoye"] = ok
-        except Exception as exc:  # noqa: BLE001
-            resultat["email"] = {"a": adresse, "ok": False, "erreur": str(exc)[:200]}
+    # Repli : e-mail aux adresses du bloc (ou des sauvegardes, du rapport de santé, du super-admin)
+    if dest["emails"]:
+        lignes = [await envoyer_email(a, sujet, texte, lot=lot, maintenant=maintenant) for a in dest["emails"]]
+        resultat["envois"] += lignes
+        ok = any(x["ok"] for x in lignes)
+        resultat["email"] = {"a": ", ".join(dest["emails"]), "ok": ok}
+        if not ok:
+            resultat["email"]["erreur"] = next((x["erreur"] for x in lignes if x["erreur"]), None)
+        resultat["envoye"] = ok
     else:
         resultat["email"] = {"a": None, "ok": False, "erreur": "aucune adresse e-mail d'administration"}
     if not resultat["envoye"]:
-        logger.warning("[migration-programmation] rapport non remis : %s", resultat)
+        logger.warning("[migration-programmation] rapport non remis : %s",
+                       {k: v for k, v in resultat.items() if k != "envois"})
     return resultat
 
 
@@ -530,12 +758,14 @@ def _lignes_purge(purge: Optional[Dict[str, Any]]) -> List[str]:
 
 
 def texte_rapport_sauvegarde(job: Dict[str, Any], purge: Optional[Dict[str, Any]], cfg: Dict[str, Any],
-                             prochaine: Optional[str]) -> str:
-    """Rapport d'une sauvegarde programmée (signé Liluvine)."""
+                             prochaine: Optional[str], recalcule: bool = False) -> str:
+    """Rapport d'une sauvegarde (signé Liluvine). Lot 48 : aussi pour une sauvegarde manuelle ;
+    `recalcule` : rapport reconstitué plus tard depuis le suivi (prochaine exécution non connue)."""
     opts = job.get("options") or {}
     cible = job.get("cible") or {}
+    genre = "programmée" if job.get("programmee") else f"manuelle (par {job.get('lance_par') or '—'})"
     lignes = ["🤖 Liluvine — Rapport de sauvegarde",
-              f"Sauvegarde programmée du {_local(job.get('debut'), cfg)} ({cfg['fuseau']})",
+              f"Sauvegarde {genre} du {_local(job.get('debut'), cfg)} ({cfg['fuseau']})",
               f"Statut : {STATUTS_TEXTE.get(job.get('statut'), job.get('statut'))}",
               f"Durée : {_duree(job.get('debut'), job.get('fin'))}"]
     if opts.get("base"):
@@ -545,12 +775,20 @@ def texte_rapport_sauvegarde(job: Dict[str, Any], purge: Optional[Dict[str, Any]
         lignes.append(f"Fichiers : {_nombre(job.get('fichiers_copies'))} copiés · {_nombre(job.get('fichiers_absents'))} "
                       f"absents à la source · {_nombre(job.get('fichiers_medias_ignores'))} médias ignorés · "
                       f"{_nombre(job.get('fichiers_echecs'))} vraies erreurs")
+        exemples = (job.get("references_ignorees") or {}).get("exemples")
+        if exemples:
+            lignes.append(f"Références ignorées : {_nombre(exemples)} chemin(s) d'exemple cités dans des textes")
     lignes.append(f"Taille envoyée : {_taille((job.get('octets_archives') or 0) + (job.get('octets_fichiers') or 0))}")
     lignes.append(f"Emplacement R2 : {cible.get('r2_bucket')}/{cible.get('prefixe')}")
     if job.get("statut") not in REUSSIS and job.get("journal"):
         lignes.append(f"Dernière étape : {str(job['journal'][-1])[:300]}")
+    if job.get("purgee"):
+        lignes.append(f"Supprimée de R2 par la rétention le {_local(job.get('purgee_le'), cfg)}")
     lignes += _lignes_purge(purge)
-    lignes.append(f"Prochaine exécution : {_local(prochaine, cfg) if prochaine else 'aucune (programmation arrêtée)'}")
+    if recalcule:
+        lignes.append("Prochaine exécution : non connue (rapport recalculé depuis le suivi de la sauvegarde)")
+    else:
+        lignes.append(f"Prochaine exécution : {_local(prochaine, cfg) if prochaine else 'aucune (programmation arrêtée)'}")
     return "\n".join(lignes)
 
 
@@ -605,9 +843,14 @@ async def declencher(cfg: Dict[str, Any], maintenant: datetime, lance_par: str =
     except (HTTPException, RuntimeError, ValueError) as exc:
         erreur = str(exc.detail if isinstance(exc, HTTPException) else exc)
         # Échec avant toute copie : pas de document de sauvegarde, le réglage garde la trace
-        rapport = await envoyer_rapport("Sauvegarde programmée : échec",
-                                        texte_rapport_echec(erreur, maintenant, cfg, cfg.get("prochaine_execution")),
-                                        cfg, important=True, maintenant=maintenant)
+        from routes import migration_rapports as rap  # import tardif : ce module importe celui-ci
+        sujet, texte = "Sauvegarde programmée : échec", texte_rapport_echec(erreur, maintenant, cfg,
+                                                                            cfg.get("prochaine_execution"))
+        archive = await rap.archiver("echec", sujet, texte, rap.donnees_echec(erreur, maintenant, cfg),
+                                     important=True, maintenant=maintenant)
+        rapport = await envoyer_rapport(sujet, texte, cfg, important=True, maintenant=maintenant)
+        await rap.noter_envois(archive["id"], rapport.pop("envois", []), rapport.get("motif"))
+        rapport["rapport_id"] = archive["id"]
         await mr.db.migration_programmation.update_one({"_id": DOC_ID}, {"$set": {"derniere_execution": {
             "debut": _iso(maintenant), "fin": _iso(maintenant), "statut": "ECHEC", "erreur": erreur[:300],
             "lance_par": lance_par, "rapport": rapport}}}, upsert=True)
@@ -622,7 +865,22 @@ async def declencher(cfg: Dict[str, Any], maintenant: datetime, lance_par: str =
 
 async def _traiter_terminees(maintenant: datetime) -> List[str]:
     """Sauvegardes programmées terminées (même avant un redémarrage) dont le rapport n'est pas
-    parti : purge (si réussie), puis rapport. Chaque sauvegarde est prise par un seul processus."""
+    parti : purge (si réussie), puis rapport archivé et envoyé. Chaque sauvegarde est prise par
+    un seul processus. Lot 48 : les sauvegardes MANUELLES terminées ont aussi leur rapport
+    archivé (sans envoi automatique ni purge : envoi à la demande depuis l'Historique)."""
+    from routes import migration_rapports as rap  # import tardif : ce module importe celui-ci
+    manuelles = await mr.db.migration_jobs.find(
+        {"programmee": {"$ne": True}, "statut": {"$in": list(FINAUX)}, "rapport_archive": False},
+        {"_id": 0, "id": 1}).to_list(50)
+    for j in manuelles:
+        job = await mr.db.migration_jobs.find_one_and_update(
+            {"id": j["id"], "rapport_archive": False}, {"$set": {"rapport_archive": True}},
+            projection={"_id": 0, "secrets_chiffres": 0, "echecs_fichiers": 0, "absents_fichiers": 0,
+                        "resultats_collections": 0})
+        if job:
+            cfg = await lire_reglage()
+            await rap.archiver_sauvegarde(job, None, cfg, cfg.get("prochaine_execution") if cfg["actif"] else None,
+                                          maintenant=maintenant)
     traitees = []
     a_traiter = await mr.db.migration_jobs.find({"programmee": True, "statut": {"$in": list(FINAUX)}, "rapport": None},
                                                 {"_id": 0, "id": 1}).to_list(50)
@@ -642,11 +900,14 @@ async def _traiter_terminees(maintenant: datetime) -> List[str]:
                 logger.warning("[migration-programmation] purge impossible : %s", exc)
                 purge = {"erreur": str(exc)[:200]}
         important = job.get("statut") != "TERMINEE" or bool(purge and (purge.get("erreur") or purge.get("erreurs")))
-        texte = texte_rapport_sauvegarde(job, purge, cfg, cfg.get("prochaine_execution") if cfg["actif"] else None)
-        rapport = await envoyer_rapport(f"Sauvegarde programmée : {STATUTS_TEXTE.get(job.get('statut'), '')}",
-                                        texte, cfg, important, maintenant)
+        prochaine = cfg.get("prochaine_execution") if cfg["actif"] else None
+        archive = await rap.archiver_sauvegarde(job, purge, cfg, prochaine, important=important, maintenant=maintenant)
+        rapport = await envoyer_rapport(archive["sujet"], archive["texte"], cfg, important, maintenant)
+        await rap.noter_envois(archive["id"], rapport.pop("envois", []), rapport.get("motif"))
         rapport["le"] = _iso(maintenant)
-        await mr.db.migration_jobs.update_one({"id": job["id"]}, {"$set": {"rapport": rapport}})
+        rapport["rapport_id"] = archive["id"]
+        await mr.db.migration_jobs.update_one({"id": job["id"]}, {"$set": {"rapport": rapport,
+                                                                         "rapport_archive": True}})
         await mr.db.migration_programmation.update_one({"_id": DOC_ID}, {"$set": {"derniere_execution": {
             "job_id": job["id"], "prefixe": (job.get("cible") or {}).get("prefixe"), "debut": job.get("debut"),
             "fin": job.get("fin"), "statut": job.get("statut"), "lance_par": job.get("lance_par"),
@@ -661,6 +922,13 @@ async def passage(maintenant: Optional[datetime] = None) -> Dict[str, Any]:
     maintenant = maintenant or _maintenant()
     await mr._marquer_orphelines()
     bilan: Dict[str, Any] = {"rapports": await _traiter_terminees(maintenant), "declenchee": None, "attente": None}
+    # Lot 48 : issue des WhatsApp acceptés par Meta (un refus comme 131042 arrive par le webhook ;
+    # pour un envoi automatique, l'e-mail de repli est alors tenté)
+    try:
+        from routes import migration_rapports as rap  # import tardif : ce module importe celui-ci
+        await rap.verifier_envois_en_attente(maintenant)
+    except Exception:  # noqa: BLE001 — jamais bloquant pour la programmation
+        logger.warning("[migration-programmation] vérification des envois", exc_info=True)
     cfg = await lire_reglage()
     echeance = _lire_date(cfg.get("prochaine_execution"))
     if not cfg["actif"] or not echeance or maintenant < echeance:
@@ -717,6 +985,9 @@ class ReglageIn(BaseModel):
     rapport_si_ok: bool = True
     modele_wa: str = Field("", max_length=120)
     modele_wa_langue: str = Field("fr", max_length=12)
+    # Lot 48 : destinataires du rapport (liste ou texte séparé par virgules ; vides = réglages repris)
+    rapport_wa: Union[List[str], str] = Field(default_factory=list)
+    rapport_emails: Union[List[str], str] = Field(default_factory=list)
 
 
 class IdentifiantsIn(BaseModel):
@@ -728,19 +999,23 @@ class IdentifiantsIn(BaseModel):
     r2_bucket: str = Field(..., min_length=3, max_length=63)
 
 
-def _etat_public(cfg: Dict[str, Any], ids_doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Réponse de l'API : réglage, état, identifiants SANS leur contenu."""
+def _etat_public(cfg: Dict[str, Any], ids_doc: Optional[Dict[str, Any]],
+                 globaux: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Réponse de l'API : réglage, état, identifiants SANS leur contenu, et (lot 48) destinataires
+    du prochain rapport avec leur source."""
     return {"reglage": {k: cfg.get(k, v) for k, v in DEFAUT.items()},
             "prochaine_execution": cfg.get("prochaine_execution") if cfg.get("actif") else None,
             "attente": cfg.get("attente"), "derniere_execution": cfg.get("derniere_execution"),
             "derniere_purge": cfg.get("derniere_purge"), "maj_le": cfg.get("maj_le"), "maj_par": cfg.get("maj_par"),
             "identifiants": _identifiants_publics(ids_doc),
-            "secrets_programmes": False, "explication_secrets": EXPLICATION_SECRETS}
+            "secrets_programmes": False, "explication_secrets": EXPLICATION_SECRETS,
+            "destinataires": destinataires_rapport(globaux or {}, cfg)}
 
 
 async def _etat() -> Dict[str, Any]:
     return _etat_public(await lire_reglage(),
-                        await mr.db.migration_programmation.find_one({"_id": IDENTIFIANTS_ID}))
+                        await mr.db.migration_programmation.find_one({"_id": IDENTIFIANTS_ID}),
+                        await mr.db.settings.find_one({"_id": "global"}) or {})
 
 
 @router.get("")
@@ -847,7 +1122,13 @@ async def purger_maintenant(_: dict = Depends(get_current_admin)):
         raise HTTPException(400, str(exc))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Purge impossible : {str(exc)[:200]}")
-    resultat["rapport"] = await envoyer_rapport("Purge des sauvegardes", texte_rapport_purge(resultat, cfg), cfg,
+    from routes import migration_rapports as rap  # import tardif : ce module importe celui-ci
+    texte = texte_rapport_purge(resultat, cfg)
+    archive = await rap.archiver("purge", "Purge des sauvegardes", texte, rap.donnees_purge(resultat),
+                                 important=bool(resultat["erreurs"]), maintenant=maintenant)
+    resultat["rapport"] = await envoyer_rapport("Purge des sauvegardes", texte, cfg,
                                                 important=bool(resultat["erreurs"]), maintenant=maintenant)
+    await rap.noter_envois(archive["id"], resultat["rapport"].pop("envois", []), resultat["rapport"].get("motif"))
+    resultat["rapport"]["rapport_id"] = archive["id"]
     await mr.db.migration_programmation.update_one({"_id": DOC_ID}, {"$set": {"derniere_purge": resultat}})
     return resultat

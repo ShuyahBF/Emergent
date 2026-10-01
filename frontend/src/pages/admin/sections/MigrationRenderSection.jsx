@@ -7,9 +7,12 @@
 // ils peuvent être mémorisés dans un coffre CHIFFRÉ (restitués avec son mot de passe).
 // Lot 47 : sauvegardes programmées (tous les N jours à heure fixe), rétention dans R2
 // et rapport envoyé à l'admin par Liluvine (bloc « Sauvegardes programmées et rétention »).
+// Lot 48 : rapports archivés (bouton « Rapport » de l'Historique : lecture, copie, impression,
+// envoi / renvoi par WhatsApp ou e-mail, journal des envois) et destinataires propres au rapport.
+// Backend : backend/routes/migration_rapports.py (/api/admin/migration/rapports/*).
 // =====================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Database, Cloud, KeyRound, Play, RefreshCw, Download, CheckCircle2, XCircle, AlertTriangle, Square, RotateCcw, Lock, Unlock, Trash2, CalendarClock, Save } from "lucide-react";
+import { Database, Cloud, KeyRound, Play, RefreshCw, Download, CheckCircle2, XCircle, AlertTriangle, Square, RotateCcw, Lock, Unlock, Trash2, CalendarClock, Save, FileText, Send, Copy, Printer, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
@@ -68,6 +71,166 @@ const REGLAGE_DEFAUT = {
   base: true, fichiers: true, medias: true,
   retention_jours: 14, garder_min: 3, purge_manuelles: true,
   rapport_si_ok: true, modele_wa: "", modele_wa_langue: "fr",
+  rapport_wa: [], rapport_emails: [], // lot 48 : vides = destinataires repris des autres réglages
+};
+
+// Liste (renvoyée par le serveur) ou texte en cours de saisie -> texte du champ
+const enTexte = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
+
+// =====================================================================
+// Lot 48 — Rapport archivé : badge du dernier envoi, fenêtre de lecture et d'envoi
+// =====================================================================
+const BADGES = {
+  jamais: "bg-slate-100 text-slate-600",
+  whatsapp: "bg-emerald-100 text-emerald-800",
+  email: "bg-sky-100 text-sky-800",
+  attente: "bg-amber-100 text-amber-800",
+  echec: "bg-red-100 text-red-700",
+};
+const BadgeEnvoi = ({ badge }) => {
+  const b = badge || { etat: "jamais", libelle: "jamais envoyé" };
+  const detail = b.le ? `Dernier envoi le ${dateHeure(b.le)} par ${b.par}${b.erreur ? ` — ${b.erreur}` : ""}` : "Rapport jamais envoyé";
+  return <span title={detail} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${BADGES[b.etat] || BADGES.jamais}`}>{b.libelle}</span>;
+};
+
+// Libellés du journal des envois
+const ETATS_ENVOI = { accepte: "accepté par Meta", envoye: "envoyé", remis: "remis", lu: "lu", echec: "échec" };
+const modeEnvoi = (e) => (e.mode === "modele" ? `modèle ${e.modele} (${e.langue})` : e.mode === "texte" ? "texte libre" : e.mode === "smtp" ? "SMTP" : e.mode || "—");
+
+const FenetreRapport = ({ ident, fermer, apresEnvoi }) => {
+  const [rapport, setRapport] = useState(null);
+  const [envoi, setEnvoi] = useState({ canal: "whatsapp", numeros: "", emails: "", modele: "", langue: "", forcer_modele: false });
+  const [occupe, setOccupe] = useState(false);
+
+  // Rapport + destinataires par défaut (pré-remplissage de « Envoyer »)
+  useEffect(() => {
+    apiClient.get(`/admin/migration/rapports/${ident}`).then(({ data }) => {
+      setRapport(data);
+      const d = data.destinataires || {};
+      setEnvoi((e) => ({ ...e, canal: (d.whatsapp || []).length ? "whatsapp" : "email", numeros: (d.whatsapp || []).join(", "),
+        emails: (d.emails || []).join(", "), modele: d.modele_wa || "", langue: d.modele_wa_langue || "fr" }));
+    }).catch((err) => { toast.error(err?.response?.data?.detail || "Rapport indisponible"); fermer(); });
+  }, [ident, fermer]);
+
+  const copier = () => navigator.clipboard?.writeText(rapport.texte).then(() => toast.success("Rapport copié"));
+  // Impression : page simple avec le texte du rapport
+  const imprimer = () => {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const pre = w.document.createElement("pre");
+    pre.style.cssText = "font-family:Arial,sans-serif;font-size:13px;white-space:pre-wrap";
+    pre.textContent = rapport.texte;
+    w.document.title = rapport.sujet || "Rapport de sauvegarde";
+    w.document.body.appendChild(pre);
+    w.print();
+  };
+  const majE = (champ) => (e) => setEnvoi({ ...envoi, [champ]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+
+  const envoyer = async () => {
+    setOccupe(true);
+    try {
+      const { data } = await apiClient.post(`/admin/migration/rapports/${rapport.id}/envoyer`, envoi);
+      setRapport(data);
+      const echecs = data.resultats.filter((r) => !r.ok);
+      if (echecs.length) toast.error(`${echecs.length} envoi(s) en échec : ${echecs[0].explication || echecs[0].erreur}`);
+      else toast.success(`${data.resultats.length} envoi(s) effectué(s)`);
+      apresEnvoi();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Envoi impossible");
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  const champ = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
+  const dest = rapport?.destinataires || {};
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" onClick={fermer} data-testid="migration-rapport">
+      <div className="w-full max-w-3xl space-y-4 rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-2 font-semibold"><FileText className="h-4 w-4" /> {rapport?.sujet || "Rapport"}</p>
+          <button type="button" onClick={fermer} className="text-slate-500 hover:text-slate-900" aria-label="Fermer"><X className="h-5 w-5" /></button>
+        </div>
+        {!rapport ? <p className="text-sm text-slate-500">Chargement…</p> : (
+          <>
+            <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <BadgeEnvoi badge={rapport.badge} />
+              {rapport.source === "recalcule" && <span>Rapport recalculé depuis le suivi de la sauvegarde</span>}
+              {rapport.provisoire && <b className="text-amber-700">Sauvegarde en cours : rapport provisoire</b>}
+              {rapport.cree_le && <span>· archivé le {dateHeure(rapport.cree_le)}</span>}
+            </p>
+            <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{rapport.texte}</pre>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copier} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50"><Copy className="h-3 w-3" /> Copier</button>
+              <button type="button" onClick={imprimer} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50"><Printer className="h-3 w-3" /> Imprimer</button>
+            </div>
+
+            {/* Envoi / renvoi à la demande */}
+            {!rapport.provisoire && (
+              <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm">
+                <p className="font-semibold">Envoyer</p>
+                <div className="flex flex-wrap gap-x-5 gap-y-1">
+                  {[["whatsapp", "WhatsApp"], ["email", "E-mail"], ["les_deux", "Les deux"]].map(([v, libelle]) => (
+                    <label key={v} className="flex items-center gap-2"><input type="radio" name="canal-rapport" value={v} checked={envoi.canal === v} onChange={majE("canal")} /> {libelle}</label>
+                  ))}
+                </div>
+                {envoi.canal !== "email" && (
+                  <div className="space-y-1">
+                    <input className={champ} placeholder="Numéros WhatsApp (indicatif pays), séparés par des virgules" value={envoi.numeros} onChange={majE("numeros")} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input className={`${champ} sm:w-56`} placeholder="Modèle Meta (hors fenêtre 24 h)" value={envoi.modele} onChange={majE("modele")} />
+                      <input className={`${champ} w-20`} placeholder="fr" value={envoi.langue} onChange={majE("langue")} />
+                      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={envoi.forcer_modele} onChange={majE("forcer_modele")} /> Toujours utiliser le modèle</label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Texte libre si le destinataire a écrit depuis moins de 24 h, sinon le modèle (une variable {"{{1}}"}).
+                      {Object.entries(dest.fenetres || {}).map(([n, ouverte]) => <span key={n}> · +{n} : fenêtre {ouverte ? "ouverte" : "fermée"}</span>)}
+                    </p>
+                  </div>
+                )}
+                {envoi.canal !== "whatsapp" && (
+                  <input className={champ} placeholder="Adresses e-mail, séparées par des virgules" value={envoi.emails} onChange={majE("emails")} />
+                )}
+                <button type="button" onClick={envoyer} disabled={occupe}
+                  className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
+                  <Send className="h-4 w-4" /> {occupe ? "Envoi…" : "Envoyer"}
+                </button>
+              </div>
+            )}
+
+            {/* Journal des envois (le plus récent en haut) */}
+            <div className="text-sm">
+              <p className="mb-1 font-semibold">Journal des envois</p>
+              {(rapport.envois || []).length === 0 ? <p className="text-xs text-slate-500">Aucun envoi{rapport.non_envoye ? ` (${rapport.non_envoye})` : ""}.</p> : (
+                <div className="max-h-64 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-left text-slate-500"><th>Date</th><th>Par</th><th>Canal</th><th>Destinataire</th><th>Mode</th><th>Résultat</th></tr></thead>
+                    <tbody>
+                      {[...rapport.envois].reverse().map((e, i) => (
+                        <tr key={`${e.le}-${e.a}-${i}`} className="border-t border-slate-100 align-top">
+                          <td className="whitespace-nowrap pr-2">{dateHeure(e.le)}</td>
+                          <td className="pr-2">{e.par}</td>
+                          <td className="pr-2">{e.canal === "email" ? "e-mail" : "WhatsApp"}</td>
+                          <td className="pr-2 font-mono">{e.a}</td>
+                          <td className="pr-2">{modeEnvoi(e)}</td>
+                          <td className={e.ok ? "text-emerald-700" : "text-red-700"}>
+                            <b>{ETATS_ENVOI[e.etat] || (e.ok ? "ok" : "échec")}</b>
+                            {e.code && <> · code {e.code}</>}
+                            {e.explication && <div className="font-semibold">{e.explication}</div>}
+                            {e.erreur && <div className="text-slate-500">{e.erreur}</div>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 };
 
 // =====================================================================
@@ -223,10 +386,15 @@ const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisatio
             <input className={`${champ} w-56`} placeholder="Modèle Meta (hors fenêtre 24 h)" value={reglage.modele_wa} onChange={majR("modele_wa")} />
             <input className={`${champ} w-20`} placeholder="fr" value={reglage.modele_wa_langue} onChange={majR("modele_wa_langue")} />
           </div>
+          {/* Lot 48 : destinataires propres au rapport (prioritaires s'ils sont remplis) */}
+          <input className={`${champ} w-full`} placeholder="Numéros WhatsApp du rapport (séparés par des virgules)" value={enTexte(reglage.rapport_wa)} onChange={majR("rapport_wa")} data-testid="rapport-wa" />
+          <input className={`${champ} w-full`} placeholder="E-mails du rapport (séparés par des virgules)" value={enTexte(reglage.rapport_emails)} onChange={majR("rapport_emails")} data-testid="rapport-emails" />
           <p className="text-xs text-slate-500">
-            Rapport signé Liluvine envoyé par WhatsApp aux numéros admin de Liluvine (Paramètres → Liluvine). Si l'admin n'a pas écrit à Liluvine depuis 24 h,
+            Rapport signé Liluvine envoyé par WhatsApp aux numéros ci-dessus (vides : numéros repris des autres réglages). Si le destinataire n'a pas écrit depuis 24 h,
             le modèle Meta indiqué (une variable {"{{1}}"}) est utilisé ; sinon, ou en cas d'échec, le rapport part par e-mail. Un échec est toujours signalé.
+            Chaque rapport est archivé dans l'Historique (bouton « Rapport ») et peut y être renvoyé.
           </p>
+          {etat?.destinataires?.ligne && <p className="rounded bg-slate-50 px-2 py-1 text-xs text-slate-700" data-testid="rapport-destinataires">{etat.destinataires.ligne}</p>}
         </div>
       </div>
 
@@ -290,6 +458,8 @@ const MigrationRenderSection = () => {
   const minuterie = useRef(null);
   const [coffre, setCoffre] = useState({ existe: false }); // état du coffre (jamais son contenu)
   const [mdpCoffre, setMdpCoffre] = useState(""); // mot de passe du coffre (jamais enregistré)
+  const [rapports, setRapports] = useState([]); // lot 48 : résumés des rapports archivés (badges)
+  const [rapportOuvert, setRapportOuvert] = useState(null); // id du rapport (ou de la sauvegarde) affiché
 
   // Chargement de l'inventaire et de l'historique
   const charger = useCallback(async () => {
@@ -299,6 +469,8 @@ const MigrationRenderSection = () => {
       setJobs(hist.data || []);
       const c = await apiClient.get("/admin/migration/coffre");
       setCoffre(c.data);
+      const r = await apiClient.get("/admin/migration/rapports");
+      setRapports(r.data || []);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Inventaire indisponible");
     }
@@ -463,6 +635,10 @@ const MigrationRenderSection = () => {
 
   const champ = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
   const enCours = job?.statut === "EN_COURS" || jobs.some((j) => j.statut === "EN_COURS");
+  // Lot 48 : rapport archivé de chaque sauvegarde ; purges et échecs au démarrage listés à part
+  const rapportDe = Object.fromEntries(rapports.filter((r) => r.job_id).map((r) => [r.job_id, r]));
+  const autresRapports = rapports.filter((r) => !r.job_id);
+  const fermerRapport = useCallback(() => setRapportOuvert(null), []);
 
   return (
     <div className="space-y-5" data-testid="migration-render-section">
@@ -764,12 +940,34 @@ const MigrationRenderSection = () => {
                 {j.programmee && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">programmée</span>}
                 {j.purgee && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700" title={`Supprimée de R2 le ${dateHeure(j.purgee_le)}`}>purgée</span>}
                 <span className="text-xs text-slate-500">{j.collections_faites}/{j.collections_total} coll. · {j.fichiers_copies}/{j.fichiers_total} fichiers · par {j.lance_par}</span>
-                <button type="button" onClick={() => suivre(j.id)} className="ml-auto text-xs font-semibold text-sky-700 hover:underline">Détail</button>
+                <span className="ml-auto"><BadgeEnvoi badge={rapportDe[j.id]?.badge} /></span>
+                <button type="button" onClick={() => setRapportOuvert(j.id)} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline">
+                  <FileText className="h-3 w-3" /> Rapport
+                </button>
+                <button type="button" onClick={() => suivre(j.id)} className="text-xs font-semibold text-sky-700 hover:underline">Détail</button>
               </li>
             ))}
           </ul>
+          {autresRapports.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600">Autres rapports (purges, échecs au démarrage) : {autresRapports.length}</summary>
+              <ul className="mt-1 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                {autresRapports.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <span className="text-xs text-slate-500">{dateHeure(r.cree_le)}</span>
+                    <span className="text-xs font-semibold">{r.sujet}</span>
+                    <span className="ml-auto"><BadgeEnvoi badge={r.badge} /></span>
+                    <button type="button" onClick={() => setRapportOuvert(r.id)} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline">
+                      <FileText className="h-3 w-3" /> Rapport
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
+      {rapportOuvert && <FenetreRapport ident={rapportOuvert} fermer={fermerRapport} apresEnvoi={charger} />}
     </div>
   );
 };

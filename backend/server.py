@@ -1154,6 +1154,10 @@ api.include_router(_migration_programmation_router)
 _migration_programmation_configurer(envoyer_wa_texte=_wa_send_text, envoyer_wa_modele=_wa_send_template,
                                     email_defaut=SUPER_ADMIN_EMAIL)
 
+# Lot 48 — rapports de sauvegarde archivés (Historique), envoi / renvoi à la demande, journal des envois
+from routes.migration_rapports import router as _migration_rapports_router  # noqa: E402
+api.include_router(_migration_rapports_router)
+
 
 @app.on_event("startup")
 async def _demarrer_migration_programmation():

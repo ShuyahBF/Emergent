@@ -76,6 +76,13 @@ Sauvegardes programmées et rétention (lot 47, routes/migration_programmation.p
     identifiants R2/Atlas conservés chiffrés par une clé du serveur ;
   - purge des anciennes sauvegardes dans R2 (jours de rétention + les K dernières
     réussies toujours gardées) et rapport envoyé à l'admin par Liluvine.
+
+Rapports archivés (lot 48, routes/migration_rapports.py) :
+  - chaque sauvegarde (programmée ou manuelle) et chaque purge garde son rapport complet
+    dans la collection `migration_rapports`, consultable et renvoyable depuis l'Historique ;
+  - références de fichiers relevées dans des TEXTES : ponctuation finale retirée (` ' " ) . , ;)
+    et chemins d'exemple évidents (sawali_global/mon_image.png...) ignorés s'ils ne figurent
+    dans aucun registre de fichiers (`files.storage_path`, `stored_objects`).
 """
 from __future__ import annotations
 
@@ -114,7 +121,9 @@ router = APIRouter(prefix="/admin/migration", tags=["Migration vers Render"])
 
 # Collections jamais copiées (suivi de la migration elle-même)
 # (et réglage des sauvegardes programmées : le nouveau site ne doit pas hériter de la programmation)
-EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation"}
+# (lot 48 : rapports archivés et journal de leurs envois, propres à ce site)
+EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation",
+           "migration_rapports"}
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
@@ -656,6 +665,8 @@ async def _demarrer(cible: Cible, lance_par: str, programmee: bool = False) -> D
         "lance_par": lance_par,
         # Lot 47 : sauvegarde programmée ? (le rapport Liluvine est envoyé une fois terminée)
         "programmee": programmee, "rapport": None,
+        # Lot 48 : rapport pas encore archivé (le planificateur l'archive une fois la sauvegarde finie)
+        "rapport_archive": False,
         # Octets envoyés à R2 : archives de la base et fichiers (taille indiquée dans le rapport)
         "octets_archives": 0, "octets_fichiers": 0,
         # Description de la cible SANS identifiants
@@ -978,6 +989,31 @@ def _normaliser_chemin(brut: Any) -> str:
     return c.lstrip("/")
 
 
+# Ponctuation laissée en fin de référence quand un chemin est cité dans un texte
+# (« `sawali_global/mon_image.png` », « (voir /api/files/x.png). »)
+PONCTUATION_FINALE = "`'\").,;:!"
+# Noms de fichiers d'EXEMPLE (documentation, invites, messages d'aide) : sous `sawali_global/`,
+# une référence portant ce nom n'est pas un vrai fichier, sauf si un registre de fichiers la connaît
+RE_NOM_EXEMPLE = re.compile(r"^(mon_image\.png|fichier\.png|mon|image\.png|exemple(\..*)?|example(\..*)?)$",
+                            re.IGNORECASE)
+
+
+def _nettoyer_reference(brut: Any) -> str:
+    """Référence relevée dans un texte -> chemin propre, sans ponctuation ni accent grave final.
+    Réservé aux références extraites des documents : les chemins des registres (`files`,
+    `stored_objects`) ne passent jamais par ici et restent tels quels."""
+    c = _normaliser_chemin(brut)
+    while c and c[-1] in PONCTUATION_FINALE:
+        c = c[:-1].rstrip()
+    return c
+
+
+def _est_exemple(chemin: str) -> bool:
+    """Chemin d'exemple évident : sous `sawali_global/` et nom de fichier générique."""
+    segments = chemin.split("/")
+    return "sawali_global" in segments[:-1] and bool(RE_NOM_EXEMPLE.match(segments[-1]))
+
+
 def _cle_canonique(chemin: str) -> str:
     """Forme comparable d'un chemin (storage.fetch_bytes ajoute le préfixe s'il manque) : sert au dédoublonnage."""
     return chemin if chemin.startswith(f"{PREFIXE_STOCKAGE}/") else f"{PREFIXE_STOCKAGE}/{chemin}"
@@ -1008,10 +1044,14 @@ def _traduire_reference(ref: str, fichiers: Dict[str, Optional[str]]) -> tuple:
 async def _chemins_emergent(references: Dict[tuple, str]) -> tuple:
     """Tous les chemins d'objets du stockage Emergent connus -> ({chemin: origine}, compteurs des ignorés).
     Sources : registre `stored_objects`, `files.storage_path`, puis les références relevées dans la base
-    (« /api/files/... » traduites, « storage_path » gardées). Dédoublonnage sur la forme canonique."""
+    (« /api/files/... » traduites, « storage_path » gardées). Dédoublonnage sur la forme canonique.
+    Lot 48 : une référence relevée dans un texte est nettoyée (ponctuation finale) ; un chemin
+    d'exemple (`_est_exemple`) absent des registres est ignoré (compteur « exemples », présent
+    seulement s'il y en a). Un chemin connu de `files` ou `stored_objects` n'est JAMAIS ignoré."""
     chemins: Dict[str, str] = {}
     vus: set = set()
     ignores = {"disque": 0, "inconnu": 0}
+    exemples = 0
 
     def ajouter(brut: Any, origine: str) -> None:
         c = _normaliser_chemin(brut)
@@ -1028,15 +1068,25 @@ async def _chemins_emergent(references: Dict[tuple, str]) -> tuple:
             fichiers[str(f["id"])] = f.get("storage_path") or None
         if f.get("storage_path"):
             ajouter(f["storage_path"], "files.storage_path")
+    # Chemins des registres (forme canonique) : à ce stade, `vus` ne contient qu'eux
+    registres = set(vus)
     for (genre, valeur), collection in sorted(references.items()):
+        valeur = _nettoyer_reference(valeur)
         if genre == "stockage":
-            ajouter(valeur, f"{collection} (storage_path)")
+            chemin, origine = valeur, f"{collection} (storage_path)"
+        else:
+            chemin, motif = _traduire_reference(valeur, fichiers)
+            origine = f"{collection} (/api/files)"
+            if not chemin:
+                if motif in ignores:
+                    ignores[motif] += 1
+                continue
+        if chemin and _est_exemple(chemin) and _cle_canonique(chemin) not in registres:
+            exemples += 1
             continue
-        chemin, motif = _traduire_reference(valeur, fichiers)
-        if chemin:
-            ajouter(chemin, f"{collection} (/api/files)")
-        elif motif in ignores:
-            ignores[motif] += 1
+        ajouter(chemin, origine)
+    if exemples:
+        ignores["exemples"] = exemples
     return chemins, ignores
 
 
@@ -1067,7 +1117,8 @@ async def _copier_fichiers(job_id, cible, r2, prefixe, references, manifeste, re
     ignorer_medias = not cible.copier_medias
     await _maj(job_id, f"Fichiers : {len(locaux)} fichier(s) locaux + {len(chemins)} objet(s) Emergent "
                        f"(références ignorées : {ignores['disque']} fichier(s) disque, "
-                       f"{ignores['inconnu']} identifiant(s) inconnu(s))",
+                       f"{ignores['inconnu']} identifiant(s) inconnu(s)"
+                       + (f", {ignores['exemples']} chemin(s) d'exemple" if ignores.get("exemples") else "") + ")",
                etape="Fichiers", fichiers_total=total, references_ignorees=ignores)
     await _maj(job_id, "Médias (vidéos et sons) : " + ("ignorés (option décochée)" if ignorer_medias else "copiés"))
     echecs, absents, medias, faits, stockes = 0, 0, 0, 0, 0

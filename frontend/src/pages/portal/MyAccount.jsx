@@ -8,6 +8,9 @@ import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText,
 // 2026-02 fork (P0) — KYC + Smart Communications par tenant
 import TenantKycSection from "@/pages/portal/sections/TenantKycSection";
 import SmartCommunicationsTenantSection from "@/pages/portal/sections/SmartCommunicationsTenantSection";
+// Lot 50 — sessions actives (limite d'appareils) et date de la dernière sauvegarde
+import SessionsActivesSection from "@/pages/portal/sections/SessionsActivesSection";
+import DerniereSauvegarde from "@/components/DerniereSauvegarde";
 
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
@@ -375,6 +378,10 @@ export default function MyAccount() {
               Stored in localStorage (per-device) so users can silence system toasts
               without contacting an admin. Respects the global admin toggle. */}
           <BrowserNotificationsPrefSection />
+
+          {/* Lot 50 — appareils connectés au compte et dernière sauvegarde générale */}
+          <SessionsActivesSection />
+          <DerniereSauvegarde variante="carte" />
 
           {/* Iter34s — Raccourci SMART Communications (admin only).
               Permet à l'admin SAWALI (et plus généralement à tout admin)

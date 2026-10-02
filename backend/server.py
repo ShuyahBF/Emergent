@@ -1164,6 +1164,29 @@ api.include_router(_sauvegarde_complete_router)
 api.include_router(_sauvegarde_complete_public)
 _sauvegarde_complete_configurer(envoyer_email=send_email, email_defaut=SUPER_ADMIN_EMAIL)
 
+# Lot 50 — maintenance de la plateforme (déconnexion de tous les utilisateurs, règle R8),
+# abonnements (grâce puis coupure côté serveur), sessions des comptes (limite d'appareils,
+# inactivité contrôlée par le serveur), date de la dernière sauvegarde. Les contrôles de chaque
+# requête sont faits dans auth.get_current_user (controle_acces.py) ; les refus portent un code
+# lisible par le site ({"detail", "code"}).
+from controle_acces import RefusAcces as _RefusAcces, gestionnaire_refus as _gestionnaire_refus  # noqa: E402
+from routes.maintenance_plateforme import public as _maintenance_public, admin as _maintenance_admin  # noqa: E402
+from routes.abonnements_sessions import router as _abonnements_sessions_router  # noqa: E402
+app.add_exception_handler(_RefusAcces, _gestionnaire_refus)
+api.include_router(_maintenance_public)
+api.include_router(_maintenance_admin)
+api.include_router(_abonnements_sessions_router)
+
+
+@app.on_event("startup")
+async def _index_sessions_comptes():
+    """Lot 50 — index des sessions des comptes (TTL sur l'expiration) : jamais bloquant."""
+    try:
+        import sessions_comptes
+        await sessions_comptes.assurer_index()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[sessions] index non créés au démarrage : %s", exc)
+
 
 @app.on_event("startup")
 async def _demarrer_migration_programmation():

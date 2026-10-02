@@ -7,7 +7,7 @@ from typing import Optional
 
 import bcrypt
 import jwt as pyjwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from db import db, serialize
@@ -30,14 +30,26 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, sid: Optional[str] = None) -> str:
     payload = {
         "sub": user_id,
         "role": role,
         "iat": int(datetime.now(timezone.utc).timestamp()),
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)).timestamp()),
     }
+    # Lot 50 — identifiant de la session du compte (sessions_comptes.py : limite d'appareils,
+    # fermeture depuis « Mon compte », contrôle serveur de l'inactivité).
+    if sid:
+        payload["sid"] = sid
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+async def create_session_token(user: dict, request=None) -> str:
+    """Lot 50 — Connexion d'un compte : ouvre une session (au plus N appareils par compte,
+    les plus anciennes sont fermées) puis émet le jeton qui porte son identifiant."""
+    import sessions_comptes
+    ouverte = await sessions_comptes.ouvrir_session(user, request)
+    return create_access_token(user["id"], user.get("role") or "client", sid=ouverte["sid"])
 
 
 def decode_token(token: str) -> dict:
@@ -53,6 +65,7 @@ def generate_session_token() -> str:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> dict:
     if credentials is None:
@@ -106,6 +119,10 @@ async def get_current_user(
             raise
         except Exception:
             pass
+    # Lot 50 — maintenance de la plateforme, session du compte (limite d'appareils, inactivité),
+    # abonnement du client (coupure après la grâce) : controle_acces.py.
+    from controle_acces import controler_requete
+    await controler_requete(user, payload, request)
     return user
 
 
@@ -121,4 +138,19 @@ async def get_current_admin_or_moderator(user: dict = Depends(get_current_user))
     # française) : on accepte les deux orthographes du rôle modérateur.
     if user.get("role") not in {"admin", "moderator", "moderateur", "superviseur"}:
         raise HTTPException(status_code=403, detail="Accès réservé aux modérateurs, superviseurs et administrateurs")
+    return user
+
+
+def est_super_admin(user: dict) -> bool:
+    """Lot 50 — Super-admin SAWALI (SUPER_ADMIN_EMAIL), même règle que server._is_super_admin."""
+    email = (user.get("email") or "").strip().lower()
+    attendu = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsystems.com").strip().lower()
+    return bool(email) and email == attendu
+
+
+async def get_super_admin(user: dict = Depends(get_current_admin)) -> dict:
+    """Lot 50 — Réservé au super-admin SAWALI : maintenance de la plateforme, abonnements et
+    sessions de tous les clients (un Admin de client ne voit pas les autres clients)."""
+    if not est_super_admin(user):
+        raise HTTPException(status_code=403, detail="Réservé au super-administrateur SAWALI")
     return user

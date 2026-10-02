@@ -56,6 +56,36 @@ export function quitterSessionImp({ rediriger = true } = {}) {
   return true;
 }
 
+// =====================================================================
+// Lot 50 — refus avec un code lisible ({detail, code}) renvoyés par le serveur :
+//   - 503 « maintenance_plateforme » : déconnexion forcée, retour à la connexion ;
+//   - 401 « session_* » : session fermée (limite d'appareils, fermée à distance,
+//     inactivité, maintenance) — le motif est affiché sur la page de connexion ;
+//   - 402 « abonnement_expire » : l'écran « Abonnement expiré » s'affiche.
+// =====================================================================
+export const CLE_MOTIF_DECONNEXION = "sawali_motif_deconnexion";
+export const EVENEMENT_ABONNEMENT = "sawali:abonnement";
+
+export function noterMotifDeconnexion(message) {
+  try { if (message) sessionStorage.setItem(CLE_MOTIF_DECONNEXION, message); } catch { /* noop */ }
+}
+
+/** Motif de la dernière déconnexion forcée (lu une seule fois par la page de connexion). */
+export function lireMotifDeconnexion() {
+  try {
+    const m = sessionStorage.getItem(CLE_MOTIF_DECONNEXION);
+    if (m) sessionStorage.removeItem(CLE_MOTIF_DECONNEXION);
+    return m || "";
+  } catch { return ""; }
+}
+
+/** Fermeture de la session du compte côté serveur (déconnexion) : sans attendre la réponse. */
+export function fermerSessionServeur() {
+  const jeton = typeof localStorage !== "undefined" ? localStorage.getItem("sawali_token") : null;
+  if (!jeton) return;
+  apiClient.post("/auth/logout", null, { headers: { Authorization: `Bearer ${jeton}` } }).catch(() => {});
+}
+
 apiClient.interceptors.request.use((config) => {
   // Lot 44 — jeton de la session « en tant que » de l'onglet en priorité
   const token = jetonCourant();
@@ -77,6 +107,7 @@ const TRACE_SKIP_PATTERNS = [
   "/auth/", // Skip ALL auth endpoints — they fire before localStorage has the token
             // (would cause /me/api-trace to be called without auth → 401 → forced logout race)
   "/me/formations/", // visit/close happens silently
+  "/me/activite",    // lot 50 — signal d'activité (contrôle serveur de l'inactivité), silencieux
 ];
 
 // Paths that should NEVER trigger a forced logout on 401, even if the user is logged in.
@@ -185,6 +216,25 @@ apiClient.interceptors.response.use(
       const status = err?.response?.status || 0;
       recordTrace(err?.config || {}, status, err?.response?.data, err?.message);
     } catch { /* noop */ }
+    // Lot 50 — maintenance, session fermée, abonnement expiré
+    const codeRefus = err?.response?.data?.code || "";
+    if (err?.response?.status === 402 && codeRefus === "abonnement_expire" && typeof window !== "undefined") {
+      try { window.dispatchEvent(new CustomEvent(EVENEMENT_ABONNEMENT, { detail: err.response.data })); } catch { /* noop */ }
+    }
+    if (err?.response?.status === 503 && codeRefus === "maintenance_plateforme" && !sessionImpActive()) {
+      const avaitJeton = typeof localStorage !== "undefined" && !!localStorage.getItem("sawali_token");
+      if (avaitJeton) {
+        noterMotifDeconnexion(err.response.data.detail);
+        localStorage.removeItem("sawali_token");
+        localStorage.removeItem("sawali_user");
+        if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
+      }
+    }
+    if (err?.response?.status === 401 && codeRefus.startsWith("session_") && !sessionImpActive()) {
+      noterMotifDeconnexion(err.response.data.detail);
+    }
     if (err?.response?.status === 401) {
       const url = err.config?.url || "";
       const isAuthEndpoint = url.includes("/auth/");

@@ -10,6 +10,7 @@ Provided endpoints (under /api/auth/*):
     GET  /auth/me              — current user payload (requires JWT)
     POST /auth/change-password — change password (requires JWT)
     GET  /auth/captcha-config  — public reCAPTCHA configuration
+    POST /auth/logout          — lot 50 : fermeture de la session du compte
 """
 from __future__ import annotations
 
@@ -59,6 +60,12 @@ def attach_auth_routes(
     _now: Callable[[], str] = helpers["_now"]
     # 2026-02 fork (P3a) — Optional login automation hook. Fire-and-forget.
     emit_login_event = helpers.get("emit_login_event")
+    # Lot 50 — facultatifs (absents dans certains tests) : connexion refusée pendant la
+    # maintenance de la plateforme (sauf Admin), session du compte ouverte à la connexion
+    # (limite d'appareils), fermeture de la session à la déconnexion.
+    refuser_si_maintenance = helpers.get("refuser_si_maintenance")
+    create_session_token = helpers.get("create_session_token")
+    fermer_session_jeton = helpers.get("fermer_session_jeton")
 
     async def _public_with_tenant_profile(user: dict) -> dict:
         """Lot 25 — Profil public + `business_type` du client parent.
@@ -92,6 +99,8 @@ def attach_auth_routes(
                 reason = user.get("suspended_reason") or "Suspension pour retard de paiement."
                 raise HTTPException(status_code=403, detail=f"Compte suspendu : {reason} Contactez votre administrateur.")
             raise HTTPException(status_code=403, detail="Compte désactivé")
+        if refuser_si_maintenance is not None:
+            await refuser_si_maintenance(user)
         captcha = await verify_recaptcha(payload.captcha_token, request=request)
         if not captcha["success"]:
             raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
@@ -142,8 +151,13 @@ def attach_auth_routes(
         user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+        if refuser_si_maintenance is not None:
+            await refuser_si_maintenance(user)
         await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": _now()}})
-        token = create_access_token(user["id"], user["role"])
+        if create_session_token is not None:
+            token = await create_session_token(user, request)
+        else:
+            token = create_access_token(user["id"], user["role"])
         # 2026-02 fork (P3a) — Emit the `user.login` automation event so the
         # admin can be alerted (email/phone/role/ip) via a configured WA template.
         if emit_login_event is not None:
@@ -194,6 +208,19 @@ def attach_auth_routes(
             {"id": user["id"]},
             {"$set": {"password_hash": hash_password(payload.new_password), "updated_at": _now()}},
         )
+        return {"ok": True}
+
+    @api.post("/auth/logout", tags=["Authentification"])
+    async def auth_logout(request: Request):
+        """Lot 50 — Déconnexion : ferme la session du compte (elle disparaît de « Mon compte »
+        et ne compte plus dans la limite d'appareils). Toujours « ok », même sans jeton valable."""
+        if fermer_session_jeton is not None:
+            entete = request.headers.get("authorization") or ""
+            if entete.lower().startswith("bearer "):
+                try:
+                    await fermer_session_jeton(entete.split(" ", 1)[1].strip())
+                except Exception:  # noqa: BLE001
+                    pass
         return {"ok": True}
 
     @api.get("/auth/captcha-config", tags=["Authentification"])

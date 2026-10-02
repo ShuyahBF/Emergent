@@ -203,6 +203,8 @@ import VirtualAssistant from "@/components/VirtualAssistant";
 import RouteTracker from "@/components/RouteTracker";
 import WebhookResultModal from "@/components/WebhookResultModal";
 import BandeauVoirEnTantQue from "@/components/BandeauVoirEnTantQue";   // lot 44
+import SurveillanceMaintenance from "@/components/MaintenancePlateforme";   // lot 50 : déconnexion générale (R8)
+import AbonnementAcces from "@/components/AbonnementAcces";   // lot 50 : grâce puis coupure de l'abonnement
 
 import ApiDocs from "@/pages/ApiDocs";
 
@@ -268,6 +270,9 @@ export default function App() {
         <BackgroundApplier />
         <LlmHealthBanner />
         <AutoLogoutGate />
+        {/* Lot 50 — maintenance de la plateforme et abonnement expiré (utilisateurs connectés) */}
+        <SurveillanceMaintenance />
+        <AbonnementAcces />
         <Routes>
           {/* Public marketing */}
           <Route path="/" element={<PublicRoute><Home /></PublicRoute>} />

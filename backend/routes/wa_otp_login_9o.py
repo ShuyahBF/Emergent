@@ -8,6 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import random
@@ -77,6 +78,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
 
     @api.post("/auth/wa-otp/request", tags=["Auth — WhatsApp OTP"])
     async def request_wa_otp(payload: Dict[str, Any] = Body(...), request: Request = None):
+        import maintenance_plateforme  # lot 50 — pas de code envoyé pendant la maintenance
+        await maintenance_plateforme.refuser_si_maintenance()
         msisdn = _digits(payload.get("msisdn") or "")
         if len(msisdn) < 8:
             raise HTTPException(status_code=400, detail="Numéro invalide")
@@ -204,7 +207,10 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         return {"ok": True, "sent_via": sent_via, "expires_in_minutes": 10}
 
     @api.post("/auth/wa-otp/verify", tags=["Auth — WhatsApp OTP"])
-    async def verify_wa_otp(payload: Dict[str, Any] = Body(...)):
+    async def verify_wa_otp(payload: Dict[str, Any] = Body(...), request: Request = None):
+        # Lot 50 — connexion refusée pendant la maintenance de la plateforme
+        import maintenance_plateforme
+        await maintenance_plateforme.refuser_si_maintenance()
         msisdn = _digits(payload.get("msisdn") or "")
         code = (payload.get("code") or "").strip()
         if not msisdn or not code:
@@ -286,8 +292,10 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
                 "last_interaction_at": _now_iso(),
             })
             user.pop("_id", None)
-        # Mint JWT
-        token = create_jwt_token(user)
+        # Mint JWT — lot 50 : le jeton porte la session du compte (limite d'appareils)
+        token = create_jwt_token(user, request)
+        if inspect.isawaitable(token):
+            token = await token
         return {
             "ok": True,
             "token": token,

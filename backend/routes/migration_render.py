@@ -114,7 +114,10 @@ router = APIRouter(prefix="/admin/migration", tags=["Migration vers Render"])
 
 # Collections jamais copiées (suivi de la migration elle-même)
 # (et réglage des sauvegardes programmées : le nouveau site ne doit pas hériter de la programmation)
-EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation"}
+# Lot 50 : ni l'état de la maintenance de la plateforme (le nouveau site ne démarre pas « en
+# maintenance »), ni les sessions des comptes (chacun se reconnecte sur le nouveau site).
+EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation",
+           "maintenance_plateforme", "sessions_comptes"}
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue

@@ -47,6 +47,20 @@ async def version():
 # the location changed. See /app/backend/routes/auth.py.
 # ====================================================================
 from routes.auth import attach_auth_routes  # noqa: E402
+import maintenance_plateforme as _maintenance_plateforme  # noqa: E402  (lot 50)
+from auth import create_session_token  # noqa: E402  (lot 50)
+
+
+async def _fermer_session_jeton(jeton: str) -> None:
+    """Lot 50 — Déconnexion : ferme la session du compte portée par le jeton (s'il en a une)."""
+    import sessions_comptes
+    from auth import decode_token
+    try:
+        charge = decode_token(jeton)
+    except Exception:  # noqa: BLE001 — jeton expiré ou invalide : rien à fermer
+        return
+    if charge.get("sid") and not charge.get("imp"):
+        await sessions_comptes.fermer(charge["sid"], sessions_comptes.MOTIF_DECONNEXION)
 
 
 async def _emit_login_event(user: dict, request) -> None:
@@ -114,6 +128,10 @@ attach_auth_routes(
         "_now": _now,
         # 2026-02 fork (P3a) — Login automation hook
         "emit_login_event": _emit_login_event,
+        # Lot 50 — maintenance de la plateforme et sessions des comptes (limite d'appareils)
+        "refuser_si_maintenance": _maintenance_plateforme.refuser_si_maintenance,
+        "create_session_token": create_session_token,
+        "fermer_session_jeton": _fermer_session_jeton,
     },
 )
 

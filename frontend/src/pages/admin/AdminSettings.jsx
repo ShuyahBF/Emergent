@@ -49,6 +49,8 @@ import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestBut
 import QdrantRagSection from "@/components/QdrantRagSection";
 import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSection";
 import SauvegardeTransfertSection, { AlerteSauvegardeAuto } from "@/pages/admin/sections/SauvegardeTransfertSection";  // lot 49
+import DeconnexionGeneraleSection from "@/pages/admin/sections/DeconnexionGeneraleSection";  // lot 50
+import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessionsSection";  // lot 50
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 
 // ============================================================
@@ -63,6 +65,9 @@ import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTan
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 50 — maintenance (déconnexion de tous les utilisateurs), abonnements et sessions
+  "Maintenance — Déconnexion de tous les utilisateurs": "2026-10-02",
+  "Abonnements (grâce et coupure) et sessions des comptes": "2026-10-02",
   // Lot 49 — export / import complets chiffrés, sauvegarde quotidienne vers R2
   "Sauvegarde / transfert des données": "2026-10-02",
   // Lot 42 — plages horaires d'envoi des sondages et formulaires
@@ -1200,6 +1205,14 @@ export default function AdminSettings() {
       <Filterable title="Roadmap & Suivi des fonctionnalités" anchorId="s-roadmap-tracker" category="diagnostics">
         <RoadmapTrackerSection />
       </Filterable>
+      {/* Lot 50 — maintenance de la plateforme : déconnexion de tous les utilisateurs (R8) */}
+      <Filterable title="Maintenance — Déconnexion de tous les utilisateurs" anchorId="s-deconnexion-generale" category="auth">
+        <DeconnexionGeneraleSection />
+      </Filterable>
+      {/* Lot 50 — abonnements (grâce puis coupure) et sessions des comptes (limite d'appareils) */}
+      <Filterable title="Abonnements (grâce et coupure) et sessions des comptes" anchorId="s-abonnements-sessions" category="auth">
+        <AbonnementsSessionsSection />
+      </Filterable>
       {/* Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity */}
       <Section icon={Clock} title="Sécurité — Déconnexion automatique par inactivité">
         <p className="text-xs text-slate-500">
@@ -1237,6 +1250,7 @@ export default function AdminSettings() {
         </div>
         <p className="text-[10px] text-slate-500 italic">
           S'applique à TOUS les utilisateurs (admin, superviseur, client, équipe). Le paramètre est rechargé à la prochaine connexion.
+          Lot 50 : le serveur le contrôle aussi (au-delà du délai + 2 minutes sans activité, la session est fermée, même onglet fermé).
           Référence : <code>/app/memory/SUGGESTIONS.md → S009</code>.
         </p>
       </Section>

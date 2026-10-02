@@ -108,8 +108,11 @@ SUIVI = "sauvegardes_completes"  # tâches, état de la sauvegarde automatique, 
 # Jamais exportées ni touchées par un import :
 #  - le suivi de ce module ;
 #  - le réglage des sauvegardes de migration programmées (lot 47) : un site restauré
-#    ne doit pas hériter de la programmation (même règle que la migration).
-EXCLUES = frozenset({SUIVI, "migration_programmation"})
+#    ne doit pas hériter de la programmation (même règle que la migration) ;
+#  - lot 50 : l'état de la maintenance de la plateforme (un site restauré ne démarre pas
+#    « en maintenance ») et les sessions des comptes (un import « Remplacer » ne ferme pas la
+#    session de l'Admin qui le suit ; sur un site restauré, chacun se reconnecte).
+EXCLUES = frozenset({SUIVI, "migration_programmation", "maintenance_plateforme", "sessions_comptes"})
 # Collections qu'un démarrage sur une base vide remplit tout seul (relevé sur une base vide) :
 # réglages par défaut, contenus du site, configuration VIDAL, empreinte du déploiement.
 COLLECTIONS_DEMARRAGE = frozenset({"settings", "contents", "vidal_sync_config", "app_deployments"})

@@ -83,7 +83,8 @@ POST_LECTURE = {
 
 # Journaux techniques envoyés automatiquement par le navigateur : ignorés (réponse
 # « ok » sans rien enregistrer), pour ne rien écrire au nom de la personne.
-TELEMETRIE = {"/api/me/access-log", "/api/me/api-trace", "/api/track"}
+TELEMETRIE = {"/api/me/access-log", "/api/me/api-trace", "/api/track",
+              "/api/me/activite"}  # lot 50 : signal d'activité (inactivité côté serveur)
 
 # Toujours interdits pendant une session, lecture seule ou non (motif → raison).
 INTERDITS_PERMANENTS = [

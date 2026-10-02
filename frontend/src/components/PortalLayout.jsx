@@ -27,6 +27,7 @@ import { useTicketNotifier } from "@/hooks/useTicketNotifier";
 import { useErrorRegistryNotifier } from "@/hooks/useErrorRegistryNotifier";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import WelcomeBriefing, { shouldShowWelcomeBriefing } from "@/components/WelcomeBriefing";
+import DerniereSauvegarde from "@/components/DerniereSauvegarde";   // lot 50
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 function absoluteUrl(u) {
@@ -969,6 +970,8 @@ function PortalLayoutInner({ admin = false }) {
             <Outlet />
           </ErrorBoundary>
         </main>
+        {/* Lot 50 — date de la dernière sauvegarde générale (discret) */}
+        <DerniereSauvegarde variante="pied" />
       </div>
       <VersionStamp tone="dark" />
       {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} isComptaStrict={isComptaStrict} />}

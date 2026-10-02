@@ -641,6 +641,10 @@ def make_router(*, db, get_current_user, decode_token):
             user = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
             if not user or user.get("account_status") != "active":
                 raise Exception("inactive user")
+            # Lot 50 — maintenance de la plateforme : discussion interne fermée (sauf Admin)
+            import maintenance_plateforme
+            if not maintenance_plateforme.jamais_bloque(user, payload) and await maintenance_plateforme.en_maintenance():
+                raise Exception("maintenance")
         except Exception:
             await websocket.send_json({"type": "error", "detail": "auth failed"})
             await websocket.close(code=4401)

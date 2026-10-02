@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { apiClient, sessionImpActive, quitterSessionImp, jetonCourant, CLE_IMP_USER } from "@/lib/api";
+import { apiClient, sessionImpActive, quitterSessionImp, jetonCourant, CLE_IMP_USER, fermerSessionServeur } from "@/lib/api";
 
 const AuthCtx = createContext(null);
 
@@ -87,6 +87,9 @@ export function AuthProvider({ children }) {
       apiClient.post("/voir-en-tant-que/fin").catch(() => {}).finally(() => quitterSessionImp());
       return;
     }
+    // Lot 50 — la session du compte est fermée côté serveur (elle ne compte plus dans la
+    // limite d'appareils et disparaît de « Mon compte »)
+    fermerSessionServeur();
     localStorage.removeItem("sawali_token");
     localStorage.removeItem("sawali_user");
     try {

@@ -45,6 +45,22 @@ export default function AutoLogoutGate() {
     }
   };
 
+  // Lot 50 — le serveur contrôle aussi l'inactivité (dernière activité de la session) :
+  // l'activité de l'utilisateur (souris, clavier, défilement, toucher) lui est signalée au
+  // plus une fois par minute, pour qu'une page lue longtemps sans requête ne soit pas fermée.
+  useEffect(() => {
+    if (!user || !(Number(config.auto_logout_minutes) > 0)) return undefined;
+    let dernier = Date.now();
+    const signaler = () => {
+      if (Date.now() - dernier < 60_000) return;
+      dernier = Date.now();
+      apiClient.post("/me/activite").catch(() => { /* silencieux */ });
+    };
+    const evenements = ["mousedown", "keydown", "scroll", "touchstart", "mousemove"];
+    evenements.forEach((ev) => window.addEventListener(ev, signaler, { passive: true }));
+    return () => evenements.forEach((ev) => window.removeEventListener(ev, signaler));
+  }, [user, config.auto_logout_minutes]);
+
   const { warningCountdown, stayConnected } = useIdleTimer({
     idleMinutes: Number(config.auto_logout_minutes) || 0,
     warningSeconds: Number(config.warning_seconds) || 30,

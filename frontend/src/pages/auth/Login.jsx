@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone } from "lucide-react";
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
-import { apiClient } from "@/lib/api";
+import { apiClient, lireMotifDeconnexion } from "@/lib/api";
+import { AvisMaintenance } from "@/components/MaintenancePlateforme";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
@@ -27,6 +28,8 @@ export default function Login() {
   const [waName, setWaName] = useState("");
   const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
+  // Lot 50 — motif de la dernière déconnexion forcée (maintenance, session fermée, inactivité)
+  const [motifDeconnexion] = useState(() => lireMotifDeconnexion());
   // Lot 49 — lien « Restauration initiale » affiché seulement sur un site neuf (base sans aucun compte)
   const [restaurationPossible, setRestaurationPossible] = useState(false);
   useEffect(() => {
@@ -226,6 +229,15 @@ export default function Login() {
                 : step === "wa_phone" ? "Recevez un code à 6 chiffres directement sur WhatsApp pour accéder à votre espace."
                 : "Saisissez le code à 6 chiffres reçu sur WhatsApp."}
             </p>
+            {/* Lot 50 — maintenance de la plateforme et motif d'une déconnexion forcée */}
+            <div className="mt-4 space-y-2">
+              {motifDeconnexion && (
+                <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-testid="motif-deconnexion">
+                  {motifDeconnexion}
+                </p>
+              )}
+              <AvisMaintenance />
+            </div>
 
             {step === "credentials" ? (
               <>

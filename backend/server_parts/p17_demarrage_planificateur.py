@@ -1172,6 +1172,26 @@ async def _start_scheduler():
                 max_instances=1,
             )
 
+            # Lot 51 — Cycle de vie du non-renouvellement (06:40 Africa/Abidjan, après la sauvegarde de
+            # 03:00) : avertissements J+103/J+110/J+112, suspension J+110, archive vérifiée puis
+            # suppression J+113, effacement des archives en fin de conservation, rapport au super-admin.
+            # Interrupteur « Cycle de vie automatique » désactivé par défaut : la tâche ne fait rien.
+            async def _scheduled_cycle_vie():
+                try:
+                    from cycle_vie_abonnements import executer as _cycle_vie_executer
+                    await _cycle_vie_executer("cron:quotidien-06h40")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Cycle de vie des abonnements en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_cycle_vie,
+                CronTrigger(hour=6, minute=40, timezone="Africa/Abidjan"),
+                id="cycle_vie_abonnements_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+                max_instances=1,
+            )
+
             # Iter36y — Daily auto-relance cron (09:00 Africa/Abidjan). The
             # runner itself checks the master toggle + configured day_of_week
             # before acting, so a single cron entry covers all flavours.

@@ -36,6 +36,21 @@ from models import (  # noqa: E402
 logger = logging.getLogger("sawali.auth")
 
 
+def refuser_si_compte_inactif(user: dict) -> None:
+    """Statut du compte (`account_status`) contrôlé à chaque connexion : mot de passe, code e-mail et,
+    depuis le lot 51, code WhatsApp (routes/wa_otp_login_9o.py). Même message partout."""
+    if user.get("account_status") == "active":
+        return
+    # 2026-02 fork iter108 — S159 : Friendlier message when the account
+    # has been auto-suspended because of overdue payments. The admin
+    # dashboard can lift the suspension by recording a payment.
+    status = (user.get("account_status") or "").lower()
+    if status == "suspended":
+        reason = user.get("suspended_reason") or "Suspension pour retard de paiement."
+        raise HTTPException(status_code=403, detail=f"Compte suspendu : {reason} Contactez votre administrateur.")
+    raise HTTPException(status_code=403, detail="Compte désactivé")
+
+
 def attach_auth_routes(
     api: APIRouter | FastAPI,
     *,
@@ -66,6 +81,8 @@ def attach_auth_routes(
     refuser_si_maintenance = helpers.get("refuser_si_maintenance")
     create_session_token = helpers.get("create_session_token")
     fermer_session_jeton = helpers.get("fermer_session_jeton")
+    # Lot 51 — facultatif : connexion refusée pour un client suspendu (J+110) ou archivé (J+113)
+    refuser_si_cycle_vie = helpers.get("refuser_si_cycle_vie")
 
     async def _public_with_tenant_profile(user: dict) -> dict:
         """Lot 25 — Profil public + `business_type` du client parent.
@@ -88,19 +105,14 @@ def attach_auth_routes(
     async def auth_login(payload: LoginRequest, request: Request):
         user = await db.users.find_one({"email": payload.email.lower()})
         # Lot 26 : bcrypt (~0,25 s) calculé dans un thread, sans figer le serveur
-        if not user or not await asyncio.to_thread(verify_password, payload.password, user["password_hash"]):
+        # Lot 51 : une fiche archivée n'a plus de mot de passe (`password_hash` vide ou absent)
+        if not user or not await asyncio.to_thread(verify_password, payload.password, user.get("password_hash") or ""):
             raise HTTPException(status_code=401, detail="Identifiants invalides")
-        if user.get("account_status") != "active":
-            # 2026-02 fork iter108 — S159 : Friendlier message when the account
-            # has been auto-suspended because of overdue payments. The admin
-            # dashboard can lift the suspension by recording a payment.
-            status = (user.get("account_status") or "").lower()
-            if status == "suspended":
-                reason = user.get("suspended_reason") or "Suspension pour retard de paiement."
-                raise HTTPException(status_code=403, detail=f"Compte suspendu : {reason} Contactez votre administrateur.")
-            raise HTTPException(status_code=403, detail="Compte désactivé")
+        refuser_si_compte_inactif(user)
         if refuser_si_maintenance is not None:
             await refuser_si_maintenance(user)
+        if refuser_si_cycle_vie is not None:
+            await refuser_si_cycle_vie(user)
         captcha = await verify_recaptcha(payload.captcha_token, request=request)
         if not captcha["success"]:
             raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
@@ -151,8 +163,12 @@ def attach_auth_routes(
         user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+        # Lot 51 — le compte a pu être désactivé ou suspendu entre le mot de passe et le code
+        refuser_si_compte_inactif(user)
         if refuser_si_maintenance is not None:
             await refuser_si_maintenance(user)
+        if refuser_si_cycle_vie is not None:
+            await refuser_si_cycle_vie(user)
         await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": _now()}})
         if create_session_token is not None:
             token = await create_session_token(user, request)

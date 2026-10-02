@@ -5,7 +5,9 @@ Dans cet ordre :
      401 pour une session ouverte avant la dernière maintenance ;
   2. session du compte (sessions_comptes.py) : session fermée (limite d'appareils, fermée
      depuis « Mon compte » ou par l'Admin) ou inactive trop longtemps → 401 ;
-  3. abonnement du client (abonnement_acces.py) : après la période de grâce → 402, sauf les
+  3. lot 51 — cycle de vie du non-renouvellement (cycle_vie_abonnements.py) : client suspendu
+     (J+110) ou archivé (J+113) → 403 « abonnement_suspendu » sur toutes les routes ;
+  4. abonnement du client (abonnement_acces.py) : après la période de grâce → 402, sauf les
      routes de l'écran « Abonnement expiré » (profil minimal, état de l'abonnement,
      sessions, déconnexion).
 
@@ -53,9 +55,11 @@ def requete_de_fond(request: Optional[Request]) -> bool:
 
 async def controler_requete(user: dict, jeton: dict, request: Optional[Request]) -> None:
     import abonnement_acces
+    import cycle_vie_abonnements
     import maintenance_plateforme
     import sessions_comptes
 
     await maintenance_plateforme.controler_session(user, jeton)
     await sessions_comptes.controler(user, jeton, request)
+    await cycle_vie_abonnements.controler(user, jeton, chemin_de(request))
     await abonnement_acces.controler(user, jeton, chemin_de(request))

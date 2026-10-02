@@ -1178,6 +1178,25 @@ api.include_router(_maintenance_admin)
 api.include_router(_abonnements_sessions_router)
 
 
+# Lot 51 — cycle de vie du non-renouvellement (spécification commune, point C) : suspension à J+110,
+# archive chiffrée vérifiée puis suppression à J+113, avertissements J+103 / J+110 / J+112,
+# conservation des archives, réouverture avec frais. Interrupteur désactivé par défaut ; tâche
+# quotidienne programmée dans p17 (jamais avec DISABLE_SCHEDULER=1 ni dans la preview).
+from routes.cycle_vie_abonnements import router as _cycle_vie_router  # noqa: E402
+import cycle_vie_abonnements as _cycle_vie  # noqa: E402
+api.include_router(_cycle_vie_router)
+_cycle_vie.configurer(envoyer_email=send_email, envoyer_wa=_wa_send_text, email_admin=SUPER_ADMIN_EMAIL)
+
+
+@app.on_event("startup")
+async def _index_cycle_vie():
+    """Lot 51 — index des avertissements (envoi unique) et du journal : jamais bloquant."""
+    try:
+        await _cycle_vie.assurer_index()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[cycle-vie] index non créés au démarrage : %s", exc)
+
+
 @app.on_event("startup")
 async def _index_sessions_comptes():
     """Lot 50 — index des sessions des comptes (TTL sur l'expiration) : jamais bloquant."""

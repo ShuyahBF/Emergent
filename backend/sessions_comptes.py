@@ -56,6 +56,7 @@ MOTIF_FERMEE_ADMIN = "fermee_par_admin"
 MOTIF_INACTIVITE = "inactivite"
 MOTIF_DECONNEXION = "deconnexion"
 MOTIF_MAINTENANCE = "maintenance"
+MOTIF_SUSPENSION = "abonnement_suspendu"   # lot 51 : client suspendu (J+110) ou archivé (J+113)
 
 MESSAGES = {
     MOTIF_LIMITE: ("Session fermée : nombre maximal d'appareils atteint pour ce compte.", "session_limite"),
@@ -64,6 +65,8 @@ MESSAGES = {
     MOTIF_INACTIVITE: ("Session expirée par inactivité — merci de vous reconnecter.", "session_inactive"),
     MOTIF_DECONNEXION: ("Session terminée : reconnectez-vous.", "session_fermee"),
     MOTIF_MAINTENANCE: ("Session fermée par la maintenance de la plateforme : reconnectez-vous.", "session_maintenance"),
+    MOTIF_SUSPENSION: ("Accès suspendu : abonnement non renouvelé. Contactez SAWALI SMART SYSTEMS.",
+                       "session_abonnement_suspendu"),
 }
 MESSAGE_INCONNUE = ("Session fermée : reconnectez-vous.", "session_fermee")
 

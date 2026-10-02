@@ -26,3 +26,7 @@ Le « locataire » SAWALI est le **client** (compte principal et ses utilisateur
 ## D. Dernière sauvegarde
 
 « Mon compte » et pied de page de l'espace de gestion : « Dernière sauvegarde générale : JJ/MM/AAAA HH:MM » (dernière sauvegarde quotidienne réussie vers R2, lot 49) ou « Aucune sauvegarde enregistrée » (orange). Les clients n'ont pas de sauvegarde propre.
+
+## C. Cycle de vie du non-renouvellement (lot 51)
+
+Voir `docs/cycle-vie-abonnements.md` : suspension à J+110, archive chiffrée vérifiée puis suppression à J+113, conservation, réouverture avec frais. Le code `abonnement_suspendu` (403) s'ajoute aux refus ci-dessus.

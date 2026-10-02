@@ -61,7 +61,8 @@ export function quitterSessionImp({ rediriger = true } = {}) {
 //   - 503 « maintenance_plateforme » : déconnexion forcée, retour à la connexion ;
 //   - 401 « session_* » : session fermée (limite d'appareils, fermée à distance,
 //     inactivité, maintenance) — le motif est affiché sur la page de connexion ;
-//   - 402 « abonnement_expire » : l'écran « Abonnement expiré » s'affiche.
+//   - 402 « abonnement_expire » : l'écran « Abonnement expiré » s'affiche ;
+//   - lot 51 : 403 « abonnement_suspendu » (client suspendu ou archivé) : retour à la connexion.
 // =====================================================================
 export const CLE_MOTIF_DECONNEXION = "sawali_motif_deconnexion";
 export const EVENEMENT_ABONNEMENT = "sawali:abonnement";
@@ -222,6 +223,19 @@ apiClient.interceptors.response.use(
       try { window.dispatchEvent(new CustomEvent(EVENEMENT_ABONNEMENT, { detail: err.response.data })); } catch { /* noop */ }
     }
     if (err?.response?.status === 503 && codeRefus === "maintenance_plateforme" && !sessionImpActive()) {
+      const avaitJeton = typeof localStorage !== "undefined" && !!localStorage.getItem("sawali_token");
+      if (avaitJeton) {
+        noterMotifDeconnexion(err.response.data.detail);
+        localStorage.removeItem("sawali_token");
+        localStorage.removeItem("sawali_user");
+        if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
+      }
+    }
+    // Lot 51 — client suspendu (J+110) ou archivé (J+113) : plus aucun accès, retour à la connexion
+    // avec le motif (jamais pour une session « Voir en tant que » de l'Admin).
+    if (err?.response?.status === 403 && codeRefus === "abonnement_suspendu" && !sessionImpActive()) {
       const avaitJeton = typeof localStorage !== "undefined" && !!localStorage.getItem("sawali_token");
       if (avaitJeton) {
         noterMotifDeconnexion(err.response.data.detail);

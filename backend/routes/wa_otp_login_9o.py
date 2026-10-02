@@ -242,6 +242,12 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         )
         if existing_user:
             user = existing_user
+            # Lot 51 — même contrôle que la connexion par mot de passe : statut du compte
+            # (désactivé, suspendu, archivé…) puis client suspendu ou archivé (cycle de vie).
+            from routes.auth import refuser_si_compte_inactif
+            refuser_si_compte_inactif(user)
+            import cycle_vie_abonnements
+            await cycle_vie_abonnements.refuser_connexion(user)
             # Bump last_login_at for traceability on the Clients page
             await db.users.update_one(
                 {"id": user["id"]},

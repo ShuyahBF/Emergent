@@ -48,6 +48,7 @@ async def version():
 # ====================================================================
 from routes.auth import attach_auth_routes  # noqa: E402
 import maintenance_plateforme as _maintenance_plateforme  # noqa: E402  (lot 50)
+import cycle_vie_abonnements as _cycle_vie_abonnements  # noqa: E402  (lot 51)
 from auth import create_session_token  # noqa: E402  (lot 50)
 
 
@@ -132,6 +133,8 @@ attach_auth_routes(
         "refuser_si_maintenance": _maintenance_plateforme.refuser_si_maintenance,
         "create_session_token": create_session_token,
         "fermer_session_jeton": _fermer_session_jeton,
+        # Lot 51 — client suspendu (J+110) ou archivé (J+113) : connexion refusée
+        "refuser_si_cycle_vie": _cycle_vie_abonnements.refuser_connexion,
     },
 )
 

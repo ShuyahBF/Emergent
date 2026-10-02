@@ -51,6 +51,7 @@ import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSectio
 import SauvegardeTransfertSection, { AlerteSauvegardeAuto } from "@/pages/admin/sections/SauvegardeTransfertSection";  // lot 49
 import DeconnexionGeneraleSection from "@/pages/admin/sections/DeconnexionGeneraleSection";  // lot 50
 import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessionsSection";  // lot 50
+import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 
 // ============================================================
@@ -65,6 +66,8 @@ import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTan
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 51 — cycle de vie du non-renouvellement (suspension J+110, archivage J+113)
+  "Cycle de vie des abonnements (suspension J+110, archivage J+113)": "2026-10-02",
   // Lot 50 — maintenance (déconnexion de tous les utilisateurs), abonnements et sessions
   "Maintenance — Déconnexion de tous les utilisateurs": "2026-10-02",
   "Abonnements (grâce et coupure) et sessions des comptes": "2026-10-02",
@@ -1212,6 +1215,10 @@ export default function AdminSettings() {
       {/* Lot 50 — abonnements (grâce puis coupure) et sessions des comptes (limite d'appareils) */}
       <Filterable title="Abonnements (grâce et coupure) et sessions des comptes" anchorId="s-abonnements-sessions" category="auth">
         <AbonnementsSessionsSection />
+      </Filterable>
+      {/* Lot 51 — cycle de vie du non-renouvellement : suspension J+110, archive vérifiée puis suppression J+113 */}
+      <Filterable title="Cycle de vie des abonnements (suspension J+110, archivage J+113)" anchorId="s-cycle-vie" category="auth">
+        <CycleVieAbonnementsSection />
       </Filterable>
       {/* Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity */}
       <Section icon={Clock} title="Sécurité — Déconnexion automatique par inactivité">

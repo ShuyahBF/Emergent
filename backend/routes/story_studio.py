@@ -334,10 +334,9 @@ def attach_story_studio_routes(
     """Monte tous les endpoints Story Studio sur l'api router fourni."""
 
     # Iter43-fix10a — Utiliser STRICTEMENT le même UPLOAD_DIR que server.py
-    # (par défaut /app/backend/uploads, override possible via UPLOAD_DIR env).
-    UPLOAD_ROOT = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
-    STORY_DIR = UPLOAD_ROOT / "stories"
-    STORY_DIR.mkdir(parents=True, exist_ok=True)
+    # (lot 49 : backend/chemins.py — UPLOAD_DIR, sinon /app/backend/uploads, sinon le projet).
+    from chemins import UPLOAD_DIR as UPLOAD_ROOT, sous_dossier
+    STORY_DIR = sous_dossier(UPLOAD_ROOT, "stories")
     logger.info(f"[story_studio] media dir = {STORY_DIR}")
 
     # ========================================================================

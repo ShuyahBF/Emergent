@@ -48,6 +48,7 @@ import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
 import QdrantRagSection from "@/components/QdrantRagSection";
 import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSection";
+import SauvegardeTransfertSection, { AlerteSauvegardeAuto } from "@/pages/admin/sections/SauvegardeTransfertSection";  // lot 49
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 
 // ============================================================
@@ -62,6 +63,8 @@ import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTan
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 49 — export / import complets chiffrés, sauvegarde quotidienne vers R2
+  "Sauvegarde / transfert des données": "2026-10-02",
   // Lot 42 — plages horaires d'envoi des sondages et formulaires
   "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-09-30",
   // 2026-02 (fork) — Configurable WhatsApp inbound notification sound
@@ -528,6 +531,8 @@ export default function AdminSettings() {
         <p className="text-sm text-slate-500">Configurez reCAPTCHA, l'envoi d'OTP par email et Google Calendar.</p>
       </div>
       <SettingsToolbar />
+      {/* Lot 49 — alerte si la sauvegarde automatique hors serveur est désactivée ou trop ancienne */}
+      <AlerteSauvegardeAuto />
 
       <Section icon={ShieldCheck} title="Google reCAPTCHA v2">
         <Toggle label="Activer reCAPTCHA" value={!!s.recaptcha_enabled} onChange={(v) => upd("recaptcha_enabled", v)} testid="toggle-recaptcha" />
@@ -1174,6 +1179,10 @@ export default function AdminSettings() {
       <NoteServiceHistorySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      {/* Lot 49 — toute la base : export / import chiffrés, sauvegardes quotidiennes dans R2 */}
+      <Filterable title="Sauvegarde / transfert des données" anchorId="s-sauvegarde-transfert" category="diagnostics">
+        <SauvegardeTransfertSection />
+      </Filterable>
       {/* Migration vers Render : sauvegarde complète vers MongoDB Atlas + Cloudflare R2 */}
       <Filterable title="Migration vers Render (sauvegarde complète)" anchorId="s-migration-render" category="diagnostics">
         <MigrationRenderSection />

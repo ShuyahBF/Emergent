@@ -166,6 +166,7 @@ import CarrouselWhatsApp from "@/pages/portal/CarrouselWhatsApp";   // lot 40
 import MaintenanceEquipements from "@/pages/portal/MaintenanceEquipements";   // lot 41
 import ParcInformatique from "@/pages/portal/ParcInformatique";   // lot 47
 import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
+import Restauration from "@/pages/public/Restauration";   // lot 49 : restauration initiale d'un site neuf
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
 import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
 import PortalBrochures from "@/pages/portal/PortalBrochures";
@@ -299,6 +300,7 @@ export default function App() {
           {/* Lot 41 — disponibilités partagées depuis une discussion WhatsApp */}
           <Route path="/disponibilites/:jeton" element={<Disponibilites />} />
           <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
+          <Route path="/restauration" element={<Restauration />} />   {/* lot 49 */}
           <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />
           <Route path="/documentation" element={<ApiDocs />} />

@@ -623,7 +623,7 @@ def _compute_deploy_fingerprint() -> tuple:
     files_hash: Optional[str] = None
     try:
         h = hashlib.sha256()
-        backend_root = Path("/app/backend")
+        from chemins import BACKEND_DIR as backend_root  # lot 49 : /app/backend sur Emergent
         critical_paths: List[Path] = [
             backend_root / "server.py",
             backend_root / "models.py",
@@ -655,7 +655,7 @@ def _compute_deploy_fingerprint() -> tuple:
     try:
         git_head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
-            cwd="/app",
+            cwd=str(backend_root.parent),  # lot 49 : racine du projet (/app sur Emergent)
             stderr=subprocess.DEVNULL,
             timeout=5,
         ).decode().strip()

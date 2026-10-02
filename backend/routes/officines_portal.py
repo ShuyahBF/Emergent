@@ -1593,7 +1593,7 @@ def attach_officines_portal_admin_routes(
             try:
                 from server import UPLOAD_DIR as _U
             except Exception:
-                _U = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
+                from chemins import UPLOAD_DIR as _U  # lot 49 : même dossier que server.py
             fname = doc["logo_url"].rsplit("/", 1)[-1]
             cand = Path(_U) / "officines" / fname
             if cand.exists():

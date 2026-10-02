@@ -26,12 +26,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, F
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-load_dotenv(Path("/app/backend/.env"))
+from chemins import BACKEND_DIR, UPLOAD_AI_DIR  # noqa: E402 — lot 49 : chemins portables
+
+load_dotenv(BACKEND_DIR / ".env")
 
 logger = logging.getLogger("sawali.ai_media")
 
-UPLOAD_ROOT = Path("/app/backend/uploads/ai")
-UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+# /app/backend/uploads/ai sur Emergent ; ailleurs UPLOAD_DIR/ai (déjà créé, sans erreur possible)
+UPLOAD_ROOT = UPLOAD_AI_DIR
 
 GEMINI_MODEL = "gemini-3.1-flash-image-preview"
 

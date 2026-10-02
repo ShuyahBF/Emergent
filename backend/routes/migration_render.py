@@ -151,6 +151,10 @@ ENV_A_SAUVER = [
     "R2_STOCKS_ACCOUNT_ID", "R2_STOCKS_ACCESS_KEY_ID", "R2_STOCKS_SECRET_ACCESS_KEY", "R2_STOCKS_BUCKET",
     "R2_VIDAL_ACCOUNT_ID", "R2_VIDAL_ACCESS_KEY_ID", "R2_VIDAL_SECRET_ACCESS_KEY", "R2_VIDAL_BUCKET",
     "WEBHOOK_CRON_SECRET",
+    # Lot 49 : dossiers portables, sauvegarde quotidienne chiffrée vers R2
+    "SNAPSHOTS_DIR", "EXPORTS_DIR", "MEMORY_DIR", "DOCS_DIR", "UPLOAD_AI_DIR", "SAUVEGARDE_AUTO_PHRASE",
+    "R2_SAUVEGARDES_ACCOUNT_ID", "R2_SAUVEGARDES_ACCESS_KEY_ID", "R2_SAUVEGARDES_SECRET_ACCESS_KEY",
+    "R2_SAUVEGARDES_BUCKET", "R2_SAUVEGARDES_PREFIXE",
 ]
 
 # Références à des fichiers du stockage Emergent trouvées dans les documents.
@@ -205,9 +209,8 @@ EXTENSIONS_MEDIAS = frozenset({
 CAUSE_MEDIA = "média ignoré (option)"
 
 # Dossiers locaux copiés vers R2 (les chemins par défaut sont ceux d'Emergent)
-_RACINE = Path(os.environ.get("APP_ROOT") or Path(__file__).resolve().parents[2])  # /app sur Emergent
-DOSSIER_UPLOADS = Path(os.environ.get("UPLOAD_DIR") or _RACINE / "backend" / "uploads")
-DOSSIER_SNAPSHOTS = _RACINE / "backend" / "snapshots"
+# Lot 49 : mêmes dossiers que le reste du serveur (backend/chemins.py)
+from chemins import UPLOAD_DIR as DOSSIER_UPLOADS, SNAPSHOTS_DIR as DOSSIER_SNAPSHOTS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

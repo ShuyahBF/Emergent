@@ -17,8 +17,9 @@
 # hashes are PRESERVED (admins want to log in with their prod password
 # on preview); only API/3rd-party secrets are masked.
 # ============================================================
-SNAPSHOTS_DIR = Path("/app/backend/snapshots")
-SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+# Lot 49 — dossier portable (variable SNAPSHOTS_DIR, sinon /app/backend/snapshots, sinon le
+# dossier du projet) ; déjà créé par backend/chemins.py, sans erreur possible au démarrage.
+from chemins import SNAPSHOTS_DIR, MEMORY_DIR as _MEMORY_DIR  # noqa: E402
 
 SNAPSHOT_COLLECTIONS = [
     "users", "directory_contacts", "contacts", "appointments", "interventions",
@@ -644,14 +645,14 @@ async def _seed_roadmap_actions() -> int:
 
 
 # ====================================================================
-# Iter38f — Auto-sync of /app/memory/CHANGELOG.md → db.roadmap_actions
+# Iter38f — Auto-sync of memory/CHANGELOG.md (MEMORY_DIR, lot 49) → db.roadmap_actions
 # Each `## IterXXX (YYYY-MM-DD) — Title` block is scanned for `### …` h3
 # headers. Substantive headers (skipping Tests/Frontend/Backend/etc.) are
 # auto-inserted as roadmap actions with code `ACT-CL-<IterXXX>-<NN>`.
 # Edits to titles/details propagate on next call. Manual ACT-XXXX entries
 # from ROADMAP_SEED remain untouched.
 # ====================================================================
-_CHANGELOG_PATH = Path("/app/memory/CHANGELOG.md")
+_CHANGELOG_PATH = _MEMORY_DIR / "CHANGELOG.md"
 _ITER_HEADER_RE = re.compile(
     r"^##\s+(Iter\S+)\s*\(([0-9]{4}-[0-9]{2}-[0-9]{2})\)\s*—\s*(.+)$",
     re.MULTILINE,

@@ -1153,6 +1153,25 @@ async def _start_scheduler():
                 misfire_grace_time=3600,
             )
 
+            # Lot 49 — Sauvegarde complète quotidienne (03:00 Africa/Abidjan) : export chiffré par
+            # SAUVEGARDE_AUTO_PHRASE envoyé dans Cloudflare R2, rétention 7/4/12, rapport e-mail.
+            # Sans la phrase ou sans R2, rien n'est fait (alerte dans l'admin).
+            async def _scheduled_sauvegarde_complete():
+                try:
+                    from routes.sauvegarde_complete import sauvegarde_automatique as _sauvegarde_auto
+                    await _sauvegarde_auto("cron:quotidienne-03h")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Sauvegarde complète quotidienne en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_sauvegarde_complete,
+                CronTrigger(hour=3, minute=0, timezone="Africa/Abidjan"),
+                id="sauvegarde_complete_quotidienne",
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+                max_instances=1,
+            )
+
             # Iter36y — Daily auto-relance cron (09:00 Africa/Abidjan). The
             # runner itself checks the master toggle + configured day_of_week
             # before acting, so a single cron entry covers all flavours.

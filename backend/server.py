@@ -120,10 +120,10 @@ import google_calendar as gcal
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-POLICIES_DIR = UPLOAD_DIR / "policies"
-POLICIES_DIR.mkdir(parents=True, exist_ok=True)
+# Lot 49 — dossiers portables (backend/chemins.py) : variable UPLOAD_DIR, sinon
+# /app/backend/uploads (Emergent), sinon le dossier du projet. Jamais d'erreur au démarrage.
+from chemins import UPLOAD_DIR, sous_dossier as _sous_dossier  # noqa: E402
+POLICIES_DIR = _sous_dossier(UPLOAD_DIR, "policies")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 # Iter35u — DB-backed override for the public base URL. Refreshed on startup
 # and after every PUT /admin/settings. Takes precedence over the env var,
@@ -1153,6 +1153,16 @@ from routes.migration_programmation import (  # noqa: E402
 api.include_router(_migration_programmation_router)
 _migration_programmation_configurer(envoyer_wa_texte=_wa_send_text, envoyer_wa_modele=_wa_send_template,
                                     email_defaut=SUPER_ADMIN_EMAIL)
+
+# Lot 49 — sauvegarde / transfert des données : export et import complets chiffrés, restauration
+# initiale d'un site neuf (page /restauration), sauvegarde quotidienne vers R2 (planifiée dans p17).
+from routes.sauvegarde_complete import (  # noqa: E402
+    router as _sauvegarde_complete_router, router_public as _sauvegarde_complete_public,
+    configurer as _sauvegarde_complete_configurer,
+)
+api.include_router(_sauvegarde_complete_router)
+api.include_router(_sauvegarde_complete_public)
+_sauvegarde_complete_configurer(envoyer_email=send_email, email_defaut=SUPER_ADMIN_EMAIL)
 
 
 @app.on_event("startup")

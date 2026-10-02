@@ -1114,8 +1114,8 @@ _attach_carrousel_wa(
 # accéder au serveur de fichiers. Lecture seule, taille bornée à 256 KB.
 @api.get("/admin/suggestions-registry", tags=["Admin"])
 async def get_suggestions_registry(_: dict = Depends(get_admin_or_supervisor)):
-    from pathlib import Path
-    p = Path("/app/memory/SUGGESTIONS.md")
+    from chemins import MEMORY_DIR  # lot 49 : /app/memory sur Emergent
+    p = MEMORY_DIR / "SUGGESTIONS.md"
     if not p.exists():
         raise HTTPException(status_code=404, detail="Registre des suggestions introuvable")
     try:
@@ -1162,8 +1162,8 @@ async def get_suggestions_history(
     Query params:
       - status : filter by canonical status key (implemented | accepted | proposed | deferred | refused)
     """
-    from pathlib import Path
-    p = Path("/app/memory/SUGGESTIONS.md")
+    from chemins import MEMORY_DIR  # lot 49 : /app/memory sur Emergent
+    p = MEMORY_DIR / "SUGGESTIONS.md"
     if not p.exists():
         return {"items": [], "total": 0, "counts": {}}
     text = p.read_text(encoding="utf-8", errors="replace")

@@ -27,6 +27,11 @@ export default function Login() {
   const [waName, setWaName] = useState("");
   const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
+  // Lot 49 — lien « Restauration initiale » affiché seulement sur un site neuf (base sans aucun compte)
+  const [restaurationPossible, setRestaurationPossible] = useState(false);
+  useEffect(() => {
+    apiClient.get("/public/restauration/etat").then((r) => setRestaurationPossible(!!r.data?.disponible)).catch(() => {});
+  }, []);
 
   // Compute the post-login redirect target. Translators get a dedicated
   // landing page (/admin/i18n) since they have no access to the rest.
@@ -376,6 +381,11 @@ export default function Login() {
             )}
           </div>
 
+          {restaurationPossible && (
+            <p className="mt-6 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-center text-xs text-indigo-900" data-testid="lien-restauration">
+              Site neuf, sans aucun compte : <Link to="/restauration" className="font-semibold underline">restaurer une sauvegarde complète</Link>
+            </p>
+          )}
           <p className="mt-6 text-center text-xs text-slate-500">
             <Link to="/" className="text-sawali-blue underline">← Retour au site public</Link>
           </p>

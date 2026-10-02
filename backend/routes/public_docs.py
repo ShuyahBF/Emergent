@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 
 logger = logging.getLogger("sawali.public_docs")
 
-DOCS_DIR = Path("/app/docs")
+from chemins import DOCS_DIR  # noqa: E402 — lot 49 : variable DOCS_DIR, sinon /app/docs, sinon docs/ du projet
 DOCS = {
     "guide-utilisateur": "A_Guide_Utilisateur_SAWALI_Loois.pdf",
     "brochure-presentation": "B_Brochure_Presentation_SAWALI_Loois.pdf",

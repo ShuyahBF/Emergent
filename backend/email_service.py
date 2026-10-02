@@ -1,26 +1,29 @@
-"""SMTP email service using admin-configurable settings."""
+"""Service d'envoi des e-mails (réglages de la plateforme).
+
+Lot 52 : le super-admin choisit le service d'envoi parmi Resend, ZeptoMail (Zoho), Brevo et SMTP
+(voir email_fournisseurs.py). La signature de `send_email` ne change pas : OTP par e-mail, rapports,
+sauvegardes (lot 49), maintenance et abonnements (lots 50 et 51) l'utilisent tels quels.
+"""
 import asyncio
 import smtplib
 import ssl
 import logging
 from email.message import EmailMessage
 
+import email_fournisseurs as ef
 from db import db
 
 logger = logging.getLogger(__name__)
 
 
 async def get_smtp_settings() -> dict:
+    """Réglages SMTP enregistrés (compatibilité) : mot de passe chiffré depuis le lot 52,
+    ancien mot de passe en clair encore accepté tant qu'il n'a pas été migré."""
+    doc = await db[ef.REGLAGES].find_one({"_id": ef.ID_PLATEFORME}) or {}
     s = await db.settings.find_one({"_id": "global"}) or {}
-    return {
-        "host": s.get("smtp_host"),
-        "port": int(s.get("smtp_port") or 587),
-        "user": s.get("smtp_user"),
-        "password": s.get("smtp_password"),
-        "from_email": s.get("smtp_from_email") or s.get("smtp_user"),
-        "from_name": s.get("smtp_from_name") or "",
-        "use_tls": s.get("smtp_use_tls", True),
-    }
+    cfg = ef._smtp_ecran(doc, s)
+    cfg.pop("fournisseur", None)
+    return cfg
 
 
 def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str, attachments: list[dict] | None = None) -> bool:
@@ -36,6 +39,9 @@ def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, tex
     else:
         msg["From"] = cfg["from_email"]
     msg["To"] = to_email
+    # Lot 52 — adresse de réponse facultative
+    if cfg.get("reply_to"):
+        msg["Reply-To"] = cfg["reply_to"]
     msg.set_content(text_body or "Veuillez activer HTML pour voir ce message.")
     msg.add_alternative(html_body, subtype="html")
     for att in (attachments or []):
@@ -61,16 +67,54 @@ def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, tex
     return True
 
 
+async def envoyer_avec_config(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str = "",
+                              attachments: list[dict] | None = None, timeout_s: float = 6.0,
+                              reply_to: str | None = None) -> dict:
+    """Lot 52 — Envoi avec une configuration donnée (`ef.configuration_effective()`).
+    Lève ef.ErreurEnvoi (« <Fournisseur> <code HTTP> : <message> ») en cas d'échec.
+    Resend, Brevo, ZeptoMail : HTTPS (httpx, 20 s). SMTP : code existant (thread + délai)."""
+    four = cfg.get("fournisseur")
+    texte = text_body or ef.texte_depuis_html(html_body) or "Veuillez activer HTML pour voir ce message."
+    if four in ef.FOURNISSEURS_HTTP:
+        return await ef.envoyer_http(cfg, to_email, subject, texte, html_body or "", reply_to, attachments)
+    if four != ef.SMTP:
+        raise ef.ErreurEnvoi(cfg.get("raison") or "Aucun service d'envoi configuré")
+    if "@" not in (cfg.get("from_email") or ""):
+        raise ef.ErreurEnvoi(f"SMTP : adresse d'expéditeur invalide ({cfg.get('from_email')})")
+    smtp_cfg = {**cfg, "reply_to": reply_to}
+    effective_timeout = max(timeout_s, 45.0) if attachments else timeout_s
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_send_email_sync, smtp_cfg, to_email, subject, html_body, text_body, attachments or []),
+            timeout=effective_timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise ef.ErreurEnvoi(f"SMTP : délai dépassé ({int(effective_timeout)} s)") from exc
+    except ef.ErreurEnvoi:
+        raise
+    except Exception as exc:  # noqa: BLE001 — message SMTP (jamais le mot de passe)
+        message = f"SMTP : {exc}"
+        if cfg.get("password"):
+            message = message.replace(cfg["password"], "***")
+        raise ef.ErreurEnvoi(message[:ef.LONGUEUR_ERREUR]) from exc
+    return {"ok": True, "fournisseur": ef.SMTP}
+
+
 async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "", attachment: dict | None = None, attachments: list[dict] | None = None, timeout_s: float = 6.0) -> bool:
-    """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured).
+    """Returns True if email was sent successfully, False otherwise (e.g. not configured).
     Optional `attachment` dict OR list `attachments` of {filename, content, mime_type}.
-    `timeout_s` is increased automatically when any attachment is present."""
-    cfg = await get_smtp_settings()
-    if not cfg["host"] or not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
-        logger.warning("SMTP not configured. Skipping email to %s.", to_email)
+    `timeout_s` is increased automatically when any attachment is present (SMTP).
+    Lot 52 : le service d'envoi est celui choisi par le super-admin (Resend, ZeptoMail, Brevo, SMTP),
+    à défaut les anciens réglages SMTP, à défaut les variables d'environnement. Chaque envoi est
+    journalisé (ENVOYE / ECHEC / NON_CONFIGURE) sans jamais bloquer l'action en cours."""
+    try:
+        cfg = await ef.configuration_effective()
+    except Exception as e:  # noqa: BLE001 — base indisponible : l'action en cours continue
+        logger.error("Email settings unavailable: %s", e)
         return False
-    if "@" not in (cfg["from_email"] or ""):
-        logger.warning("SMTP from_email looks invalid (%s). Skipping send.", cfg["from_email"])
+    if not cfg.get("fournisseur"):
+        logger.warning("Email not configured (%s). Skipping email to %s.", cfg.get("raison"), to_email)
+        await ef.journaliser_envoi(ef.NON_CONFIGURE, None, to_email, subject, cfg.get("raison"))
         return False
     # Normalize attachments list
     atts: list[dict] = []
@@ -79,17 +123,13 @@ async def send_email(to_email: str, subject: str, html_body: str, text_body: str
     if attachments:
         atts.extend(attachments)
     try:
-        effective_timeout = max(timeout_s, 45.0) if atts else timeout_s
-        return await asyncio.wait_for(
-            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body, atts),
-            timeout=effective_timeout,
-        )
-    except asyncio.TimeoutError:
-        logger.error("SMTP send timed out for %s — skipping.", to_email)
-        return False
+        await envoyer_avec_config(cfg, to_email, subject, html_body, text_body, atts, timeout_s)
     except Exception as e:  # noqa: BLE001
-        logger.error("SMTP send failed: %s", e)
+        logger.error("Email send failed: %s", e)
+        await ef.journaliser_envoi(ef.ECHEC, cfg["fournisseur"], to_email, subject, str(e))
         return False
+    await ef.journaliser_envoi(ef.ENVOYE, cfg["fournisseur"], to_email, subject)
+    return True
 
 
 async def send_otp_email(to_email: str, full_name: str, code: str) -> bool:

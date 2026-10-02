@@ -1197,6 +1197,23 @@ async def _index_cycle_vie():
         logger.warning("[cycle-vie] index non créés au démarrage : %s", exc)
 
 
+# Lot 52 — choix du service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP), réservé au
+# super-admin. `send_email` garde sa signature ; clés et mot de passe SMTP chiffrés en base.
+from routes.fournisseurs_email import router as _email_fournisseur_router  # noqa: E402
+import email_fournisseurs as _email_fournisseurs  # noqa: E402
+api.include_router(_email_fournisseur_router)
+
+
+@app.on_event("startup")
+async def _demarrer_email_fournisseurs():
+    """Lot 52 — index des journaux d'envoi et chiffrement de l'ancien mot de passe SMTP : jamais bloquant."""
+    try:
+        await _email_fournisseurs.assurer_index()
+        await _email_fournisseurs.migrer_ancien_mot_de_passe_smtp()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[email] index ou migration du mot de passe SMTP non faits au démarrage : %s", exc)
+
+
 @app.on_event("startup")
 async def _index_sessions_comptes():
     """Lot 50 — index des sessions des comptes (TTL sur l'expiration) : jamais bloquant."""

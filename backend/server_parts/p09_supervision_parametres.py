@@ -713,6 +713,9 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
             update.pop(k, None)
+    # Lot 52 — l'envoi des e-mails est réservé au super-admin : champs smtp_* ignorés pour les autres
+    # comptes, mot de passe SMTP chiffré (jamais enregistré en clair dans les réglages globaux).
+    update = await _email_fournisseurs.filtrer_maj_parametres_generiques(update, user, _is_super_admin)
     # Iter37f — Validate welcome_unread_mode
     if "welcome_unread_mode" in update:
         mode = (update["welcome_unread_mode"] or "").strip().lower()

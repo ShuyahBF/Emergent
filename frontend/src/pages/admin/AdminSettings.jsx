@@ -52,6 +52,7 @@ import SauvegardeTransfertSection, { AlerteSauvegardeAuto } from "@/pages/admin/
 import DeconnexionGeneraleSection from "@/pages/admin/sections/DeconnexionGeneraleSection";  // lot 50
 import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessionsSection";  // lot 50
 import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
+import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSection";  // lot 52
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 
 // ============================================================
@@ -66,6 +67,8 @@ import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTan
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 52 — choix du service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)
+  "Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)": "2026-10-02",
   // Lot 51 — cycle de vie du non-renouvellement (suspension J+110, archivage J+113)
   "Cycle de vie des abonnements (suspension J+110, archivage J+113)": "2026-10-02",
   // Lot 50 — maintenance (déconnexion de tous les utilisateurs), abonnements et sessions
@@ -460,6 +463,8 @@ export default function AdminSettings() {
       // saved ones.
       for (const k of Object.keys(payload)) {
         if (k.startsWith("vidal_")) delete payload[k];
+        // Lot 52 — champs SMTP gérés par la section « Service d'envoi des e-mails » (super-admin)
+        if (k.startsWith("smtp_")) delete payload[k];
       }
       await apiClient.put("/admin/settings", payload);
       toast.success("Paramètres enregistrés");
@@ -549,23 +554,17 @@ export default function AdminSettings() {
         <p className="text-xs text-slate-500">Obtenez vos clés sur <a href="https://www.google.com/recaptcha/admin" target="_blank" rel="noreferrer" className="text-sawali-blue underline">google.com/recaptcha/admin</a>.</p>
       </Section>
 
-      <Section icon={Mail} title="SMTP (envoi des codes OTP par email)">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Input label="Host" value={s.smtp_host || ""} onChange={(v) => upd("smtp_host", v)} placeholder="smtp.gmail.com" testid="smtp-host" />
-          <Input label="Port" type="number" value={s.smtp_port || ""} onChange={(v) => upd("smtp_port", parseInt(v) || 0)} placeholder="587" testid="smtp-port" />
-          <Input label="Utilisateur" value={s.smtp_user || ""} onChange={(v) => upd("smtp_user", v)} testid="smtp-user" />
-          <Input label="Mot de passe" type="password" value={s.smtp_password || ""} onChange={(v) => upd("smtp_password", v)} testid="smtp-password" placeholder={s.smtp_password === "********" ? "(déjà défini)" : ""} />
-          <Input label="From email" value={s.smtp_from_email || ""} onChange={(v) => upd("smtp_from_email", v)} testid="smtp-from" />
-          <Input label="Nom expéditeur visible" value={s.smtp_from_name || ""} onChange={(v) => upd("smtp_from_name", v)} placeholder="SAWALI SMART SYSTEMS" testid="smtp-from-name" />
-        </div>
-        <Toggle label="Utiliser STARTTLS" value={s.smtp_use_tls !== false} onChange={(v) => upd("smtp_use_tls", v)} testid="smtp-tls" />
-      </Section>
+      {/* Lot 52 — service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP), réservé au super-admin ;
+          remplace l'ancienne section « SMTP (envoi des codes OTP par email) » (champs SMTP conservés) */}
+      <Filterable title="Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)" anchorId="s-email-fournisseur" category="comms">
+        <EmailFournisseurSection />
+      </Filterable>
 
       <Section icon={KeyRound} title="Authentification — OTP par domaine">
         <p className="text-xs text-slate-500">
           Les emails appartenant à un domaine interne <strong>affichent le code OTP directement</strong> sur la page de connexion
           (badge « Plateforme Interne ») au lieu de l'envoyer par email. Utile pour votre équipe.
-          Tous les autres utilisateurs reçoivent leur code par e-mail via SMTP.
+          Tous les autres utilisateurs reçoivent leur code par e-mail (service d'envoi ci-dessus).
         </p>
         <Input
           label="Domaines internes (séparés par virgule)"

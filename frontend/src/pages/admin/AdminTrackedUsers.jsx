@@ -8,7 +8,24 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import ComptesTestPanel from "@/pages/admin/sections/ComptesTestPanel";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"];
+// Lot 54 — pastille de présence (seuils définis côté serveur : routes/presence_utilisateurs.py)
+//   vert   : connecté et actif (interaction il y a 5 mn au plus)
+//   orange : connecté, aucune activité depuis plus de 5 mn (jusqu'à 10 mn)
+//   rouge  : plus de 10 mn sans activité, ou déconnecté
+const PRESENCE = {
+  vert: { classe: "bg-emerald-500", libelle: "Connecté et actif" },
+  orange: { classe: "bg-amber-500", libelle: "Connecté, sans activité depuis plus de 5 mn" },
+  rouge: { classe: "bg-rose-500", libelle: "Inactif depuis plus de 10 mn, ou déconnecté" },
+};
+const RAFRAICHISSEMENT_PRESENCE_MS = 30_000;
+
+function PastillePresence({ p }) {
+  const etat = PRESENCE[p?.etat] ? p.etat : "rouge";
+  const depuis = p?.derniere_activite ? new Date(p.derniere_activite).toLocaleString("fr-FR") : null;
+  const titre = `${PRESENCE[etat].libelle}${depuis ? ` — dernière activité : ${depuis}` : ""}${p && !p.compte ? " — aucun accès au portail" : ""}`;
+  return <span className={`inline-block h-2.5 w-2.5 rounded-full mr-2 align-middle ring-2 ring-white ${PRESENCE[etat].classe}`} title={titre} aria-label={titre} data-testid="presence-dot" data-etat={etat} />;
+}
 const TRANSLATOR_LANGS = [
   { code: "en", label: "Anglais (EN)" },
   { code: "ar", label: "Arabe (AR)" },
@@ -34,6 +51,18 @@ export default function AdminTrackedUsers() {
   const [transferring, setTransferring] = useState(false);
 
   const load = () => apiClient.get("/admin/tracked-users").then((r) => setItems(r.data));
+  // Lot 54 — présence des utilisateurs suivis, relue toutes les 30 s (requête de fond : ne compte
+  // pas comme une activité de l'Admin)
+  const [presence, setPresence] = useState({});
+  useEffect(() => {
+    let actif = true;
+    const lire = () => apiClient.get("/admin/tracked-users/presence", { headers: { "X-Requete-Fond": "1" } })
+      .then((r) => { if (actif) setPresence(r.data?.items || {}); })
+      .catch(() => {});
+    lire();
+    const t = setInterval(lire, RAFRAICHISSEMENT_PRESENCE_MS);
+    return () => { actif = false; clearInterval(t); };
+  }, []);
   useEffect(() => {
     load().catch(() => {});
     apiClient.get("/admin/clients").then((r) => setClients(r.data));
@@ -178,6 +207,14 @@ export default function AdminTrackedUsers() {
         </div>
       </div>
 
+      {/* Lot 54 — légende des pastilles de présence */}
+      <div className="flex items-center gap-4 flex-wrap text-xs text-slate-600" data-testid="presence-legende">
+        {Object.entries(PRESENCE).map(([k, v]) => (
+          <span key={k} className="inline-flex items-center"><span className={`inline-block h-2.5 w-2.5 rounded-full mr-1.5 ${v.classe}`} />{v.libelle}</span>
+        ))}
+        <span className="text-slate-400">Actualisé toutes les 30 s.</span>
+      </div>
+
       {filteredItems.length === 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-slate-500">
           {filterClient ? "Aucun utilisateur pour ce client." : "Aucun utilisateur."}
@@ -266,7 +303,8 @@ export default function AdminTrackedUsers() {
                       data-testid={`tracked-select-${u.id}`}
                     />
                   </td>
-                  <td className="px-4 py-3 font-medium">
+                  <td className="px-4 py-3 font-medium whitespace-nowrap">
+                    <PastillePresence p={presence[u.id]} />
                     {u.name}
                     {/* Lot 44 — compte de test */}
                     {u.est_test && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${u.id}`}>TEST</span>}

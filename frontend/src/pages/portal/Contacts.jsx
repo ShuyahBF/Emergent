@@ -2169,7 +2169,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         ...(forceRelease ? { force_release: true } : {}),
       });
       if (r.data?.ok) {
-        toast.success(`Ticket ${r.data.ticket.number} créé`);
+        // Lot 54 — ticket déjà ouvert pour ce client : le contact y est rattaché
+        if (r.data.rattache) toast.info(r.data.message || `Contact rattaché au ticket ${r.data.ticket.number}`);
+        else toast.success(`Ticket ${r.data.ticket.number} créé`);
         if (r.data.notification?.sent) toast.info("Notification WhatsApp envoyée au contact");
         else if (r.data.notification?.error) toast.warning(`Notification non envoyée : ${r.data.notification.error}`);
         await loadActiveTicket();

@@ -444,6 +444,24 @@ async def handle_ticket_command(
             "reason": "no_tenant",
             "user_reply": "❌ Numéro non rattaché à un tenant.",
         }
+    # Lot 54 — un ticket ouvert couvre tous les contacts du client : pas de second ticket.
+    ouvert = await db.support_tickets.find_one(
+        {"client_id": tenant_id, "status": {"$in": ["open", "in_progress", "suspended"]},
+         "archived_at": {"$in": [None, ""]}},
+        {"_id": 0, "id": 1, "number": 1},
+    )
+    if ouvert:
+        return {
+            "ok": True,
+            "command": "ticket",
+            "id": ouvert["id"],
+            "number": ouvert.get("number"),
+            "deja_ouvert": True,
+            "user_reply": (
+                f"ℹ️ Le ticket {ouvert.get('number')} est déjà ouvert pour votre établissement.\n"
+                "Votre demande est suivie dans ce ticket."
+            ),
+        }
     # Auto-number : TKT-YYYY-NNN per tenant per year
     try:
         from ._counters import next_seq

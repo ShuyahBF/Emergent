@@ -2234,6 +2234,15 @@ async def whatsapp_webhook_incoming(request: Request):
                         })
                     except Exception:  # noqa: BLE001
                         pass
+                    # Lot 54 — ticket partagé par le client : si un ticket ouvert couvre ce contact
+                    # (ou un autre contact du même client), le message et l'action de Liluvine
+                    # sont rattachés à ce ticket.
+                    if contact:
+                        try:
+                            import tickets_clients as _tc
+                            await _tc.noter_action_liluvine(inbound=doc, contact=contact, resultat=ar_result)
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[wa_inbound] rattachement au ticket impossible", exc_info=True)
                 except Exception as exc:  # noqa: BLE001
                     err = f"inbound[{mtype if 'mtype' in locals() else '?'}]: {exc!r}"
                     errors.append(err[:250])

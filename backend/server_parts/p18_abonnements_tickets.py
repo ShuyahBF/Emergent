@@ -4,6 +4,9 @@
 # noms utilisés ici (db, api, get_current_user, helpers…) sont ceux de server.py.
 # Ne pas importer ce fichier directement.
 
+# Lot 54 — tickets partagés par client, clôture vers l'historique, sessions WhatsApp minutées
+import tickets_clients as _tickets_clients  # noqa: E402
+
 # ====================================================================
 # SUBSCRIPTIONS MODULE — admin CRUD + public list + public order endpoint.
 #
@@ -521,6 +524,33 @@ async def me_open_ticket(
     )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
+    # Iter36k — Le client lié est désormais EXPLICITEMENT choisi via le
+    # dropdown frontend (TicketOpenPayload.client_id). Si absent, on
+    # n'auto-hérite plus de contact.client_id (qui était souvent erroné).
+    requested_client_id = (payload.client_id or "").strip()
+    if not requested_client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Veuillez sélectionner le client lié à ce ticket.",
+        )
+    # Validate that the requested client_id is reachable by this user
+    # (admins / superviseur / moderateur : any user ; otherwise: own scope only).
+    if _is_elevated_creator(user):
+        owner = await db.users.find_one(
+            {"id": requested_client_id, "role": {"$in": ["client", "superviseur", "admin"]}},
+            {"_id": 0, "id": 1},
+        )
+    else:
+        effective_id = user.get("parent_client_id") or user["id"]
+        owner = (
+            {"id": effective_id} if requested_client_id == effective_id else None
+        )
+    if not owner:
+        raise HTTPException(
+            status_code=403,
+            detail="Client lié non autorisé pour cet utilisateur.",
+        )
+    client_id = requested_client_id
     # Block when the contact has an already-open ticket
     # Iter38q — exclude archived tickets from this check
     existing = await db.support_tickets.find_one(
@@ -531,6 +561,18 @@ async def me_open_ticket(
         },
         {"_id": 0, "id": 1, "number": 1, "status": 1, "opened_at": 1, "contact_id": 1, "client_id": 1},
     )
+    # Lot 54 — Ticket valable pour TOUT le client lié : si un ticket est ouvert pour ce client
+    # (via n'importe lequel de ses contacts), le contact y est rattaché au lieu d'en créer un autre.
+    if not existing:
+        partage = await _tickets_clients.ticket_ouvert_du_client(client_id)
+        if partage and payload.force_release and _is_elevated_creator(user):
+            existing = partage   # clôture forcée ci-dessous, comme pour le ticket du contact
+        elif partage:
+            partage = await _tickets_clients.rattacher_contact(partage, cid, par=user)
+            return {"ok": True, "ticket": partage, "rattache": True,
+                    "notification": {"sent": False, "error": None},
+                    "message": f"Le ticket {partage.get('number')} est déjà ouvert pour ce client : "
+                               "ce contact y est rattaché."}
     if existing:
         # Iter38p — Auto-cleanup: if the "blocking" open ticket actually
         # points to a contact that no longer exists, close it as orphan and
@@ -578,33 +620,6 @@ async def me_open_ticket(
                     headers={"X-Blocking-Ticket-Id": existing["id"], "X-Blocking-Ticket-Number": existing["number"]},
                 )
 
-    # Iter36k — Le client lié est désormais EXPLICITEMENT choisi via le
-    # dropdown frontend (TicketOpenPayload.client_id). Si absent, on
-    # n'auto-hérite plus de contact.client_id (qui était souvent erroné).
-    requested_client_id = (payload.client_id or "").strip()
-    if not requested_client_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Veuillez sélectionner le client lié à ce ticket.",
-        )
-    # Validate that the requested client_id is reachable by this user
-    # (admins / superviseur / moderateur : any user ; otherwise: own scope only).
-    if _is_elevated_creator(user):
-        owner = await db.users.find_one(
-            {"id": requested_client_id, "role": {"$in": ["client", "superviseur", "admin"]}},
-            {"_id": 0, "id": 1},
-        )
-    else:
-        effective_id = user.get("parent_client_id") or user["id"]
-        owner = (
-            {"id": effective_id} if requested_client_id == effective_id else None
-        )
-    if not owner:
-        raise HTTPException(
-            status_code=403,
-            detail="Client lié non autorisé pour cet utilisateur.",
-        )
-    client_id = requested_client_id
     number = await _next_ticket_number(client_id)
     now_iso = _now()
     ticket = {
@@ -627,6 +642,9 @@ async def me_open_ticket(
         "resolution_note": None,
         "created_at": now_iso,
         "updated_at": now_iso,
+        # Lot 54 — contacts couverts, session WhatsApp minutée, validité (clients non contractuels)
+        "contact_ids": [cid],
+        **_tickets_clients.champs_creation(await _tickets_clients.lire_client(client_id), now_iso),
     }
     await db.support_tickets.insert_one(ticket.copy())
 
@@ -801,6 +819,15 @@ async def me_create_ticket_quick(
         # Name-only contact placeholder (no WA template will fire)
         contact = {"id": None, "name": cname, "phone": None, "whatsapp": None}
 
+    # Lot 54 — un ticket ouvert couvre tous les contacts du client : pas de second ticket.
+    partage = await _tickets_clients.ticket_ouvert_du_client(client_id)
+    if partage:
+        partage = await _tickets_clients.rattacher_contact(partage, (contact or {}).get("id"), par=user)
+        return {"ok": True, "id": partage["id"], "ticket": partage, "rattache": True,
+                "notification": {"sent": False, "error": None},
+                "message": f"Le ticket {partage.get('number')} est déjà ouvert pour ce client : "
+                           "la demande y est rattachée."}
+
     number = await _next_ticket_number(client_id)
     now_iso = _now()
     ticket = {
@@ -833,6 +860,9 @@ async def me_create_ticket_quick(
         "resolution_note": None,
         "created_at": now_iso,
         "updated_at": now_iso,
+        # Lot 54 — contacts couverts, session WhatsApp minutée, validité (clients non contractuels)
+        "contact_ids": [c for c in [(contact or {}).get("id")] if c],
+        **_tickets_clients.champs_creation(await _tickets_clients.lire_client(client_id), now_iso),
     }
     await db.support_tickets.insert_one(ticket.copy())
     try:
@@ -1289,139 +1319,20 @@ async def me_close_ticket(
         raise HTTPException(status_code=404, detail="Ticket introuvable.")
     if ticket["status"] in TICKET_CLOSED_STATUSES:
         raise HTTPException(status_code=409, detail=f"Déjà clôturé ({ticket['status']}).")
-    now_iso = _now()
     res_note = (payload.resolution_note or "").strip()[:2000] or None
-    update = {
-        "status": payload.outcome,
-        "outcome": payload.outcome,
-        "resolution_note": res_note,
-        "closed_at": now_iso,
-        "closed_by_id": user["id"],
-        "closed_by_label": user.get("full_name") or user.get("email"),
-        "updated_at": now_iso,
-    }
-    # Iter35r — Flush running suspend timer if closed while suspended
-    if ticket.get("status") == "suspended" and ticket.get("suspended_started_at"):
-        try:
-            s_dt = datetime.fromisoformat(ticket["suspended_started_at"].replace("Z", "+00:00"))
-            elapsed = int((datetime.now(timezone.utc) - s_dt).total_seconds())
-            if elapsed > 0:
-                update["suspended_total_seconds"] = (ticket.get("suspended_total_seconds") or 0) + elapsed
-            update["suspended_started_at"] = None
-        except Exception:
-            update["suspended_started_at"] = None
-    # Iter37c — Compute intervention cost on close (hidden from regular client).
-    # Cost = flat_rate (if > 0)  OR  hours * hourly_rate.
-    try:
-        opened_dt = datetime.fromisoformat(ticket["opened_at"].replace("Z", "+00:00"))
-        closed_dt = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
-        total_secs = max(0, int((closed_dt - opened_dt).total_seconds()))
-        suspended_total = int(ticket.get("suspended_total_seconds") or 0)
-        if "suspended_total_seconds" in update:
-            suspended_total = update["suspended_total_seconds"]
-        active_secs = max(0, total_secs - suspended_total)
-        hours = round(active_secs / 3600.0, 2)
-        client_doc = await db.users.find_one({"id": ticket["client_id"]}, {"_id": 0, "hourly_rate": 1, "flat_rate": 1}) or {}
-        hourly_rate = float(client_doc.get("hourly_rate") or 0)
-        flat_rate = float(client_doc.get("flat_rate") or 0)
-        if flat_rate > 0:
-            cost = round(flat_rate, 2)
-            cost_mode = "flat"
-        else:
-            cost = round(hours * hourly_rate, 2)
-            cost_mode = "hourly"
-        update["active_hours"] = hours
-        update["cost_amount"] = cost
-        update["cost_mode"] = cost_mode
-        update["cost_hourly_rate"] = hourly_rate
-        update["cost_flat_rate"] = flat_rate
-        update["cost_currency"] = "XOF"
-    except Exception:  # noqa: BLE001
-        pass
-    await db.support_tickets.update_one({"id": tid}, {"$set": update})
-    ticket.update(update)
-
-    # Iter36c — Auto-create an intervention summarising the resolved ticket
-    intervention_summary = None
-    try:
-        client_doc = await db.users.find_one({"id": ticket["client_id"]}, {"_id": 0}) or {}
-        intervention_number = await _next_intervention_number(client_doc)
-        # Compute total resolution duration (excludes suspended periods)
-        try:
-            opened_dt = datetime.fromisoformat(ticket["opened_at"].replace("Z", "+00:00"))
-            closed_dt = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
-            total_secs = max(0, int((closed_dt - opened_dt).total_seconds()))
-            active_secs = max(0, total_secs - int(ticket.get("suspended_total_seconds") or 0))
-            hours = round(active_secs / 3600.0, 2)
-        except Exception:
-            hours = None
-        title = (
-            f"Ticket {ticket.get('number') or tid[:8]} — {ticket.get('motif') or 'Sans motif'}"
-        )[:200]
-        description_parts = [
-            f"Origine : Ticket {ticket.get('number') or ''} (id={tid})".strip(),
-            f"Contact : {ticket.get('contact_name') or ticket.get('contact_phone') or '—'}",
-            f"Ouvert le : {ticket.get('opened_at')}",
-            f"Clôturé le : {now_iso}",
-            f"Issue : {payload.outcome}",
-        ]
-        if ticket.get("suspended_total_seconds"):
-            description_parts.append(
-                f"Temps suspendu : {int(ticket['suspended_total_seconds'] // 60)} min"
-            )
-        if res_note:
-            description_parts.append(f"Résolution :\n{res_note}")
-        if ticket.get("notes"):
-            description_parts.append(f"Notes du ticket :\n{ticket['notes']}")
-        technician = ticket.get("closed_by_label") or user.get("full_name") or user.get("email")
-        intervention_doc = {
-            "id": _uuid(),
-            "client_id": ticket["client_id"],
-            "title": title,
-            "description": "\n\n".join(description_parts),
-            "status": "completed" if payload.outcome == "done" else "cancelled",
-            "intervention_date": now_iso[:10],  # YYYY-MM-DD
-            "technician": technician,
-            "duration_hours": hours,
-            "attachments": [],
-            "images": [],
-            "intervention_number": intervention_number,
-            "owner_id": user["id"],
-            "owner_email": user.get("email"),
-            "owner_role": user.get("role"),
-            # Iter36c — traceability back to the originating ticket
-            "source_ticket_id": tid,
-            "source_ticket_number": ticket.get("number"),
-            "created_at": _now(),
-            "updated_at": _now(),
-        }
-        await db.interventions.insert_one(intervention_doc.copy())
-        intervention_doc.pop("_id", None)
-        intervention_summary = {
-            "id": intervention_doc["id"],
-            "intervention_number": intervention_number,
-            "duration_hours": hours,
-        }
-        # Activity feed entry
-        try:
-            await _log_activity(
-                client_id=ticket["client_id"], kind="intervention", action="auto_created",
-                label=f"{intervention_number} (depuis ticket {ticket.get('number') or ''})",
-                actor=user, target_id=intervention_doc["id"],
-            )
-        except Exception:
-            pass
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[ticket-close] auto-intervention failed for ticket %s: %s", tid, exc)
-
-    # Iter35p — Activity feed for close
-    try:
-        await _log_activity(
-            client_id=ticket["client_id"], kind="ticket", action="closed",
-            label=f"{ticket['number']} → {payload.outcome}", actor=user, target_id=ticket["id"],
-        )
-    except Exception:
-        pass
+    # Lot 54 — clôture commune (manuelle ou automatique) : tickets_clients.cloturer_ticket.
+    # Coût : durée active < seuil (5 h par défaut, fiche client) → horaire × durée, sinon forfait.
+    # L'intervention créée porte la date/heure de début (création du ticket) et de fin (clôture)
+    # et un lien vers le ticket.
+    cloture = await _tickets_clients.cloturer_ticket(
+        ticket, outcome=payload.outcome, acteur=user, note=res_note,
+        numeroteur=_next_intervention_number,
+    )
+    if not cloture["ok"]:
+        raise HTTPException(status_code=409, detail="Ticket déjà clôturé.")
+    ticket = cloture["ticket"]
+    now_iso = ticket["closed_at"]
+    intervention_summary = cloture["intervention"]
 
     # WhatsApp notification on closure (best-effort)
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -1480,6 +1391,13 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
         )
         if was_orphan:
             return {"active": False, "ticket": None, "cleaned_up": True}
+    if t is None:
+        # Lot 54 — ticket ouvert pour le client lié via un AUTRE de ses contacts : il couvre
+        # aussi ce contact (la conversation affiche « Voir le ticket » au lieu de « Générer »).
+        t = await _tickets_clients.ticket_ouvert_pour_contact(
+            cid, scope_conversation=user.get("parent_client_id") or user.get("client_id") or user.get("id"))
+        if t:
+            return {"active": True, "ticket": t, "partage": True}
     return {"active": t is not None, "ticket": t}
 
 
@@ -1715,6 +1633,11 @@ async def me_reopen_ticket(
         )
         if not was_orphan:
             raise HTTPException(status_code=409, detail=f"{existing_open['number']} est déjà ouvert pour ce contact.")
+    # Lot 54 — un ticket ouvert couvre tous les contacts du client : pas de réouverture en parallèle
+    partage = await _tickets_clients.ticket_ouvert_du_client(parent.get("client_id"))
+    if partage:
+        raise HTTPException(status_code=409, detail=f"{partage['number']} est déjà ouvert pour ce client "
+                                                    "(il couvre tous ses contacts).")
     root_number = parent.get("root_number") or parent["number"]
     # Count how many siblings (including parent) share this root → suffix index
     chain_count = await db.support_tickets.count_documents({
@@ -1752,6 +1675,9 @@ async def me_reopen_ticket(
         "assigned_at": now_iso if parent.get("assigned_to_id") else None,
         "created_at": now_iso,
         "updated_at": now_iso,
+        # Lot 54 — contacts couverts, session WhatsApp minutée, validité (clients non contractuels)
+        "contact_ids": [c for c in [parent.get("contact_id")] if c],
+        **_tickets_clients.champs_creation(await _tickets_clients.lire_client(parent["client_id"]), now_iso),
     }
     await db.support_tickets.insert_one(new_ticket.copy())
     try:
@@ -1935,6 +1861,47 @@ async def me_dashboard_ticket_stats(
             })
 
     return {"days": days, "me": me_block, "team": team}
+
+
+# ====================================================================
+# Lot 54 — Session WhatsApp d'un ticket (durée, rappels T-10 / T-5, fermeture auto)
+# ====================================================================
+class TicketSessionWaPayload(BaseModel):
+    minutes: int = 0  # 0 = pas de limite pour ce ticket
+
+
+@api.get("/me/tickets/{tid}/session-wa", tags=["Portail Client"])
+async def me_ticket_session_wa(tid: str, user: dict = Depends(get_current_user)):
+    """État de la session WhatsApp du ticket : échéance, minutes restantes, rappels envoyés,
+    contacts couverts et journal (rappels non envoyés : fenêtre de 24 h fermée, etc.)."""
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    return await _tickets_clients.etat_session(ticket)
+
+
+@api.put("/me/tickets/{tid}/session-wa", tags=["Portail Client"])
+async def me_ticket_set_session_wa(tid: str, payload: TicketSessionWaPayload, user: dict = Depends(get_current_user)):
+    """Durée de session WhatsApp propre à ce ticket (le défaut vient de la fiche client)."""
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Réservé aux administrateurs, superviseurs et modérateurs.")
+    if payload.minutes < 0 or payload.minutes > 24 * 60:
+        raise HTTPException(status_code=400, detail="Durée attendue : de 0 (pas de limite) à 1440 minutes.")
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if ticket.get("status") not in TICKET_OPEN_STATUSES:
+        raise HTTPException(status_code=409, detail="Ticket déjà clôturé.")
+    ticket = await _tickets_clients.regler_session(ticket, payload.minutes, par=user)
+    return await _tickets_clients.etat_session(ticket)
+
+
+@api.post("/admin/tickets/echeances/executer", tags=["Admin"])
+async def admin_tickets_executer_echeances(_: dict = Depends(get_current_admin)):
+    """Lance tout de suite le passage du planificateur (rappels, fins de session, fins de validité)."""
+    return await _tickets_clients.executer_echeances(envoyer=_wa_send_text)
 
 
 # Register the API router at the very end, after every endpoint has been

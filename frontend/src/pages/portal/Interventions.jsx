@@ -381,6 +381,15 @@ export default function ClientInterventions() {
                   <td className={`px-4 py-3 font-medium ${invoiced ? "" : "text-slate-800"}`}>
                     {i.title}
                     {i.description && <p className="text-xs text-slate-500 font-normal mt-0.5 line-clamp-1">{i.description}</p>}
+                    {/* Lot 54 — intervention issue d'un ticket : début (création) et fin (clôture), lien vers le ticket */}
+                    {i.source_ticket_id && (
+                      <p className="text-[11px] text-slate-500 font-normal mt-0.5" data-testid={`intervention-ticket-${i.id}`}>
+                        {i.date_heure_debut && <>Du {new Date(i.date_heure_debut).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} </>}
+                        {i.date_heure_fin && <>au {new Date(i.date_heure_fin).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · </>}
+                        <a href={i.ticket_url || `/portal/tickets?numero=${encodeURIComponent(i.source_ticket_number || "")}`}
+                           className="text-sawali-blue underline">Ticket {i.source_ticket_number || ""}</a>
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1 ${invoiced ? "bg-slate-100 text-slate-500 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200"}`}

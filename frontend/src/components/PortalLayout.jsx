@@ -274,6 +274,9 @@ function PortalLayoutInner({ admin = false }) {
   // vers l'"officine-registry" — même session utilisateur suivi, pas de JWT
   // séparé (option retenue explicitement par l'utilisateur).
   const isPharmacienTracked = (user?.tracked_role || "") === "Pharmacien";
+  // Lot 54 — Auxiliaire en Pharmacie : SEULEMENT Fiche Produit, Posologie et Ordonnances et Stock
+  // (scan + OCR). Le serveur refuse toute autre route (403, backend/roles_restreints.py).
+  const isAuxiliairePharmacie = (user?.tracked_role || "") === "Auxiliaire en Pharmacie";
   // 2026-02 fork (P2) — Secrétaire médicale tracked role : accès uniquement
   // au planning consultations (gestion walk-ins). Menu ultra-réduit comme
   // le médecin, mais SANS Analyse prescription.
@@ -308,7 +311,7 @@ function PortalLayoutInner({ admin = false }) {
   // Le "défaut du rôle" : les rôles à sidebar réduite (Comptable strict,
   // Traducteur, Médecin, Secrétaire médicale, Fabricant) ne voient PAS le
   // Dashboard/Welcome/Notifs, tous les autres tracked users OUI.
-  const isRestrictedByRoleForDashboard = isComptaStrict || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale || isFabricant;
+  const isRestrictedByRoleForDashboard = isComptaStrict || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale || isFabricant || isAuxiliairePharmacie;
   const p4ShowDashboard = user?.show_dashboard === true
     ? true
     : user?.show_dashboard === false
@@ -318,7 +321,7 @@ function PortalLayoutInner({ admin = false }) {
     ? true
     : user?.show_welcome_modal === false
       ? false
-      : !(isFabricant || isMedecinTracked || isPharmacienTracked);
+      : !(isFabricant || isMedecinTracked || isPharmacienTracked || isAuxiliairePharmacie);
   const p4ShowMsgNotifs = user?.show_messaging_notifs === true
     ? true
     : user?.show_messaging_notifs === false
@@ -363,6 +366,13 @@ function PortalLayoutInner({ admin = false }) {
     "/portal/ocr-pieces",
     "/portal/my-account",
   ]);
+  // Lot 54 — Auxiliaire en Pharmacie (pas de tableau de bord, même avec l'option d'affichage)
+  const allowedAuxiliairePaths = new Set([
+    "/portal/vidal-fiche",
+    "/portal/vidal-posologie",
+    "/portal/ordonnances-stock",
+    "/portal/my-account",
+  ]);
   const allowedSecretaireMedicalePaths = new Set([
     "/portal/planning",
     "/portal/my-account",
@@ -381,7 +391,7 @@ function PortalLayoutInner({ admin = false }) {
   // d'ajouter à leur sidebar réduite (leur `role` système est "client",
   // le contrôle d'accès réel pour eux vient déjà de leur propre allowlist
   // ci-dessus — ce filtre global ne doit pas les re-bloquer en plus).
-  const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal || isMedecinTracked || isPharmacienTracked;
+  const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal || isMedecinTracked || isPharmacienTracked || isAuxiliairePharmacie;
   // Lot 25 — Lien unique du Traducteur : la page Régionalisation côté portail.
   const baseLinks = isTranslator
     ? [{ to: "/portal/i18n", label: "Régionalisation", icon: Languages }]
@@ -398,6 +408,12 @@ function PortalLayoutInner({ admin = false }) {
             { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
             { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
           ]
+        : (isAuxiliairePharmacie
+          ? [
+              { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
+              { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
+              { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
+            ]
         : (isPharmacienTracked
             ? [
                 // Portage site-meetafrican — pont vers "officine-registry" :
@@ -421,7 +437,7 @@ function PortalLayoutInner({ admin = false }) {
                 ? [
                     { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
                   ]
-                : (admin ? adminLinks : clientLinks))));
+                : (admin ? adminLinks : clientLinks)))));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).
@@ -444,13 +460,17 @@ function PortalLayoutInner({ admin = false }) {
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isMedecinTracked || allowedMedecinTrackedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isPharmacienTracked || allowedPharmacienTrackedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
+    .filter((l) => !isAuxiliairePharmacie || allowedAuxiliairePaths.has(l.to))
+    // Lot 54 — « Ordonnances et stock » suit la règle d'Outils+ pour tous les rôles (hors Admin /
+    // Superviseur) : visible si la fonction est cochée pour le client, absente sinon (plus de lien grisé).
+    .filter((l) => l.to !== "/portal/ordonnances-stock" || isAdminOrSup || !!tenantFeatures.ordonnances_stock)
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
     // Iter43-fix24az-f — Fabricant tenants : allowlist stricte
     // Lot 25 — Les utilisateurs suivis héritent désormais du profil Fabricant de leur
     // client parent : les rôles qui ont déjà leur propre menu réduit (Traducteur,
     // Médecin, Pharmacien, Secrétaire médicale) gardent ce menu au lieu d'être vidés.
-    .filter((l) => !isFabricant || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale
+    .filter((l) => !isFabricant || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale || isAuxiliairePharmacie
       || fabricantAllowedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !l.fabricantOnly || isFabricant)
     .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
@@ -574,7 +594,11 @@ function PortalLayoutInner({ admin = false }) {
         navigate("/portal/vidal-posologie");
       }
     }
-  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked, isPharmacienTracked, p4ShowDashboard]);
+    // Lot 54 — Auxiliaire en Pharmacie : uniquement ses trois pages (et « Mon compte »)
+    if (user && isAuxiliairePharmacie && !allowedAuxiliairePaths.has(location.pathname)) {
+      navigate("/portal/vidal-fiche");
+    }
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked, isPharmacienTracked, isAuxiliairePharmacie, p4ShowDashboard]);
 
   // Web Notifications + son sur nouveaux WA
   // 2026-02 fork (P4) — Coupe la surveillance quand `show_messaging_notifs=false`
@@ -627,8 +651,12 @@ function PortalLayoutInner({ admin = false }) {
   const displayedName = useClientLogo ? (branding.company || user.company || user.full_name) : "SAWALI";
   const displayedSubtitle = admin ? "Admin Console" : (useClientLogo ? "Espace Loois" : "Espace Loois");
 
-  const SidebarContent = (
+  // Lot 54 — Ordinateur (lg et plus) : le haut (logo, langue, météo) et le bas (compte, alertes,
+  // réglages, déconnexion) restent figés ; seule la liste des options défile. Téléphone et
+  // tablette (tiroir) : comportement inchangé, tout le tiroir défile.
+  const renderSidebar = (bureau) => (
     <>
+      <div className={bureau ? "shrink-0" : undefined} data-testid={bureau ? "sidebar-haut" : undefined}>
       <Link to="/" className="flex items-center gap-3 mb-2 px-2">
         <img src={displayedLogo} alt={displayedName} className={`h-10 w-10 ${useClientLogo ? "rounded-md object-contain bg-white/95 p-1" : "rounded-md object-cover"} ring-1 ring-white/20`} />
         <div className="min-w-0">
@@ -644,7 +672,9 @@ function PortalLayoutInner({ admin = false }) {
       <div className="px-2 mb-3" data-testid="sidebar-weather-row">
         <WeatherWidget variant="compact" placement="portal" className="w-full justify-start" />
       </div>
-      <nav className="space-y-1">
+      </div>
+      <nav className={bureau ? "space-y-1 flex-1 min-h-[8rem] overflow-y-auto overscroll-contain -mx-2 px-2" : "space-y-1"}
+           data-testid={bureau ? "sidebar-liste" : undefined}>
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive, fsBadges }) => {
           // Lot 27 — actif aussi sur les chemins associés (ex. sondages sous « Formulaires & Sondages »)
           const extraActive = (alsoActive || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
@@ -800,7 +830,8 @@ function PortalLayoutInner({ admin = false }) {
         })}
       </nav>
 
-      <div className="mt-8 border-t border-white/10 pt-4">
+      <div className={bureau ? "shrink-0 mt-3 border-t border-white/10 pt-3" : "mt-8 border-t border-white/10 pt-4"}
+           data-testid={bureau ? "sidebar-bas" : undefined}>
         <NavLink
           to="/portal/my-account"
           onClick={() => setOpen(false)}
@@ -914,6 +945,8 @@ function PortalLayoutInner({ admin = false }) {
           when the menu is taller than the viewport. Using a non-sticky
           shell prevents the "pinned-then-truncated" bug some browsers
           exhibit with `position: sticky` inside a flex row. */}
+      {/* Lot 54 — le défilement se fait dans la liste du milieu ; celui de l'aside ne sert plus
+          qu'en dernier recours, sur un écran très bas où le haut et le bas ne tiennent pas. */}
       <aside
         className="hidden lg:flex flex-col shrink-0 w-72 p-5 h-screen overflow-y-auto relative"
         style={{
@@ -926,7 +959,7 @@ function PortalLayoutInner({ admin = false }) {
         }}
         data-testid="portal-sidebar"
       >
-        {SidebarContent}
+        {renderSidebar(true)}
       </aside>
 
       {/* Mobile drawer */}
@@ -944,7 +977,7 @@ function PortalLayoutInner({ admin = false }) {
               backgroundBlendMode: "multiply",
             }}
           >
-            {SidebarContent}
+            {renderSidebar(false)}
           </aside>
         </div>
       )}

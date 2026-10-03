@@ -48,8 +48,10 @@ export default function AutoLogoutGate() {
   // Lot 50 — le serveur contrôle aussi l'inactivité (dernière activité de la session) :
   // l'activité de l'utilisateur (souris, clavier, défilement, toucher) lui est signalée au
   // plus une fois par minute, pour qu'une page lue longtemps sans requête ne soit pas fermée.
+  // Lot 54 — signalée même sans déconnexion automatique : elle sert aussi à la pastille de
+  // présence de la page « Utilisateurs suivis » (vert / orange / rouge).
   useEffect(() => {
-    if (!user || !(Number(config.auto_logout_minutes) > 0)) return undefined;
+    if (!user) return undefined;
     let dernier = Date.now();
     const signaler = () => {
       if (Date.now() - dernier < 60_000) return;

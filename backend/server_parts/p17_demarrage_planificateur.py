@@ -1192,6 +1192,25 @@ async def _start_scheduler():
                 max_instances=1,
             )
 
+            # Lot 54 — Tickets : rappels T-10 / T-5 de la session WhatsApp, fermeture automatique en
+            # fin de session, clôture à la fin de validité (clients non contractuels). Chaque minute ;
+            # les envois passent par _wa_send_text (fenêtre de 24 h vérifiée, refus journalisés).
+            async def _scheduled_tickets_echeances():
+                try:
+                    import tickets_clients as _tc
+                    await _tc.executer_echeances(envoyer=_wa_send_text)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Échéances des tickets en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_tickets_echeances,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="tickets_echeances_minute",
+                replace_existing=True,
+                misfire_grace_time=120,
+                coalesce=True,
+                max_instances=1,
+            )
+
             # Iter36y — Daily auto-relance cron (09:00 Africa/Abidjan). The
             # runner itself checks the master toggle + configured day_of_week
             # before acting, so a single cron entry covers all flavours.

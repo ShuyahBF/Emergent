@@ -99,6 +99,8 @@ export default function EtatConnexion({ tone = "light", className = "", compact 
       {version && (
         <div className="mt-0.5 opacity-80" data-testid="etat-connexion-version">
           Version {version.version}
+          {/* Règle permanente : le numéro de lot accompagne toujours la version */}
+          {version.lot ? ` · Lot ${version.lot}` : ""}
           {version.git_sha && version.git_sha !== "unknown" ? ` · ${version.git_sha}` : ""}
           {misEnLigne ? ` · déployée le ${misEnLigne}` : ""}
         </div>

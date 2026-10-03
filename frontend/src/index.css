@@ -200,3 +200,49 @@ html {
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
 }
+
+/* ===================================================================
+   Règle permanente « tableaux » (03/10/2026) — TOUS les tableaux :
+   - ligne survolée     : fond bleu clair transparent ;
+   - ligne sélectionnée : fond orange clair, police blanche.
+   Une ligne est « sélectionnée » si elle porte la classe ligne-selectionnee,
+   aria-selected="true" ou data-selected="true", ou si la case à cocher de
+   sa première cellule est cochée. `!important` est nécessaire ici : les
+   classes Tailwind posées sur les lignes (hover:bg-…, bg-…) sont sinon
+   prioritaires sur cette règle générale.
+   =================================================================== */
+table tbody tr {
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+/* Survol : bleu clair transparent (le fond du tableau reste visible) */
+table tbody tr:hover,
+table tbody tr:hover > td {
+  background-color: rgba(56, 189, 248, 0.16) !important;
+}
+/* Sélection : orange clair et police blanche, y compris pendant le survol */
+table tbody tr.ligne-selectionnee,
+table tbody tr[aria-selected="true"],
+table tbody tr[data-selected="true"],
+table tbody tr:has(> td:first-child input[type="checkbox"]:checked),
+table tbody tr.ligne-selectionnee:hover,
+table tbody tr[aria-selected="true"]:hover,
+table tbody tr[data-selected="true"]:hover,
+table tbody tr:has(> td:first-child input[type="checkbox"]:checked):hover {
+  background-color: #f6a35b !important;
+  color: #ffffff !important;
+}
+/* Les cellules et les textes de la ligne sélectionnée passent en blanc
+   (les badges, boutons et champs gardent leurs propres couleurs) */
+table tbody tr.ligne-selectionnee > td,
+table tbody tr[aria-selected="true"] > td,
+table tbody tr[data-selected="true"] > td,
+table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td {
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+table tbody tr.ligne-selectionnee > td :is(span, div, p, a, strong, small, em):not([class*="bg-"]):not(button):not(input),
+table tbody tr[aria-selected="true"] > td :is(span, div, p, a, strong, small, em):not([class*="bg-"]):not(button):not(input),
+table tbody tr[data-selected="true"] > td :is(span, div, p, a, strong, small, em):not([class*="bg-"]):not(button):not(input),
+table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(span, div, p, a, strong, small, em):not([class*="bg-"]):not(button):not(input) {
+  color: #ffffff !important;
+}

@@ -46,8 +46,9 @@ services:
       # --- Base de données (MongoDB Atlas) --------------------------------------
       - key: MONGO_URL
         sync: false
+      # Base remplie par la « Migration vers Render » (cluster Flex, base sawali)
       - key: DB_NAME
-        value: smartsystems
+        value: sawali
       # --- Sessions et chiffrement : STRICTEMENT identiques à l'ancien serveur ---
       - key: JWT_SECRET
         sync: false

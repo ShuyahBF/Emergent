@@ -11,14 +11,14 @@ import { toast } from "sonner";
 // Lot 56.1 — même garde-fou que la Sécurisation VIDAL v2 : bandeau du mode validation
 import "@/components/vidal/vidalV2.css";
 import BandeauValidationVidal, { chargerEtatValidation } from "@/components/vidal/BandeauValidationVidal";
-import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, X, RotateCcw } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 // Lot 56.4 — listes au lieu de saisie libre, champs « spin », chronomètre de saisie :
 // mêmes composants et mêmes référentiels que la Sécurisation VIDAL.
 import ChampTagsReferentiel from "@/components/vidal/ChampTagsReferentiel";
 import ChampNombre from "@/components/vidal/ChampNombre";
 import ChronoSaisie, { useChronoSaisie } from "@/components/vidal/ChronoSaisie";
-import { appliquerListes, chargerListesProduit, ligneVide } from "@/components/vidal/LignePrescriptionVidal";
+import { appliquerListes, chargerListesProduit, nouvelleLigneSaisie } from "@/components/vidal/LignePrescriptionVidal";
 import {
   BORNES, TYPES_DUREE, TYPES_FREQUENCE, libelleChampDose, libelleChampDuree, optionsDepuis, validerLigne, versPayloadLigne,
 } from "@/lib/vidalReferentiels";
@@ -30,12 +30,10 @@ const PREFIXE_MOLECULE = "vidal://molecule/";
 
 /**
  * Lot 56.4 — nouvelle ligne de posologie STRUCTURÉE (plus de texte libre).
- * Valeurs par défaut pour limiter les clics : fréquence « Par jour », durée en
- * « Jour(s) ». La dose et la durée restent à saisir (jamais inventées).
+ * Lot 56.5 — même fonction que la Sécurisation (`nouvelleLigneSaisie`) :
+ * fréquence « Par jour », durée en « Jour(s) » ; dose et durée restent à saisir.
  */
-function nouvelleLigne() {
-  return { ...ligneVide(), frequencyType: "PER_DAY", durationType: "DAY" };
-}
+const nouvelleLigne = nouvelleLigneSaisie;
 
 /** Étiquette du profil clinique d'un patient fictif -> {label, ref}. */
 function versEtiquette(x) {
@@ -83,6 +81,20 @@ export function PrescriptionAnalysisForm() {
     lignes: prescriptions.map((l) => [l.vidal_id, l.query, l.dose, l.unitId, l.frequencyType, l.duration, l.durationType, l.route]),
   }), [patient, patientFictifId, allergies, pathologies, traitements, prescriptions]);
   const chrono = useChronoSaisie(signatureSaisie);
+
+  // Lot 56.5 — « Nouvelle saisie » : formulaire vidé (patient, données cliniques,
+  // prescription, résultat) et chronomètre remis à zéro, en attente de la première saisie.
+  const nouvelleSaisie = () => {
+    const patientVide = { birth_date: "", sex: "F", weight_kg: "", creatinine_clearance_ml_min: "" };
+    const lignes = [nouvelleLigne()];
+    setPatient(patientVide); setPatientFictifId("");
+    setAllergies([]); setPathologies([]); setTraitements([]); setPrescriptions(lignes);
+    setResult(null); setErrorState(null); setErreursSaisie([]); setErreursLignes([]); setTransmis(null);
+    chrono.reinitialiser(JSON.stringify({
+      patient: patientVide, patientFictifId: "", allergies: [], pathologies: [], traitements: [],
+      lignes: lignes.map((l) => [l.vidal_id, l.query, l.dose, l.unitId, l.frequencyType, l.duration, l.durationType, l.route]),
+    }));
+  };
 
   // Lot 56.3 — patient fictif choisi : ses données PRÉ-REMPLISSENT les champs, qui restent
   // modifiables (VIDAL peut demander de vérifier les garde-fous de saisie).
@@ -469,7 +481,17 @@ export function PrescriptionAnalysisForm() {
           entre les données de la prescription et le bouton d'action. */}
       <ChronoSaisie chrono={chrono} />
 
-      <div>
+      <div className="flex flex-wrap gap-2">
+        {/* Lot 56.5 — repartir d'un formulaire vide (et d'un chronomètre à zéro) */}
+        <button
+          type="button"
+          onClick={nouvelleSaisie}
+          disabled={loading}
+          className="text-sm px-4 py-2 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50 text-slate-700 inline-flex items-center gap-2 disabled:opacity-60"
+          data-testid="rx-nouvelle-saisie"
+        >
+          <RotateCcw className="h-4 w-4" /> Nouvelle saisie
+        </button>
         <button
           onClick={run}
           disabled={loading}

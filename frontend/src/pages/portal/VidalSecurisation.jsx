@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import "@/components/vidal/vidalV2.css";
 import DonneesCliniquesPatient, { cliniqueVide, cliniqueDepuisPatient, profilPourFichePatient } from "@/components/vidal/DonneesCliniquesPatient";
-import LignePrescriptionVidal, { ligneVide, ligneDepuisTraitement } from "@/components/vidal/LignePrescriptionVidal";
+import LignePrescriptionVidal, { ligneVide, ligneDepuisTraitement, nouvelleLigneSaisie } from "@/components/vidal/LignePrescriptionVidal";
 import TraitementsEnCours from "@/components/vidal/TraitementsEnCours";
 import ResultatSecurisation from "@/components/vidal/ResultatSecurisation";
 import RapportHtmlSecurisation from "@/components/vidal/RapportHtmlSecurisation";
@@ -80,7 +80,7 @@ export default function VidalSecurisation() {
   // ---- Prescription ----
   const [traitementsEnCours, setTraitementsEnCours] = useState([]);
   const [chargementTraitements, setChargementTraitements] = useState(false);
-  const [nouvellesLignes, setNouvellesLignes] = useState([ligneVide()]);
+  const [nouvellesLignes, setNouvellesLignes] = useState([nouvelleLigneSaisie()]);
   const [typesAlerte, setTypesAlerte] = useState(TYPES_ALERTE_DEFAUT);
 
   // ---- Résultat ----
@@ -163,7 +163,7 @@ export default function VidalSecurisation() {
     setPatientWhatsapp(doc.whatsapp_number || "");
     setClinique(cliniqueDepuisPatient(doc));
     setResultat(null); setConsultationPassee(null); setErreur(null); setDerniereOrdonnanceId(null);
-    setNouvellesLignes([ligneVide()]);
+    setNouvellesLignes([nouvelleLigneSaisie()]);
     setTraitementsEnCours([]);
     setChargementTraitements(true);
     try {
@@ -234,14 +234,25 @@ export default function VidalSecurisation() {
     }
   }
 
+  // Lot 56.5 — « Nouvelle saisie » : MÊME patient et mêmes données cliniques, nouvelle
+  // prescription vide ; résultat effacé et chronomètre remis à zéro (« Réinitialiser »
+  // vide tout, patient compris).
+  function nouvelleSaisie() {
+    const lignes = [nouvelleLigneSaisie()];
+    setNouvellesLignes(lignes);
+    setResultat(null); setConsultationPassee(null); setErreur(null); setRapport(null); setAlerteDonnees(null);
+    setDerniereOrdonnanceId(null); setMessageCopie(null);
+    chrono.reinitialiser(signatureSaisie(clinique, lignes, traitementsEnCours));
+  }
+
   function reinitialiser() {
     setClinique(cliniqueVide());
     setPatient(null); setPatientName(""); setPatientWhatsapp("");
-    setTraitementsEnCours([]); setNouvellesLignes([ligneVide()]); setTypesAlerte(TYPES_ALERTE_DEFAUT);
+    setTraitementsEnCours([]); setNouvellesLignes([nouvelleLigneSaisie()]); setTypesAlerte(TYPES_ALERTE_DEFAUT);
     setResultat(null); setConsultationPassee(null); setErreur(null); setRapport(null); setAlerteDonnees(null);
     setDerniereOrdonnanceId(null); setMessageCopie(null);
     // Lot 56.4 — nouveau patient vide : chronomètre remis à zéro, en attente de la première saisie.
-    chrono.reinitialiser(signatureSaisie(cliniqueVide(), [ligneVide()], []));
+    chrono.reinitialiser(signatureSaisie(cliniqueVide(), [nouvelleLigneSaisie()], []));
   }
 
   // ---------------------------------------------------------------------
@@ -583,7 +594,7 @@ export default function VidalSecurisation() {
           <LignePrescriptionVidal key={idx} ligne={ligne} erreurs={controle.nouvelles[idx]} onChange={(patch) => majLigne(idx, patch)}
             onRetirer={nouvellesLignes.length > 1 ? () => setNouvellesLignes((prev) => prev.filter((_, i) => i !== idx)) : null} />
         ))}
-        <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setNouvellesLignes((prev) => [...prev, ligneVide()])}>+ Ajouter un médicament</button>
+        <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setNouvellesLignes((prev) => [...prev, nouvelleLigneSaisie()])}>+ Ajouter un médicament</button>
       </div>
 
       <div className="carte">
@@ -615,6 +626,8 @@ export default function VidalSecurisation() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" className="bouton-secondaire" onClick={reinitialiser}><RotateCcw size={13} /> Réinitialiser</button>
+        {/* Lot 56.5 — nouvelle prescription pour le même patient, chronomètre remis à zéro */}
+        <button type="button" className="bouton-secondaire" onClick={nouvelleSaisie} data-testid="sec-nouvelle-saisie"><RotateCcw size={13} /> Nouvelle saisie</button>
         <button type="button" className="bouton-primaire" style={{ background: ROUGE }} onClick={() => lancerAnalyse()} disabled={enCours} data-testid="sec-run">
           {enCours ? <><Loader2 size={14} className="lucide-tourne" /> Analyse en cours…</> : <><HeartPulse size={14} /> Sécuriser</>}
         </button>

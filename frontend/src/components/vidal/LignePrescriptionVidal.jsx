@@ -116,7 +116,8 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
     onChange({ ...base, chargementListes: !!item.vidal_id });
     if (!item.vidal_id) return;
     const listes = await chargerListesProduit(item.vidal_id, "PRODUCT");
-    onChange(appliquerListes(base, listes));
+    // Lot 56.5 — médicament choisi par le médecin : un choix unique (unité, voie) est présélectionné
+    onChange(preselectionnerChoixUniques({ ...base, ...appliquerListes(base, listes) }));
   }
 
   async function rechercherAld(texte) {
@@ -349,6 +350,25 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
 // ---------------------------------------------------------------------------
 // États de ligne
 // ---------------------------------------------------------------------------
+/**
+ * Lot 56.5 — décision du propriétaire : pour faire gagner du temps au médecin,
+ * une ligne CRÉÉE À LA MAIN démarre avec fréquence « Par jour » et durée en
+ * « Jour(s) » (modifiables). `ligneVide()` reste, elle, SANS valeur par défaut :
+ * elle sert aussi à reprendre des données existantes (prescriptions de test,
+ * ordonnances, traitements en cours) qui ne doivent jamais être complétées.
+ */
+export function nouvelleLigneSaisie() {
+  return { ...ligneVide(), frequencyType: "PER_DAY", durationType: "DAY" };
+}
+
+/** Lot 56.5 — présélectionne l'unité et la voie quand le produit n'en propose qu'UNE (choix du médecin uniquement). */
+export function preselectionnerChoixUniques(patch) {
+  const resultat = { ...patch };
+  if (!resultat.unitId && resultat.units?.length === 1) { resultat.unitId = resultat.units[0].id; resultat.unitLabel = resultat.units[0].label; }
+  if (!resultat.route && resultat.routes?.length === 1) resultat.route = resultat.routes[0].id;
+  return resultat;
+}
+
 export function ligneVide(groupType = "SAME_ORDER") {
   return {
     vidal_id: "", label: "", query: "", forme: "", drugType: "PRODUCT",

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "56.5"
-LOT_LIBELLE = "VIDAL : valeurs par défaut et bouton Nouvelle saisie sur les deux modules"
+LOT = "56.6"
+LOT_LIBELLE = "Météo : la ville d'un hébergeur n'est plus prise pour celle du visiteur"

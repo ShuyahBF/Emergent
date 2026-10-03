@@ -56,6 +56,19 @@ def _anonymize_ip(ip: str) -> str:
     return ip
 
 
+# Lot 56.6 — opérateurs d'HÉBERGEMENT (centres de données) : une IP chez eux
+# n'est jamais celle d'un visiteur réel, sa ville n'a donc aucun sens.
+_HEBERGEURS = ("render", "amazon", "aws", "google", "microsoft", "azure", "cloudflare",
+               "digitalocean", "ovh", "hetzner", "linode", "akamai", "fastly", "vercel", "netlify")
+
+
+def _ip_d_hebergeur(reponse_ipwho: Dict[str, Any]) -> bool:
+    """Vrai si ipwho.is indique un hébergeur / centre de données (org, isp ou domaine)."""
+    connexion = reponse_ipwho.get("connection") or {}
+    texte = " ".join(str(connexion.get(k) or "") for k in ("org", "isp", "domain")).lower()
+    return any(nom in texte for nom in _HEBERGEURS)
+
+
 def _client_ip(request: Request) -> str:
     # Cloudflare puis X-Forwarded-For puis client.host
     cf = request.headers.get("cf-connecting-ip")
@@ -166,7 +179,14 @@ def setup_weather_routes(*, db, api):
                     r = await http.get(f"https://ipwho.is/{ip}")
                     if r.status_code < 300:
                         d = r.json()
-                        if d.get("success"):
+                        # Lot 56.6 — l'adresse vue par le serveur peut être celle de
+                        # l'HÉBERGEUR (Render relaie les appels du site : l'IP du
+                        # visiteur est alors perdue) et donner une ville sans rapport
+                        # (ex. « Boardman, US »). Dans ce cas on passe à la ville par
+                        # défaut réglée dans l'administration.
+                        if d.get("success") and _ip_d_hebergeur(d):
+                            logger.info("[weather] IP d'hébergeur (%s) ignorée", (d.get("connection") or {}).get("org"))
+                        elif d.get("success"):
                             out.update({
                                 "lat": d.get("latitude"),
                                 "lon": d.get("longitude"),

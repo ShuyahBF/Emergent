@@ -109,6 +109,8 @@ class PrescriptionAnalysisPayload(BaseModel):
     allergies: Optional[List[str]] = None
     pathologies: Optional[List[str]] = None
     xml_body: Optional[str] = None             # Override : XML brut
+    # Lot 56.2 — patient fictif choisi (mode validation) ; jamais transmis à VIDAL.
+    patient_id: Optional[str] = None
 
 
 def _build_alerts_xml(patient: Dict[str, Any], prescriptions: List[Dict[str, Any]],
@@ -1182,22 +1184,40 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
         # prouve qu'elles soient fictives, donc l'analyse est refusée (403) dans ce
         # mode, AVANT le quota et AVANT tout appel réseau. Les essais avec des
         # patients fictifs se font dans la page « Sécurisation VIDAL ».
-        from routes.vidal_appels import refuser_si_mode_validation
-        await refuser_si_mode_validation(db, user)
-        cfg = await _ensure_tenant_can_access(db, user)
-        _ensure_active(cfg)
-        await _quota_check_and_increment(db, user["id"], cfg)
+        # Lot 56.2 — mode « Validation VIDAL » (actif par défaut) : patient fictif
+        # choisi, OU données ANONYMISÉES (date de naissance, sexe, fonction rénale
+        # seulement), OU médicaments seuls. Décidé AVANT le quota et tout appel réseau.
+        from routes import vidal_appels as _va
+        prep = await _va.preparer_patient_analyse(db, user, payload.patient, payload.patient_id)
+        if prep["validation"] and getattr(payload, "xml_body", None):
+            # Un XML brut ne peut pas être contrôlé : refusé en mode validation.
+            raise HTTPException(status_code=403, detail=_va.MESSAGE_PATIENT_NON_FICTIF + " XML brut refusé en mode validation.")
+        if prep["validation"]:
+            cfg = await _va.config_prete(db, user)  # identifiants de production + journal de validation
+        else:
+            cfg = await _ensure_tenant_can_access(db, user)
+            _ensure_active(cfg)
+            await _quota_check_and_increment(db, user["id"], cfg)
         # Iter43-fix24y — Build XML body (or use the provided raw XML override).
         xml_body = getattr(payload, "xml_body", None)
         if not xml_body:
             xml_body = _build_alerts_xml(
-                patient=payload.patient or {},
+                patient=prep["patient"],
                 prescriptions=payload.prescriptions,
                 allergies=payload.allergies or [],
                 pathologies=payload.pathologies or [],
             )
         # `_vidal_call` detects str body → POST with `Content-Type: text/xml`.
-        data = await _vidal_call(cfg, "POST", "/alerts/full", body=xml_body)
+        if prep["validation"]:
+            # Lot 56.2 — appel journalisé (journal de validation) ; forme de réponse inchangée
+            res = await _va.appeler_vidal(db, cfg, user, "POST", "/alerts/full", corps_xml=xml_body,
+                                          patient_id=prep["patient_id"],
+                                          donnees_anonymisees=prep["origine"] != "patient_fictif")
+            data = {"raw": res.get("raw")}
+            if res.get("_erreur"):
+                data["_error"] = {"status": res["_erreur"]["statut"], "message": res["_erreur"]["message"]}
+        else:
+            data = await _vidal_call(cfg, "POST", "/alerts/full", body=xml_body)
         try:
             await db.vidal_prescription_audit.insert_one({
                 "user_id": user["id"], "user_email": user.get("email"),
@@ -1206,7 +1226,11 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
             })
         except Exception:  # noqa: BLE001
             pass
-        return {"data": data}
+        # Lot 56.2 — ce qui a réellement été transmis (affiché sur la page)
+        return {"data": data, "validation": {
+            "actif": prep["validation"], "origine": prep["origine"],
+            "champs_retires": prep["champs_retires"], "patient_transmis": sorted(prep["patient"].keys()),
+        }}
 
     # ---- Cache admin (purge) ----
     @api.delete("/admin/vidal/cache", tags=["Admin — VIDAL"])

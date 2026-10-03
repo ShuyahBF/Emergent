@@ -935,42 +935,72 @@ def test_calculateur_mode_validation_sans_valeur_locale(ctx):
 
 
 # ---------------------------------------------------------------------------
-# Lot 56.1 — garde-fou de l'ancienne page « Analyse prescription »
+# Lot 56.2 — « Analyse prescription » en mode validation : patient fictif,
+# données anonymisées (date de naissance, sexe, fonction rénale) ou médicaments seuls
 # ---------------------------------------------------------------------------
 
-def _client_garde_fou(ctx) -> TestClient:
-    """Petite application d'essai : une route qui applique le garde-fou pour le médecin de test
-    (même boucle d'événements que la base MongoDB, comme les vraies routes)."""
+def test_anonymisation_liste_blanche():
+    # Nom, prénoms, contacts et poids sont retirés ; date de naissance, sexe et clairance passent
+    garde, retires = appels_v2.anonymiser_patient({
+        "name": "DUPONT", "first_name": "Jean", "phone": "+22670000000", "whatsapp_number": "+22671111111",
+        "email": "jean@exemple.test", "weight_kg": 70, "birth_date": "1980-05-01", "sex": "M",
+        "creatinine_clearance_ml_min": 45, "vide": "",
+    })
+    assert garde == {"birth_date": "1980-05-01", "sex": "M", "creatinine_clearance_ml_min": 45}
+    assert retires == ["email", "first_name", "name", "phone", "weight_kg", "whatsapp_number"]
+    assert appels_v2.anonymiser_patient(None) == ({}, [])
+
+
+def _client_preparation(ctx, patient=None, patient_id=None) -> TestClient:
+    """Petite application d'essai : applique `preparer_patient_analyse` pour le médecin de test."""
     app = FastAPI()
 
     @app.get("/essai")
     async def essai():
         db = AsyncIOMotorClient(os.environ["MONGO_URL"])[ctx.base.name]
-        await appels_v2.refuser_si_mode_validation(db, dict(MEDECIN))
-        return {"ok": True}
+        return await appels_v2.preparer_patient_analyse(db, dict(MEDECIN), patient, patient_id)
 
     return TestClient(app)
 
 
-def test_analyse_prescription_refusee_en_mode_validation(ctx):
-    # Mode validation actif par défaut : refus 403, aucun appel ne part chez VIDAL
-    with _client_garde_fou(ctx) as client:
-        r = client.get("/essai")
-    assert r.status_code == 403 and "Sécurisation VIDAL" in r.json()["detail"]
-    assert not ctx.appels
+def test_preparation_mode_validation_anonymise(ctx):
+    # Mode validation actif par défaut : identité retirée, données cliniques utiles conservées
+    with _client_preparation(ctx, {"name": "DUPONT", "phone": "70000000", "birth_date": "1980-05-01", "sex": "F"}) as c:
+        r = c.get("/essai").json()
+    assert r["validation"] is True and r["origine"] == "anonymise"
+    assert r["patient"] == {"birth_date": "1980-05-01", "sex": "F"} and r["champs_retires"] == ["name", "phone"]
+    with _client_preparation(ctx, {}) as c:
+        assert c.get("/essai").json()["origine"] == "medicaments_seuls"
 
 
-def test_analyse_prescription_permise_hors_mode_validation(ctx):
-    # Mode validation désactivé par le responsable : l'ancienne page fonctionne comme avant
+def test_preparation_patient_fictif_et_refus_vrai_patient(ctx):
+    # Patient fictif : données tirées de son profil enregistré ; vrai patient : 403
+    ctx.base.vidal_patients.insert_many([
+        {"id": "fictif1", "user_id": MEDECIN["id"], "est_fictif": True, "name": "FICTIF",
+         "profil_clinique": {"date_naissance": "1950-01-01", "sexe": "MALE", "poids_kg": 60, "clairance_creatinine_ml_min": 30}},
+        {"id": "reel1", "user_id": MEDECIN["id"], "name": "VRAI PATIENT", "profil_clinique": {"sexe": "FEMALE"}},
+    ])
+    with _client_preparation(ctx, {"name": "ignoré"}, "fictif1") as c:
+        r = c.get("/essai").json()
+    assert r["origine"] == "patient_fictif" and r["patient_id"] == "fictif1"
+    assert r["patient"] == {"birth_date": "1950-01-01", "sex": "M", "weight_kg": 60, "creatinine_clearance_ml_min": 30}
+    with _client_preparation(ctx, None, "reel1") as c:
+        assert c.get("/essai").status_code == 403
+
+
+def test_preparation_hors_mode_validation_inchangee(ctx):
+    # Mode validation désactivé : la saisie part telle quelle, comme avant
     _hors_validation(ctx)
-    with _client_garde_fou(ctx) as client:
-        assert client.get("/essai").json() == {"ok": True}
+    with _client_preparation(ctx, {"name": "DUPONT", "birth_date": "1980-05-01"}) as c:
+        r = c.get("/essai").json()
+    assert r["validation"] is False and r["patient"] == {"name": "DUPONT", "birth_date": "1980-05-01"}
 
 
-def test_endpoint_analyse_prescription_appelle_le_garde_fou():
-    # L'endpoint historique passe bien par le garde-fou avant le quota et l'appel réseau
+def test_endpoint_analyse_prescription_prepare_avant_quota_et_appel():
+    # L'endpoint historique décide du patient transmis AVANT le quota et tout appel réseau
     source = Path(module_vidal.__file__).read_text(encoding="utf-8")
     debut = source.index('@api.post("/vidal/prescription/analyze"')
     corps = source[debut:source.index("@api.delete", debut)]
-    assert corps.index("refuser_si_mode_validation") < corps.index("_quota_check_and_increment")
-    assert corps.index("refuser_si_mode_validation") < corps.index("_vidal_call(")
+    assert corps.index("preparer_patient_analyse") < corps.index("_quota_check_and_increment")
+    assert corps.index("preparer_patient_analyse") < corps.index("_vidal_call(")
+    assert 'patient=prep["patient"]' in corps  # seul le patient préparé part dans le XML

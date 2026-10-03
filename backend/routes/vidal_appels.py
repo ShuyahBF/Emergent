@@ -114,21 +114,60 @@ async def patient_fictif(db, user: Dict[str, Any], patient_id: Optional[str]) ->
     )
 
 
-async def refuser_si_mode_validation(db, user: Dict[str, Any]) -> None:
-    """Lot 56.1 — Garde-fou des anciennes pages VIDAL qui envoient un patient
-    saisi librement (« Analyse prescription », POST /vidal/prescription/analyze).
+# Lot 56.2 — Page « Analyse prescription » en mode validation :
+# seules ces données du patient partent chez VIDAL (utiles à l'interprétation,
+# sans permettre d'identifier la personne). Tout le reste (nom, prénoms,
+# numéros de contact, adresse, e-mail, poids...) est retiré avant l'envoi.
+CHAMPS_PATIENT_AUTORISES_VALIDATION = ("birth_date", "sex", "creatinine_clearance_ml_min")
 
-    Rien n'y prouve que le patient est fictif : tant que le mode « Validation
-    VIDAL » est actif pour l'établissement (actif par défaut), on refuse (403)
-    AVANT le quota et AVANT tout appel réseau. Les essais avec des patients
-    fictifs se font dans la page « Sécurisation VIDAL »."""
-    if await mode_validation_actif(db, await portee_etablissement(db, user)):
-        raise HTTPException(
-            status_code=403,
-            detail=MESSAGE_PATIENT_NON_FICTIF
-            + " Cette page n'accepte pas de patient fictif : utilisez la page « Sécurisation VIDAL »,"
-            " ou demandez au responsable de l'établissement de désactiver le mode validation.",
-        )
+
+def anonymiser_patient(patient: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any], list[str]]:
+    """Garde uniquement date de naissance, sexe et fonction rénale (si renseignés).
+
+    Renvoie (patient anonymisé, liste des champs retirés) : la liste est
+    affichée à l'écran pour que le praticien sache ce qui n'est pas parti."""
+    patient = patient or {}
+    garde = {k: patient[k] for k in CHAMPS_PATIENT_AUTORISES_VALIDATION if patient.get(k) not in (None, "")}
+    retires = sorted(k for k, v in patient.items() if k not in garde and v not in (None, "", []))
+    return garde, retires
+
+
+def _sexe_court(sexe: Optional[str]) -> Optional[str]:
+    """MALE/FEMALE du profil clinique -> M/F attendu par la page Analyse prescription."""
+    return {"MALE": "M", "FEMALE": "F"}.get(sexe or "")
+
+
+async def preparer_patient_analyse(db, user: Dict[str, Any], patient: Optional[Dict[str, Any]],
+                                   patient_id: Optional[str]) -> Dict[str, Any]:
+    """Lot 56.2 — Données du patient à envoyer depuis « Analyse prescription ».
+
+    - Mode validation INACTIF : rien ne change (patient tel que saisi).
+    - Mode validation ACTIF :
+        * `patient_id` fourni : il DOIT être un patient fictif de l'utilisateur
+          (sinon 403) ; ses données viennent de son profil clinique enregistré,
+          jamais de la saisie ;
+        * sinon : patient ANONYMISÉ (date de naissance, sexe, fonction rénale
+          seulement) — sans aucune de ces données, seuls les médicaments partent.
+    Renvoie {"validation", "patient", "origine", "champs_retires", "patient_id"}."""
+    validation = await mode_validation_actif(db, await portee_etablissement(db, user))
+    if not validation:
+        return {"validation": False, "patient": patient or {}, "origine": "saisie", "champs_retires": [], "patient_id": None}
+    if patient_id:
+        fictif = await patient_fictif(db, user, patient_id)
+        if not fictif:
+            raise HTTPException(status_code=403, detail=MESSAGE_PATIENT_NON_FICTIF)
+        profil = fictif.get("profil_clinique") or {}
+        donnees = {
+            "birth_date": profil.get("date_naissance"),
+            "sex": _sexe_court(profil.get("sexe")),
+            "weight_kg": profil.get("poids_kg"),
+            "creatinine_clearance_ml_min": profil.get("clairance_creatinine_ml_min"),
+        }
+        return {"validation": True, "patient": {k: v for k, v in donnees.items() if v not in (None, "")},
+                "origine": "patient_fictif", "champs_retires": [], "patient_id": patient_id}
+    garde, retires = anonymiser_patient(patient)
+    return {"validation": True, "patient": garde, "origine": "anonymise" if garde else "medicaments_seuls",
+            "champs_retires": retires, "patient_id": None}
 
 
 async def _configuration_production(db, cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -217,6 +256,7 @@ async def _journaliser_validation(
 async def appeler_vidal(
     db, cfg: Dict[str, Any], user: Dict[str, Any], method: str, chemin: str,
     params: Optional[Dict[str, Any]] = None, corps_xml: Optional[str] = None, patient_id: Optional[str] = None,
+    donnees_anonymisees: bool = False,
 ) -> Dict[str, Any]:
     """Un appel à VIDAL -> {"raw": texte} ou {"raw": texte|None, "_erreur": {"statut", "message"}}.
 
@@ -229,7 +269,10 @@ async def appeler_vidal(
     methode = method.upper()
     patient = None
     if cfg.get("validation"):
-        if corps_xml and "<patient" in corps_xml:
+        if corps_xml and "<patient" in corps_xml and not donnees_anonymisees:
+            # `donnees_anonymisees` (lot 56.2) : le corps a été construit par
+            # `preparer_patient_analyse` à partir de la seule liste blanche
+            # (date de naissance, sexe, fonction rénale) : aucune identité ne part.
             patient = await patient_fictif(db, user, patient_id)
             if not patient:
                 # Rien n'est envoyé : ni requête, ni entrée de journal.

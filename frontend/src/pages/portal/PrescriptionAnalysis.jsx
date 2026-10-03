@@ -5,17 +5,34 @@
 //
 // The internal Vidal tab still re-uses this component so behavior remains
 // identical between the standalone page and the Vidal tab.
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 // Lot 56.1 — même garde-fou que la Sécurisation VIDAL v2 : bandeau du mode validation
 import "@/components/vidal/vidalV2.css";
-import BandeauValidationVidal from "@/components/vidal/BandeauValidationVidal";
+import BandeauValidationVidal, { chargerEtatValidation } from "@/components/vidal/BandeauValidationVidal";
 import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 
 export function PrescriptionAnalysisForm() {
-  const [patient, setPatient] = useState({ birth_date: "", sex: "F", weight_kg: "" });
+  const [patient, setPatient] = useState({ birth_date: "", sex: "F", weight_kg: "", creatinine_clearance_ml_min: "" });
+  // Lot 56.2 — mode « Validation VIDAL » : état de l'établissement, patients fictifs
+  // de l'utilisateur et patient fictif choisi ("" = saisie anonymisée).
+  const [validation, setValidation] = useState(false);
+  const [patientsFictifs, setPatientsFictifs] = useState([]);
+  const [patientFictifId, setPatientFictifId] = useState("");
+  const [transmis, setTransmis] = useState(null); // ce que le serveur a réellement envoyé à VIDAL
+  useEffect(() => {
+    let actif = true;
+    chargerEtatValidation().then((etat) => {
+      if (!actif || !etat?.mode_validation) return;
+      setValidation(true);
+      apiClient.get("/vidal/validation/patients-fictifs")
+        .then((r) => { if (actif) setPatientsFictifs(r.data?.patients || []); })
+        .catch(() => {});
+    });
+    return () => { actif = false; };
+  }, []);
   // `query` = texte tapé dans la recherche (peut différer du nom retenu tant
   // que rien n'est sélectionné) ; `vidal_id`/`label` = médicament réellement
   // choisi dans la liste VIDAL — c'est `vidal_id` qui part vers le backend.
@@ -42,11 +59,14 @@ export function PrescriptionAnalysisForm() {
     setResult(null);
     try {
       const r = await apiClient.post("/vidal/prescription/analyze", {
-        patient: {
+        // Lot 56.2 — patient fictif choisi : ses données viennent du serveur (profil enregistré)
+        patient: patientFictifId ? {} : {
           birth_date: patient.birth_date || null,
           sex: patient.sex,
           weight_kg: patient.weight_kg ? parseFloat(patient.weight_kg) : null,
+          creatinine_clearance_ml_min: patient.creatinine_clearance_ml_min ? parseFloat(patient.creatinine_clearance_ml_min) : null,
         },
+        patient_id: patientFictifId || null,
         // Ne remonte que {vidal_id, dose} au backend — `label`/`query` sont
         // uniquement l'état d'affichage de la recherche, pas des champs VIDAL
         // (sinon ils finiraient tels quels dans le XML `<prescription>`).
@@ -56,6 +76,7 @@ export function PrescriptionAnalysisForm() {
       });
       // Sanitize: strip debug fields (`_request`) before rendering so end-users
       // don't see the outbound VIDAL URL / app_id / body dumped as JSON.
+      setTransmis(r.data?.validation || null);
       const raw = r.data?.data || r.data || {};
       const clean = { ...raw };
       delete clean._request;
@@ -74,9 +95,37 @@ export function PrescriptionAnalysisForm() {
     <div className="space-y-4" data-testid="prescription-analysis-form">
       {/* Lot 56.1 — mode « Validation VIDAL » actif : analyse refusée pour un vrai patient.
           Les patients fictifs se gèrent dans la page « Sécurisation VIDAL ». */}
-      <div className="vidal-v2"><BandeauValidationVidal /></div>
-      {/* Patient */}
-      <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white grid sm:grid-cols-3 gap-3">
+      {/* Lot 56.2 — bandeau vert (police blanche) du mode « Validation VIDAL » */}
+      <div className="vidal-v2">
+        <BandeauValidationVidal>
+          Sur cette page, l'identité du patient (nom, prénoms, numéros de contact) n'est jamais transmise :
+          seuls la date de naissance, le sexe et la fonction rénale partent chez VIDAL, ou les données d'un patient fictif.
+        </BandeauValidationVidal>
+      </div>
+      {/* Lot 56.2 — choix du patient en mode validation : saisie anonymisée ou patient fictif */}
+      {validation && (
+        <label className="block text-xs" data-testid="rx-choix-patient-fictif">
+          <span className="block text-slate-600 mb-1">Patient</span>
+          <select
+            value={patientFictifId}
+            onChange={(e) => setPatientFictifId(e.target.value)}
+            className="w-full sm:w-96 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+          >
+            <option value="">Saisie anonymisée (date de naissance, sexe, fonction rénale) ou médicaments seuls</option>
+            {patientsFictifs.map((p) => (
+              <option key={p.id} value={p.id}>Patient fictif : {p.name || p.code_fictif}</option>
+            ))}
+          </select>
+          {patientsFictifs.length === 0 && (
+            <span className="block text-[11px] text-slate-500 mt-1">
+              Aucun patient fictif : générez-les depuis la page « Sécurisation VIDAL ».
+            </span>
+          )}
+        </label>
+      )}
+      {/* Patient (masqué quand un patient fictif est choisi : ses données viennent de son profil) */}
+      {!patientFictifId && (
+      <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white grid sm:grid-cols-4 gap-3">
         <label className="block text-xs">
           <span className="block text-slate-600 mb-1">Date de naissance</span>
           <input
@@ -109,8 +158,23 @@ export function PrescriptionAnalysisForm() {
             className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
             data-testid="rx-patient-weight"
           />
+          {validation && <span className="block text-[10px] text-slate-400 mt-0.5">Non transmis en mode validation</span>}
+        </label>
+        {/* Lot 56.2 — fonction rénale (facultative) : transmise même en mode validation */}
+        <label className="block text-xs">
+          <span className="block text-slate-600 mb-1">Clairance créatinine (mL/min)</span>
+          <input
+            type="number"
+            step="0.1"
+            min="1"
+            value={patient.creatinine_clearance_ml_min}
+            onChange={(e) => setPatient({ ...patient, creatinine_clearance_ml_min: e.target.value })}
+            className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+            data-testid="rx-patient-clairance"
+          />
         </label>
       </div>
+      )}
 
       {/* Prescriptions */}
       <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white">
@@ -207,6 +271,15 @@ export function PrescriptionAnalysisForm() {
         </div>
       )}
 
+      {/* Lot 56.2 — ce qui a réellement été transmis à VIDAL en mode validation */}
+      {result && transmis?.actif && (
+        <div className="text-[11px] text-slate-600" data-testid="rx-transmis">
+          {transmis.origine === "patient_fictif" && "Données du patient fictif transmises."}
+          {transmis.origine === "anonymise" && `Patient anonymisé : seuls ${transmis.patient_transmis.join(", ")} ont été transmis.`}
+          {transmis.origine === "medicaments_seuls" && "Aucune donnée patient transmise : analyse des médicaments seuls."}
+          {transmis.champs_retires?.length > 0 && ` Retirés avant l'envoi : ${transmis.champs_retires.join(", ")}.`}
+        </div>
+      )}
       {result && (
         <div className="ring-1 ring-rose-200 rounded-lg p-3 bg-rose-50/30" data-testid="rx-analyze-result">
           <h4 className="text-xs font-semibold text-rose-800 mb-2">Alertes VIDAL</h4>

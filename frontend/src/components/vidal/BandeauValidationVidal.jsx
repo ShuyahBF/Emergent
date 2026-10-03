@@ -19,7 +19,7 @@ export function chargerEtatValidation(forcer = false) {
   return promesseEtat;
 }
 
-export default function BandeauValidationVidal() {
+export default function BandeauValidationVidal({ children = null }) {
   const [etat, setEtat] = useState(null);
   useEffect(() => {
     let actif = true;
@@ -28,11 +28,14 @@ export default function BandeauValidationVidal() {
   }, []);
   if (!etat?.mode_validation) return null;
   return (
-    <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, marginBottom: 14, background: "rgba(245,185,113,0.15)", border: "1px solid #f5b971", color: "var(--vidal-orange)", fontSize: 13 }}>
+    // Lot 56.2 — demande du propriétaire : bandeau fond VERT, police BLANCHE, pour rappeler le mode « Validation »
+    <div role="status" data-testid="bandeau-validation-vidal" style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, marginBottom: 14, background: "#15803d", border: "1px solid #166534", color: "#ffffff", fontSize: 13 }}>
       <FlaskConical size={16} />
       <span>
         <strong>Mode validation VIDAL — patients fictifs uniquement — appels réels (production)</strong>
         {!etat.identifiants_production_configures && " — identifiants de production non configurés (AdminSettings → VIDAL)."}
+        {/* Texte complémentaire propre à la page (ex. anonymisation sur « Analyse prescription ») */}
+        {children && <span style={{ display: "block", fontWeight: 400, marginTop: 2 }}>{children}</span>}
       </span>
     </div>
   );

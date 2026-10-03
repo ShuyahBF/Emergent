@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 import VersionStamp from "@/components/VersionStamp";
+import EtatConnexion from "@/components/EtatConnexion";
 
 export default function Login() {
   const { login, user } = useAuth();
@@ -401,6 +402,8 @@ export default function Login() {
           <p className="mt-6 text-center text-xs text-slate-500">
             <Link to="/" className="text-sawali-blue underline">← Retour au site public</Link>
           </p>
+          {/* État de la connexion au serveur et version du déploiement */}
+          <EtatConnexion tone="light" className="mt-4 mx-auto max-w-xs" />
         </div>
       </div>
       {/* Iter35n — Version stamp identique au reste de l'app (configurable dans /admin/settings) */}

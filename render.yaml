@@ -31,7 +31,7 @@ services:
     region: frankfurt
     repo: https://github.com/ShuyahBF/emergent
     branch: render-production   # branche déployée par Render
-    autoDeploy: false             # déploiement manuel, version figée
+    autoDeploy: true            # chaque push sur render-production est déployé             # déploiement manuel, version figée
     rootDir: backend
     # Plus d'index privé Emergent : uniquement des paquets publics (PyPI).
     buildCommand: pip install -r requirements.txt
@@ -191,7 +191,7 @@ services:
     runtime: static
     repo: https://github.com/ShuyahBF/emergent
     branch: render-production   # même branche que le backend
-    autoDeploy: false
+    autoDeploy: true            # chaque push sur render-production est déployé
     rootDir: frontend
     # Render installe déjà les dépendances avec npm (voir frontend/.npmrc) : on construit seulement.
     buildCommand: CI=false npm run build

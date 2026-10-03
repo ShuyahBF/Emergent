@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
+import EtatConnexion from "@/components/EtatConnexion";
 import InternalChatPanel from "@/components/InternalChatPanel";
 import TicketsBubble from "@/components/TicketsBubble";
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
@@ -927,6 +928,8 @@ function PortalLayoutInner({ admin = false }) {
           )}
         </div>
 
+        {/* État de la connexion au serveur et version du déploiement */}
+        <EtatConnexion tone="dark" className="px-3 mt-3" />
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"

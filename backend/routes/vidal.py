@@ -106,8 +106,17 @@ class PrescriptionAnalysisPayload(BaseModel):
     """
     patient: Optional[Dict[str, Any]] = None  # birth_date, sex, weight_kg, ...
     prescriptions: List[Dict[str, Any]] = []  # [{ vidal_id, dose, ... }]
-    allergies: Optional[List[str]] = None
-    pathologies: Optional[List[str]] = None
+    # Lot 56.4 — chaque élément est soit un texte (ancien format), soit une
+    # étiquette {label, ref} choisie dans les référentiels VIDAL (nouveau format).
+    allergies: Optional[List[Any]] = None
+    pathologies: Optional[List[Any]] = None
+    # Lot 56.4 — allergies à une molécule / un excipient ({label, ref} « vidal://molecule/… »).
+    molecules: Optional[List[Any]] = None
+    # Lot 56.4 — traitements en cours (médicaments VIDAL {drugRef, label}) : transmis
+    # comme lignes « PREVIOUS_ORDER », comme dans la Sécurisation.
+    traitements_en_cours: Optional[List[Any]] = None
+    # Lot 56.4 — vrai quand la page envoie le format structuré (listes + nombres).
+    structure: bool = False
     xml_body: Optional[str] = None             # Override : XML brut
     # Lot 56.2 — patient fictif choisi (mode validation) ; jamais transmis à VIDAL.
     patient_id: Optional[str] = None
@@ -146,6 +155,76 @@ def _build_alerts_xml(patient: Dict[str, Any], prescriptions: List[Dict[str, Any
             ET.SubElement(path, "pathology").text = str(pa)
     xml_str = ET.tostring(root, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
+
+
+def _analyse_est_structuree(payload: "PrescriptionAnalysisPayload") -> bool:
+    """Lot 56.4 — vrai si la saisie de « Analyse prescription » est au format structuré.
+
+    Format structuré = drapeau `structure`, ou étiquettes {label, ref}, ou molécules /
+    traitements en cours, ou au moins une ligne structurée (dose en nombre, unité...).
+    Sinon c'est l'ancien format (textes libres), traité comme avant."""
+    from routes.vidal_appels import ligne_analyse_structuree
+    if payload.structure or payload.molecules or payload.traitements_en_cours:
+        return True
+    if any(isinstance(x, dict) for x in (payload.allergies or []) + (payload.pathologies or [])):
+        return True
+    return any(ligne_analyse_structuree(l) for l in (payload.prescriptions or []))
+
+
+def _references_vidal(valeurs: Optional[List[Any]]) -> List[Dict[str, Any]]:
+    """Étiquettes -> [{label, ref}] ; un texte simple devient une étiquette SANS référence
+    (informative, jamais transmise à VIDAL, comme dans la Sécurisation)."""
+    resultat = []
+    for v in valeurs or []:
+        if isinstance(v, dict):
+            resultat.append({"label": v.get("label"), "ref": v.get("ref") or None})
+        elif str(v).strip():
+            resultat.append({"label": str(v).strip(), "ref": None})
+    return resultat
+
+
+def _build_alerts_xml_structure(patient: Dict[str, Any], prescriptions: List[Dict[str, Any]],
+                                allergies: Optional[List[Any]], molecules: Optional[List[Any]],
+                                pathologies: Optional[List[Any]], traitements: Optional[List[Any]]) -> str:
+    """Lot 56.4 — XML de /alerts/full pour la saisie STRUCTURÉE de « Analyse prescription ».
+
+    Réutilise EXACTEMENT la construction de la Sécurisation VIDAL v2
+    (`vidal_v2.xml_securisation.construire_xml_prescription`) : bloc <patient>
+    (date de naissance, sexe, poids, clairance, allergies, molécules,
+    pathologies par leur référence VIDAL), lignes <prescription-line>
+    (médicament, dose, unité, durée, fréquence, voie) et types d'alerte par défaut.
+
+    `patient` = patient DÉJÀ PRÉPARÉ par `preparer_patient_analyse` (liste blanche
+    en mode validation) : seules ces clés sont lues, aucune identité ne peut passer."""
+    from vidal_v2.modeles import LigneSecurisation
+    from vidal_v2.xml_securisation import construire_xml_prescription
+
+    p = patient or {}
+    # Conversion des clés de la page (birth_date, sex...) vers celles du XML VIDAL.
+    patient_vidal: Dict[str, Any] = {
+        "dateOfBirth": p.get("birth_date") or None,
+        "gender": {"M": "MALE", "F": "FEMALE"}.get(str(p.get("sex") or "")) or None,
+        "weight": p.get("weight_kg") if p.get("weight_kg") not in (None, "") else None,
+        "creatin": float(str(p["creatinine_clearance_ml_min"]).replace(",", "."))
+        if p.get("creatinine_clearance_ml_min") not in (None, "") else None,
+        # Seules les étiquettes portant une vraie référence VIDAL partent (`_build_ref_block`).
+        "allergies": _references_vidal(allergies),
+        "molecules": _references_vidal(molecules),
+        "pathologies": _references_vidal(pathologies),
+    }
+    lignes: List[Dict[str, Any]] = []
+    # Nouvelle prescription : groupe 1 (même ordonnance), lignes validées par le modèle de la Sécurisation.
+    for ligne in prescriptions or []:
+        donnees = {**ligne, "drugRef": ligne.get("drugRef") or ligne.get("vidal_id")}
+        d = LigneSecurisation.model_validate(donnees).model_dump(mode="json")
+        lignes.append({**d, "groupType": "SAME_ORDER", "groupId": 1})
+    # Traitements en cours : groupe 2 (ordonnance antérieure), médicament seul.
+    for t in traitements or []:
+        ident = str((t or {}).get("drugRef") or (t or {}).get("vidal_id") or "").strip() if isinstance(t, dict) else ""
+        if ident.isdigit():
+            lignes.append({"drugRef": ident, "drugType": (t or {}).get("drugType") or "PRODUCT",
+                           "groupType": "PREVIOUS_ORDER", "groupId": 2})
+    return construire_xml_prescription(patient_vidal, lignes)
 
 
 # --------------------------------------------------------------------------- #
@@ -1189,7 +1268,11 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
         # seulement), OU médicaments seuls. Décidé AVANT le quota et tout appel réseau.
         from routes import vidal_appels as _va
         # Lot 56.3 — garde-fous de saisie (types, bornes) : 422 avec messages en français
-        erreurs_saisie = _va.valider_saisie_analyse(payload.patient, payload.prescriptions, payload.allergies, payload.pathologies)
+        # Lot 56.4 — format structuré (listes + nombres) ou ancien format (texte libre)
+        structure = _analyse_est_structuree(payload)
+        erreurs_saisie = _va.valider_saisie_analyse(payload.patient, payload.prescriptions, payload.allergies, payload.pathologies,
+                                                    molecules=payload.molecules, traitements=payload.traitements_en_cours,
+                                                    structure=structure)
         if erreurs_saisie:
             raise HTTPException(status_code=422, detail={"message": "Saisie à corriger.", "erreurs": erreurs_saisie})
         prep = await _va.preparer_patient_analyse(db, user, payload.patient, payload.patient_id)
@@ -1204,6 +1287,13 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
             await _quota_check_and_increment(db, user["id"], cfg)
         # Iter43-fix24y — Build XML body (or use the provided raw XML override).
         xml_body = getattr(payload, "xml_body", None)
+        if not xml_body and structure:
+            # Lot 56.4 — même XML que la Sécurisation VIDAL v2, à partir du SEUL patient préparé.
+            xml_body = _build_alerts_xml_structure(
+                patient=prep["patient"], prescriptions=payload.prescriptions,
+                allergies=payload.allergies, molecules=payload.molecules,
+                pathologies=payload.pathologies, traitements=payload.traitements_en_cours,
+            )
         if not xml_body:
             xml_body = _build_alerts_xml(
                 patient=prep["patient"],
@@ -1234,6 +1324,10 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
         return {"data": data, "validation": {
             "actif": prep["validation"], "origine": prep["origine"],
             "champs_retires": prep["champs_retires"], "patient_transmis": sorted(prep["patient"].keys()),
+            # Lot 56.4 — format utilisé et nombre de références VIDAL transmises (affichage)
+            "format": "structure" if structure else "texte",
+            "references_transmises": sum(1 for liste in (payload.allergies, payload.molecules, payload.pathologies)
+                                         for x in (liste or []) if isinstance(x, dict) and x.get("ref")) if structure else 0,
         }}
 
     # ---- Cache admin (purge) ----

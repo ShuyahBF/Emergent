@@ -160,18 +160,46 @@ def anonymiser_patient(patient: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any
     return garde, retires
 
 
+def ligne_analyse_structuree(ligne: Any) -> bool:
+    """Lot 56.4 — vrai si une ligne de « Analyse prescription » est au format STRUCTURÉ
+    (dose en nombre, unité, fréquence, durée... choisies dans des listes), faux pour
+    l'ancien format (identifiant VIDAL + posologie en texte libre)."""
+    if not isinstance(ligne, dict):
+        return False
+    if "drugRef" in ligne or any(ligne.get(k) not in (None, "") for k in ("unitId", "frequencyType", "duration", "durationType", "route")):
+        return True
+    dose = ligne.get("dose")
+    return isinstance(dose, (int, float)) and not isinstance(dose, bool)
+
+
 def valider_saisie_analyse(patient: Optional[Dict[str, Any]], prescriptions: list,
-                           allergies: Optional[list], pathologies: Optional[list]) -> list[dict]:
+                           allergies: Optional[list], pathologies: Optional[list],
+                           molecules: Optional[list] = None, traitements: Optional[list] = None,
+                           structure: bool = False) -> list[dict]:
     """Lot 56.3 — garde-fous de saisie de « Analyse prescription » (toujours actifs).
 
     Renvoie la liste des erreurs {champ, message} en français (vide = saisie correcte) :
     pas de texte là où un nombre est attendu, pas de nombre seul là où un texte
-    est attendu, dates et bornes cohérentes."""
+    est attendu, dates et bornes cohérentes.
+
+    Lot 56.4 — la page envoie désormais des données STRUCTURÉES :
+      - lignes : dose en nombre, unité / fréquence / unité de durée choisies dans
+        des listes, durée en nombre entier -> contrôlées par le MÊME modèle que la
+        Sécurisation VIDAL (`LigneSecurisation` : bornes, listes, cohérences) ;
+      - allergies, molécules, pathologies : étiquettes {label, ref} issues des
+        référentiels VIDAL (`ReferenceVidal`) ; un texte simple reste accepté
+        (ancien format) ;
+      - traitements en cours : médicaments VIDAL {drugRef, label} ;
+      - tout nombre NÉGATIF est refusé avec un message explicite."""
     from datetime import date as _date
+    from pydantic import ValidationError
+    from vidal_v2.modeles import LigneSecurisation, ReferenceVidal, traduire_erreurs
+
     erreurs: list[dict] = []
     p = patient or {}
 
     def nombre(champ, mini, maxi, libelle, unite):
+        # Contrôle d'un nombre du patient : type, signe, puis bornes métier.
         v = p.get(champ)
         if v in (None, ""):
             return
@@ -183,9 +211,13 @@ def valider_saisie_analyse(patient: Optional[Dict[str, Any]], prescriptions: lis
         except ValueError:
             erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : nombre attendu, pas de texte."})
             return
+        if x < 0:
+            erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : un nombre négatif n'est pas accepté."})
+            return
         if not (mini <= x <= maxi):
             erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : entre {mini} et {maxi} {unite}."})
 
+    # --- Patient : date de naissance, sexe, poids, clairance ---
     naissance = p.get("birth_date")
     if naissance not in (None, ""):
         try:
@@ -199,11 +231,27 @@ def valider_saisie_analyse(patient: Optional[Dict[str, Any]], prescriptions: lis
     nombre("weight_kg", 0.5, 400, "Poids", "kg")
     nombre("creatinine_clearance_ml_min", 1, 120, "Clairance de la créatinine", "mL/min")
 
+    # --- Lignes de prescription ---
     for i, ligne in enumerate(prescriptions or []):
-        ident = str((ligne or {}).get("vidal_id") or "").strip()
+        if not isinstance(ligne, dict):
+            erreurs.append({"champ": f"prescriptions[{i}]", "message": f"Ligne {i + 1} : ligne de prescription invalide."})
+            continue
+        if structure or ligne_analyse_structuree(ligne):
+            # Format structuré : même contrôle que la Sécurisation (le médicament
+            # peut arriver sous `drugRef` ou, comme avant, sous `vidal_id`).
+            donnees = {**ligne, "drugRef": ligne.get("drugRef") or ligne.get("vidal_id")}
+            try:
+                LigneSecurisation.model_validate(donnees)
+            except ValidationError as exc:
+                for e in traduire_erreurs(exc):
+                    champ = f"prescriptions[{i}]" + (f".{e['champ']}" if e["champ"] else "")
+                    erreurs.append({"champ": champ, "message": f"Ligne {i + 1} : {e['message']}"})
+            continue
+        # Ancien format : identifiant VIDAL + posologie en texte libre.
+        ident = str(ligne.get("vidal_id") or "").strip()
         if ident and not ident.isdigit():
             erreurs.append({"champ": f"prescriptions[{i}].vidal_id", "message": f"Ligne {i + 1} : l'identifiant VIDAL ne contient que des chiffres."})
-        dose = (ligne or {}).get("dose")
+        dose = ligne.get("dose")
         if dose not in (None, ""):
             if not isinstance(dose, str):
                 erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie en texte attendue."})
@@ -211,13 +259,35 @@ def valider_saisie_analyse(patient: Optional[Dict[str, Any]], prescriptions: lis
                 erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie trop longue (200 caractères au plus)."})
             elif not any(c.isalpha() for c in dose):
                 erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie à préciser (unité, fréquence), pas un nombre seul."})
-    for nom_liste, libelle, valeurs in (("allergies", "Allergie", allergies), ("pathologies", "Pathologie", pathologies)):
+
+    # --- Allergies, molécules, pathologies : étiquette VIDAL {label, ref} ou texte simple ---
+    for nom_liste, libelle, valeurs in (("allergies", "Allergie", allergies), ("molecules", "Molécule", molecules),
+                                        ("pathologies", "Pathologie", pathologies)):
         for i, v in enumerate(valeurs or []):
+            if isinstance(v, dict):
+                try:
+                    ref = ReferenceVidal.model_validate(v)
+                except ValidationError as exc:
+                    for e in traduire_erreurs(exc):
+                        erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : {e['message']}"})
+                    continue
+                texte = (ref.label or "").strip()
+                if not ref.ref and not texte:
+                    erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : choisissez un élément de la liste VIDAL."})
+                elif len(texte) > 200:
+                    erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : 200 caractères au plus."})
+                continue
             texte = str(v).strip()
             if not texte or not any(c.isalpha() for c in texte):
                 erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : texte attendu, pas un nombre seul."})
             elif len(texte) > 100:
                 erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : 100 caractères au plus."})
+
+    # --- Traitements en cours : médicaments choisis dans VIDAL ---
+    for i, t in enumerate(traitements or []):
+        ident = str((t or {}).get("drugRef") or (t or {}).get("vidal_id") or "").strip() if isinstance(t, dict) else ""
+        if not ident.isdigit():
+            erreurs.append({"champ": f"traitements_en_cours[{i}]", "message": f"Traitement en cours {i + 1} : choisissez le médicament dans la liste VIDAL."})
     return erreurs
 
 

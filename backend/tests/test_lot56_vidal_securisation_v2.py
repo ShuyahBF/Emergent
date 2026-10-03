@@ -1031,3 +1031,146 @@ def test_endpoint_analyse_prescription_prepare_avant_quota_et_appel():
     assert corps.index("preparer_patient_analyse") < corps.index("_quota_check_and_increment")
     assert corps.index("preparer_patient_analyse") < corps.index("_vidal_call(")
     assert 'patient=prep["patient"]' in corps  # seul le patient préparé part dans le XML
+
+
+# ===========================================================================
+# Lot 56.4 — « Analyse prescription » : listes VIDAL, lignes structurées,
+# nombres négatifs refusés, mode validation conservé
+# ===========================================================================
+
+# Ligne structurée telle que l'envoie la page (dose / unité / fréquence / durée / voie choisies).
+LIGNE_ANALYSE = {"vidal_id": "900001", "drugRef": "900001", "dose": 3, "unitId": "7", "frequencyType": "PER_DAY",
+                 "duration": 7, "durationType": "DAY", "route": "38", "status": "ACTIVE", "label": "MEDICAMENT TEST"}
+ALLERGIE = {"label": "Pénicillines", "ref": "vidal://allergy/41"}
+MOLECULE = {"label": "Amoxicilline", "ref": "vidal://molecule/123"}
+PATHOLOGIE = {"label": "Asthme", "ref": "vidal://cim10/456"}
+
+
+def test_xml_structure_analyse_prescription():
+    # Même XML que la Sécurisation : références VIDAL dans <patient>, lignes structurées, traitements en cours
+    xml = module_vidal._build_alerts_xml_structure(
+        {"birth_date": "1950-01-01", "sex": "F", "creatinine_clearance_ml_min": 45.6},
+        [LIGNE_ANALYSE], [ALLERGIE, "texte libre informatif"], [MOLECULE], [PATHOLOGIE], [{"drugRef": "555", "label": "AUTRE"}],
+    )
+    racine = ET.fromstring(xml.split("\n", 1)[1])
+    patient = racine.find("patient")
+    assert patient.findtext("dateOfBirth") == "1950-01-01T00:00:00" and patient.findtext("gender") == "FEMALE"
+    assert patient.findtext("creatin") == "46" and patient.find("weight") is None
+    assert [e.text for e in patient.find("allergies")] == ["vidal://allergy/41"]  # le texte libre ne part pas
+    assert [e.text for e in patient.find("molecules")] == ["vidal://molecule/123"]
+    assert [e.text for e in patient.find("pathologies")] == ["vidal://cim10/456"]
+    lignes = racine.find("prescription-lines").findall("prescription-line")
+    assert lignes[0].findtext("drug") == "vidal://product/900001" and lignes[0].findtext("dose") == "3"
+    assert lignes[0].findtext("unitId") == "7" and lignes[0].findtext("frequencyType") == "PER_DAY"
+    assert lignes[0].findtext("duration") == "7" and lignes[0].findtext("durationType") == "DAY"
+    assert lignes[0].findtext("routes/route") == "vidal://route/38" and lignes[0].findtext("group/groupType") == "SAME_ORDER"
+    assert lignes[1].findtext("drug") == "vidal://product/555" and lignes[1].findtext("group/groupType") == "PREVIOUS_ORDER"
+    assert "texte libre" not in xml and "MEDICAMENT TEST" not in xml and "Pénicillines" not in xml
+    assert appels_v2.identite_dans_corps(xml) == []
+
+
+def test_saisie_structuree_et_negatifs_refuses():
+    # Format structuré correct : aucune erreur
+    assert appels_v2.valider_saisie_analyse({"weight_kg": 70}, [LIGNE_ANALYSE], [ALLERGIE], [PATHOLOGIE],
+                                            molecules=[MOLECULE], traitements=[{"drugRef": "555"}], structure=True) == []
+    # Nombres négatifs : refusés partout, avec un message en français
+    erreurs = appels_v2.valider_saisie_analyse(
+        {"weight_kg": -70, "creatinine_clearance_ml_min": "-5"},
+        [{**LIGNE_ANALYSE, "dose": -2, "duration": -3, "dosages": [{"dose": 1, "intervalMin": -1, "intervalUnitId": "15"}]}],
+        [], [], structure=True)
+    champs = {e["champ"]: e["message"] for e in erreurs}
+    assert "négatif" in champs["patient.weight_kg"] and "négatif" in champs["patient.creatinine_clearance_ml_min"]
+    assert "négatif" in champs["prescriptions[0].dose"] and "négatif" in champs["prescriptions[0].duration"]
+    assert "négatif" in champs["prescriptions[0].dosages[0].intervalMin"]
+    # Pas de texte là où un nombre est attendu ; listes VIDAL contrôlées ; traitement sans médicament VIDAL refusé
+    erreurs = appels_v2.valider_saisie_analyse(
+        {}, [{**LIGNE_ANALYSE, "dose": "trois", "frequencyType": "TOUS_LES_JOURS"}],
+        [{"label": "x", "ref": "pas une référence"}], [], traitements=[{"label": "sans id"}], structure=True)
+    champs = {e["champ"]: e["message"] for e in erreurs}
+    assert champs["prescriptions[0].dose"] == "Ligne 1 : Doit être un nombre."
+    assert "Fréquence" in champs["prescriptions[0].frequencyType"]
+    assert "Référence VIDAL invalide" in champs["allergies[0]"] and "traitements_en_cours[0]" in champs
+    # La Sécurisation refuse aussi les négatifs (422 en français, champ par champ)
+    champs = {e["champ"]: e["message"] for e in _erreurs({"patient": {"weight": -1, "creatin": -4},
+                                                          "new_prescription_lines": [{"drugRef": "1", "dose": -1, "unitId": "7", "frequencyType": "PER_DAY"}]})}
+    assert "négatif" in champs["patient.weight"] and "négative" in champs["patient.creatin"]
+    assert "négatif" in champs["new_prescription_lines[0].dose"]
+
+
+def _client_analyse(ctx) -> TestClient:
+    """Application réduite à l'endpoint historique POST /api/vidal/prescription/analyze (VIDAL simulé par ctx)."""
+    app = FastAPI()
+    api = APIRouter(prefix="/api")
+
+    async def utilisateur_courant():
+        return ctx.utilisateur
+
+    db = AsyncIOMotorClient(os.environ["MONGO_URL"])[ctx.base.name]
+    module_vidal.attach_vidal_routes(api=api, db=db, get_current_user=utilisateur_courant, get_current_admin=utilisateur_courant)
+    app.include_router(api)
+    return TestClient(app)
+
+
+def _corps_structure(**extra) -> dict:
+    corps = {"structure": True, "prescriptions": [LIGNE_ANALYSE], "allergies": [ALLERGIE], "molecules": [MOLECULE],
+             "pathologies": [PATHOLOGIE], "traitements_en_cours": [{"drugRef": "555", "label": "AUTRE"}]}
+    corps.update(extra)
+    return corps
+
+
+def test_endpoint_analyse_structuree_anonymisee_en_mode_validation(ctx):
+    # Mode validation (défaut) : identité et poids retirés, références VIDAL et lignes structurées transmises en production
+    ctx.reponses["/alerts/full"] = httpx.Response(200, text=REPONSE_ALERTE_NIVEAU_2)
+    with _client_analyse(ctx) as c:
+        r = c.post("/api/vidal/prescription/analyze", json=_corps_structure(patient={
+            "name": "DUPONT Jean", "phone": "70000000", "birth_date": "1980-05-01", "sex": "M", "weight_kg": 70,
+            "creatinine_clearance_ml_min": 45}))
+    assert r.status_code == 200, r.text
+    v = r.json()["validation"]
+    assert v["actif"] is True and v["origine"] == "anonymise" and v["format"] == "structure" and v["references_transmises"] == 3
+    assert v["champs_retires"] == ["name", "phone", "weight_kg"]
+    requete = ctx.appels[-1]
+    assert str(requete.url).startswith(URL_PROD + "/alerts/full?")
+    corps = requete.content.decode()
+    for interdit in ("DUPONT", "70000000", "<weight>", "<name"):
+        assert interdit not in corps
+    for attendu in ("<gender>MALE</gender>", "<creatin>45</creatin>", "vidal://allergy/41", "vidal://molecule/123",
+                    "vidal://cim10/456", "vidal://product/900001", "<frequencyType>PER_DAY</frequencyType>", "PREVIOUS_ORDER"):
+        assert attendu in corps
+    assert ctx.base.vidal_journal_validation.count_documents({}) == 1  # appel inscrit au journal de validation
+
+
+def test_endpoint_analyse_structuree_patient_fictif_modifiable(ctx):
+    # Patient fictif : valeurs SAISIES (modifiées) envoyées, sans identité ; vrai patient : 403 sans appel
+    ctx.reponses["/alerts/full"] = httpx.Response(200, text=REPONSE_ALERTE_NIVEAU_2)
+    ctx.base.vidal_patients.insert_many([
+        {"id": "fictif56", "user_id": MEDECIN["id"], "est_fictif": True, "name": "FICTIF HOMME-9", "profil_clinique": {}},
+        {"id": "reel56", "user_id": MEDECIN["id"], "name": "VRAI PATIENT", "profil_clinique": {}},
+    ])
+    with _client_analyse(ctx) as c:
+        r = c.post("/api/vidal/prescription/analyze", json=_corps_structure(
+            patient_id="fictif56", patient={"name": "FICTIF HOMME-9", "birth_date": "1950-01-01", "sex": "M", "weight_kg": 61.5}))
+        assert r.status_code == 200, r.text
+        assert r.json()["validation"]["origine"] == "patient_fictif"
+        corps = ctx.appels[-1].content.decode()
+        assert "<weight>61.5</weight>" in corps and "FICTIF" not in corps and "fictif56" not in corps
+        nb_appels = len(ctx.appels)
+        refus = c.post("/api/vidal/prescription/analyze", json=_corps_structure(patient_id="reel56", patient={"sex": "F"}))
+        assert refus.status_code == 403 and len(ctx.appels) == nb_appels
+
+
+def test_endpoint_analyse_negatif_422_sans_appel_et_ancien_format(ctx):
+    # Nombre négatif : 422 en français AVANT tout appel ; l'ancien format (texte libre) reste accepté
+    ctx.reponses["/alerts/full"] = httpx.Response(200, text=REPONSE_ALERTE_NIVEAU_2)
+    with _client_analyse(ctx) as c:
+        r = c.post("/api/vidal/prescription/analyze", json=_corps_structure(
+            prescriptions=[{**LIGNE_ANALYSE, "dose": -1}], patient={"weight_kg": -3}))
+        assert r.status_code == 422 and not ctx.appels
+        champs = {e["champ"] for e in r.json()["detail"]["erreurs"]}
+        assert {"patient.weight_kg", "prescriptions[0].dose"} <= champs
+        ancien = c.post("/api/vidal/prescription/analyze", json={
+            "patient": {"sex": "F"}, "prescriptions": [{"vidal_id": "900001", "dose": "500 mg x 3/j"}],
+            "allergies": ["Pénicilline"], "pathologies": ["Asthme"]})
+    assert ancien.status_code == 200, ancien.text
+    assert ancien.json()["validation"]["format"] == "texte"
+    assert ctx.appels[-1].content.decode().count("<alertsRequest>") == 1

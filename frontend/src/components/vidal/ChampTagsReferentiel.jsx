@@ -11,6 +11,14 @@
 // § MI VIDAL §5.1.2.2 : la recherche d'allergie renvoie à la fois des
 // classes d'allergie et des substances — les classes sont affichées en
 // italique pour les distinguer.
+// Lot 56.4 — réutilisé par la page « Analyse prescription » (allergies,
+// pathologies, traitements en cours). Props facultatives ajoutées, sans
+// changer le comportement par défaut de la Sécurisation :
+//   - `rechercher(q)` : fonction de recherche personnalisée (ex. médicaments
+//     VIDAL pour les traitements en cours) renvoyant [{label, ref, type}] ;
+//   - `texteLibre` (vrai par défaut) : faux = seul un résultat VIDAL peut
+//     être ajouté (la touche Entrée n'ajoute plus de texte libre) ;
+//   - `placeholder`, `aide`, `testId` : textes et repère de test.
 
 import { useState } from "react";
 import { X } from "lucide-react";
@@ -19,7 +27,7 @@ import { apiClient as api } from "@/lib/api";
 import { highlightMatch } from "@/lib/highlightMatch";
 
 /** Tags allergies/pathologies/molécules — un résultat choisi porte une vraie référence VIDAL (transmise à l'analyse), un tag libre reste informatif. */
-export default function ChampTagsReferentiel({ label, kind, values, onChange }) {
+export default function ChampTagsReferentiel({ label, kind, values, onChange, rechercher = null, texteLibre = true, placeholder = null, aide = null, testId = null }) {
   const [brouillon, setBrouillon] = useState("");
   const [resultats, setResultats] = useState([]);
   const [ouvert, setOuvert] = useState(false);
@@ -33,8 +41,9 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange }) 
     if (rechercheDesactivee || q.length < 2) { setResultats([]); return; }
     setTimer(setTimeout(async () => {
       try {
-        const r = await api.get("/vidal/referential/search", { params: { kind, q } });
-        setResultats(r.data?.results || []);
+        // Recherche personnalisée (lot 56.4) ou recherche référentielle VIDAL (allergies, molécules, CIM-10).
+        const liste = rechercher ? await rechercher(q) : (await api.get("/vidal/referential/search", { params: { kind, q } })).data?.results;
+        setResultats(liste || []);
         setOuvert(true);
       } catch {
         setRechercheDesactivee(true);
@@ -44,6 +53,8 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange }) 
   }
   function ajouterLibre() {
     const v = brouillon.trim();
+    // Texte libre interdit (lot 56.4) : on choisit le premier résultat proposé, s'il y en a.
+    if (!texteLibre) { if (resultats.length) ajouterResultat(resultats[0]); return; }
     if (!v) return;
     onChange([...values, { label: v, ref: null }]);
     setBrouillon(""); setOuvert(false); setResultats([]);
@@ -54,7 +65,7 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange }) 
   }
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} data-testid={testId || undefined}>
       <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>{label}</label>
       <div className="champ-saisie" style={{ display: "flex", flexWrap: "wrap", gap: 5, minHeight: 40, alignItems: "center" }}>
         {values.map((v, i) => (
@@ -69,7 +80,7 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange }) 
           onFocus={() => resultats.length > 0 && setOuvert(true)}
           onBlur={() => setTimeout(() => setOuvert(false), 150)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); ajouterLibre(); } }}
-          placeholder="Rechercher ou ajouter en texte libre… (Entrée)"
+          placeholder={placeholder || (texteLibre ? "Rechercher ou ajouter en texte libre… (Entrée)" : "Rechercher dans VIDAL puis choisir dans la liste…")}
           style={{ flex: 1, minWidth: 100, border: "none", outline: "none", fontSize: 13, background: "transparent" }}
         />
       </div>
@@ -86,7 +97,9 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange }) 
         </div>
       )}
       <div style={{ fontSize: 10, color: "var(--vidal-gris)", marginTop: 3 }}>
-        {rechercheDesactivee ? "Recherche référentielle indisponible — saisie libre uniquement." : "Un résultat choisi porte une vraie référence VIDAL ; sinon reste informatif."}
+        {rechercheDesactivee
+          ? (texteLibre ? "Recherche référentielle indisponible — saisie libre uniquement." : "Recherche VIDAL indisponible pour le moment.")
+          : aide || "Un résultat choisi porte une vraie référence VIDAL ; sinon reste informatif."}
       </div>
     </div>
   );

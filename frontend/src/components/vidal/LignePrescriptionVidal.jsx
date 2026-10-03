@@ -30,6 +30,8 @@ import { apiClient as api } from "@/lib/api";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { Libelle, MessageErreur } from "./DonneesCliniquesPatient";
 import { chargerEtatValidation } from "./BandeauValidationVidal";
+// Lot 56.4 — champs numériques « spin » (flèches, jamais négatifs).
+import ChampNombre from "./ChampNombre";
 import {
   TYPES_DUREE, TYPES_FREQUENCE, TYPES_MEDICAMENT, STATUTS_LIGNE, TYPES_GROUPE, UNITES_INTERVALLE, ORDRE_UNITES_INTERVALLE,
   FORMES_GALENIQUES, BORNES, INDICATEURS_DONNEES_PATIENT, TYPES_AVEC_LISTES, optionsDepuis,
@@ -197,7 +199,7 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8, marginBottom: 8 }}>
         <div>
           <Libelle>{libelleChampDose(ligne.unitLabel, ligne.frequencyType)}</Libelle>
-          <input type="number" className="champ-saisie" min="0" step="any" max={BORNES.dose.max} value={ligne.dose}
+          <ChampNombre className="champ-saisie" min="0" step="0.5" max={BORNES.dose.max} value={ligne.dose}
             onChange={(e) => onChange({ dose: e.target.value })} style={styleChamp(erreurs.dose)} placeholder={ligne.unitLabel || "Quantité"} />
           <MessageErreur message={erreurs.dose} />
         </div>
@@ -220,7 +222,7 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
         </div>
         <div>
           <Libelle>{libelleChampDuree(ligne.durationType)}</Libelle>
-          <input type="number" className="champ-saisie" min={BORNES.duree.min} max={BORNES.duree.max} step="1" value={ligne.duration}
+          <ChampNombre className="champ-saisie" min={BORNES.duree.min} max={BORNES.duree.max} step="1" value={ligne.duration}
             onChange={(e) => majAvecFin({ duration: e.target.value })} style={styleChamp(erreurs.duration)} placeholder="Nombre entier" />
           <MessageErreur message={erreurs.duration} />
         </div>
@@ -308,17 +310,17 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
               <div key={i} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(110px, 1fr)) auto", gap: 8, alignItems: "start", marginBottom: 6 }}>
                 <div>
                   <Libelle>{libelleChampDoseParPrise(ligne.unitLabel)}</Libelle>
-                  <input type="number" className="champ-saisie" min="0" step="any" value={d.dose} onChange={(e) => majDosage(i, { dose: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.dose`])} />
+                  <ChampNombre className="champ-saisie" min="0" step="0.5" value={d.dose} onChange={(e) => majDosage(i, { dose: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.dose`])} />
                   <MessageErreur message={erreurs[`dosages.${i}.dose`]} />
                 </div>
                 <div>
                   <Libelle>{libelleChampIntervalle("Intervalle min.", d.intervalUnitId)}</Libelle>
-                  <input type="number" className="champ-saisie" min="0" step="any" value={d.intervalMin} onChange={(e) => majDosage(i, { intervalMin: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.intervalMin`])} />
+                  <ChampNombre className="champ-saisie" min="0" step="0.5" value={d.intervalMin} onChange={(e) => majDosage(i, { intervalMin: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.intervalMin`])} />
                   <MessageErreur message={erreurs[`dosages.${i}.intervalMin`]} />
                 </div>
                 <div>
                   <Libelle>{libelleChampIntervalle("Intervalle max.", d.intervalUnitId)}</Libelle>
-                  <input type="number" className="champ-saisie" min="0" step="any" value={d.intervalMax} onChange={(e) => majDosage(i, { intervalMax: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.intervalMax`])} />
+                  <ChampNombre className="champ-saisie" min="0" step="0.5" value={d.intervalMax} onChange={(e) => majDosage(i, { intervalMax: e.target.value })} style={styleChamp(erreurs[`dosages.${i}.intervalMax`])} />
                   <MessageErreur message={erreurs[`dosages.${i}.intervalMax`]} />
                 </div>
                 <div>

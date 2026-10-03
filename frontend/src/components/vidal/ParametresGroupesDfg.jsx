@@ -16,6 +16,8 @@ import { Plus, Save, Trash2, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 import { messageErreurApi, SEUILS_DFG_DEFAUT } from "@/lib/vidalReferentiels";
 import { chargerGroupesDfg } from "./DonneesCliniquesPatient";
+// Lot 56.4 — champs numériques « spin » (flèches, jamais négatifs).
+import ChampNombre from "./ChampNombre";
 
 function identifiantLibre(groupes) {
   let n = groupes.length + 1;
@@ -94,7 +96,7 @@ export default function ParametresGroupesDfg() {
                 <button className="bouton-secondaire" style={{ padding: "2px 6px" }} onClick={() => deplacer(i, 1)} disabled={i === groupes.length - 1} title="Descendre"><ArrowDown size={12} /></button>
               </td>
               <td><input className="champ-saisie" value={g.libelle} onChange={(e) => maj(i, { libelle: e.target.value })} placeholder="Libellé du groupe" /></td>
-              <td><input type="number" className="champ-saisie" min="1" max="200" step="0.1" value={g.valeur_normale} onChange={(e) => maj(i, { valeur_normale: e.target.value })} style={{ textAlign: "right" }} /></td>
+              <td><ChampNombre className="champ-saisie" min="1" max="200" step="0.1" value={g.valeur_normale} onChange={(e) => maj(i, { valeur_normale: e.target.value })} style={{ textAlign: "right" }} /></td>
               <td style={{ textAlign: "center" }}><input type="checkbox" checked={!!g.actif} disabled={g.par_defaut} onChange={(e) => maj(i, { actif: e.target.checked })} /></td>
               <td style={{ textAlign: "center" }}><input type="radio" name="groupe-dfg-defaut" checked={!!g.par_defaut} onChange={() => definirParDefaut(i)} /></td>
               <td>
@@ -114,11 +116,11 @@ export default function ParametresGroupesDfg() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 6 }}>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>Normal à partir de (% de la référence)</label>
-          <input type="number" className="champ-saisie" min="1" max="150" step="1" value={seuils.normal_pct} onChange={(e) => setSeuils({ ...seuils, normal_pct: e.target.value })} />
+          <ChampNombre className="champ-saisie" min="1" max="150" step="1" value={seuils.normal_pct} onChange={(e) => setSeuils({ ...seuils, normal_pct: e.target.value })} />
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>Légèrement diminué à partir de (% de la référence)</label>
-          <input type="number" className="champ-saisie" min="1" max="150" step="1" value={seuils.leger_pct} onChange={(e) => setSeuils({ ...seuils, leger_pct: e.target.value })} />
+          <ChampNombre className="champ-saisie" min="1" max="150" step="1" value={seuils.leger_pct} onChange={(e) => setSeuils({ ...seuils, leger_pct: e.target.value })} />
         </div>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--vidal-gris)", marginBottom: 12 }}>

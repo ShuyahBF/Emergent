@@ -33,6 +33,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { User, Baby, Activity, Loader2 } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 import ChampTagsReferentiel from "./ChampTagsReferentiel";
+// Lot 56.4 — champs numériques « spin » (flèches, jamais négatifs).
+import ChampNombre from "./ChampNombre";
 import { chargerEtatValidation } from "./BandeauValidationVidal";
 import {
   ALLAITEMENTS, optionsInsuffisanceHepatique, INSUFFISANCES_RENALES, BORNES, GROUPES_DFG_DEFAUT, SEUILS_DFG_DEFAUT, optionsDepuis,
@@ -222,13 +224,13 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 12 }}>
         <div>
           <Libelle saisiLe={c.weight ? c.weightDate : null}>Poids (kg)</Libelle>
-          <input type="number" className="champ-saisie" min={BORNES.poids_kg.min} max={BORNES.poids_kg.max} step="0.1" value={c.weight}
+          <ChampNombre className="champ-saisie" min={BORNES.poids_kg.min} max={BORNES.poids_kg.max} step="0.1" value={c.weight}
             onChange={(e) => changerMesure({ weight: e.target.value })} style={styleChamp(erreurs.weight)} placeholder="kg" />
           <MessageErreur message={erreurs.weight} />
         </div>
         <div>
           <Libelle saisiLe={c.height ? c.weightDate : null}>Taille (cm)</Libelle>
-          <input type="number" className="champ-saisie" min={BORNES.taille_cm.min} max={BORNES.taille_cm.max} step="1" value={c.height}
+          <ChampNombre className="champ-saisie" min={BORNES.taille_cm.min} max={BORNES.taille_cm.max} step="1" value={c.height}
             onChange={(e) => changerMesure({ height: e.target.value })} style={styleChamp(erreurs.height)} placeholder="cm" />
           <MessageErreur message={erreurs.height} />
         </div>
@@ -249,7 +251,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
           <div>
             <Libelle>Créatininémie ({c.creatinineUnite === "mg_dl" ? "mg/dL" : "µmol/L"})</Libelle>
             <div style={{ display: "flex", gap: 6 }}>
-              <input type="number" className="champ-saisie" step="any"
+              <ChampNombre className="champ-saisie" step={c.creatinineUnite === "mg_dl" ? "0.01" : "1"}
                 min={c.creatinineUnite === "mg_dl" ? BORNES.creatininemie_mg_dl.min : BORNES.creatininemie_umol_l.min}
                 max={c.creatinineUnite === "mg_dl" ? BORNES.creatininemie_mg_dl.max : BORNES.creatininemie_umol_l.max}
                 value={c.creatinineSaisie} onChange={(e) => changerCreatinine({ creatinineSaisie: e.target.value })}
@@ -265,7 +267,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
           </div>
           <div>
             <Libelle>Clairance de la créatinine (ml/min)</Libelle>
-            <input type="number" className="champ-saisie" step="1" min={BORNES.clairance_ml_min.min} max={BORNES.clairance_ml_min.max}
+            <ChampNombre className="champ-saisie" step="1" min={BORNES.clairance_ml_min.min} max={BORNES.clairance_ml_min.max}
               readOnly={!c.saisieManuelleRenale} tabIndex={c.saisieManuelleRenale ? 0 : -1}
               value={c.creatin} onChange={(e) => onChange({ creatin: e.target.value, renalDate: aujourdhui })}
               style={styleChamp(erreurs.creatin, !c.saisieManuelleRenale)} placeholder={c.saisieManuelleRenale ? "Entier de 1 à 120" : "Calculée"} />
@@ -284,7 +286,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
           </div>
           <div>
             <Libelle>Débit de filtration glomérulaire (ml/min/1,73 m²)</Libelle>
-            <input type="number" className="champ-saisie" step="any" min={BORNES.dfg_ml_min_173.min} max={BORNES.dfg_ml_min_173.max}
+            <ChampNombre className="champ-saisie" step="0.1" min={BORNES.dfg_ml_min_173.min} max={BORNES.dfg_ml_min_173.max}
               readOnly={!c.saisieManuelleRenale} tabIndex={c.saisieManuelleRenale ? 0 : -1}
               value={c.glomerularFiltrationRate} onChange={(e) => onChange({ glomerularFiltrationRate: e.target.value, renalDate: aujourdhui })}
               style={styleChamp(erreurs.glomerularFiltrationRate, !c.saisieManuelleRenale)} placeholder={c.saisieManuelleRenale ? "0 à 200" : "Calculé"} />
@@ -350,7 +352,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
               <div style={{ alignSelf: "center", fontSize: 12, color: "var(--vidal-gris)", paddingTop: 16 }}>ou</div>
               <div>
                 <Libelle>Semaines d'aménorrhée (SA)</Libelle>
-                <input type="number" className="champ-saisie" min={BORNES.semaines_amenorrhee.min} max={BORNES.semaines_amenorrhee.max} step="1"
+                <ChampNombre className="champ-saisie" min={BORNES.semaines_amenorrhee.min} max={BORNES.semaines_amenorrhee.max} step="1"
                   value={c.weeksOfAmenorrhea} onChange={(e) => changerSa(e.target.value)} style={styleChamp(erreurs.weeksOfAmenorrhea)}
                   placeholder={`${BORNES.semaines_amenorrhee.min} à ${BORNES.semaines_amenorrhee.max}`} />
                 <MessageErreur message={erreurs.weeksOfAmenorrhea} />

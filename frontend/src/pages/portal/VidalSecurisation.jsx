@@ -40,12 +40,31 @@ import HistoriqueDonneesCliniques from "@/components/vidal/HistoriqueDonneesClin
 import ParametresGroupesDfg from "@/components/vidal/ParametresGroupesDfg";
 import ValidationVidal from "@/components/vidal/ValidationVidal";
 import { construirePayloadSecurisation, resumeErreurs, validerFormulaireSecurisation } from "@/components/vidal/payloadSecurisation";
+// Lot 56.4 — chronomètre de saisie (mode « Validation VIDAL » uniquement).
+import ChronoSaisie, { useChronoSaisie } from "@/components/vidal/ChronoSaisie";
 import {
   LIBELLES_TYPES_ALERTE, META_SEVERITE, TYPES_ALERTE_DEFAUT, TYPES_DUREE, TYPES_FREQUENCE, donneesPatientManquantes, messageErreurApi,
 } from "@/lib/vidalReferentiels";
 
 const TOUS_CODES_ALERTE = Object.keys(LIBELLES_TYPES_ALERTE);
 const ROUGE = "#9C1616"; // rouge de l'identité visuelle « Sécurisation » (déjà utilisé par l'ordonnance PDF)
+
+// Lot 56.4 — champs SAISIS d'une ligne de prescription (ni libellés, ni listes chargées,
+// ni indicateurs de chargement) : servent à détecter une modification pour le chronomètre.
+const CHAMPS_LIGNE_SAISIS = ["vidal_id", "query", "forme", "drugType", "dose", "unitId", "frequencyType", "duration", "durationType",
+  "route", "indication", "startDate", "endDate", "status", "groupType", "ald", "aldCode", "dosages", "inclus"];
+// Lot 56.4 — valeurs CALCULÉES des données cliniques (fonction rénale...) : exclues de la détection.
+const CHAMPS_CLINIQUES_CALCULES = ["calculRenalEnCours", "creatinCalculee", "plafonnee", "sourceRenale", "insuffisanceRenale",
+  "stadeKdigo", "erreurRenal", "avertissementRenal"];
+
+/** Lot 56.4 — « signature » de la saisie (données cliniques + prescription) pour le chronomètre. */
+function signatureSaisie(clinique, nouvelles, traitements) {
+  // Clairance et DFG ne sont des SAISIES qu'en saisie manuelle ; sinon ils sont calculés (exclus).
+  const calcules = clinique.saisieManuelleRenale ? CHAMPS_CLINIQUES_CALCULES : [...CHAMPS_CLINIQUES_CALCULES, "creatin", "glomerularFiltrationRate"];
+  const cliniqueSaisie = Object.fromEntries(Object.entries(clinique).filter(([cle]) => !calcules.includes(cle)));
+  const ligne = (l) => CHAMPS_LIGNE_SAISIS.map((cle) => l[cle] ?? null);
+  return JSON.stringify({ c: cliniqueSaisie, n: nouvelles.map(ligne), t: traitements.map(ligne) });
+}
 
 export default function VidalSecurisation() {
   // ---- Patient et données cliniques ----
@@ -94,6 +113,10 @@ export default function VidalSecurisation() {
   // § contrôles de saisie recalculés à chaque frappe (mêmes règles que le serveur).
   const controle = validerFormulaireSecurisation(clinique, nouvellesLignes, traitementsEnCours);
 
+  // Lot 56.4 — chronomètre de saisie : démarre à la première modification des données
+  // cliniques ou de la prescription (ou au choix d'un patient), s'arrête au clic sur « Sécuriser ».
+  const chrono = useChronoSaisie(signatureSaisie(clinique, nouvellesLignes, traitementsEnCours));
+
   // État du mode validation + liste des patients fictifs (pour les choisir rapidement).
   async function chargerValidation(forcer = false) {
     const etat = await chargerEtatValidation(forcer);
@@ -127,6 +150,8 @@ export default function VidalSecurisation() {
   // ---------------------------------------------------------------------
   async function chargerPatient(p) {
     setHistoriqueOuvert(false);
+    // Lot 56.4 — nouveau patient sélectionné : le chronomètre (re)part de zéro.
+    chrono.demarrer();
     let doc = p;
     try {
       doc = (await api.get(`/vidal/patients/${p.id}`)).data;
@@ -215,6 +240,8 @@ export default function VidalSecurisation() {
     setTraitementsEnCours([]); setNouvellesLignes([ligneVide()]); setTypesAlerte(TYPES_ALERTE_DEFAUT);
     setResultat(null); setConsultationPassee(null); setErreur(null); setRapport(null); setAlerteDonnees(null);
     setDerniereOrdonnanceId(null); setMessageCopie(null);
+    // Lot 56.4 — nouveau patient vide : chronomètre remis à zéro, en attente de la première saisie.
+    chrono.reinitialiser(signatureSaisie(cliniqueVide(), [ligneVide()], []));
   }
 
   // ---------------------------------------------------------------------
@@ -301,17 +328,27 @@ export default function VidalSecurisation() {
   }
 
   async function lancerAnalyse(forcer = false) {
+    // Lot 56.4 — le chronomètre s'arrête au clic sur « Sécuriser »...
+    chrono.arreter();
     const payload = payloadOuErreur();
-    if (!payload) return;
-    if (!forcer && !verifierDonneesPatient(() => lancerAnalyse(true))) return;
+    // ... mais continue si la saisie est à corriger (la correction fait partie de la saisie).
+    if (!payload) { chrono.reprendre(); return; }
+    // Données patient manquantes : le médecin complète (chrono continue) ou passe outre (arrêt à ce clic).
+    if (!forcer && !verifierDonneesPatient(() => lancerAnalyse(true))) { chrono.reprendre(); return; }
     setAlerteDonnees(null);
     setEnCours(true); setErreur(null); setResultat(null); setConsultationPassee(null); setDerniereOrdonnanceId(null);
+    // Règle permanente : attente longue = toast « Patientez… » avec jauge circulaire.
+    const idToast = toast.loading("Patientez… sécurisation VIDAL en cours");
     try {
       const r = await api.post("/vidal/securisation/analyze", payload);
       setResultat(r.data);
       if (r.data?.erreur_vidal) setErreur(`VIDAL a répondu ${r.data.erreur_vidal.statut} : ${r.data.erreur_vidal.message}`);
+      toast.dismiss(idToast);
     } catch (err) {
       setErreur(messageErreurApi(err));
+      toast.dismiss(idToast);
+      // Saisie refusée par le serveur (422) : le chronomètre continue.
+      if (err?.response?.status === 422) chrono.reprendre();
     }
     setEnCours(false);
   }
@@ -571,6 +608,10 @@ export default function VidalSecurisation() {
           ))}
         </div>
       </div>
+
+      {/* Lot 56.4 — chronomètre de saisie (mode « Validation VIDAL » uniquement),
+          entre les données cliniques / la prescription et le bouton « Sécuriser ». */}
+      <ChronoSaisie chrono={chrono} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" className="bouton-secondaire" onClick={reinitialiser}><RotateCcw size={13} /> Réinitialiser</button>

@@ -56,6 +56,10 @@ def _borne(valeur: Optional[float], cle: str, libelle: str) -> Optional[float]:
     if valeur is None:
         return None
     b = BORNES[cle]
+    # Lot 56.4 — un nombre négatif est toujours refusé, avec un message explicite
+    # (les champs numériques de l'interface sont des « spins » qui ne descendent pas sous 0).
+    if valeur < 0:
+        raise ValueError(f"{libelle} : un nombre négatif n'est pas accepté.")
     if "min_exclu" in b and valeur <= b["min_exclu"]:
         raise ValueError(f"{libelle} doit être strictement supérieur(e) à {b['min_exclu']:g}.")
     if "min" in b and valeur < b["min"]:
@@ -187,6 +191,8 @@ class PatientSecurisation(_ModeleVidal):
     @classmethod
     def _v_sa(cls, v):
         b = BORNES["semaines_amenorrhee"]
+        if v is not None and v < 0:  # Lot 56.4 — négatif refusé explicitement
+            raise ValueError("Les semaines d'aménorrhée (SA) ne peuvent pas être négatives.")
         if v is not None and not (b["min"] <= v <= b["max"]):
             raise ValueError(f"Les semaines d'aménorrhée (SA) doivent être comprises entre {b['min']} et {b['max']}.")
         return v
@@ -200,6 +206,8 @@ class PatientSecurisation(_ModeleVidal):
     @classmethod
     def _v_clairance(cls, v):
         b = BORNES["clairance_ml_min"]
+        if v is not None and v < 0:  # Lot 56.4 — négatif refusé explicitement
+            raise ValueError("La clairance de la créatinine (ml/min) ne peut pas être négative.")
         if v is not None and not (b["min"] <= v <= b["max"]):
             raise ValueError(
                 f"La clairance de la créatinine (ml/min) doit être un entier compris entre {b['min']} et {b['max']} "

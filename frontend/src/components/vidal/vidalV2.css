@@ -1,0 +1,143 @@
+/* components/vidal/vidalV2.css
+   ------------------------------
+   Lot 56 — styles des composants de la Sécurisation VIDAL v2 repris de Ster.
+
+   Les composants de Ster utilisent quelques classes simples (carte,
+   champ-saisie, bouton-primaire...) et des couleurs nommées
+   var(--vidal-...). Plutôt que de réécrire chaque composant en Tailwind, ces
+   classes sont définies ICI, UNIQUEMENT à l'intérieur d'un bloc
+   <div className="vidal-v2"> : elles ne peuvent donc rien changer au reste
+   du portail. Les couleurs reprennent celles du thème SAWALI (variables
+   --card, --border, --muted... de index.css), ce qui fait fonctionner le
+   mode sombre automatiquement. */
+
+.vidal-v2 {
+  --vidal-bleu: hsl(var(--primary));
+  --vidal-bleu-clair: hsl(var(--primary));
+  --vidal-blanc: hsl(var(--card));
+  --vidal-gris-clair: hsl(var(--muted));
+  --vidal-gris: hsl(var(--muted-foreground));
+  --vidal-gris-fonce: hsl(var(--foreground) / 0.75);
+  --vidal-texte: hsl(var(--foreground));
+  --vidal-bordure: hsl(var(--border));
+  --vidal-vert: #2fa84f;
+  --vidal-rouge: #e0392b;
+  --vidal-orange: #d97706;
+  color: var(--vidal-texte);
+  font-size: 14px;
+}
+
+/* Bloc blanc arrondi (une section de la page). */
+.vidal-v2 .carte {
+  background: var(--vidal-blanc);
+  border: 1px solid var(--vidal-bordure);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(20, 35, 70, 0.05);
+  padding: 18px;
+}
+
+/* Champs de saisie et listes déroulantes. */
+.vidal-v2 .champ-saisie {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--vidal-blanc);
+  color: var(--vidal-texte);
+}
+.vidal-v2 .champ-saisie:focus {
+  outline: none;
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.15);
+}
+.vidal-v2 .champ-saisie:disabled,
+.vidal-v2 .champ-saisie[readonly] {
+  cursor: default;
+}
+
+/* Boutons. */
+.vidal-v2 .bouton-primaire,
+.vidal-v2 .bouton-secondaire {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.vidal-v2 .bouton-primaire {
+  background: var(--vidal-bleu);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+}
+.vidal-v2 .bouton-primaire:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.vidal-v2 .bouton-secondaire {
+  background: var(--vidal-blanc);
+  color: var(--vidal-bleu);
+  border: 1px solid var(--vidal-bordure);
+  padding: 7px 14px;
+}
+.vidal-v2 .bouton-secondaire:hover:not(:disabled) {
+  border-color: var(--vidal-bleu);
+}
+.vidal-v2 .bouton-primaire:disabled,
+.vidal-v2 .bouton-secondaire:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Pastilles. */
+.vidal-v2 .badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.vidal-v2 .badge-bleu { background: hsl(var(--primary) / 0.12); color: var(--vidal-bleu); }
+.vidal-v2 .badge-vert { background: rgba(47, 168, 79, 0.14); color: var(--vidal-vert); }
+
+/* Tableaux (journal, historique clinique, groupes du DFG). */
+.vidal-v2 table.tableau-donnees {
+  width: 100%;
+  border-collapse: collapse;
+}
+.vidal-v2 table.tableau-donnees th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--vidal-gris-fonce);
+  border-bottom: 2px solid var(--vidal-bordure);
+  padding: 7px 6px;
+}
+.vidal-v2 table.tableau-donnees td {
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--vidal-bordure);
+  vertical-align: top;
+}
+.vidal-v2 .chiffre {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Libellé d'un champ obligatoire (en rouge, précédé de « * »). */
+.vidal-v2 .libelle-obligatoire {
+  color: var(--vidal-rouge);
+}
+
+/* Icône de chargement qui tourne. */
+@keyframes vidal-rotation {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.vidal-v2 .lucide-tourne {
+  animation: vidal-rotation 1s linear infinite;
+}

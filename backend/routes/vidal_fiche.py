@@ -170,10 +170,24 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         return data
 
     # ---- Recherche structurée (title/vidal_id/vmp_id au lieu de l'Atom brut) ----
+    def _filtrer_par_forme(results: List[Dict[str, Any]], forme: Optional[str]) -> List[Dict[str, Any]]:
+        """Lot 56 (sécurisation v2, filtre « Forme recherchée ») — APRÈS lecture
+        du cache : même requête VIDAL quel que soit le filtre (aucun appel de
+        plus). Un filtre numérique est un identifiant de forme de
+        /galenic-forms (correspondance exacte) ; un filtre texte, un code de
+        la liste documentée d'abréviations (vidal_v2/referentiels.py)."""
+        from vidal_v2.referentiels import correspond_forme_galenique
+        if not forme:
+            return results
+        if forme.isdigit():
+            return [r for r in results if r.get("galenic_form_id") == forme]
+        return [r for r in results if correspond_forme_galenique(forme, r.get("title"), r.get("galenic_form"))]
+
     @api.get("/vidal/search/parsed", tags=["VIDAL"])
     async def search_parsed(
         q: str = Query(..., min_length=2, description="Terme de recherche"),
         filter: Optional[str] = Query(None, regex="^(product|package|ucd|vmp|all-packages)$"),
+        forme: Optional[str] = Query(None, description="Lot 56 — code ou identifiant de forme galénique"),
         user: dict = Depends(get_current_user),
     ):
         cfg = await _ensure_tenant_can_access(db, user)
@@ -186,7 +200,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         sync_config = await get_sync_config(db)
         if sync_config.get("mode") == "cache" and await has_cached_referentiel(db):
             results = await search_cached_referentiel(db, q)
-            return {"query": q, "results": results, "source": "cache"}
+            return {"query": q, "forme": forme, "results": _filtrer_par_forme(results, forme), "source": "cache"}
         await _quota_check_and_increment(db, user["id"], cfg)
         params: Dict[str, Any] = {"q": q}
         if filter:
@@ -197,8 +211,12 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         if data is None:
             data = await _call_and_log(cfg, "GET", "/products", params, user.get("email"))
             await _cache_set(db, ckey, data)
-        results = _parse_atom_entries((data or {}).get("raw"))
-        return {"query": q, "results": results, "source": "temps_reel"}
+        # Lot 56 — lecture enrichie (vidal_v2/parseurs.py) : mêmes champs
+        # title/vidal_id/vmp_id qu'avant, plus la forme galénique et
+        # l'indicateur « spécialité sécurisée par VIDAL » (safety_alert).
+        from vidal_v2.parseurs import parser_entrees_atom
+        results = parser_entrees_atom((data or {}).get("raw"))
+        return {"query": q, "forme": forme, "results": _filtrer_par_forme(results, forme), "source": "temps_reel"}
 
     # ---- Fiche produit : voies d'administration + documents + vmp_id ----
     @api.get("/vidal/product/{product_id}/detail", tags=["VIDAL"])
@@ -310,7 +328,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
     # Lot 39 — réutilisées par la vérification des ordonnances (équivalents présents en stock) :
     # mêmes contrôles d'accès VIDAL, même cache et même quota que les routes ci-dessus.
     async def rechercher(user: dict, q: str) -> dict:
-        return await search_parsed(q=q, filter=None, user=user)
+        return await search_parsed(q=q, filter=None, forme=None, user=user)
 
     async def equivalents(user: dict, vmp_id: str) -> dict:
         return await vmp_equivalents(vmp_id=vmp_id, exclude_product_id=None, user=user)

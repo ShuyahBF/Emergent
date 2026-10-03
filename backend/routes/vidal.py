@@ -1240,8 +1240,14 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
     attach_vidal_audit_routes(api=api, db=db, get_current_admin=get_current_admin)
 
     # Sécurisation — schéma XML réel (manuel VIDAL), nouvelle page dédiée.
+    # Lot 56 : version 2 portée depuis Ster (données cliniques complètes,
+    # lignes structurées, rapport HTML, calculateurs rénaux, groupes du DFG).
     from routes.vidal_securisation import attach_vidal_securisation_routes
     attach_vidal_securisation_routes(api=api, db=db, get_current_user=get_current_user)
+
+    # Lot 56 — Mode « Validation VIDAL » (patients fictifs, garde-fou, journal).
+    from routes.vidal_validation import attach_vidal_validation_routes
+    attach_vidal_validation_routes(api=api, db=db, get_current_user=get_current_user)
 
     # Historique patient (bouton "Enregistrer"/"Historique" de Sécurisation).
     from routes.vidal_patients import attach_vidal_patients_routes

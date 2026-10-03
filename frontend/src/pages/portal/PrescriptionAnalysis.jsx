@@ -8,6 +8,9 @@
 import React, { useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
+// Lot 56.1 — même garde-fou que la Sécurisation VIDAL v2 : bandeau du mode validation
+import "@/components/vidal/vidalV2.css";
+import BandeauValidationVidal from "@/components/vidal/BandeauValidationVidal";
 import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 
@@ -69,6 +72,9 @@ export function PrescriptionAnalysisForm() {
 
   return (
     <div className="space-y-4" data-testid="prescription-analysis-form">
+      {/* Lot 56.1 — mode « Validation VIDAL » actif : analyse refusée pour un vrai patient.
+          Les patients fictifs se gèrent dans la page « Sécurisation VIDAL ». */}
+      <div className="vidal-v2"><BandeauValidationVidal /></div>
       {/* Patient */}
       <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white grid sm:grid-cols-3 gap-3">
         <label className="block text-xs">

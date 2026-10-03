@@ -932,3 +932,45 @@ def test_calculateur_mode_validation_sans_valeur_locale(ctx):
     d = ctx.client.post("/api/vidal/calculateurs/fonction-renale", json=corps).json()
     assert d["creatin_calculee"] == 64.4 and d["creatin"] == 64 and d["insuffisanceRenale"] == "MILD"
     assert d["glomerularFiltrationRate"] is None and d["sources"]["glomerularFiltrationRate"] is None and d["mode_validation"] is True
+
+
+# ---------------------------------------------------------------------------
+# Lot 56.1 — garde-fou de l'ancienne page « Analyse prescription »
+# ---------------------------------------------------------------------------
+
+def _client_garde_fou(ctx) -> TestClient:
+    """Petite application d'essai : une route qui applique le garde-fou pour le médecin de test
+    (même boucle d'événements que la base MongoDB, comme les vraies routes)."""
+    app = FastAPI()
+
+    @app.get("/essai")
+    async def essai():
+        db = AsyncIOMotorClient(os.environ["MONGO_URL"])[ctx.base.name]
+        await appels_v2.refuser_si_mode_validation(db, dict(MEDECIN))
+        return {"ok": True}
+
+    return TestClient(app)
+
+
+def test_analyse_prescription_refusee_en_mode_validation(ctx):
+    # Mode validation actif par défaut : refus 403, aucun appel ne part chez VIDAL
+    with _client_garde_fou(ctx) as client:
+        r = client.get("/essai")
+    assert r.status_code == 403 and "Sécurisation VIDAL" in r.json()["detail"]
+    assert not ctx.appels
+
+
+def test_analyse_prescription_permise_hors_mode_validation(ctx):
+    # Mode validation désactivé par le responsable : l'ancienne page fonctionne comme avant
+    _hors_validation(ctx)
+    with _client_garde_fou(ctx) as client:
+        assert client.get("/essai").json() == {"ok": True}
+
+
+def test_endpoint_analyse_prescription_appelle_le_garde_fou():
+    # L'endpoint historique passe bien par le garde-fou avant le quota et l'appel réseau
+    source = Path(module_vidal.__file__).read_text(encoding="utf-8")
+    debut = source.index('@api.post("/vidal/prescription/analyze"')
+    corps = source[debut:source.index("@api.delete", debut)]
+    assert corps.index("refuser_si_mode_validation") < corps.index("_quota_check_and_increment")
+    assert corps.index("refuser_si_mode_validation") < corps.index("_vidal_call(")

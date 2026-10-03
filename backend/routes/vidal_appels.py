@@ -114,6 +114,23 @@ async def patient_fictif(db, user: Dict[str, Any], patient_id: Optional[str]) ->
     )
 
 
+async def refuser_si_mode_validation(db, user: Dict[str, Any]) -> None:
+    """Lot 56.1 — Garde-fou des anciennes pages VIDAL qui envoient un patient
+    saisi librement (« Analyse prescription », POST /vidal/prescription/analyze).
+
+    Rien n'y prouve que le patient est fictif : tant que le mode « Validation
+    VIDAL » est actif pour l'établissement (actif par défaut), on refuse (403)
+    AVANT le quota et AVANT tout appel réseau. Les essais avec des patients
+    fictifs se font dans la page « Sécurisation VIDAL »."""
+    if await mode_validation_actif(db, await portee_etablissement(db, user)):
+        raise HTTPException(
+            status_code=403,
+            detail=MESSAGE_PATIENT_NON_FICTIF
+            + " Cette page n'accepte pas de patient fictif : utilisez la page « Sécurisation VIDAL »,"
+            " ou demandez au responsable de l'établissement de désactiver le mode validation.",
+        )
+
+
 async def _configuration_production(db, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Remplace URL et identifiants par ceux de PRODUCTION (mode validation)."""
     from routes.vidal import _load_config

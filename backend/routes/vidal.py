@@ -1175,6 +1175,15 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
         """
         if not payload.prescriptions and not getattr(payload, "xml_body", None):
             raise HTTPException(status_code=400, detail="`prescriptions` ne peut pas être vide")
+        # Lot 56.1 — MÊME GARDE-FOU que la Sécurisation VIDAL v2 (routes/vidal_appels.py) :
+        # tant que le mode « Validation VIDAL » est actif pour l'établissement
+        # (actif par défaut), aucune donnée de patient ne part chez VIDAL depuis
+        # cette page. Ici les données du patient sont saisies librement : rien ne
+        # prouve qu'elles soient fictives, donc l'analyse est refusée (403) dans ce
+        # mode, AVANT le quota et AVANT tout appel réseau. Les essais avec des
+        # patients fictifs se font dans la page « Sécurisation VIDAL ».
+        from routes.vidal_appels import refuser_si_mode_validation
+        await refuser_si_mode_validation(db, user)
         cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)

@@ -42,7 +42,8 @@ from typing import Any, Dict, Optional
 from fastapi import Body, Depends, HTTPException, Query, Response
 
 from routes.vidal_appels import (
-    appeler_vidal, assurer_index, config_prete, est_gestionnaire, mode_validation_actif, portee_etablissement,
+    PORTEE_PLATEFORME, appeler_vidal, assurer_index, config_prete, est_admin_plateforme,
+    mode_validation_actif, portee_etablissement,
 )
 from vidal_v2 import journal_validation as jv
 from vidal_v2.parseurs import parser_entrees_categorisees
@@ -66,7 +67,8 @@ _COLONNES_EXPORT = [
     ("methode", "Méthode"), ("url", "URL de la requête (identifiants masqués)"), ("entetes", "En-têtes"), ("corps", "Body envoyé"),
     ("statut_http", "Statut HTTP"), ("reponse", "Valeur du retour"), ("duree_ms", "Délai avant réponse (ms)"),
     ("patient_libelle", "Patient fictif"), ("profil", "Profil clinique"), ("resume_gravites", "Alertes par gravité"),
-    ("observations_auto", "Observations automatiques"), ("observation_manuelle", "Observations manuelles"), ("login", "Utilisateur"),
+    ("observations_auto", "Observations automatiques"), ("observation_manuelle", "Observations manuelles"),
+    ("utilisateur_nom", "Utilisateur (nom et prénoms)"), ("login", "Identifiant de connexion"),
 ]
 
 
@@ -126,10 +128,9 @@ async def _rechercher_reference(db, cfg: Optional[dict], raison_indisponible: Op
 
 
 def _filtre_journal(scope_uid: str, user: dict, depuis, jusqua, profil, type_appel, statut) -> dict:
-    """Le gestionnaire voit tout l'établissement ; un praticien, ses propres appels."""
-    filtre: Dict[str, Any] = {"scope_uid": scope_uid}
-    if not est_gestionnaire(user):
-        filtre["user_id"] = user["id"]
+    """Lot 56.9 — journal réservé à l'administrateur / superviseur de la plateforme, qui voit
+    les appels de TOUS les établissements (contrôlé par _admin_plateforme avant l'appel)."""
+    filtre: Dict[str, Any] = {}
     if depuis or jusqua:
         filtre["date_utc"] = {}
         if depuis:
@@ -157,11 +158,29 @@ def attach_vidal_validation_routes(*, api, db, get_current_user):
         return await portee_etablissement(db, user)
 
     async def _entrees(user: dict, depuis, jusqua, profil, type_appel, statut, projection=None) -> list:
-        scope_uid = await _acces_vidal(user)
+        _admin_plateforme(user)
         curseur = db.vidal_journal_validation.find(
-            _filtre_journal(scope_uid, user, depuis, jusqua, profil, type_appel, statut), projection or {"_id": 0},
+            _filtre_journal(None, user, depuis, jusqua, profil, type_appel, statut), projection or {"_id": 0},
         ).sort("date_utc", -1)
-        return await curseur.to_list(length=5000)
+        return await _avec_identite(await curseur.to_list(length=5000))
+
+    def _admin_plateforme(user: dict) -> None:
+        """Lot 56.9 — Paramètres VIDAL réservés à l'administrateur / superviseur de la plateforme."""
+        if not est_admin_plateforme(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur / superviseur de la plateforme.")
+
+    async def _avec_identite(entrees: list) -> list:
+        """Lot 56.9 — complète le nom et prénoms de l'utilisateur (anciens appels journalisés sans ce champ)."""
+        manquants = {e.get("user_id") for e in entrees if not e.get("utilisateur_nom") and e.get("user_id")}
+        if manquants:
+            noms = {
+                u["id"]: (u.get("full_name") or u.get("name") or "")
+                async for u in db.users.find({"id": {"$in": list(manquants)}}, {"_id": 0, "id": 1, "full_name": 1, "name": 1})
+            }
+            for e in entrees:
+                if not e.get("utilisateur_nom") and e.get("user_id") in noms:
+                    e["utilisateur_nom"] = noms[e["user_id"]]
+        return entrees
 
     # ---- Mode validation ----
     @api.get("/vidal/validation/etat", tags=["VIDAL — validation"])
@@ -174,15 +193,16 @@ def attach_vidal_validation_routes(*, api, db, get_current_user):
             "mode_validation": await mode_validation_actif(db, scope_uid),
             "url_production": _clean_vidal_base_url(s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL),
             "identifiants_production_configures": bool((s.get("vidal_prod_app_id") or "").strip() and (s.get("vidal_prod_app_key") or "").strip()),
-            "gestionnaire": est_gestionnaire(user),
+            "gestionnaire": est_admin_plateforme(user),
         }
 
     @api.put("/vidal/validation/mode", tags=["VIDAL — validation"])
     async def regler_mode_validation(corps: dict = Body(...), user: dict = Depends(get_current_user)):
         """Active/désactive le mode validation de l'établissement — la désactivation exige « DESACTIVER »."""
-        if not est_gestionnaire(user):
-            raise HTTPException(status_code=403, detail="Réglage réservé au gestionnaire de l'établissement.")
-        scope_uid = await _acces_vidal(user)
+        _admin_plateforme(user)
+        await _acces_vidal(user)
+        # Lot 56.9 — le réglage vaut pour toute la plateforme
+        scope_uid = PORTEE_PLATEFORME
         actif = bool(corps.get("mode_validation"))
         if not actif and corps.get("confirmation") != CONFIRMATION_DESACTIVATION:
             raise HTTPException(status_code=422, detail=f"Pour désactiver le mode validation VIDAL, saisissez « {CONFIRMATION_DESACTIVATION} » en confirmation.")
@@ -217,6 +237,7 @@ def attach_vidal_validation_routes(*, api, db, get_current_user):
         VRAIES recherches VIDAL (sans donnée patient, journalisées) ; une
         recherche sans résultat univoque laisse le champ vide, « à choisir »
         (liste réelle) ou « à rechercher dans VIDAL pendant la recette »."""
+        _admin_plateforme(user)  # Lot 56.9 — réservé à l'administrateur / superviseur de la plateforme
         from routes.vidal_patients import enregistrer_version_profil_clinique
         await _acces_vidal(user)
         await assurer_index(db)
@@ -292,6 +313,7 @@ def attach_vidal_validation_routes(*, api, db, get_current_user):
     async def supprimer_patients_fictifs(user: dict = Depends(get_current_user)):
         """Supprime les patients fictifs de l'utilisateur, leurs sécurisations et
         leur historique clinique. Le journal de validation est CONSERVÉ."""
+        _admin_plateforme(user)  # Lot 56.9 — réservé à l'administrateur / superviseur de la plateforme
         await _acces_vidal(user)
         ids = [p["id"] for p in await db.vidal_patients.find({"user_id": user["id"], "est_fictif": True}, {"_id": 0, "id": 1}).to_list(length=1000)]
         await db.vidal_historique_profil_clinique.delete_many({"patient_id": {"$in": ids}})
@@ -346,6 +368,7 @@ def attach_vidal_validation_routes(*, api, db, get_current_user):
             f"<td class='code'>{h(e.get('methode'))} {h(e.get('url'))}</td><td class='code'>{h(e.get('corps'), 1500)}</td>"
             f"<td>{h(e.get('statut_http'))}</td><td class='code'>{h(e.get('reponse'), 800)}</td><td>{h(e.get('duree_ms'))}</td>"
             f"<td>{h(e.get('patient_libelle'))}<br><small>{h(e.get('profil'))}</small></td>"
+            f"<td>{h(e.get('utilisateur_nom'))}<br><small>{h(e.get('login'))}</small></td>"
             f"<td>{h(e.get('observations_auto'))}<br><b>{h(e.get('observation_manuelle'))}</b></td></tr>"
             for e in entrees
         )
@@ -358,28 +381,28 @@ td,th{{border:1px solid #ccc;padding:4px;vertical-align:top}}th{{background:#eef
 Identifiants VIDAL masqués (app_id=***, app_key=***). Patients fictifs uniquement.</p>
 <p>{' — '.join(f'{html.escape(t)} : {n}' for t, n in sorted(par_type.items()))}</p>
 <table><thead><tr><th>N°</th><th>Date/heure (Ouagadougou)</th><th>Type</th><th>Requête</th><th>Body (extrait)</th><th>Statut</th>
-<th>Retour (extrait)</th><th>Délai (ms)</th><th>Patient / profil</th><th>Observations</th></tr></thead><tbody>{lignes}</tbody></table>
+<th>Retour (extrait)</th><th>Délai (ms)</th><th>Patient / profil</th><th>Utilisateur</th><th>Observations</th></tr></thead><tbody>{lignes}</tbody></table>
 <p><small>Corps et réponses complets : export XLSX ou détail de chaque appel dans l'application.</small></p></body></html>"""
         return Response(content=page, media_type="text/html; charset=utf-8")
 
     @api.get("/vidal/validation/journal/{numero}", tags=["VIDAL — validation"])
     async def detail_journal(numero: int, user: dict = Depends(get_current_user)):
-        scope_uid = await _acces_vidal(user)
-        filtre: Dict[str, Any] = {"numero": numero, "scope_uid": scope_uid}
-        if not est_gestionnaire(user):
-            filtre["user_id"] = user["id"]
+        # Lot 56.9 — journal réservé à l'administrateur / superviseur de la plateforme (tous établissements)
+        _admin_plateforme(user)
+        await _acces_vidal(user)
+        filtre: Dict[str, Any] = {"numero": numero}
         entree = await db.vidal_journal_validation.find_one(filtre, {"_id": 0})
         if not entree:
             raise HTTPException(status_code=404, detail="Appel introuvable dans le journal.")
-        return entree
+        return (await _avec_identite([entree]))[0]
 
     @api.patch("/vidal/validation/journal/{numero}", tags=["VIDAL — validation"])
     async def observer_journal(numero: int, corps: dict = Body(...), user: dict = Depends(get_current_user)):
         """Observation manuelle (texte libre, 2000 caractères au plus)."""
-        scope_uid = await _acces_vidal(user)
-        filtre: Dict[str, Any] = {"numero": numero, "scope_uid": scope_uid}
-        if not est_gestionnaire(user):
-            filtre["user_id"] = user["id"]
+        # Lot 56.9 — journal réservé à l'administrateur / superviseur de la plateforme (tous établissements)
+        _admin_plateforme(user)
+        await _acces_vidal(user)
+        filtre: Dict[str, Any] = {"numero": numero}
         texte = str(corps.get("observation_manuelle") or "").strip()[:2000]
         r = await db.vidal_journal_validation.update_one(filtre, {"$set": {"observation_manuelle": texte}})
         if r.matched_count == 0:

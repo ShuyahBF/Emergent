@@ -258,7 +258,7 @@ export function PrescriptionAnalysisForm() {
           </select>
           {patientsFictifs.length === 0 && (
             <span className="block text-[11px] text-slate-500 mt-1">
-              Aucun patient fictif : générez-les depuis la page « Sécurisation VIDAL ».
+              Aucun patient fictif : l'administrateur de la plateforme les génère dans « Paramètres VIDAL » (page « Sécurisation VIDAL »).
             </span>
           )}
         </label>

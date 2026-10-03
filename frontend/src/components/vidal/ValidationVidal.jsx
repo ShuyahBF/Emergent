@@ -200,7 +200,7 @@ export default function ValidationVidal({ onChangement }) {
         <span>Mode validation : <strong style={{ color: etat?.mode_validation ? "var(--vidal-orange)" : "var(--vidal-gris-fonce)" }}>{etat?.mode_validation ? "ACTIVÉ — patients fictifs uniquement, appels réels (production)" : "désactivé"}</strong></span>
         {etat?.gestionnaire
           ? <button className="bouton-secondaire" style={{ fontSize: 12 }} onClick={basculerMode}>{etat?.mode_validation ? "Désactiver…" : "Activer"}</button>
-          : <span style={{ fontSize: 11.5, color: "var(--vidal-gris)" }}>(réglé par le gestionnaire de l'établissement)</span>}
+          : <span style={{ fontSize: 11.5, color: "var(--vidal-gris)" }}>(réglé par l'administrateur de la plateforme)</span>}
         {etat && !etat.identifiants_production_configures && <span style={{ color: "var(--vidal-rouge)", fontSize: 12 }}>Identifiants VIDAL de production non configurés (AdminSettings → VIDAL).</span>}
         {etat?.url_production && <span style={{ fontSize: 11.5, color: "var(--vidal-gris)" }}>URL : {etat.url_production}</span>}
       </div>
@@ -255,9 +255,9 @@ export default function ValidationVidal({ onChangement }) {
       </div>
       <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
         <table className="tableau-donnees" style={{ fontSize: 12 }}>
-          <thead><tr><th>N°</th><th>Date/heure (Ouagadougou)</th><th>Type</th><th>Requête (identifiants masqués)</th><th>Statut</th><th>Délai (ms)</th><th>Patient / profil</th><th>Observations</th><th /></tr></thead>
+          <thead><tr><th>N°</th><th>Date/heure (Ouagadougou)</th><th>Type</th><th>Requête (identifiants masqués)</th><th>Statut</th><th>Délai (ms)</th><th>Patient / profil</th><th>Utilisateur</th><th>Observations</th><th /></tr></thead>
           <tbody>
-            {journal.entrees.length === 0 && <tr><td colSpan={9} style={{ color: "var(--vidal-gris)", textAlign: "center" }}>Aucun appel journalisé.</td></tr>}
+            {journal.entrees.length === 0 && <tr><td colSpan={10} style={{ color: "var(--vidal-gris)", textAlign: "center" }}>Aucun appel journalisé.</td></tr>}
             {journal.entrees.map((e) => (
               <tr key={e.numero}>
                 <td className="chiffre">{e.numero}</td>
@@ -267,6 +267,8 @@ export default function ValidationVidal({ onChangement }) {
                 <td style={{ color: e.statut_http >= 200 && e.statut_http < 400 ? "var(--vidal-vert)" : "var(--vidal-rouge)", fontWeight: 600 }}>{e.statut_http || "—"}</td>
                 <td className="chiffre">{e.duree_ms}</td>
                 <td>{e.patient_libelle || "—"}<br /><small style={{ color: "var(--vidal-gris)" }}>{e.profil}</small></td>
+                {/* Lot 56.9 — identité de l'utilisateur qui a fait l'appel (nom et prénoms, puis identifiant) */}
+                <td>{e.utilisateur_nom || "—"}<br /><small style={{ color: "var(--vidal-gris)" }}>{e.login}</small></td>
                 <td>{(e.observations_auto || []).join(" ; ")}{e.observation_manuelle ? <div style={{ fontWeight: 600 }}>{e.observation_manuelle}</div> : null}</td>
                 <td><button className="bouton-secondaire" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => ouvrirDetail(e.numero)}>Détail</button></td>
               </tr>
@@ -285,6 +287,8 @@ export default function ValidationVidal({ onChangement }) {
             </div>
             <div style={{ fontSize: 12.5, marginBottom: 8, lineHeight: 1.6 }}>
               {detail.date_locale} (Ouagadougou) — statut <strong>{detail.statut_http}</strong> — délai <strong>{detail.duree_ms} ms</strong> — {detail.patient_libelle || "sans patient"} {detail.profil ? `(${detail.profil})` : ""}
+              {/* Lot 56.9 — utilisateur à l'origine de l'appel */}
+              {" "}— par <strong>{detail.utilisateur_nom || detail.login || "—"}</strong>
               {detail.resume_gravites && <> — alertes : {Object.entries(detail.resume_gravites).map(([g, n]) => `${g} × ${n}`).join(", ") || "aucune"}</>}
               {detail.reponse_tronquee && <> — <span style={{ color: "var(--vidal-orange)" }}>réponse tronquée (taille {detail.taille_reponse} octets)</span></>}
             </div>

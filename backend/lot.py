@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "56.8"
-LOT_LIBELLE = "VIDAL : dates saisissables au clavier (JJ/MM/AAAA), calendrier ou âge"
+LOT = "56.9"
+LOT_LIBELLE = "VIDAL : paramètres réservés à l'administrateur de la plateforme, utilisateur affiché dans le journal"

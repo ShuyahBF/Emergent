@@ -82,7 +82,7 @@ export default function ParametresGroupesDfg() {
         Le médecin choisit un groupe pour apprécier le débit de filtration glomérulaire par rapport à la valeur normale de ce groupe.
         Aide visuelle uniquement : le DFG calculé ne change pas et le groupe n'est jamais transmis à VIDAL.
       </div>
-      {!modifiable && <div style={{ fontSize: 12, color: "var(--vidal-orange)", marginBottom: 8 }}>Lecture seule : seul le gestionnaire de l'établissement peut modifier ces groupes.</div>}
+      {!modifiable && <div style={{ fontSize: 12, color: "var(--vidal-orange)", marginBottom: 8 }}>Lecture seule : seul l'administrateur / superviseur de la plateforme peut modifier ces groupes.</div>}
       <fieldset disabled={!modifiable} style={{ border: "none", padding: 0, margin: 0 }}>
       <table className="tableau-donnees" style={{ marginBottom: 10 }}>
         <thead>

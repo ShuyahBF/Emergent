@@ -39,6 +39,7 @@ import BandeauValidationVidal, { BadgeFictif, chargerEtatValidation } from "@/co
 import HistoriqueDonneesCliniques from "@/components/vidal/HistoriqueDonneesCliniques";
 import ParametresGroupesDfg from "@/components/vidal/ParametresGroupesDfg";
 import ValidationVidal from "@/components/vidal/ValidationVidal";
+import { useAuth } from "@/contexts/AuthContext";
 import { construirePayloadSecurisation, resumeErreurs, validerFormulaireSecurisation } from "@/components/vidal/payloadSecurisation";
 // Lot 56.4 — chronomètre de saisie (mode « Validation VIDAL » uniquement).
 import ChronoSaisie, { useChronoSaisie } from "@/components/vidal/ChronoSaisie";
@@ -109,6 +110,10 @@ export default function VidalSecurisation() {
   const [patientsFictifs, setPatientsFictifs] = useState([]);
   const [cleBandeau, setCleBandeau] = useState(0);
   const [parametresOuverts, setParametresOuverts] = useState(false);
+  // Lot 56.9 — « Paramètres VIDAL » (groupes du DFG, validation VIDAL, patients fictifs, journal)
+  // réservés à l'administrateur / superviseur de la plateforme (le serveur le contrôle aussi).
+  const { user } = useAuth() || {};
+  const estAdminPlateforme = user?.role === "admin" || user?.role === "superviseur";
 
   // § contrôles de saisie recalculés à chaque frappe (mêmes règles que le serveur).
   const controle = validerFormulaireSecurisation(clinique, nouvellesLignes, traitementsEnCours);
@@ -493,7 +498,7 @@ export default function VidalSecurisation() {
               const p = patientsFictifs.find((x) => x.id === e.target.value);
               if (p) chargerPatient(p);
             }} data-testid="sec-patient-fictif">
-              <option value="">{patientsFictifs.length ? `Choisir un patient fictif (${patientsFictifs.length})…` : "Aucun patient fictif : créez-les dans « Paramètres VIDAL »"}</option>
+              <option value="">{patientsFictifs.length ? `Choisir un patient fictif (${patientsFictifs.length})…` : (estAdminPlateforme ? "Aucun patient fictif : créez-les dans « Paramètres VIDAL »" : "Aucun patient fictif : ils sont créés par l'administrateur de la plateforme")}</option>
               {patientsFictifs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
@@ -663,8 +668,9 @@ export default function VidalSecurisation() {
 
       <RapportHtmlSecurisation rapport={rapport} onFermer={() => setRapport(null)} onFiltrer={(rubriques) => ouvrirRapportHtml({ rubriques })} />
 
-      {/* Paramètres VIDAL : groupes de référence du DFG et mode « Validation VIDAL ». */}
-      <div className="carte" style={{ padding: 0 }}>
+      {/* Paramètres VIDAL : groupes de référence du DFG et mode « Validation VIDAL ».
+          Lot 56.9 — affichés seulement pour l'administrateur / superviseur de la plateforme. */}
+      {estAdminPlateforme && <div className="carte" style={{ padding: 0 }}>
         <button type="button" onClick={() => setParametresOuverts(!parametresOuverts)}
           style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "12px 16px", cursor: "pointer", fontWeight: 700, color: "var(--vidal-texte)" }}>
           {parametresOuverts ? <ChevronDown size={14} /> : <ChevronRight size={14} />} <Settings size={14} /> Paramètres VIDAL (groupes du DFG, validation VIDAL)
@@ -675,7 +681,7 @@ export default function VidalSecurisation() {
             <ValidationVidal onChangement={() => { chargerValidation(true); setCleBandeau((n) => n + 1); }} />
           </div>
         )}
-      </div>
+      </div>}
 
       {historiqueCliniqueOuvert && patient?.id && (
         <div role="dialog" aria-modal="true" onClick={() => setHistoriqueCliniqueOuvert(false)}

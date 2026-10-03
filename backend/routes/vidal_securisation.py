@@ -45,7 +45,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ValidationError, field_validator
 
-from routes.vidal_appels import appeler_vidal, assurer_index, config_prete, est_gestionnaire, mode_validation_actif, portee_etablissement
+from routes.vidal_appels import (
+    PORTEE_PLATEFORME, appeler_vidal, assurer_index, config_prete, est_admin_plateforme,
+    mode_validation_actif, portee_etablissement,
+)
 from vidal_v2.fonction_renale import (
     CLAIRANCE_MAX_TRANSMISE, arrondi2, calculer_fonction_renale_locale, categorie_insuffisance_renale, clairance_transmise,
     construire_xml_cockroft_gault, construire_xml_fonction_renale, lire_reponse_cockroft_gault, lire_reponse_fonction_renale,
@@ -333,7 +336,10 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
 
     # ---- Groupes de référence du DFG (aide d'interprétation LOCALE) ----
     async def _charger_configuration_dfg(scope_uid: str) -> dict:
-        doc = await db.vidal_config_groupes_dfg.find_one({"scope_uid": scope_uid}, {"_id": 0})
+        # Lot 56.9 — la configuration de la plateforme (réglée par l'administrateur) prime ;
+        # à défaut, ancien réglage de l'établissement, puis valeurs par défaut.
+        doc = await db.vidal_config_groupes_dfg.find_one({"scope_uid": PORTEE_PLATEFORME}, {"_id": 0}) \
+            or await db.vidal_config_groupes_dfg.find_one({"scope_uid": scope_uid}, {"_id": 0})
         if not doc:
             return configuration_dfg_par_defaut()
         return {"groupes": doc.get("groupes") or [], "seuils": doc.get("seuils") or configuration_dfg_par_defaut()["seuils"]}
@@ -344,14 +350,14 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         tant qu'un gestionnaire ne les a pas modifiés. Jamais transmis à VIDAL."""
         config = await _charger_configuration_dfg(await portee_etablissement(db, user))
         config["groupes"] = sorted(config["groupes"], key=lambda g: g.get("ordre", 0))
-        config["modifiable"] = est_gestionnaire(user)
+        config["modifiable"] = est_admin_plateforme(user)
         return config
 
     @api.put("/vidal/groupes-dfg", tags=["VIDAL"])
     async def enregistrer_groupes_dfg(config: ConfigurationDfg, user: dict = Depends(get_current_user)):
         """Remplace la configuration de l'établissement (gestionnaire uniquement) — 422 détaillé si incohérente."""
-        if not est_gestionnaire(user):
-            raise HTTPException(status_code=403, detail="Paramétrage réservé au gestionnaire de l'établissement.")
+        if not est_admin_plateforme(user):
+            raise HTTPException(status_code=403, detail="Paramétrage réservé à l'administrateur / superviseur de la plateforme.")
         donnees = config.model_dump()
         erreurs = controler_configuration(donnees["groupes"], donnees["seuils"])
         if erreurs:
@@ -359,7 +365,7 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
                 "message": "Configuration des groupes du DFG invalide : " + " ; ".join(e["message"] for e in erreurs), "erreurs": erreurs,
             })
         await assurer_index(db)
-        scope_uid = await portee_etablissement(db, user)
+        scope_uid = PORTEE_PLATEFORME  # Lot 56.9 — vaut pour toute la plateforme
         await db.vidal_config_groupes_dfg.update_one(
             {"scope_uid": scope_uid},
             {"$set": {**donnees, "scope_uid": scope_uid, "updated_at": datetime.now(timezone.utc), "updated_by": user.get("email")}},

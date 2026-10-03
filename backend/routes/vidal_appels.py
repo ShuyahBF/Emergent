@@ -64,6 +64,19 @@ def est_gestionnaire(user: Dict[str, Any]) -> bool:
     return (user or {}).get("role") in ROLES_GESTIONNAIRES
 
 
+# Lot 56.9 — décision du propriétaire : les « Paramètres VIDAL » (groupes du DFG,
+# mode Validation VIDAL, patients fictifs, journal des appels) sont réservés à
+# l'administrateur / superviseur de la PLATEFORME. Leurs réglages valent pour
+# toute la plateforme (portée unique « plateforme »).
+ROLES_PLATEFORME = ("admin", "superviseur")
+PORTEE_PLATEFORME = "plateforme"
+
+
+def est_admin_plateforme(user: Dict[str, Any]) -> bool:
+    """Vrai pour l'administrateur ou le superviseur de la plateforme SAWALI."""
+    return (user or {}).get("role") in ROLES_PLATEFORME
+
+
 async def assurer_index(db) -> None:
     """Index des collections du lot 56 — créés au premier appel, erreurs ignorées (jamais bloquant)."""
     if _index_ok["fait"]:
@@ -99,6 +112,10 @@ async def portee_etablissement(db, user: Dict[str, Any]) -> str:
 
 async def mode_validation_actif(db, scope_uid: Optional[str]) -> bool:
     """Vrai sauf désactivation explicite enregistrée pour cet établissement (vrai par prudence sans établissement)."""
+    # Lot 56.9 — le réglage de la plateforme (fait par l'administrateur) prime sur tout ancien réglage
+    plateforme = await db.vidal_validation_config.find_one({"scope_uid": PORTEE_PLATEFORME}, {"_id": 0, "mode_validation": 1})
+    if plateforme and "mode_validation" in plateforme:
+        return plateforme["mode_validation"] is not False
     if not scope_uid:
         return True
     doc = await db.vidal_validation_config.find_one({"scope_uid": scope_uid}, {"_id": 0, "mode_validation": 1})
@@ -384,6 +401,8 @@ async def _journaliser_validation(
         await db.vidal_journal_validation.insert_one({
             "numero": int((compteur or {}).get("valeur", 0)), "scope_uid": cfg.get("scope_uid"),
             "user_id": user.get("id"), "login": user.get("email"),
+            # Lot 56.9 — identité de l'utilisateur (nom et prénoms) affichée dans le journal
+            "utilisateur_nom": user.get("full_name") or user.get("name") or "",
             "date_utc": date_utc, "date_locale": date_locale, "methode": methode,
             "url": jv.url_masquee(f"{cfg['base_url']}{chemin}", {**(params or {}), "app_id": cfg.get("app_id"), "app_key": cfg.get("app_key")}),
             "entetes": entetes, "corps": jv.masquer_secrets(corps, secrets),

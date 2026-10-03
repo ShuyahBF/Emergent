@@ -401,6 +401,9 @@ def test_comparaison_des_versions_du_profil():
 MEDECIN = {"id": "lot56_med1", "email": "medecin1@exemple.test", "role": "medecin", "parent_client_id": "lot56_cli1", "account_status": "active"}
 MEDECIN_2 = {"id": "lot56_med2", "email": "medecin2@exemple.test", "role": "medecin", "parent_client_id": "lot56_cli1", "account_status": "active"}
 CLIENT = {"id": "lot56_cli1", "email": "client1@exemple.test", "role": "client", "account_status": "active", "features": {"vidal_enabled": True}}
+# Lot 56.9 — Paramètres VIDAL (groupes du DFG, mode validation, patients fictifs, journal) réservés
+# à l'administrateur / superviseur de la plateforme.
+ADMIN = {"id": "lot56_adm", "email": "admin@exemple.test", "role": "admin", "full_name": "ADMIN Plateforme", "account_status": "active"}
 
 REPONSE_ALERTES = (
     '<feed xmlns:vidal="http://api.vidal.net/-/spec/vidal-api/1.0/">'
@@ -436,7 +439,7 @@ def ctx(monkeypatch):
         "vidal_test_base_url": URL_TEST, "vidal_test_app_id": ID_TEST, "vidal_test_app_key": CLE_TEST,
         "vidal_prod_base_url": URL_PROD, "vidal_prod_app_id": ID_PROD, "vidal_prod_app_key": CLE_PROD,
     })
-    base.users.insert_many([dict(CLIENT), dict(MEDECIN), dict(MEDECIN_2)])
+    base.users.insert_many([dict(CLIENT), dict(MEDECIN), dict(MEDECIN_2), dict(ADMIN)])
     appels_v2._index_ok["fait"] = False
 
     appels: list = []
@@ -654,11 +657,14 @@ def test_endpoint_groupes_dfg(ctx):
                 "seuils": {"normal_pct": 85, "leger_pct": 55}}
     assert ctx.client.put("/api/vidal/groupes-dfg", json=nouvelle).status_code == 403  # médecin : lecture seule
     _comme(ctx, CLIENT)
+    assert ctx.client.put("/api/vidal/groupes-dfg", json=nouvelle).status_code == 403  # gestionnaire d'établissement : non
+    _comme(ctx, ADMIN)
+    assert ctx.client.get("/api/vidal/groupes-dfg").json()["modifiable"] is True
     assert ctx.client.put("/api/vidal/groupes-dfg", json=nouvelle).status_code == 200
-    # Le paramétrage du gestionnaire s'applique au médecin de son établissement.
+    # Le paramétrage de l'administrateur de la plateforme s'applique à tous les médecins.
     _comme(ctx, MEDECIN)
     assert [g["libelle"] for g in ctx.client.get("/api/vidal/groupes-dfg").json()["groupes"]][-1] == "Groupe C"
-    _comme(ctx, CLIENT)
+    _comme(ctx, ADMIN)
     invalide = {"groupes": [{**nouvelle["groupes"][0], "valeur_normale": 0}, {**nouvelle["groupes"][1], "par_defaut": True}], "seuils": {"normal_pct": 50, "leger_pct": 60}}
     r = ctx.client.put("/api/vidal/groupes-dfg", json=invalide)
     assert r.status_code == 422 and {"groupes[0].valeur_normale", "groupes", "seuils"} <= {e["champ"] for e in r.json()["detail"]["erreurs"]}
@@ -740,7 +746,7 @@ def test_traitements_en_cours_apres_une_securisation(ctx):
 # ===========================================================================
 
 def _fictif(ctx, code: str) -> dict:
-    return ctx.base.vidal_patients.find_one({"code_fictif": code, "user_id": MEDECIN["id"]})
+    return ctx.base.vidal_patients.find_one({"code_fictif": code, "user_id": ADMIN["id"]})
 
 
 def _preparer_recherches(ctx):
@@ -771,6 +777,7 @@ def test_vrai_patient_aucune_requete_sortante(ctx):
 
 
 def test_generateur_idempotent_avec_versions_et_traitements(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     _preparer_recherches(ctx)
     bilan = ctx.client.post("/api/vidal/validation/patients-fictifs").json()
     total = 3 * len(PROFILS)
@@ -795,12 +802,15 @@ def test_generateur_idempotent_avec_versions_et_traitements(ctx):
     assert [c["ref"] for c in warfarine["candidats_vidal"]] == ["vidal://product/9101", "vidal://product/9102"]
     assert amiodarone["drugRef"] == "9201" and amiodarone["label"] == "PRODUIT B 200 MG CP" and not amiodarone["a_rapprocher"]
     assert metformine["drugRef"] is None and metformine["statut_reference"] == "a_rechercher" and not metformine["coche_par_defaut"]
-    # Les patients fictifs sont ceux du praticien qui les a générés.
+    # Les patients fictifs sont ceux de l'utilisateur qui les a générés ; un médecin ne peut pas en générer.
     _comme(ctx, MEDECIN_2)
     assert ctx.client.get("/api/vidal/validation/patients-fictifs").json()["patients"] == []
+    assert ctx.client.post("/api/vidal/validation/patients-fictifs").status_code == 403
+    assert ctx.client.delete("/api/vidal/validation/patients-fictifs").status_code == 403
 
 
 def test_patient_fictif_envoye_en_production_sans_donnees_identifiantes_et_journal(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     ctx.client.post("/api/vidal/validation/patients-fictifs")
     ctx.reponses["/alerts/full"] = httpx.Response(200, text=REPONSE_ALERTES)
     enceinte = _fictif(ctx, "ENCEINTE-3")
@@ -820,7 +830,8 @@ def test_patient_fictif_envoye_en_production_sans_donnees_identifiantes_et_journ
     assert entree["corps"] == corps and entree["statut_http"] == 200 and entree["reponse"] == REPONSE_ALERTES
     assert entree["profil"].startswith("Femme enceinte") and entree["patient_libelle"] == enceinte["name"]
     assert entree["resume_gravites"] == {"LEVEL_3": 1} and "Alerte attendue « grossesse » présente" in entree["observations_auto"]
-    assert entree["date_locale"] and isinstance(entree["duree_ms"], int) and entree["scope_uid"] == CLIENT["id"]
+    assert entree["date_locale"] and isinstance(entree["duree_ms"], int) and entree["scope_uid"] == ADMIN["id"]
+    assert entree["utilisateur_nom"] == "ADMIN Plateforme" and entree["login"] == ADMIN["email"]
     # Aucun secret stocké, nulle part dans le journal.
     for e in ctx.base.vidal_journal_validation.find({}):
         assert ID_PROD not in str(e) and CLE_PROD not in str(e)
@@ -831,6 +842,7 @@ def test_patient_fictif_envoye_en_production_sans_donnees_identifiantes_et_journ
 
 
 def test_journal_exports_observation_et_visibilite(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     ctx.client.post("/api/vidal/validation/patients-fictifs")
     homme = _fictif(ctx, "HOMME-1")
     ctx.client.post("/api/vidal/securisation/analyze", json={"patient": {"gender": "MALE"}, "new_prescription_lines": [LIGNE], "patient_id": homme["id"]})
@@ -849,25 +861,34 @@ def test_journal_exports_observation_et_visibilite(ctx):
     assert "app_key=***" in feuille and CLE_PROD not in feuille and ID_PROD not in feuille
     page = ctx.client.get("/api/vidal/validation/journal/export.html").text
     assert "Journal de validation VIDAL" in page and "app_id=***" in page and ID_PROD not in page
-    # Un autre praticien ne voit pas ces appels ; le gestionnaire de l'établissement les voit tous.
-    _comme(ctx, MEDECIN_2)
-    assert ctx.client.get("/api/vidal/validation/journal").json()["entrees"] == []
-    assert ctx.client.get(f"/api/vidal/validation/journal/{numero}").status_code == 404
-    _comme(ctx, CLIENT)
-    assert len(ctx.client.get("/api/vidal/validation/journal").json()["entrees"]) == nombre
+    assert "ADMIN Plateforme" in page and liste["entrees"][0]["utilisateur_nom"] == "ADMIN Plateforme"
+    assert "Utilisateur (nom et prénoms)" in feuille
+    # Lot 56.9 — journal réservé à l'administrateur / superviseur de la plateforme.
+    for autre in (MEDECIN_2, CLIENT):
+        _comme(ctx, autre)
+        assert ctx.client.get("/api/vidal/validation/journal").status_code == 403
+        assert ctx.client.get(f"/api/vidal/validation/journal/{numero}").status_code == 403
+        assert ctx.client.get("/api/vidal/validation/journal/export.xlsx").status_code == 403
+    # Nom et prénoms complétés pour un ancien appel journalisé sans ce champ.
+    ctx.base.vidal_journal_validation.update_many({}, {"$unset": {"utilisateur_nom": ""}})
+    _comme(ctx, ADMIN)
+    assert ctx.client.get(f"/api/vidal/validation/journal/{numero}").json()["utilisateur_nom"] == "ADMIN Plateforme"
 
 
 def test_reglage_du_mode_et_suppression(ctx):
     assert ctx.client.get("/api/vidal/validation/etat").json()["mode_validation"] is True  # activé par défaut
     assert ctx.client.put("/api/vidal/validation/mode", json={"mode_validation": False, "confirmation": "DESACTIVER"}).status_code == 403  # médecin
-    _comme(ctx, CLIENT)
+    _comme(ctx, CLIENT)  # Lot 56.9 — le gestionnaire de l'établissement ne règle plus le mode
+    assert ctx.client.put("/api/vidal/validation/mode", json={"mode_validation": False, "confirmation": "DESACTIVER"}).status_code == 403
+    assert ctx.client.get("/api/vidal/validation/etat").json()["gestionnaire"] is False
+    _comme(ctx, ADMIN)
+    assert ctx.client.get("/api/vidal/validation/etat").json()["gestionnaire"] is True
     assert ctx.client.put("/api/vidal/validation/mode", json={"mode_validation": False}).status_code == 422
     assert ctx.client.put("/api/vidal/validation/mode", json={"mode_validation": False, "confirmation": "DESACTIVER"}).status_code == 200
     _comme(ctx, MEDECIN)
-    assert ctx.client.get("/api/vidal/validation/etat").json()["mode_validation"] is False  # même établissement
-    _comme(ctx, CLIENT)
+    assert ctx.client.get("/api/vidal/validation/etat").json()["mode_validation"] is False  # réglage de toute la plateforme
+    _comme(ctx, ADMIN)
     ctx.client.put("/api/vidal/validation/mode", json={"mode_validation": True})
-    _comme(ctx, MEDECIN)
     vrai = _patient(ctx, nom="VRAI PATIENT")
     ctx.client.post("/api/vidal/validation/patients-fictifs")
     enceinte = _fictif(ctx, "ENCEINTE-1")
@@ -881,6 +902,7 @@ def test_reglage_du_mode_et_suppression(ctx):
 
 
 def test_generateur_sans_identifiants_production_aucune_valeur_inventee(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     ctx.base.settings.update_one({"_id": "global"}, {"$set": {"vidal_prod_app_id": "", "vidal_prod_app_key": ""}})
     bilan = ctx.client.post("/api/vidal/validation/patients-fictifs").json()
     assert bilan["vidal_interroge"] is False and "production" in bilan["message_vidal"]
@@ -898,6 +920,7 @@ def test_generateur_sans_identifiants_production_aucune_valeur_inventee(ctx):
 
 
 def test_generateur_reprend_exactement_les_references_vidal(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     ctx.specifiques[("/rest/api/allergies", "pénicillines")] = httpx.Response(200, text=(
         '<feed><entry vidal:categories="ALLERGY"><title>Classe renvoyée par VIDAL</title><id>vidal://allergy/7001</id><vidal:id>7001</vidal:id></entry>'
         '<entry vidal:categories="MOLECULE"><title>Substance renvoyée</title><id>vidal://molecule/7002</id><vidal:id>7002</vidal:id></entry></feed>'))
@@ -918,6 +941,7 @@ REPONSE_CG_SEULE = ('<feed><entry vidal:categories="CREATININE_CLEARANCE"><vidal
 
 
 def test_calculateur_mode_validation_sans_valeur_locale(ctx):
+    _comme(ctx, ADMIN)  # Lot 56.9 — génération réservée à l'administrateur de la plateforme
     ctx.client.post("/api/vidal/validation/patients-fictifs")
     patient = _fictif(ctx, "INSUFFISANCE_RENALE-1")["id"]
     corps = {"dateOfBirth": "1964-01-01", "gender": "MALE", "weight": 75, "serumCreatinine": 115, "patient_id": patient}

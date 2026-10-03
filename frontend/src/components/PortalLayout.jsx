@@ -667,7 +667,9 @@ function PortalLayoutInner({ admin = false }) {
           </p>
         </div>
       </Link>
-      <div className="px-2 mb-6 flex justify-end" data-testid="sidebar-language-row">
+      <div className="px-2 mb-6 flex items-center justify-between gap-2" data-testid="sidebar-language-row">
+        {/* État du serveur et version du déploiement, en petit, à gauche du bouton des langues */}
+        <EtatConnexion tone="dark" compact className="min-w-0 flex-1" />
         <LanguageSelector compact />
       </div>
       <div className="px-2 mb-3" data-testid="sidebar-weather-row">
@@ -928,8 +930,6 @@ function PortalLayoutInner({ admin = false }) {
           )}
         </div>
 
-        {/* État de la connexion au serveur et version du déploiement */}
-        <EtatConnexion tone="dark" className="px-3 mt-3" />
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"

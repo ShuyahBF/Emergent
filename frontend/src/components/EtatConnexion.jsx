@@ -15,7 +15,7 @@ import React, { useEffect, useState, useCallback } from "react";
 const LENT_MS = 2000;      // au-delà : connexion lente (orange)
 const INTERVALLE_MS = 30000;
 
-export default function EtatConnexion({ tone = "light", className = "" }) {
+export default function EtatConnexion({ tone = "light", className = "", compact = false }) {
   const [etat, setEtat] = useState({ statut: "verif", ms: null });
   const [version, setVersion] = useState(null);
 
@@ -79,11 +79,12 @@ export default function EtatConnexion({ tone = "light", className = "" }) {
   const sombre = tone === "dark";
   return (
     <div
-      className={`text-[11px] leading-tight ${sombre ? "text-slate-300" : "text-slate-500"} ${className}`}
+      // compact (barre latérale) : police réduite de moitié (11 → 6 px)
+      className={`${compact ? "text-[6px]" : "text-[11px]"} leading-tight ${sombre ? "text-slate-300" : "text-slate-500"} ${className}`}
       data-testid="etat-connexion"
     >
       <div className="flex items-center gap-1.5">
-        <span className={`inline-block h-2 w-2 rounded-full ${a.couleur} ${etat.statut === "ok" ? "animate-pulse" : ""}`} />
+        <span className={`inline-block ${compact ? "h-1.5 w-1.5" : "h-2 w-2"} rounded-full shrink-0 ${a.couleur} ${etat.statut === "ok" ? "animate-pulse" : ""}`} />
         <span data-testid="etat-connexion-statut">{a.texte}</span>
         {etat.ms != null && <span className="opacity-70">· {etat.ms} ms</span>}
         <button

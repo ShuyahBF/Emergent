@@ -199,11 +199,15 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Adresse PUBLIQUE du site (figée au build) : les appels partent vers
-      # <site>/api/... et sont relayés au backend ci-dessous.
-      # Domaine définitif (bascule du 03/10/2026)
+      # Adresse de l'API (figée au build). Lot 56.7 : les appels de l'application
+      # partent DIRECTEMENT vers le serveur via la sous-adresse api.sawalismartsystems.com
+      # (domaine personnalisé du service sawali-backend). Raison : en passant par le
+      # relais /api/* du site statique, Render remplaçait l'adresse IP du visiteur par
+      # la sienne (météo « Boardman, US », historique des connexions et blocage par IP
+      # faussés). Le relais /api/* ci-dessous reste en place pour les liens publics,
+      # les webhooks et les quelques appels relatifs (/api/health, /api/version).
       - key: REACT_APP_BACKEND_URL
-        value: https://sawalismartsystems.com
+        value: https://api.sawalismartsystems.com
     routes:
       # 1) Toute l'API est relayée au backend (mêmes adresses qu'avant pour les webhooks).
       #    À ajuster si Render attribue une autre adresse au backend.

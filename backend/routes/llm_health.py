@@ -106,6 +106,8 @@ async def record_llm_outcome(
             update["status"] = "key_missing"
         else:
             update["status"] = "unknown_error"
+        # Trace dans les journaux Render (jamais la clé : le message vient du fournisseur)
+        logger.warning("[llm_health] échec IA (%s) : %s", context, msg[:300])
     try:
         ops: Dict[str, Any] = {"$set": update}
         if unset_stale:

@@ -139,6 +139,12 @@ export default function LlmHealthBanner() {
             <strong className="ml-1">Pour rétablir :</strong> console.anthropic.com → Settings → <strong>Billing</strong> (crédit) ; clé ANTHROPIC_API_KEY dans Render → sawali-backend → Environment.
             <span className="opacity-75 ml-2">Dernier check : {checked}</span>
           </p>
+          {/* Message exact renvoyé par le fournisseur IA (ex. clé invalide, crédit épuisé) */}
+          {level === "error" && state.last_error_message && (
+            <p className="text-xs font-mono opacity-90 leading-tight mt-1 break-all" data-testid="llm-health-banner-error">
+              Détail : {String(state.last_error_message).slice(0, 300)}
+            </p>
+          )}
         </div>
         <button
           onClick={ping}

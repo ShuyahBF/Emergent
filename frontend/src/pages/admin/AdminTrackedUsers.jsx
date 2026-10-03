@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy, HardDriveUpload, Eye } from "lucide-react";
+import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy, HardDriveUpload, Eye, History, Ban } from "lucide-react";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 // Lot 44 — « Voir en tant que » et comptes de test en un clic
 import { useAuth } from "@/contexts/AuthContext";
 import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import ComptesTestPanel from "@/pages/admin/sections/ComptesTestPanel";
+// Lot 55 — dernière connexion, adresse IP et historique des connexions (blocage / autorisation d'IP)
+import HistoriqueConnexionsDialog, { dateHeureOuaga, BadgeIp, SitesBloquesDialog } from "@/pages/admin/sections/HistoriqueConnexionsDialog";
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"];
 // Lot 54 — pastille de présence (seuils définis côté serveur : routes/presence_utilisateurs.py)
@@ -51,6 +53,20 @@ export default function AdminTrackedUsers() {
   const [transferring, setTransferring] = useState(false);
 
   const load = () => apiClient.get("/admin/tracked-users").then((r) => setItems(r.data));
+  // Lot 55 — dernière connexion (date, IP, statut de l'IP) de chaque utilisateur suivi
+  const [connexions, setConnexions] = useState({});
+  const [historiqueDe, setHistoriqueDe] = useState(null);
+  const chargerConnexions = () => apiClient.get("/admin/tracked-users/connexions", { headers: { "X-Requete-Fond": "1" } })
+    .then((r) => setConnexions(r.data?.items || {}))
+    .catch(() => {});
+  useEffect(() => { chargerConnexions(); }, []);
+  // Lot 55 — « Sites bloqués (toute la plateforme) » : bouton affiché si le serveur l'autorise (super-admin)
+  const [sitesVisibles, setSitesVisibles] = useState(false);
+  const [sitesOuverts, setSitesOuverts] = useState(false);
+  useEffect(() => {
+    apiClient.get("/admin/connexions/sites-bloques", { headers: { "X-Requete-Fond": "1" } })
+      .then(() => setSitesVisibles(true)).catch(() => setSitesVisibles(false));
+  }, []);
   // Lot 54 — présence des utilisateurs suivis, relue toutes les 30 s (requête de fond : ne compte
   // pas comme une activité de l'Admin)
   const [presence, setPresence] = useState({});
@@ -201,6 +217,11 @@ export default function AdminTrackedUsers() {
           </select>
           {/* Lot 44 — comptes de test en un clic (Admin) */}
           {moi?.role === "admin" && <ComptesTestPanel onChange={() => load().catch(() => {})} />}
+          {sitesVisibles && (
+            <button onClick={() => setSitesOuverts(true)} className="inline-flex items-center gap-2 rounded-lg ring-1 ring-rose-300 text-rose-700 bg-white px-4 py-2 text-sm hover:bg-rose-50" data-testid="btn-sites-bloques">
+              <Ban className="h-4 w-4" /> Sites bloqués
+            </button>
+          )}
           <button onClick={() => open()} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-tracked-btn">
             <Plus className="h-4 w-4" /> Nouvel utilisateur
           </button>
@@ -278,7 +299,7 @@ export default function AdminTrackedUsers() {
             </div>
             <span className="text-xs text-slate-500">{group.list.length} utilisateur{group.list.length > 1 ? "s" : ""}</span>
           </div>
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[1150px]">
             <thead className="bg-white text-xs uppercase text-slate-600">
               <tr>
                 <th className="text-left px-3 py-3 w-10"></th>
@@ -288,6 +309,8 @@ export default function AdminTrackedUsers() {
                 <th className="text-left px-4 py-3">Service</th>
                 <th className="text-left px-4 py-3">Accès</th>
                 <th className="text-left px-4 py-3">Statut</th>
+                <th className="text-left px-4 py-3">Dernière connexion</th>
+                <th className="text-left px-4 py-3">Adresse IP</th>
                 <th className="text-right px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -322,7 +345,28 @@ export default function AdminTrackedUsers() {
                     )}
                   </td>
                   <td className="px-4 py-3">{u.status}</td>
+                  {/* Lot 55 — dernière connexion (fuseau Africa/Ouagadougou) et adresse IP */}
+                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap" data-testid={`derniere-connexion-${u.id}`}>
+                    {dateHeureOuaga(connexions[u.id]?.derniere_connexion) || "—"}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap" data-testid={`ip-connexion-${u.id}`}>
+                    {connexions[u.id]?.ip ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="font-mono text-xs">{connexions[u.id].ip}</span>
+                        <BadgeIp statut={connexions[u.id].ip_statut} libelle={connexions[u.id].ip_libelle} portee={connexions[u.id].ip_portee} />
+                      </span>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
+                    {/* Lot 55 — historique des connexions (bloquer / autoriser une IP) */}
+                    <button
+                      onClick={() => setHistoriqueDe(u)}
+                      className="text-slate-500 hover:text-sawali-blue mr-3"
+                      title="Historique des connexions"
+                      data-testid={`historique-connexions-${u.id}`}
+                    >
+                      <History className="h-4 w-4 inline" />
+                    </button>
                     {/* Lot 44 — « Voir en tant que » : Admin uniquement, fiche active (le serveur retrouve le compte de connexion) */}
                     {moi?.role === "admin" && (
                       <button
@@ -527,6 +571,15 @@ export default function AdminTrackedUsers() {
             </form>
           </div>
         </div>
+      )}
+
+      {sitesOuverts && <SitesBloquesDialog onClose={() => { setSitesOuverts(false); chargerConnexions(); }} />}
+
+      {historiqueDe && (
+        <HistoriqueConnexionsDialog
+          suivi={historiqueDe}
+          onClose={() => { setHistoriqueDe(null); chargerConnexions(); }}
+        />
       )}
 
       {r2Dialog && (

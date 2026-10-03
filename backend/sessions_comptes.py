@@ -57,6 +57,7 @@ MOTIF_INACTIVITE = "inactivite"
 MOTIF_DECONNEXION = "deconnexion"
 MOTIF_MAINTENANCE = "maintenance"
 MOTIF_SUSPENSION = "abonnement_suspendu"   # lot 51 : client suspendu (J+110) ou archivé (J+113)
+MOTIF_IP_BLOQUEE = "ip_bloquee"            # lot 55 : IP bloquée pour ce compte (connexions_ip.py)
 
 MESSAGES = {
     MOTIF_LIMITE: ("Session fermée : nombre maximal d'appareils atteint pour ce compte.", "session_limite"),
@@ -67,6 +68,7 @@ MESSAGES = {
     MOTIF_MAINTENANCE: ("Session fermée par la maintenance de la plateforme : reconnectez-vous.", "session_maintenance"),
     MOTIF_SUSPENSION: ("Accès suspendu : abonnement non renouvelé. Contactez SAWALI SMART SYSTEMS.",
                        "session_abonnement_suspendu"),
+    MOTIF_IP_BLOQUEE: ("Connexion refusée depuis cette adresse. Contactez l'administrateur.", "session_ip_bloquee"),
 }
 MESSAGE_INCONNUE = ("Session fermée : reconnectez-vous.", "session_fermee")
 
@@ -158,12 +160,9 @@ async def assurer_index() -> None:
 
 
 def ip_de(request) -> str:
-    if request is None:
-        return ""
-    xff = request.headers.get("x-forwarded-for") or ""
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if getattr(request, "client", None) else ""
+    """IP réelle du visiteur (lot 55 : fonction unique ip_client.ip_reelle)."""
+    from ip_client import ip_reelle
+    return ip_reelle(request)
 
 
 def appareil_de(ua: str) -> str:
@@ -326,8 +325,13 @@ def refus(motif: Optional[str]) -> RefusAcces:
 
 async def controler(user: dict, jeton: dict, request=None) -> None:
     sid = jeton.get("sid")
-    if jeton.get("imp") or not sid:
-        return  # « Voir en tant que » ou jeton émis avant le lot 50
+    if jeton.get("imp"):
+        return  # « Voir en tant que » : l'IP est celle de l'Admin, pas celle du compte
+    # Lot 55 — IP bloquée pour ce compte (ou sur toute la plateforme) : 401 (petit cache de 10 s)
+    import connexions_ip
+    await connexions_ip.controler_requete(user, request)
+    if not sid:
+        return  # jeton émis avant le lot 50
     doc = await _lire(sid)
     if not doc or doc.get("user_id") != user.get("id"):
         raise refus(None)

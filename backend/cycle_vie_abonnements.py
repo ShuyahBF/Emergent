@@ -124,6 +124,7 @@ COLLECTIONS_CONSERVEES = frozenset({
     "maintenance_plateforme_journal", "sessions_comptes", "sessions_comptes_journal",
     "abonnements_grace_journal", JOURNAL, AVERTISSEMENTS, ETAT, "impersonation_journal",
     "activity_events", "demo_expiry_events",
+    "connexions_journal", "connexions_ip_actions",   # lot 55 : journaux des connexions et des blocages d'IP
     "tenant_payments", "interventions_invoices", "payments", "payment_transactions",
     "billing_reminders", "contract_overdue_alerts",
 })

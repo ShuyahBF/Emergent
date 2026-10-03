@@ -276,11 +276,9 @@ async def _reload_blacklist() -> None:
 
 
 def _client_ip_from_request(request) -> str:
-    # Trust X-Forwarded-For first hop (set by Kubernetes ingress)
-    xff = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else ""
+    # Lot 55 — IP réelle derrière Render (premier élément de X-Forwarded-For) : ip_client.py
+    from ip_client import ip_reelle
+    return ip_reelle(request)
 
 
 def _ip_in_cidr(ip: str, cidr: str) -> bool:
@@ -1219,6 +1217,21 @@ async def _demarrer_email_fournisseurs():
 # tâche minute dans p17) ; rôle « Auxiliaire en Pharmacie » : roles_restreints.py (controle_acces).
 from routes.presence_utilisateurs import router as _presence_router  # noqa: E402
 api.include_router(_presence_router)
+
+# Lot 55 — dernière connexion, IP et historique des connexions des utilisateurs suivis ; blocage
+# ou autorisation d'une IP par compte (connexions_ip.py, contrôle dans sessions_comptes.controler).
+from routes.connexions_ip import router as _connexions_ip_router  # noqa: E402
+api.include_router(_connexions_ip_router)
+
+
+@app.on_event("startup")
+async def _index_connexions_ip():
+    """Lot 55 — index (user_id, date), TTL de 180 jours du journal des connexions : jamais bloquant."""
+    try:
+        import connexions_ip
+        await connexions_ip.assurer_index()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[connexions] index non créés au démarrage : %s", exc)
 
 
 @app.on_event("startup")

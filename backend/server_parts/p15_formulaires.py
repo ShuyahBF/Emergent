@@ -427,7 +427,8 @@ async def public_submit_form(form_id: str, payload: PublicSubmissionRequest, req
     form = await db.forms.find_one({"id": form_id, "is_public": True}, {"_id": 0, "client_id": 1})
     if not form or not await _fonction_active_pour_compte(form.get("client_id"), "forms_surveys"):   # lot 34
         raise HTTPException(status_code=404, detail="Formulaire introuvable ou non public")
-    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
+    from ip_client import ip_reelle   # lot 55 : fonction unique
+    ip = ip_reelle(request)
     doc = {
         "id": _uuid(),
         "form_id": form_id,

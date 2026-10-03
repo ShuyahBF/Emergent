@@ -158,11 +158,11 @@ async def track_visit(request: Request, payload: dict):
     Geo enrichment is performed in the background so /track always returns instantly.
     """
     # Resolve client IP
-    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    # Lot 55 — fonction unique (ip_client.py) ; X-Real-IP gardé en dernier recours
+    from ip_client import ip_reelle
+    ip = ip_reelle(request) if request.headers.get("x-forwarded-for") else ""
     if not ip:
-        ip = request.headers.get("x-real-ip", "")
-    if not ip and request.client:
-        ip = request.client.host or ""
+        ip = request.headers.get("x-real-ip", "") or ip_reelle(request)
 
     # Use cached geo if known, otherwise blank — we'll fill in async.
     geo = _GEO_CACHE.get(ip) or {"country": "", "city": "", "region": ""}

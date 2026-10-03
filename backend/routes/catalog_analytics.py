@@ -91,9 +91,8 @@ def setup_catalog_analytics_routes(*, db, api, get_current_user):
             user_agent = ""
             referrer = ""
             if request is not None:
-                client_ip = (request.headers.get("x-forwarded-for") or
-                             (request.client.host if request.client else "")) or ""
-                client_ip = client_ip.split(",")[0].strip()
+                from ip_client import ip_reelle   # lot 55 : fonction unique
+                client_ip = ip_reelle(request)
                 user_agent = (request.headers.get("user-agent") or "")[:300]
                 referrer = (request.headers.get("referer") or "")[:500]
             doc = {

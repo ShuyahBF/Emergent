@@ -21,6 +21,8 @@ from typing import Any, Awaitable, Callable, Dict
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 
+import connexions_ip  # lot 55 — journal des connexions, IP bloquée par compte
+
 # Pydantic models — imported at MODULE LEVEL so FastAPI's get_type_hints()
 # can resolve them properly when introspecting endpoint signatures (FastAPI
 # fails to detect body params when the model type lives in a closure).
@@ -101,18 +103,32 @@ def attach_auth_routes(
             pub["business_type"] = (parent or {}).get("business_type") or ""
         return pub
 
+    async def _controles_connexion(user: dict, request: Request, methode: str, ip: bool = True) -> None:
+        """Statut du compte, maintenance, cycle de vie puis (lot 55) IP bloquée ; tout refus est
+        noté dans le journal des connexions avec son motif."""
+        try:
+            refuser_si_compte_inactif(user)
+            if refuser_si_maintenance is not None:
+                await refuser_si_maintenance(user)
+            if refuser_si_cycle_vie is not None:
+                await refuser_si_cycle_vie(user)
+        except HTTPException as exc:
+            await connexions_ip.noter(user, request, methode, connexions_ip.REFUSEE, str(exc.detail)[:200])
+            raise
+        if ip:
+            await connexions_ip.refuser_si_bloquee(user, request, methode)
+
     @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
     async def auth_login(payload: LoginRequest, request: Request):
         user = await db.users.find_one({"email": payload.email.lower()})
         # Lot 26 : bcrypt (~0,25 s) calculé dans un thread, sans figer le serveur
         # Lot 51 : une fiche archivée n'a plus de mot de passe (`password_hash` vide ou absent)
         if not user or not await asyncio.to_thread(verify_password, payload.password, user.get("password_hash") or ""):
+            # Lot 55 — tentative refusée notée pour un compte existant (jamais pour un e-mail inconnu)
+            await connexions_ip.noter(user, request, connexions_ip.MOT_DE_PASSE, connexions_ip.REFUSEE,
+                                      "Mot de passe incorrect")
             raise HTTPException(status_code=401, detail="Identifiants invalides")
-        refuser_si_compte_inactif(user)
-        if refuser_si_maintenance is not None:
-            await refuser_si_maintenance(user)
-        if refuser_si_cycle_vie is not None:
-            await refuser_si_cycle_vie(user)
+        await _controles_connexion(user, request, connexions_ip.MOT_DE_PASSE)
         captcha = await verify_recaptcha(payload.captcha_token, request=request)
         if not captcha["success"]:
             raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
@@ -156,22 +172,23 @@ def attach_auth_routes(
         if not otp:
             raise HTTPException(status_code=400, detail="Session invalide ou expirée")
         if datetime.fromisoformat(otp["expires_at"]) < datetime.now(timezone.utc):
+            await connexions_ip.noter({"id": otp.get("user_id")}, request, connexions_ip.CODE_EMAIL,
+                                      connexions_ip.REFUSEE, "Code expiré")
             raise HTTPException(status_code=400, detail="Code expiré")
         if otp["code"] != payload.code.strip():
+            await connexions_ip.noter({"id": otp.get("user_id")}, request, connexions_ip.CODE_EMAIL,
+                                      connexions_ip.REFUSEE, "Code incorrect")
             raise HTTPException(status_code=400, detail="Code incorrect")
         await db.otps.update_one({"id": otp["id"]}, {"$set": {"used": True, "used_at": _now()}})
         user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
         if user is None:
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
         # Lot 51 — le compte a pu être désactivé ou suspendu entre le mot de passe et le code
-        refuser_si_compte_inactif(user)
-        if refuser_si_maintenance is not None:
-            await refuser_si_maintenance(user)
-        if refuser_si_cycle_vie is not None:
-            await refuser_si_cycle_vie(user)
+        await _controles_connexion(user, request, connexions_ip.CODE_EMAIL, ip=False)
         await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": _now()}})
         if create_session_token is not None:
-            token = await create_session_token(user, request)
+            # Lot 55 — IP bloquée refusée et connexion journalisée dans create_session_token
+            token = await create_session_token(user, request, methode=connexions_ip.CODE_EMAIL)
         else:
             token = create_access_token(user["id"], user["role"])
         # 2026-02 fork (P3a) — Emit the `user.login` automation event so the

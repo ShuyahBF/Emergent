@@ -812,7 +812,7 @@ from routes.wa_otp_login_9o import setup_wa_otp_routes as _setup_wa_otp_routes  
 async def _create_jwt_token_wrapper(u: Dict[str, Any], request: Optional[Request] = None) -> str:
     # Lot 50 — connexion WhatsApp : session du compte ouverte (limite d'appareils)
     from auth import create_session_token as _create_session_token
-    return await _create_session_token(u, request)
+    return await _create_session_token(u, request, methode="code_whatsapp")   # lot 55 : journal des connexions
 
 _setup_wa_otp_routes(
     app=api, db=db, get_current_user=get_current_user,

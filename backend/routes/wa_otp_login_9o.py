@@ -231,6 +231,12 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
             raise HTTPException(status_code=429, detail="Trop de tentatives, redemandez un nouveau code")
         if req.get("code") != code:
             await db.wa_otp_requests.update_one({"msisdn": msisdn}, {"$inc": {"attempts": 1}})
+            # Lot 55 — refus noté dans le journal des connexions si le numéro est celui d'un compte
+            compte = await db.users.find_one({"$or": [{"whatsapp": f"+{msisdn}"}, {"phone_digits": msisdn}]},
+                                             {"_id": 0, "id": 1, "email": 1, "client_id": 1, "parent_client_id": 1})
+            import connexions_ip
+            await connexions_ip.noter(compte, request, connexions_ip.CODE_WHATSAPP, connexions_ip.REFUSEE,
+                                      "Code incorrect")
             raise HTTPException(status_code=401, detail="Code invalide")
         await db.wa_otp_requests.delete_one({"msisdn": msisdn})
         # Iter38r-fix9v — Deduplication: a phone number may already belong to
@@ -245,9 +251,18 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
             # Lot 51 — même contrôle que la connexion par mot de passe : statut du compte
             # (désactivé, suspendu, archivé…) puis client suspendu ou archivé (cycle de vie).
             from routes.auth import refuser_si_compte_inactif
-            refuser_si_compte_inactif(user)
+            import connexions_ip
             import cycle_vie_abonnements
-            await cycle_vie_abonnements.refuser_connexion(user)
+            try:
+                refuser_si_compte_inactif(user)
+                await cycle_vie_abonnements.refuser_connexion(user)
+            except HTTPException as exc:
+                # Lot 55 — refus noté dans le journal des connexions
+                await connexions_ip.noter(user, request, connexions_ip.CODE_WHATSAPP, connexions_ip.REFUSEE,
+                                          str(exc.detail)[:200])
+                raise
+            # Lot 55 — IP bloquée pour ce compte : refus avant toute mise à jour du compte
+            await connexions_ip.refuser_si_bloquee(user, request, connexions_ip.CODE_WHATSAPP)
             # Bump last_login_at for traceability on the Clients page
             await db.users.update_one(
                 {"id": user["id"]},

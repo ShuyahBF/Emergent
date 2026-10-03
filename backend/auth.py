@@ -44,11 +44,16 @@ def create_access_token(user_id: str, role: str, sid: Optional[str] = None) -> s
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-async def create_session_token(user: dict, request=None) -> str:
+async def create_session_token(user: dict, request=None, methode: Optional[str] = None) -> str:
     """Lot 50 — Connexion d'un compte : ouvre une session (au plus N appareils par compte,
-    les plus anciennes sont fermées) puis émet le jeton qui porte son identifiant."""
+    les plus anciennes sont fermées) puis émet le jeton qui porte son identifiant.
+    Lot 55 — refusée si l'IP est bloquée pour ce compte ; connexion notée dans le journal des
+    connexions (`methode` : code_email, code_whatsapp…)."""
+    import connexions_ip
     import sessions_comptes
+    await connexions_ip.refuser_si_bloquee(user, request, methode or "autre")
     ouverte = await sessions_comptes.ouvrir_session(user, request)
+    await connexions_ip.noter(user, request, methode or "autre", connexions_ip.REUSSIE, sid=ouverte["sid"])
     return create_access_token(user["id"], user.get("role") or "client", sid=ouverte["sid"])
 
 

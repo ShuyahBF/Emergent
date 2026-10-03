@@ -1068,7 +1068,8 @@ async def route_restauration(request: Request, fichier: UploadFile = File(...), 
     if raison:
         raise HTTPException(403, f"Restauration initiale impossible : {raison}")
     jeton = secrets.token_urlsafe(24)
-    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "") or "").split(",")[0]
+    from ip_client import ip_reelle   # lot 55 : fonction unique
+    ip = ip_reelle(request)
     tache_id = await _nouvelle_tache("restauration", f"restauration initiale ({(email or '').strip().lower()[:120]})",
                                      mode="vide", ip=ip[:64], nom_fichier=(fichier.filename or "")[:200],
                                      jeton_suivi_hash=hashlib.sha256(jeton.encode()).hexdigest())

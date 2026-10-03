@@ -751,7 +751,8 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
     @api.post("/public/forms/jeton/{jeton}/submission", tags=["Public"])
     async def repondre_par_jeton(jeton: str, payload: Reponse, request: Request):
         form = await _formulaire_publie(_lire_jeton(jeton, "form_fill"))
-        ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
+        from ip_client import ip_reelle   # lot 55 : fonction unique
+        ip = ip_reelle(request)
         doc = {"id": uuid_fn(), "form_id": form["id"], "client_id": form.get("client_id"),
                "user_id": f"anon-{uuid_fn()[:8]}", "data": payload.data, "geo": payload.geo,
                "user_label": (payload.respondent_name or payload.respondent_email or f"Anonyme · {ip}")[:120],

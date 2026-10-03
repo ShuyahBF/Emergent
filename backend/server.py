@@ -1214,6 +1214,22 @@ async def _demarrer_email_fournisseurs():
         logger.warning("[email] index ou migration du mot de passe SMTP non faits au démarrage : %s", exc)
 
 
+# Lot 54 — pastille de présence des utilisateurs suivis (vert / orange / rouge, sessions du lot 50) ;
+# tickets partagés par client et sessions WhatsApp minutées : tickets_clients.py (routes dans p18,
+# tâche minute dans p17) ; rôle « Auxiliaire en Pharmacie » : roles_restreints.py (controle_acces).
+from routes.presence_utilisateurs import router as _presence_router  # noqa: E402
+api.include_router(_presence_router)
+
+
+@app.on_event("startup")
+async def _index_tickets_clients():
+    """Lot 54 — index des tickets partagés et du journal des sessions WhatsApp : jamais bloquant."""
+    try:
+        await _tickets_clients.assurer_index()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[tickets] index non créés au démarrage : %s", exc)
+
+
 @app.on_event("startup")
 async def _index_sessions_comptes():
     """Lot 50 — index des sessions des comptes (TTL sur l'expiration) : jamais bloquant."""

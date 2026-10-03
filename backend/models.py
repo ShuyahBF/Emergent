@@ -158,7 +158,17 @@ class UserUpdateAdmin(BaseModel):
     demo_quotas: Optional[Dict[str, Optional[int]]] = None
     # Iter37c — Intervention cost configuration (per Client Lié)
     hourly_rate: Optional[float] = None  # Taux horaire en XOF (utilisé si flat_rate vide/0)
-    flat_rate: Optional[float] = None  # Forfait fixe par intervention (prioritaire si > 0)
+    flat_rate: Optional[float] = None  # Forfait par intervention (lot 54 : appliqué si durée ≥ seuil)
+    # Lot 54 — Tickets Liluvine (voir tickets_clients.py) :
+    #   seuil de bascule horaire → forfait (heures, défaut 5), validité des tickets pour un client
+    #   non contractuel (heures depuis la création, 0 = illimitée), durée de session WhatsApp par
+    #   défaut (minutes, 0 = pas de limite), message de rappel ({X} minutes restantes, {Y} n° du
+    #   ticket, {Z} durée de session) et message de fermeture automatique.
+    ticket_seuil_forfait_heures: Optional[float] = Field(default=None, ge=0, le=1000)
+    ticket_validite_heures: Optional[float] = Field(default=None, ge=0, le=24 * 365)
+    ticket_session_wa_minutes: Optional[int] = Field(default=None, ge=0, le=24 * 60)
+    ticket_message_rappel: Optional[str] = Field(default=None, max_length=1000)
+    ticket_message_fermeture: Optional[str] = Field(default=None, max_length=1000)
     # Iter37d — Cashier role flag (Caisse/Facturation module access)
     can_cash: Optional[bool] = None
     # S-iter39a — Allow admin/superviseur to re-attach a tenant account to a
@@ -503,7 +513,9 @@ class ContactCreate(BaseModel):
 # ====================================================================
 # USERS TRACKING (sub-users of a client)
 # ====================================================================
-TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien"]
+# Lot 54 — « Auxiliaire en Pharmacie » : accès limité à Fiche Produit, Posologie et Ordonnances
+# et Stock (scan + OCR uniquement), contrôlé côté serveur (roles_restreints.py).
+TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"]
 
 
 class TrackedUserCreate(BaseModel):

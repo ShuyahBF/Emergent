@@ -82,6 +82,9 @@ async def me_activite(request: Request, user: dict = Depends(get_current_user)):
     jeton = _jeton(request)
     if jeton.get("sid") and not jeton.get("imp"):
         await sess.noter_activite(jeton["sid"])
+        # Lot 54 — interaction réelle de l'utilisateur (pastille de présence des utilisateurs suivis)
+        await db[sess.COLLECTION].update_one({"id": jeton["sid"], "fermee_le": None},
+                                             {"$set": {"derniere_interaction": sess._iso()}})
     return {"ok": True}
 
 

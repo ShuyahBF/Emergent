@@ -9,7 +9,9 @@ Dans cet ordre :
      (J+110) ou archivé (J+113) → 403 « abonnement_suspendu » sur toutes les routes ;
   4. abonnement du client (abonnement_acces.py) : après la période de grâce → 402, sauf les
      routes de l'écran « Abonnement expiré » (profil minimal, état de l'abonnement,
-     sessions, déconnexion).
+     sessions, déconnexion) ;
+  5. lot 54 — rôle « Auxiliaire en Pharmacie » (roles_restreints.py) : 403 « role_restreint »
+     hors de Fiche Produit, Posologie et Ordonnances et Stock (scan + OCR).
 
 Les refus portent un `code` lisible par le site (réponse {"detail": ..., "code": ...}) : le
 navigateur affiche le bon écran (maintenance, session fermée, abonnement expiré).
@@ -63,3 +65,5 @@ async def controler_requete(user: dict, jeton: dict, request: Optional[Request])
     await sessions_comptes.controler(user, jeton, request)
     await cycle_vie_abonnements.controler(user, jeton, chemin_de(request))
     await abonnement_acces.controler(user, jeton, chemin_de(request))
+    import roles_restreints
+    await roles_restreints.controler(user, request.method if request is not None else "", chemin_de(request))

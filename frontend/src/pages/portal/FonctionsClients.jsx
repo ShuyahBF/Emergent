@@ -424,13 +424,16 @@ export default function FonctionsClients() {
           className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm" data-testid="fonctions-clients-recherche" />
       </div>
 
-      <div className="rounded-xl bg-white ring-1 ring-slate-200 overflow-x-auto">
+      {/* Lot 54 — ligne d'en-tête FIXE au défilement vertical : le tableau défile dans son propre
+          cadre (hauteur limitée à l'écran) et les cellules d'en-tête sont « sticky » en haut. */}
+      <div className="rounded-xl bg-white ring-1 ring-slate-200 overflow-auto max-h-[calc(100vh-14rem)] min-h-[16rem]"
+           data-testid="fonctions-clients-tableau">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+          <thead className="text-[11px] uppercase tracking-wider text-slate-500">
             <tr>
-              <th className="text-left px-4 py-2">Client</th>
+              <th className="sticky top-0 z-20 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0] text-left px-4 py-2">Client</th>
               {FONCTIONS.map((f) => (
-                <th key={f.cle} className="px-4 py-2 text-center whitespace-nowrap">
+                <th key={f.cle} className="sticky top-0 z-20 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0] px-4 py-2 text-center whitespace-nowrap">
                   <span className="inline-flex items-center gap-1"><f.icon className="h-3.5 w-3.5" /> {f.label}</span>
                 </th>
               ))}

@@ -58,8 +58,12 @@ const StatusChip = ({ status }) => {
 export default function Tickets() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState("open_all");
-  const [search, setSearch] = useState("");
+  // Lot 54 — lien depuis l'historique d'intervention : /portal/tickets?numero=<n° du ticket>
+  const numeroUrl = (() => {
+    try { return new URLSearchParams(window.location.search).get("numero") || ""; } catch { return ""; }
+  })();
+  const [filterStatus, setFilterStatus] = useState(numeroUrl ? "" : "open_all");
+  const [search, setSearch] = useState(numeroUrl);
   // Iter35p
   const [targets, setTargets] = useState([]);
   const [motifTemplates, setMotifTemplates] = useState([]);
@@ -471,6 +475,52 @@ export default function Tickets() {
   );
 }
 
+// Lot 54 — Session WhatsApp du ticket : contacts du client couverts, échéance de la session
+// (rappels T-10 / T-5 puis fermeture automatique), validité ; durée modifiable par ticket.
+function SessionWaTicket({ t, isClosed, reload }) {
+  const { user } = useAuth();
+  const eleve = ["admin", "superviseur", "moderateur", "moderator"].includes(user?.role || "")
+    || ["Moderation", "Administrateur", "Superviseur"].includes(user?.tracked_role || "");
+  const [minutes, setMinutes] = useState(t.session_wa_minutes ?? "");
+  const [occupe, setOccupe] = useState(false);
+  const nbContacts = (t.contact_ids || []).length;
+  if (isClosed && !t.cloture_auto && !t.session_wa_minutes) return null;
+  const enregistrer = async () => {
+    setOccupe(true);
+    try {
+      await apiClient.put(`/me/tickets/${t.id}/session-wa`, { minutes: Math.max(0, Math.round(Number(minutes) || 0)) });
+      toast.success("Durée de session enregistrée");
+      await reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setOccupe(false); }
+  };
+  return (
+    <div className="rounded-lg bg-emerald-50/60 ring-1 ring-emerald-200 px-3 py-2 text-xs text-emerald-900 space-y-1" data-testid={`ticket-session-wa-${t.id}`}>
+      <p>
+        {nbContacts > 1 && <>Ticket partagé par <b>{nbContacts}</b> contacts du client · </>}
+        {t.session_wa_fin
+          ? <>Session WhatsApp de <b>{t.session_wa_minutes} mn</b> — fin {fmtDateTime(t.session_wa_fin)}{(t.rappels_envoyes || []).length ? ` · rappels : T-${t.rappels_envoyes.join(", T-")} mn` : ""}</>
+          : <>Session WhatsApp sans limite de durée</>}
+        {t.validite_expire_le && <> · valable jusqu'au {fmtDateTime(t.validite_expire_le)}</>}
+        {t.cloture_auto && <> · clôture automatique ({t.cloture_auto === "session_wa_expiree" ? "fin de session" : "fin de validité"})</>}
+      </p>
+      {eleve && !isClosed && (
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1">Durée de session (mn, 0 = sans limite)
+            <input type="number" min={0} max={1440} value={minutes} onChange={(e) => setMinutes(e.target.value)}
+              className="w-20 rounded border border-emerald-300 bg-white px-1.5 py-0.5 tabular-nums" data-testid={`ticket-session-minutes-${t.id}`} />
+          </label>
+          <button type="button" onClick={enregistrer} disabled={occupe}
+            className="rounded bg-emerald-600 text-white px-2 py-0.5 disabled:opacity-50" data-testid={`ticket-session-enregistrer-${t.id}`}>
+            Enregistrer
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TicketRow({ t, reload, targets }) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -610,6 +660,7 @@ function TicketRow({ t, reload, targets }) {
       </button>
       {expanded && (
         <div className="border-t border-slate-200 p-4 space-y-3 bg-slate-50/50" data-testid={`ticket-detail-${t.id}`}>
+          <SessionWaTicket t={t} isClosed={isClosed} reload={reload} />
           <div className="grid sm:grid-cols-2 gap-3 text-xs">
             <Field label="Ouvert par" value={t.opened_by_label} />
             <Field label="Ouvert le" value={fmtDateTime(t.opened_at)} />

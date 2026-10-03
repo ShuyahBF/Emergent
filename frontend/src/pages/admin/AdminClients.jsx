@@ -7,7 +7,10 @@ import { toast } from "sonner";
 import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "", contract_access_mode: "" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "", contract_access_mode: "", ticket_seuil_forfait_heures: "", ticket_validite_heures: "", ticket_session_wa_minutes: "", ticket_message_rappel: "", ticket_message_fermeture: "" };
+// Lot 54 — textes par défaut (identiques à backend/tickets_clients.py) affichés en indication
+const MESSAGE_RAPPEL_DEFAUT = "Il vous reste {X} mn avant la fermeture automatique de ce ticket n°{Y}. Parce que d'autres interventions nous attendent, nos sessions sont limitées à {Z} mn.";
+const MESSAGE_FERMETURE_DEFAUT = "Le ticket n°{Y} est maintenant fermé : la durée de session de {Z} mn est écoulée. Merci de votre compréhension.";
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -178,6 +181,13 @@ export default function AdminClients() {
       // 2026-02 fork iter108 — S158 : normalize billing period
       const bp = (out.contract_billing_period || "").toLowerCase();
       out.contract_billing_period = ["monthly", "quarterly", "annual"].includes(bp) ? bp : null;
+      // Lot 54 — réglages des tickets : vide → inchangé (null), sinon nombre ≥ 0
+      for (const k of ["ticket_seuil_forfait_heures", "ticket_validite_heures", "ticket_session_wa_minutes"]) {
+        const v = out[k];
+        if (v === "" || v === null || v === undefined) out[k] = null;
+        else out[k] = Math.max(0, Number(v) || 0);
+      }
+      if (out.ticket_session_wa_minutes !== null) out.ticket_session_wa_minutes = Math.round(out.ticket_session_wa_minutes);
       return out;
     };
     try {
@@ -820,11 +830,31 @@ export default function AdminClients() {
               </div>
               <p className="text-[11px] text-sky-800">
                 Utilisé pour calculer le coût d'un ticket à sa clôture (visible uniquement par admin/superviseur/modérateur).
-                <br /><b>Forfait</b> prioritaire si &gt; 0, sinon <b>Taux horaire × durée active</b>.
+                <br />Lot 54 : durée active <b>inférieure au seuil</b> → <b>Taux horaire × durée</b> ; durée <b>égale ou supérieure au seuil</b> → <b>Forfait</b>.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <Input label="Taux horaire (XOF)" type="number" value={form.hourly_rate ?? 0} onChange={(v) => setForm({ ...form, hourly_rate: v === "" ? 0 : Number(v) })} testid="client-hourly-rate" />
                 <Input label="Forfait par intervention (XOF)" type="number" value={form.flat_rate ?? 0} onChange={(v) => setForm({ ...form, flat_rate: v === "" ? 0 : Number(v) })} testid="client-flat-rate" />
+                <Input label="Seuil du forfait (heures, défaut 5)" type="number" value={form.ticket_seuil_forfait_heures ?? ""} onChange={(v) => setForm({ ...form, ticket_seuil_forfait_heures: v })} testid="client-ticket-seuil" />
+                <Input label="Validité d'un ticket — client sans contrat (heures, 0 = illimitée)" type="number" value={form.ticket_validite_heures ?? ""} onChange={(v) => setForm({ ...form, ticket_validite_heures: v })} testid="client-ticket-validite" />
+                <Input label="Durée de session WhatsApp par ticket (minutes, 0 = sans limite)" type="number" value={form.ticket_session_wa_minutes ?? ""} onChange={(v) => setForm({ ...form, ticket_session_wa_minutes: v })} testid="client-ticket-session" />
+              </div>
+              <p className="text-[11px] text-sky-800">
+                La validité et la session sont comptées depuis la <b>création</b> du ticket. Un ticket ouvert couvre <b>tous les contacts</b> de ce client.
+                Rappels envoyés dans la conversation à <b>10 mn</b> puis <b>5 mn</b> de la fin, puis fermeture automatique (fenêtre WhatsApp de 24 h respectée).
+                Variables : <code>{"{X}"}</code> minutes restantes, <code>{"{Y}"}</code> n° du ticket, <code>{"{Z}"}</code> durée de session.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Message de rappel (vide = texte par défaut)</label>
+                <textarea rows={3} value={form.ticket_message_rappel ?? ""} placeholder={MESSAGE_RAPPEL_DEFAUT}
+                  onChange={(e) => setForm({ ...form, ticket_message_rappel: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="client-ticket-message-rappel" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Message de fermeture automatique (vide = texte par défaut)</label>
+                <textarea rows={2} value={form.ticket_message_fermeture ?? ""} placeholder={MESSAGE_FERMETURE_DEFAUT}
+                  onChange={(e) => setForm({ ...form, ticket_message_fermeture: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="client-ticket-message-fermeture" />
               </div>
             </div>
 

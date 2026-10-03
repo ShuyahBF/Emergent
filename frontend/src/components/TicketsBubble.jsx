@@ -124,7 +124,9 @@ export default function TicketsBubble() {
         attach_wa_sms_history: attachHistory,
       };
       const r = await apiClient.post("/me/tickets", payload);
-      toast.success("Ticket créé. Modèle WA envoyé au contact si numéro fourni.");
+      // Lot 54 — un ticket ouvert couvre tous les contacts du client : la demande y est rattachée
+      if (r.data?.rattache) toast.info(r.data.message || `Demande rattachée au ticket ${r.data.ticket?.number || ""}`);
+      else toast.success("Ticket créé. Modèle WA envoyé au contact si numéro fourni.");
       // 2026-02 fork iter107 — Proposer d'ajouter le rapporteur au registre des
       // contacts s'il n'existe pas déjà (et si un téléphone a été saisi).
       const matched = linkedContacts.find((c) => (c.name || "").toLowerCase() === form.contact_name.toLowerCase());

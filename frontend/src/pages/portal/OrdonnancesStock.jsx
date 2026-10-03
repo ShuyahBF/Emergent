@@ -7,6 +7,8 @@
   VIDAL présents en stock, puis réserve les quantités jusqu'à la vente.
   API : /stock-produits (stock) et /ordonnances-stock (backend/routes/ordonnances_stock.py).
   Fonction activable « Ordonnances et stock » (SMART Communications).
+  Lot 54 — Auxiliaire en Pharmacie : scan + OCR uniquement (ni dépôts, ni stock, ni réservations,
+  ni suppression) et historique de SES ordonnances scannées ; le serveur applique la même règle.
 */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,6 +16,7 @@ import {
   Camera, CheckCircle2, ClipboardList, Loader2, PackageSearch, Pill, Search, Trash2, XCircle,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { estPhoto, reduirePhoto } from "@/lib/photos";
 
@@ -68,7 +71,37 @@ function Stock({ produit }) {
   );
 }
 
+// Lot 54 — lecture OCR seule (vue de l'Auxiliaire en Pharmacie)
+function LignesOcr({ ordo }) {
+  return (
+    <section className="rounded-xl bg-white ring-1 ring-slate-200 overflow-hidden" data-testid="ordonnance-resultat-ocr">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+        <ClipboardList className="h-4 w-4 text-slate-500" />
+        <p className="text-sm font-semibold text-slate-800 flex-1">
+          Ordonnance {ordo.date_ordonnance ? `du ${ordo.date_ordonnance}` : ""} · lue le {dateFr(ordo.cree_le)}
+        </p>
+      </div>
+      {ordo.lignes.length === 0 && <p className="px-4 py-3 text-sm text-slate-500">Aucun médicament lu.</p>}
+      <div className="divide-y divide-slate-100">
+        {ordo.lignes.map((l) => (
+          <div key={l.index} className="px-4 py-3" data-testid={`ligne-ocr-${l.index}`}>
+            <p className="text-sm font-semibold text-slate-900">
+              {l.nom} {l.dosage && <span className="font-normal text-slate-600">{l.dosage}</span>}
+              {l.forme && <span className="font-normal text-slate-500"> · {l.forme}</span>}
+              {l.quantite ? <span className="font-normal text-slate-500"> · qté {l.quantite}</span> : null}
+            </p>
+            {l.posologie && <p className="text-xs text-slate-500">{l.posologie}</p>}
+            {l.incertain && <p className="text-xs text-amber-700">Lecture douteuse{l.note ? ` : ${l.note}` : ""}</p>}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function OrdonnancesStock() {
+  const { user } = useAuth();
+  const ocrSeul = (user?.tracked_role || "") === "Auxiliaire en Pharmacie";
   const [depots, setDepots] = useState([]);          // [{code_depot, produits, maj_le}]
   const [choisis, setChoisis] = useState([]);        // dépôts cochés (vide = tous)
   const [historique, setHistorique] = useState([]);
@@ -85,11 +118,13 @@ export default function OrdonnancesStock() {
   }, []);
 
   useEffect(() => {
-    apiClient.get("/stock-produits/depots")
-      .then((r) => setDepots(r.data?.depots || []))
-      .catch((e) => toast.error(erreur(e, "Impossible de charger votre stock")));
+    if (!ocrSeul) {
+      apiClient.get("/stock-produits/depots")
+        .then((r) => setDepots(r.data?.depots || []))
+        .catch((e) => toast.error(erreur(e, "Impossible de charger votre stock")));
+    }
     chargerHistorique();
-  }, [chargerHistorique]);
+  }, [chargerHistorique, ocrSeul]);
 
   // Photos choisies (appareil photo du téléphone ou fichiers) : réduites avant l'envoi
   const ajouterPhotos = async (liste) => {
@@ -187,12 +222,14 @@ export default function OrdonnancesStock() {
           <Pill className="h-5 w-5 text-emerald-600" /> Ordonnances et stock
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Photographiez l'ordonnance : chaque médicament est recherché dans votre stock (salle et magasin), avec la
-          péremption et les équivalents VIDAL disponibles. La photo n'est pas conservée.
+          {ocrSeul
+            ? "Photographiez ou scannez l'ordonnance puis lancez la lecture (OCR) des médicaments prescrits. La photo n'est pas conservée."
+            : "Photographiez l'ordonnance : chaque médicament est recherché dans votre stock (salle et magasin), avec la péremption et les équivalents VIDAL disponibles. La photo n'est pas conservée."}
         </p>
       </div>
 
       {/* Dépôts du client : cochés = recherche limitée à ces dépôts (aucun coché = tous) */}
+      {!ocrSeul && (
       <section className="rounded-xl bg-white ring-1 ring-slate-200 p-4 space-y-2">
         <p className="text-sm font-semibold text-slate-700">Dépôts</p>
         {depots.length === 0 ? (
@@ -210,6 +247,7 @@ export default function OrdonnancesStock() {
           </div>
         )}
       </section>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_18rem]">
         <div className="space-y-5 min-w-0">
@@ -224,7 +262,7 @@ export default function OrdonnancesStock() {
               <Button type="button" onClick={analyser} disabled={!photos.length || analyse} data-testid="ordonnance-analyser"
                 className="bg-emerald-600 hover:bg-emerald-700">
                 {analyse ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <PackageSearch className="h-4 w-4 mr-1.5" />}
-                Vérifier la disponibilité
+                {ocrSeul ? "Lancer l'OCR" : "Vérifier la disponibilité"}
               </Button>
               {photos.length > 0 && (
                 <span className="text-xs text-slate-500">
@@ -236,7 +274,8 @@ export default function OrdonnancesStock() {
           </section>
 
           {/* Résultat */}
-          {ordo && (
+          {ordo && ordo.ocr_seulement && <LignesOcr ordo={ordo} />}
+          {ordo && !ordo.ocr_seulement && (
             <section className="rounded-xl bg-white ring-1 ring-slate-200 overflow-hidden" data-testid="ordonnance-resultat">
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <ClipboardList className="h-4 w-4 text-slate-500" />
@@ -348,6 +387,7 @@ export default function OrdonnancesStock() {
 
         {/* Colonne droite : recherche dans le stock + ordonnances récentes */}
         <aside className="space-y-5">
+          {!ocrSeul && (
           <section className="rounded-xl bg-white ring-1 ring-slate-200 p-3 space-y-2">
             <form onSubmit={rechercher} className="flex gap-1.5">
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Chercher dans le stock…"
@@ -368,8 +408,9 @@ export default function OrdonnancesStock() {
               </ul>
             )}
           </section>
+          )}
           <section className="rounded-xl bg-white ring-1 ring-slate-200 p-3">
-            <p className="text-sm font-semibold text-slate-700 mb-2">Ordonnances récentes</p>
+            <p className="text-sm font-semibold text-slate-700 mb-2">{ocrSeul ? "Mes ordonnances scannées" : "Ordonnances récentes"}</p>
             {historique.length === 0 && <p className="text-xs text-slate-500">Aucune ordonnance.</p>}
             <ul className="space-y-1.5">
               {historique.map((h) => (
@@ -378,9 +419,11 @@ export default function OrdonnancesStock() {
                     <p className="font-medium text-slate-800">{dateFr(h.cree_le)} · {h.lignes} ligne(s)</p>
                     <p className="text-slate-500 truncate">{h.noms.filter(Boolean).join(", ")}</p>
                   </button>
+                  {!ocrSeul && (
                   <button type="button" onClick={() => supprimer(h.id)} aria-label="Supprimer" className="text-slate-400 hover:text-red-600">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
+                  )}
                 </li>
               ))}
             </ul>

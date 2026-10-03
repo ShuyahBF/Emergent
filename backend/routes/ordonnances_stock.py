@@ -23,6 +23,9 @@ nom du patient ni celui du prescripteur (seules les lignes de médicaments).
 Disponible = stock (salle + magasin) − réservations actives non expirées.
 Accès : fonction « Ordonnances et stock » (clé `ordonnances_stock`) activée pour le
 client dans SMART Communications ; Admin et Superviseur y ont toujours accès.
+Lot 54 — rôle « Auxiliaire en Pharmacie » : scan + OCR uniquement (POST /ordonnances-stock),
+historique de SES ordonnances scannées (GET /ordonnances-stock, GET /ordonnances-stock/{id}),
+sans stock, disponibilités ni réservations ; toutes les autres routes de ce module → 403.
 """
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from fastapi import Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+import roles_restreints
 import stock_produits as sp
 
 logger = logging.getLogger("sawali.ordonnances_stock")
@@ -195,6 +199,21 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
                                                         "administrateur SAWALI.")
         return user
 
+    async def gestionnaire(user: dict = Depends(utilisateur)) -> dict:
+        """Lot 54 — routes de stock et de réservation : refusées à l'Auxiliaire en Pharmacie."""
+        if roles_restreints.est_auxiliaire(user):
+            raise HTTPException(status_code=403, detail="Le rôle « Auxiliaire en Pharmacie » permet uniquement "
+                                                        "de scanner des ordonnances et de lancer l'OCR.")
+        return user
+
+    def _vue_ocr(ordo: dict) -> dict:
+        """Lot 54 — vue de l'Auxiliaire en Pharmacie : lecture OCR seule (ni stock, ni réservation)."""
+        return {"id": ordo["id"], "code_client": ordo.get("code_client"), "cree_le": ordo.get("cree_le"),
+                "date_ordonnance": ordo.get("date_ordonnance"), "ocr_seulement": True,
+                "lignes": [{"index": i, **{k: l.get(k) for k in ("nom", "dosage", "forme", "quantite", "posologie",
+                                                                 "incertain", "note")}}
+                           for i, l in enumerate(ordo.get("lignes") or [])]}
+
     async def _code_client(user: dict, demande: Optional[str] = None) -> str:
         """Code du client dont on lit le stock : TOUJOURS celui du compte connecté ; seuls
         l'Admin et le Superviseur peuvent en choisir un autre."""
@@ -225,7 +244,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
 
     # --- Stock ---------------------------------------------------------------------
     @api.get("/stock-produits/depots", tags=[TAG])
-    async def depots(code_client: Optional[str] = None, user: dict = Depends(utilisateur)):
+    async def depots(code_client: Optional[str] = None, user: dict = Depends(gestionnaire)):
         code = await _code_client(user, code_client)
         rows = await db.stock_produits.aggregate([
             {"$match": {"code_client": code}},
@@ -238,7 +257,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
     @api.get("/stock-produits", tags=[TAG])
     async def lister_stock(depot: Optional[str] = None, q: Optional[str] = None, code_client: Optional[str] = None,
                            disponibles: bool = False, limit: int = Query(100, ge=1, le=1000),
-                           user: dict = Depends(utilisateur)):
+                           user: dict = Depends(gestionnaire)):
         code = await _code_client(user, code_client)
         filtre: Dict[str, Any] = {"code_client": code}
         if depot:
@@ -348,6 +367,9 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
             raise HTTPException(status_code=404, detail="Ordonnance introuvable")
         if not _staff(user) and ordo["tenant_id"] != _tenant_id(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
+        # Lot 54 — l'Auxiliaire en Pharmacie ne voit que les ordonnances qu'il a scannées
+        if roles_restreints.est_auxiliaire(user) and ordo.get("cree_par") != user["id"]:
+            raise HTTPException(status_code=403, detail="Accès refusé")
         return ordo
 
     @api.post("/ordonnances-stock", tags=[TAG])
@@ -396,11 +418,15 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
                 "lignes": lignes, "cree_par": user["id"], "cree_le": _iso(_now()),
                 "stock_vide": not produits, "_cout": lu.get("_cout")}
         await db.ordonnances_stock.insert_one(dict(ordo))
+        if roles_restreints.est_auxiliaire(user):
+            return _vue_ocr(ordo)
         return await _vue(ordo)
 
     @api.get("/ordonnances-stock", tags=[TAG])
     async def lister(user: dict = Depends(utilisateur)):
         q = {} if _staff(user) else {"tenant_id": _tenant_id(user)}
+        if roles_restreints.est_auxiliaire(user):   # lot 54 : historique de SES scans uniquement
+            q["cree_par"] = user["id"]
         rows = await db.ordonnances_stock.find(q, {"_id": 0, "_cout": 0}).sort("cree_le", -1).to_list(100)
         return [{"id": r["id"], "code_client": r["code_client"], "cree_le": r["cree_le"],
                  "date_ordonnance": r.get("date_ordonnance"), "lignes": len(r["lignes"]),
@@ -408,10 +434,13 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
 
     @api.get("/ordonnances-stock/{ordo_id}", tags=[TAG])
     async def detail(ordo_id: str, user: dict = Depends(utilisateur)):
-        return await _vue(await _ordonnance(ordo_id, user))
+        ordo = await _ordonnance(ordo_id, user)
+        if roles_restreints.est_auxiliaire(user):
+            return _vue_ocr(ordo)
+        return await _vue(ordo)
 
     @api.put("/ordonnances-stock/{ordo_id}/lignes/{n}", tags=[TAG])
-    async def choisir(ordo_id: str, n: int, choix: ChoixLigne, user: dict = Depends(utilisateur)):
+    async def choisir(ordo_id: str, n: int, choix: ChoixLigne, user: dict = Depends(gestionnaire)):
         ordo = await _ordonnance(ordo_id, user)
         if not 0 <= n < len(ordo["lignes"]):
             raise HTTPException(status_code=404, detail="Ligne introuvable")
@@ -426,7 +455,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
         return await _vue(await _ordonnance(ordo_id, user))
 
     @api.post("/ordonnances-stock/{ordo_id}/lignes/{n}/equivalents", tags=[TAG])
-    async def equivalents(ordo_id: str, n: int, user: dict = Depends(utilisateur)):
+    async def equivalents(ordo_id: str, n: int, user: dict = Depends(gestionnaire)):
         """Équivalents VIDAL (regroupement VMP : même DCI et dosage) présents dans le stock."""
         ordo = await _ordonnance(ordo_id, user)
         if not 0 <= n < len(ordo["lignes"]):
@@ -466,7 +495,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
 
     # --- Réservations ---------------------------------------------------------------
     @api.post("/ordonnances-stock/{ordo_id}/reserver", tags=[TAG])
-    async def reserver(ordo_id: str, user: dict = Depends(utilisateur)):
+    async def reserver(ordo_id: str, user: dict = Depends(gestionnaire)):
         """Réserve, pour chaque ligne dont le produit est choisi, min(demandé, disponible).
         Une ligne déjà réservée pour ce produit n'est pas réservée deux fois ; un produit
         dont la péremption est dépassée n'est jamais réservé."""
@@ -489,7 +518,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
         return {"reservations": creees, "ordonnance": await _vue(await _ordonnance(ordo_id, user))}
 
     @api.post("/ordonnances-stock/{ordo_id}/reservations/{rid}/{action}", tags=[TAG])
-    async def cloturer(ordo_id: str, rid: str, action: str, user: dict = Depends(utilisateur)):
+    async def cloturer(ordo_id: str, rid: str, action: str, user: dict = Depends(gestionnaire)):
         if action not in ("vendue", "annuler"):
             raise HTTPException(status_code=400, detail="Action attendue : vendue ou annuler")
         await _ordonnance(ordo_id, user)
@@ -502,7 +531,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
         return await _vue(await _ordonnance(ordo_id, user))
 
     @api.delete("/ordonnances-stock/{ordo_id}", tags=[TAG])
-    async def supprimer(ordo_id: str, user: dict = Depends(utilisateur)):
+    async def supprimer(ordo_id: str, user: dict = Depends(gestionnaire)):
         await _ordonnance(ordo_id, user)
         await db.stock_reservations.update_many({"ordonnance_id": ordo_id, "statut": "active"},
                                                 {"$set": {"statut": "annulee", "cloture_le": _iso(_now())}})

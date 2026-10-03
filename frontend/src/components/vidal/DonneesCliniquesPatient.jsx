@@ -33,6 +33,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { User, Baby, Activity, Loader2 } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 import ChampTagsReferentiel from "./ChampTagsReferentiel";
+import ChampDate, { dateDepuisAge } from "./ChampDate";
 // Lot 56.4 — champs numériques « spin » (flèches, jamais négatifs).
 import ChampNombre from "./ChampNombre";
 import { chargerEtatValidation } from "./BandeauValidationVidal";
@@ -199,13 +200,20 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 10 }}>
         <div>
           <Libelle>Date de naissance (jj/mm/aaaa)</Libelle>
-          <input type="date" className="champ-saisie" max={aujourdhui} value={c.dateOfBirth} disabled={identiteVerrouillee}
+          <ChampDate className="champ-saisie" max={aujourdhui} value={c.dateOfBirth} disabled={identiteVerrouillee}
             onChange={(e) => onChange({ dateOfBirth: e.target.value })} style={styleChamp(erreurs.dateOfBirth, identiteVerrouillee)} />
           <MessageErreur message={erreurs.dateOfBirth} />
         </div>
         <div>
-          <Libelle>Âge (ans)</Libelle>
-          <input className="champ-saisie" value={age == null ? "" : age} readOnly tabIndex={-1} style={STYLE_CALCULE} placeholder="Calculé" />
+          <Libelle>Âge (ans) — saisissable</Libelle>
+          {/* Âge saisissable : la date de naissance s'y adapte (jour et mois conservés s'ils sont connus) */}
+          <input type="number" min={0} max={130} className="champ-saisie" value={age == null ? "" : age} disabled={identiteVerrouillee}
+            onChange={(e) => {
+              if (e.target.value === "") { onChange({ dateOfBirth: "" }); return; }
+              const iso = dateDepuisAge(e.target.value, c.dateOfBirth);
+              if (iso) onChange({ dateOfBirth: iso });
+            }}
+            style={styleChamp(null, identiteVerrouillee)} placeholder="ou saisir l'âge" />
         </div>
         <div>
           <Libelle>Sexe</Libelle>
@@ -345,7 +353,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "start", marginBottom: 10 }}>
               <div>
                 <Libelle>Date des dernières règles (jj/mm/aaaa)</Libelle>
-                <input type="date" className="champ-saisie" max={aujourdhui} value={c.lastMenstrualPeriodDate}
+                <ChampDate className="champ-saisie" max={aujourdhui} value={c.lastMenstrualPeriodDate}
                   onChange={(e) => changerDdr(e.target.value)} style={styleChamp(erreurs.lastMenstrualPeriodDate)} />
                 <MessageErreur message={erreurs.lastMenstrualPeriodDate} />
               </div>
@@ -373,7 +381,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "start" }}>
               <div>
                 <Libelle>Date de début d'allaitement (jj/mm/aaaa)</Libelle>
-                <input type="date" className="champ-saisie" max={aujourdhui} value={c.breastFeedingStartDate}
+                <ChampDate className="champ-saisie" max={aujourdhui} value={c.breastFeedingStartDate}
                   onChange={(e) => onChange({ breastFeedingStartDate: e.target.value })} style={styleChamp(erreurs.breastFeedingStartDate)} />
                 <MessageErreur message={erreurs.breastFeedingStartDate} />
                 {!erreurs.breastFeedingStartDate && <MessageAvertissement message={avertissements.breastFeedingStartDate} />}

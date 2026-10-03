@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { FlaskConical, RefreshCw, Trash2, Download, Printer, Copy, X, Loader2 } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 import { chargerEtatValidation } from "./BandeauValidationVidal";
+import ChampDate from "./ChampDate";
 import { messageErreurApi } from "@/lib/vidalReferentiels";
 
 /** Télécharge un fichier renvoyé par l'API (jeton d'authentification compris, via apiClient). */
@@ -231,8 +232,8 @@ export default function ValidationVidal({ onChangement }) {
 
       <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Journal de validation ({journal.entrees.length} appel{journal.entrees.length > 1 ? "s" : ""})</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 8, fontSize: 12 }}>
-        <label>Depuis<br /><input type="date" className="champ-saisie" style={{ width: 150 }} value={filtres.depuis} onChange={(e) => setFiltres({ ...filtres, depuis: e.target.value })} /></label>
-        <label>Jusqu'à<br /><input type="date" className="champ-saisie" style={{ width: 150 }} value={filtres.jusqua} onChange={(e) => setFiltres({ ...filtres, jusqua: e.target.value })} /></label>
+        <label>Depuis<br /><ChampDate className="champ-saisie" style={{ width: 150 }} value={filtres.depuis} onChange={(e) => setFiltres({ ...filtres, depuis: e.target.value })} /></label>
+        <label>Jusqu'à<br /><ChampDate className="champ-saisie" style={{ width: 150 }} value={filtres.jusqua} onChange={(e) => setFiltres({ ...filtres, jusqua: e.target.value })} /></label>
         <label>Profil<br />
           <select className="champ-saisie" style={{ width: 220 }} value={filtres.profil} onChange={(e) => setFiltres({ ...filtres, profil: e.target.value })}>
             <option value="">Tous</option>{journal.profils.map((p) => <option key={p}>{p}</option>)}

@@ -17,6 +17,7 @@ import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 // mêmes composants et mêmes référentiels que la Sécurisation VIDAL.
 import ChampTagsReferentiel from "@/components/vidal/ChampTagsReferentiel";
 import ChampNombre from "@/components/vidal/ChampNombre";
+import ChampDate from "@/components/vidal/ChampDate";
 import ChronoSaisie, { useChronoSaisie } from "@/components/vidal/ChronoSaisie";
 import { appliquerListes, chargerListesProduit, nouvelleLigneSaisie } from "@/components/vidal/LignePrescriptionVidal";
 import {
@@ -266,8 +267,9 @@ export function PrescriptionAnalysisForm() {
       <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white grid sm:grid-cols-4 gap-3">
         <label className="block text-xs">
           <span className="block text-slate-600 mb-1">Date de naissance</span>
-          <input
-            type="date"
+          {/* Date de naissance : saisie JJ/MM/AAAA, calendrier, ou âge */}
+          <ChampDate
+            avecAge
             value={patient.birth_date}
             max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setPatient({ ...patient, birth_date: e.target.value })}

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { AlertTriangle, Baby, Loader2, Pill, Search, Stethoscope, User, Users } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
+import ChampDate from "@/components/vidal/ChampDate";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 
 // Profils rapides — mêmes valeurs de référence que la maquette d'origine
@@ -167,7 +168,7 @@ export default function VidalPosologie() {
         <CardContent className="grid sm:grid-cols-4 gap-3">
           <div>
             <Label className="text-xs">Date de naissance</Label>
-            <Input type="date" value={patient.dob} onChange={(e) => setPatient({ ...patient, dob: e.target.value })} data-testid="poso-dob" />
+            <ChampDate avecAge className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm" value={patient.dob} onChange={(e) => setPatient({ ...patient, dob: e.target.value })} data-testid="poso-dob" />
           </div>
           <div>
             <Label className="text-xs">Genre</Label>

@@ -29,6 +29,7 @@ import { X, Loader2, Plus, ChevronDown, ChevronRight, AlertTriangle } from "luci
 import { apiClient as api } from "@/lib/api";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { Libelle, MessageErreur } from "./DonneesCliniquesPatient";
+import ChampDate from "./ChampDate";
 import { chargerEtatValidation } from "./BandeauValidationVidal";
 // Lot 56.4 — champs numériques « spin » (flèches, jamais négatifs).
 import ChampNombre from "./ChampNombre";
@@ -260,11 +261,11 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, alignItems: "start" }}>
         <div>
           <Libelle>Début (jj/mm/aaaa)</Libelle>
-          <input type="date" className="champ-saisie" style={{ fontSize: 12.5 }} value={ligne.startDate} onChange={(e) => majAvecFin({ startDate: e.target.value })} />
+          <ChampDate className="champ-saisie" style={{ fontSize: 12.5 }} value={ligne.startDate} onChange={(e) => majAvecFin({ startDate: e.target.value })} />
         </div>
         <div>
           <Libelle>Fin (jj/mm/aaaa)</Libelle>
-          <input type="date" className="champ-saisie" min={ligne.startDate || undefined} value={ligne.endDate}
+          <ChampDate className="champ-saisie" min={ligne.startDate || undefined} value={ligne.endDate}
             onChange={(e) => onChange({ endDate: e.target.value, finManuelle: !!e.target.value })}
             style={styleChamp(erreurs.endDate)} title="Facultative : saisie par le médecin" />
           <MessageErreur message={erreurs.endDate} />

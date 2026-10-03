@@ -79,8 +79,8 @@ export default function EtatConnexion({ tone = "light", className = "", compact 
   const sombre = tone === "dark";
   return (
     <div
-      // compact (barre latérale) : police réduite de moitié (11 → 6 px)
-      className={`${compact ? "text-[6px]" : "text-[11px]"} leading-tight ${sombre ? "text-slate-300" : "text-slate-500"} ${className}`}
+      // compact (barre latérale) : police réduite (11 → 8 px) pour rester lisible
+      className={`${compact ? "text-[8px]" : "text-[11px]"} leading-tight ${sombre ? "text-slate-300" : "text-slate-500"} ${className}`}
       data-testid="etat-connexion"
     >
       <div className="flex items-center gap-1.5">

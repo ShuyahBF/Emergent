@@ -751,6 +751,8 @@ async def get_version_detail():
         # Iter43-fix24az-t — nouveaux champs pour debug/monitoring
         "files_hash": snap.get("files_hash"),
         "deploy_id": snap.get("deploy_id"),
+        # Règle permanente : numéro de lot déployé (source unique : backend/lot.py)
+        "lot": __import__("lot").LOT,
     }
 
 

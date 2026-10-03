@@ -63,7 +63,7 @@ export default function VersionStamp() {
     <div
       className="fixed bottom-2 left-3 z-30 select-none pointer-events-none tracking-wide"
       data-testid="version-stamp"
-      title={`Version ${info.version} — déployé le ${stamp}`}
+      title={`Version ${info.version}${info.lot ? ` — Lot ${info.lot}` : ""} — déployé le ${stamp}`}
       style={{
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize,
@@ -73,7 +73,8 @@ export default function VersionStamp() {
         color,
       }}
     >
-      v{info.version} · {stamp}
+      {/* Règle permanente : version + lot + date de déploiement */}
+      v{info.version}{info.lot ? ` · Lot ${info.lot}` : ""} · {stamp}
     </div>
   );
 }

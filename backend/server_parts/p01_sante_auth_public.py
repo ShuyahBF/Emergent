@@ -17,6 +17,9 @@ async def health():
     return {"status": "ok"}
 
 
+import lot as _lot_deploye  # noqa: E402  (numéro de lot affiché avec la version)
+
+
 @api.get("/version", tags=["Santé"])
 async def version():
     """Iter43-fix24x (2026-06-16) — Version sequence auto-bumped on each deploy.
@@ -38,6 +41,9 @@ async def version():
         "built_at": APP_BUILT_AT,
         "started_at": snap.get("deployed_at") or APP_STARTED_AT,
         "deploy_seq": seq,
+        # Règle permanente : numéro de lot déployé (source unique : backend/lot.py)
+        "lot": _lot_deploye.LOT,
+        "lot_libelle": _lot_deploye.LOT_LIBELLE,
     }
 
 

@@ -108,8 +108,10 @@ services:
         value: https://sawalismartsystems.com
       - key: PUBLIC_APP_URL
         value: https://sawalismartsystems.com
+      # Pendant les essais : l'adresse Render du site. Après la bascule du domaine,
+      # remplacer par https://sawalismartsystems.com puis redéployer le frontend.
       - key: REACT_APP_BACKEND_URL
-        value: https://sawalismartsystems.com
+        value: https://sawali-frontend.onrender.com
       - key: BACKEND_PUBLIC_URL
         value: https://sawalismartsystems.com
       - key: PUBLIC_BACKEND_URL
@@ -191,21 +193,24 @@ services:
     branch: render-production   # même branche que le backend
     autoDeploy: false
     rootDir: frontend
-    buildCommand: yarn install --ignore-engines --network-timeout 600000 && yarn build --ignore-engines
+    # Render installe déjà les dépendances avec npm (voir frontend/.npmrc) : on construit seulement.
+    buildCommand: npm run build
     staticPublishPath: build
     envVars:
       - key: NODE_VERSION
         value: "22"
       # Adresse PUBLIQUE du site (figée au build) : les appels partent vers
       # <site>/api/... et sont relayés au backend ci-dessous.
+      # Pendant les essais : l'adresse Render du site. Après la bascule du domaine,
+      # remplacer par https://sawalismartsystems.com puis redéployer le frontend.
       - key: REACT_APP_BACKEND_URL
-        value: https://sawalismartsystems.com
+        value: https://sawali-frontend.onrender.com
     routes:
       # 1) Toute l'API est relayée au backend (mêmes adresses qu'avant pour les webhooks).
       #    À ajuster si Render attribue une autre adresse au backend.
       - type: rewrite
         source: /api/*
-        destination: https://sawali-backend.onrender.com/api/*
+        destination: https://sawali-backend-jdgk.onrender.com/api/*
       # 2) Application à page unique : toute autre adresse affiche index.html.
       - type: rewrite
         source: /*

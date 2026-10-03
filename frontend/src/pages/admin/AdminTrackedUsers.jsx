@@ -21,6 +21,8 @@ const PRESENCE = {
   rouge: { classe: "bg-rose-500", libelle: "Inactif depuis plus de 10 mn, ou déconnecté" },
 };
 const RAFRAICHISSEMENT_PRESENCE_MS = 30_000;
+// Mode « par date de dernière connexion » : nombre de lignes affichées par tranche
+const LIGNES_PAR_PAGE = 30;
 
 function PastillePresence({ p }) {
   const etat = PRESENCE[p?.etat] ? p.etat : "rouge";
@@ -41,6 +43,20 @@ export default function AdminTrackedUsers() {
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
   const [filterClient, setFilterClient] = useState("");
+  // Mode d'affichage de la liste :
+  //   "connexion" (défaut) : liste unique triée par date de dernière connexion, la plus récente en haut ;
+  //   "client"             : ancien affichage, regroupé par Client/tenant.
+  // Le choix est mémorisé dans ce navigateur (sans effet si le stockage est indisponible).
+  const [modeAffichage, setModeAffichage] = useState(() => {
+    try { return localStorage.getItem("suivis_mode_affichage") === "client" ? "client" : "connexion"; } catch { return "connexion"; }
+  });
+  const changerMode = (m) => {
+    setModeAffichage(m);
+    setLimiteAffichee(LIGNES_PAR_PAGE);
+    try { localStorage.setItem("suivis_mode_affichage", m); } catch { /* stockage indisponible : choix non mémorisé */ }
+  };
+  // Mode « connexion » : on n'affiche que l'essentiel (les plus récentes), puis « Afficher plus »
+  const [limiteAffichee, setLimiteAffichee] = useState(LIGNES_PAR_PAGE);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -198,14 +214,53 @@ export default function AdminTrackedUsers() {
     }));
   }, [filteredItems, clients]);
 
+  // Mode « connexion » : liste unique (sans regroupement), triée par date de dernière connexion
+  // décroissante ; les utilisateurs jamais connectés sont placés à la fin, par ordre alphabétique.
+  const triesParConnexion = useMemo(() => {
+    const horodatage = (u) => {
+      const d = connexions[u.id]?.derniere_connexion;
+      const t = d ? Date.parse(d) : NaN;
+      return Number.isNaN(t) ? null : t;
+    };
+    return [...filteredItems].sort((a, b) => {
+      const ta = horodatage(a), tb = horodatage(b);
+      if (ta === null && tb === null) return (a.name || "").localeCompare(b.name || "", "fr");
+      if (ta === null) return 1;
+      if (tb === null) return -1;
+      return tb - ta;
+    });
+  }, [filteredItems, connexions]);
+
+  // Groupes réellement affichés : un seul groupe en mode « connexion », un par client sinon
+  const groupesAffiches = modeAffichage === "client"
+    ? groupedByClient
+    : [{
+        client_id: "_par_connexion",
+        client_name: "Par date de dernière connexion",
+        list: triesParConnexion.slice(0, limiteAffichee),
+        total: triesParConnexion.length,
+      }];
+  const parConnexion = modeAffichage !== "client";
+
   return (
     <div className="space-y-6" data-testid="admin-tracked-page">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold">Utilisateurs suivis (par client)</h1>
+          <h1 className="text-2xl font-display font-bold">Utilisateurs suivis {parConnexion ? "(par dernière connexion)" : "(par client)"}</h1>
           <p className="text-sm text-slate-500">Données affichées par client. Définissez un mot de passe pour leur permettre de se connecter au portail.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Choix du mode d'affichage : par date de dernière connexion (défaut) ou par Client/tenant */}
+          <select
+            value={modeAffichage}
+            onChange={(e) => changerMode(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+            title="Mode d'affichage de la liste"
+            data-testid="tracked-mode-affichage"
+          >
+            <option value="connexion">Par date de dernière connexion</option>
+            <option value="client">Par Client/tenant</option>
+          </select>
           <select
             value={filterClient}
             onChange={(e) => setFilterClient(e.target.value)}
@@ -280,7 +335,7 @@ export default function AdminTrackedUsers() {
         </div>
       )}
 
-      {groupedByClient.map((group) => {
+      {groupesAffiches.map((group) => {
         const groupIds = group.list.map((u) => u.id);
         const allInGroupSelected = groupIds.length > 0 && groupIds.every((id) => selectedIds.has(id));
         return (
@@ -297,13 +352,18 @@ export default function AdminTrackedUsers() {
               />
               <h2 className="font-semibold text-slate-800">{group.client_name}</h2>
             </div>
-            <span className="text-xs text-slate-500">{group.list.length} utilisateur{group.list.length > 1 ? "s" : ""}</span>
+            <span className="text-xs text-slate-500">
+              {group.total != null && group.total > group.list.length
+                ? `${group.list.length} sur ${group.total} utilisateurs (les plus récemment connectés)`
+                : `${group.list.length} utilisateur${group.list.length > 1 ? "s" : ""}`}
+            </span>
           </div>
           <table className="w-full text-sm min-w-[1150px]">
             <thead className="bg-white text-xs uppercase text-slate-600">
               <tr>
                 <th className="text-left px-3 py-3 w-10"></th>
                 <th className="text-left px-4 py-3">Nom</th>
+                {parConnexion && <th className="text-left px-4 py-3">Client</th>}
                 <th className="text-left px-4 py-3">Email</th>
                 <th className="text-left px-4 py-3">Rôle</th>
                 <th className="text-left px-4 py-3">Service</th>
@@ -332,6 +392,12 @@ export default function AdminTrackedUsers() {
                     {/* Lot 44 — compte de test */}
                     {u.est_test && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${u.id}`}>TEST</span>}
                   </td>
+                  {/* Mode « connexion » : client de l'utilisateur, puisque la liste n'est plus regroupée */}
+                  {parConnexion && (
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap" data-testid={`tracked-client-${u.id}`}>
+                      {u.client_id ? cName(u.client_id) : "(Sans client)"}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-slate-600">{u.email || "-"}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded ${u.role === "Superviseur" ? "bg-sawali-blue/10 text-sawali-blue border border-sawali-blue/30" : "bg-slate-100 text-slate-700"}`}>{u.role || "-"}</span>
@@ -413,6 +479,18 @@ export default function AdminTrackedUsers() {
               ))}
             </tbody>
           </table>
+          {/* Mode « connexion » : afficher la tranche suivante seulement à la demande */}
+          {group.total != null && group.total > group.list.length && (
+            <div className="px-4 py-3 border-t border-slate-100 text-center">
+              <button
+                onClick={() => setLimiteAffichee((n) => n + LIGNES_PAR_PAGE)}
+                className="rounded-lg bg-white text-sawali-blue px-4 py-1.5 text-sm border border-slate-300 hover:bg-slate-50"
+                data-testid="tracked-afficher-plus"
+              >
+                Afficher {Math.min(LIGNES_PAR_PAGE, group.total - group.list.length)} de plus
+              </button>
+            </div>
+          )}
         </div>
         );
       })}

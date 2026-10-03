@@ -119,6 +119,34 @@ async def patient_fictif(db, user: Dict[str, Any], patient_id: Optional[str]) ->
 # sans permettre d'identifier la personne). Tout le reste (nom, prénoms,
 # numéros de contact, adresse, e-mail, poids...) est retiré avant l'envoi.
 CHAMPS_PATIENT_AUTORISES_VALIDATION = ("birth_date", "sex", "creatinine_clearance_ml_min")
+# Patient FICTIF (données inventées) : on garde aussi le poids, jamais l'identité.
+CHAMPS_PATIENT_FICTIF_AUTORISES = ("birth_date", "sex", "weight_kg", "creatinine_clearance_ml_min")
+
+# Lot 56.3 — balises d'IDENTITÉ qui ne doivent JAMAIS figurer dans un corps
+# envoyé à VIDAL (Sécurisation et Analyse prescription) : nom, prénoms,
+# numéros de contact, e-mail, adresse, identifiants de dossier.
+BALISES_IDENTITE_INTERDITES = {
+    "name", "nom", "firstname", "first_name", "lastname", "last_name", "prenom", "prenoms",
+    "fullname", "full_name", "phone", "telephone", "tel", "mobile", "whatsapp", "whatsapp_number",
+    "email", "mail", "address", "adresse", "patient_id", "patientid", "ipp",
+}
+
+
+def identite_dans_corps(corps_xml: Optional[str], patient: Optional[Dict[str, Any]] = None) -> list[str]:
+    """Balises ou valeurs d'identité trouvées dans le corps XML (liste vide = rien d'identifiant).
+
+    Deux contrôles : (1) aucune balise d'identité ; (2) si le patient enregistré
+    est connu, ni son nom ni ses numéros n'apparaissent dans le texte envoyé."""
+    if not corps_xml:
+        return []
+    import re as _re
+    trouves = sorted({b for b in _re.findall(r"<\s*([A-Za-z_][\w.-]*)", corps_xml)
+                      if b.lower().replace("-", "_") in BALISES_IDENTITE_INTERDITES})
+    for cle in ("name", "whatsapp_number", "phone", "email"):
+        valeur = str((patient or {}).get(cle) or "").strip()
+        if len(valeur) >= 3 and valeur.lower() in corps_xml.lower():
+            trouves.append(f"valeur:{cle}")
+    return trouves
 
 
 def anonymiser_patient(patient: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any], list[str]]:
@@ -132,9 +160,65 @@ def anonymiser_patient(patient: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any
     return garde, retires
 
 
-def _sexe_court(sexe: Optional[str]) -> Optional[str]:
-    """MALE/FEMALE du profil clinique -> M/F attendu par la page Analyse prescription."""
-    return {"MALE": "M", "FEMALE": "F"}.get(sexe or "")
+def valider_saisie_analyse(patient: Optional[Dict[str, Any]], prescriptions: list,
+                           allergies: Optional[list], pathologies: Optional[list]) -> list[dict]:
+    """Lot 56.3 — garde-fous de saisie de « Analyse prescription » (toujours actifs).
+
+    Renvoie la liste des erreurs {champ, message} en français (vide = saisie correcte) :
+    pas de texte là où un nombre est attendu, pas de nombre seul là où un texte
+    est attendu, dates et bornes cohérentes."""
+    from datetime import date as _date
+    erreurs: list[dict] = []
+    p = patient or {}
+
+    def nombre(champ, mini, maxi, libelle, unite):
+        v = p.get(champ)
+        if v in (None, ""):
+            return
+        if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+            erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : nombre attendu."})
+            return
+        try:
+            x = float(str(v).replace(",", "."))
+        except ValueError:
+            erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : nombre attendu, pas de texte."})
+            return
+        if not (mini <= x <= maxi):
+            erreurs.append({"champ": f"patient.{champ}", "message": f"{libelle} : entre {mini} et {maxi} {unite}."})
+
+    naissance = p.get("birth_date")
+    if naissance not in (None, ""):
+        try:
+            d = _date.fromisoformat(str(naissance))
+            if d > _date.today() or d.year < 1900:
+                erreurs.append({"champ": "patient.birth_date", "message": "Date de naissance : ni dans le futur, ni avant 1900."})
+        except ValueError:
+            erreurs.append({"champ": "patient.birth_date", "message": "Date de naissance : date attendue (AAAA-MM-JJ)."})
+    if p.get("sex") not in (None, "", "M", "F"):
+        erreurs.append({"champ": "patient.sex", "message": "Sexe : « M » ou « F » uniquement."})
+    nombre("weight_kg", 0.5, 400, "Poids", "kg")
+    nombre("creatinine_clearance_ml_min", 1, 120, "Clairance de la créatinine", "mL/min")
+
+    for i, ligne in enumerate(prescriptions or []):
+        ident = str((ligne or {}).get("vidal_id") or "").strip()
+        if ident and not ident.isdigit():
+            erreurs.append({"champ": f"prescriptions[{i}].vidal_id", "message": f"Ligne {i + 1} : l'identifiant VIDAL ne contient que des chiffres."})
+        dose = (ligne or {}).get("dose")
+        if dose not in (None, ""):
+            if not isinstance(dose, str):
+                erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie en texte attendue."})
+            elif len(dose) > 200:
+                erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie trop longue (200 caractères au plus)."})
+            elif not any(c.isalpha() for c in dose):
+                erreurs.append({"champ": f"prescriptions[{i}].dose", "message": f"Ligne {i + 1} : posologie à préciser (unité, fréquence), pas un nombre seul."})
+    for nom_liste, libelle, valeurs in (("allergies", "Allergie", allergies), ("pathologies", "Pathologie", pathologies)):
+        for i, v in enumerate(valeurs or []):
+            texte = str(v).strip()
+            if not texte or not any(c.isalpha() for c in texte):
+                erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : texte attendu, pas un nombre seul."})
+            elif len(texte) > 100:
+                erreurs.append({"champ": f"{nom_liste}[{i}]", "message": f"{libelle} {i + 1} : 100 caractères au plus."})
+    return erreurs
 
 
 async def preparer_patient_analyse(db, user: Dict[str, Any], patient: Optional[Dict[str, Any]],
@@ -156,15 +240,14 @@ async def preparer_patient_analyse(db, user: Dict[str, Any], patient: Optional[D
         fictif = await patient_fictif(db, user, patient_id)
         if not fictif:
             raise HTTPException(status_code=403, detail=MESSAGE_PATIENT_NON_FICTIF)
-        profil = fictif.get("profil_clinique") or {}
-        donnees = {
-            "birth_date": profil.get("date_naissance"),
-            "sex": _sexe_court(profil.get("sexe")),
-            "weight_kg": profil.get("poids_kg"),
-            "creatinine_clearance_ml_min": profil.get("clairance_creatinine_ml_min"),
-        }
-        return {"validation": True, "patient": {k: v for k, v in donnees.items() if v not in (None, "")},
-                "origine": "patient_fictif", "champs_retires": [], "patient_id": patient_id}
+        # Lot 56.3 — les données d'un patient de TEST restent modifiables à l'écran
+        # (VIDAL peut demander de vérifier les garde-fous de saisie) : on envoie les
+        # valeurs saisies, mais toujours SANS identité (liste blanche clinique).
+        garde = {k: (patient or {}).get(k) for k in CHAMPS_PATIENT_FICTIF_AUTORISES
+                 if (patient or {}).get(k) not in (None, "")}
+        retires = sorted(k for k, v in (patient or {}).items() if k not in garde and v not in (None, "", []))
+        return {"validation": True, "patient": garde, "origine": "patient_fictif",
+                "champs_retires": retires, "patient_id": patient_id}
     garde, retires = anonymiser_patient(patient)
     return {"validation": True, "patient": garde, "origine": "anonymise" if garde else "medicaments_seuls",
             "champs_retires": retires, "patient_id": None}
@@ -279,6 +362,12 @@ async def appeler_vidal(
                 raise HTTPException(status_code=403, detail=MESSAGE_PATIENT_NON_FICTIF)
         elif patient_id:
             patient = await patient_fictif(db, user, patient_id)
+
+    if cfg.get("validation"):
+        # Lot 56.3 — dernier rempart : AUCUNE donnée d'identité ne part chez VIDAL.
+        identite = identite_dans_corps(corps_xml, patient)
+        if identite:
+            raise HTTPException(status_code=403, detail="Mode validation VIDAL : envoi bloqué, le corps contient des données d'identité du patient.")
 
     debut = time.monotonic()
     try:

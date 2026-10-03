@@ -22,6 +22,31 @@ export function PrescriptionAnalysisForm() {
   const [patientsFictifs, setPatientsFictifs] = useState([]);
   const [patientFictifId, setPatientFictifId] = useState("");
   const [transmis, setTransmis] = useState(null); // ce que le serveur a réellement envoyé à VIDAL
+  const [erreursSaisie, setErreursSaisie] = useState([]); // lot 56.3 — erreurs {champ, message} renvoyées par le serveur
+
+  // Lot 56.3 — patient fictif choisi : ses données PRÉ-REMPLISSENT les champs, qui restent
+  // modifiables (VIDAL peut demander de vérifier les garde-fous de saisie).
+  const choisirPatientFictif = async (id) => {
+    setPatientFictifId(id);
+    if (!id) return;
+    try {
+      const r = await apiClient.get(`/vidal/patients/${id}`);
+      const pc = r.data?.profil_clinique || r.data?.patient?.profil_clinique || {};
+      setPatient({
+        birth_date: pc.date_naissance || "",
+        sex: pc.sexe === "MALE" ? "M" : "F",
+        weight_kg: pc.poids_kg ?? "",
+        creatinine_clearance_ml_min: pc.clairance_creatinine_ml_min ?? "",
+      });
+      const noms = (liste) => (liste || []).map((x) => x.libelle || x.label || x.name || "").filter(Boolean).join(", ");
+      setAllergies(noms(pc.allergies));
+      setPathologies(noms(pc.pathologies));
+    } catch {
+      toast.error("Impossible de charger le patient fictif");
+    }
+  };
+  // Message d'erreur d'un champ (affiché sous le champ concerné)
+  const erreurDe = (champ) => erreursSaisie.find((e) => e.champ === champ)?.message;
   useEffect(() => {
     let actif = true;
     chargerEtatValidation().then((etat) => {
@@ -56,11 +81,12 @@ export function PrescriptionAnalysisForm() {
     }
     setLoading(true);
     setErrorState(null);
+    setErreursSaisie([]);
     setResult(null);
     try {
       const r = await apiClient.post("/vidal/prescription/analyze", {
-        // Lot 56.2 — patient fictif choisi : ses données viennent du serveur (profil enregistré)
-        patient: patientFictifId ? {} : {
+        // Lot 56.3 — valeurs SAISIES (même pour un patient fictif) ; le serveur retire l'identité
+        patient: {
           birth_date: patient.birth_date || null,
           sex: patient.sex,
           weight_kg: patient.weight_kg ? parseFloat(patient.weight_kg) : null,
@@ -84,9 +110,17 @@ export function PrescriptionAnalysisForm() {
       delete clean.raw;
       setResult(clean);
     } catch (e) {
-      const detail = e?.response?.data?.detail || e?.message || "Erreur inconnue";
-      setErrorState(detail);
-      toast.error(detail);
+      const brut = e?.response?.data?.detail;
+      // Lot 56.3 — erreurs de saisie (422) : message général + détail champ par champ
+      if (brut && typeof brut === "object" && Array.isArray(brut.erreurs)) {
+        setErreursSaisie(brut.erreurs);
+        setErrorState(brut.erreurs.map((x) => `• ${x.message}`).join("\n"));
+        toast.error(brut.message || "Saisie à corriger");
+      } else {
+        const detail = (typeof brut === "string" ? brut : null) || e?.message || "Erreur inconnue";
+        setErrorState(detail);
+        toast.error(detail);
+      }
     }
     setTimeout(() => setLoading(false), 0);
   };
@@ -108,7 +142,7 @@ export function PrescriptionAnalysisForm() {
           <span className="block text-slate-600 mb-1">Patient</span>
           <select
             value={patientFictifId}
-            onChange={(e) => setPatientFictifId(e.target.value)}
+            onChange={(e) => choisirPatientFictif(e.target.value)}
             className="w-full sm:w-96 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
           >
             <option value="">Saisie anonymisée (date de naissance, sexe, fonction rénale) ou médicaments seuls</option>
@@ -123,8 +157,7 @@ export function PrescriptionAnalysisForm() {
           )}
         </label>
       )}
-      {/* Patient (masqué quand un patient fictif est choisi : ses données viennent de son profil) */}
-      {!patientFictifId && (
+      {/* Patient (toujours modifiable, y compris pour un patient fictif) */}
       <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white grid sm:grid-cols-4 gap-3">
         <label className="block text-xs">
           <span className="block text-slate-600 mb-1">Date de naissance</span>
@@ -135,6 +168,7 @@ export function PrescriptionAnalysisForm() {
             className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
             data-testid="rx-patient-birth"
           />
+          {erreurDe("patient.birth_date") && <span className="block text-[10px] text-rose-600 mt-0.5">{erreurDe("patient.birth_date")}</span>}
         </label>
         <label className="block text-xs">
           <span className="block text-slate-600 mb-1">Sexe</span>
@@ -158,7 +192,8 @@ export function PrescriptionAnalysisForm() {
             className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
             data-testid="rx-patient-weight"
           />
-          {validation && <span className="block text-[10px] text-slate-400 mt-0.5">Non transmis en mode validation</span>}
+          {validation && !patientFictifId && <span className="block text-[10px] text-slate-400 mt-0.5">Non transmis en mode validation</span>}
+          {erreurDe("patient.weight_kg") && <span className="block text-[10px] text-rose-600 mt-0.5">{erreurDe("patient.weight_kg")}</span>}
         </label>
         {/* Lot 56.2 — fonction rénale (facultative) : transmise même en mode validation */}
         <label className="block text-xs">
@@ -172,9 +207,9 @@ export function PrescriptionAnalysisForm() {
             className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
             data-testid="rx-patient-clairance"
           />
+          {erreurDe("patient.creatinine_clearance_ml_min") && <span className="block text-[10px] text-rose-600 mt-0.5">{erreurDe("patient.creatinine_clearance_ml_min")}</span>}
         </label>
       </div>
-      )}
 
       {/* Prescriptions */}
       <div className="ring-1 ring-slate-200 rounded-lg p-3 bg-white">

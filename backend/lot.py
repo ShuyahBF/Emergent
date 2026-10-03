@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "56.2"
-LOT_LIBELLE = "Analyse prescription en mode validation : patient fictif, données anonymisées ou médicaments seuls"
+LOT = "56.3"
+LOT_LIBELLE = "VIDAL : aucune identité transmise, patient de test modifiable, garde-fous de saisie"

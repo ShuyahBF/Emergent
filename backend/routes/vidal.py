@@ -1188,6 +1188,10 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send
         # choisi, OU données ANONYMISÉES (date de naissance, sexe, fonction rénale
         # seulement), OU médicaments seuls. Décidé AVANT le quota et tout appel réseau.
         from routes import vidal_appels as _va
+        # Lot 56.3 — garde-fous de saisie (types, bornes) : 422 avec messages en français
+        erreurs_saisie = _va.valider_saisie_analyse(payload.patient, payload.prescriptions, payload.allergies, payload.pathologies)
+        if erreurs_saisie:
+            raise HTTPException(status_code=422, detail={"message": "Saisie à corriger.", "erreurs": erreurs_saisie})
         prep = await _va.preparer_patient_analyse(db, user, payload.patient, payload.patient_id)
         if prep["validation"] and getattr(payload, "xml_body", None):
             # Un XML brut ne peut pas être contrôlé : refusé en mode validation.

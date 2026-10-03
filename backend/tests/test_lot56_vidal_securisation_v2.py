@@ -974,18 +974,44 @@ def test_preparation_mode_validation_anonymise(ctx):
 
 
 def test_preparation_patient_fictif_et_refus_vrai_patient(ctx):
-    # Patient fictif : données tirées de son profil enregistré ; vrai patient : 403
+    # Patient fictif : valeurs SAISIES (modifiables) envoyées, identité retirée ; vrai patient : 403
     ctx.base.vidal_patients.insert_many([
-        {"id": "fictif1", "user_id": MEDECIN["id"], "est_fictif": True, "name": "FICTIF",
-         "profil_clinique": {"date_naissance": "1950-01-01", "sexe": "MALE", "poids_kg": 60, "clairance_creatinine_ml_min": 30}},
+        {"id": "fictif1", "user_id": MEDECIN["id"], "est_fictif": True, "name": "FICTIF", "profil_clinique": {}},
         {"id": "reel1", "user_id": MEDECIN["id"], "name": "VRAI PATIENT", "profil_clinique": {"sexe": "FEMALE"}},
     ])
-    with _client_preparation(ctx, {"name": "ignoré"}, "fictif1") as c:
+    saisie = {"name": "DUPONT", "phone": "70000000", "birth_date": "1950-01-01", "sex": "M", "weight_kg": 61, "creatinine_clearance_ml_min": 30}
+    with _client_preparation(ctx, saisie, "fictif1") as c:
         r = c.get("/essai").json()
     assert r["origine"] == "patient_fictif" and r["patient_id"] == "fictif1"
-    assert r["patient"] == {"birth_date": "1950-01-01", "sex": "M", "weight_kg": 60, "creatinine_clearance_ml_min": 30}
+    assert r["patient"] == {"birth_date": "1950-01-01", "sex": "M", "weight_kg": 61, "creatinine_clearance_ml_min": 30}
+    assert r["champs_retires"] == ["name", "phone"]
     with _client_preparation(ctx, None, "reel1") as c:
         assert c.get("/essai").status_code == 403
+
+
+def test_aucune_identite_dans_le_corps_envoye():
+    # Balises d'identité interdites, et nom / numéro du patient enregistré introuvables dans le corps
+    assert appels_v2.identite_dans_corps("<patient><dateOfBirth>1950-01-01</dateOfBirth><gender>MALE</gender></patient>") == []
+    assert appels_v2.identite_dans_corps("<patient><name>DUPONT</name></patient>") == ["name"]
+    assert appels_v2.identite_dans_corps("<alertsRequest><patient><phone>7</phone></patient></alertsRequest>") == ["phone"]
+    assert appels_v2.identite_dans_corps("<x>Jean DUPONT</x>", {"name": "Jean DUPONT"}) == ["valeur:name"]
+    assert appels_v2.identite_dans_corps(None) == []
+
+
+def test_garde_fous_de_saisie_analyse_prescription():
+    # Pas de texte là où un nombre est attendu, pas de nombre seul là où un texte est attendu
+    ok = appels_v2.valider_saisie_analyse({"birth_date": "1980-05-01", "sex": "F", "weight_kg": "70", "creatinine_clearance_ml_min": 45},
+                                         [{"vidal_id": "12345", "dose": "500 mg x 3/j"}], ["Pénicilline"], ["Asthme"])
+    assert ok == []
+    erreurs = appels_v2.valider_saisie_analyse(
+        {"birth_date": "pas une date", "sex": "X", "weight_kg": "soixante", "creatinine_clearance_ml_min": 0},
+        [{"vidal_id": "ABC", "dose": "500"}], ["123"], ["  "])
+    champs = {e["champ"] for e in erreurs}
+    assert champs == {"patient.birth_date", "patient.sex", "patient.weight_kg", "patient.creatinine_clearance_ml_min",
+                      "prescriptions[0].vidal_id", "prescriptions[0].dose", "allergies[0]", "pathologies[0]"}
+    assert all(e["message"] for e in erreurs)
+    futur = appels_v2.valider_saisie_analyse({"birth_date": "2999-01-01"}, [], [], [])
+    assert futur[0]["champ"] == "patient.birth_date"
 
 
 def test_preparation_hors_mode_validation_inchangee(ctx):
@@ -1001,6 +1027,7 @@ def test_endpoint_analyse_prescription_prepare_avant_quota_et_appel():
     source = Path(module_vidal.__file__).read_text(encoding="utf-8")
     debut = source.index('@api.post("/vidal/prescription/analyze"')
     corps = source[debut:source.index("@api.delete", debut)]
+    assert corps.index("valider_saisie_analyse") < corps.index("preparer_patient_analyse")
     assert corps.index("preparer_patient_analyse") < corps.index("_quota_check_and_increment")
     assert corps.index("preparer_patient_analyse") < corps.index("_vidal_call(")
     assert 'patient=prep["patient"]' in corps  # seul le patient préparé part dans le XML

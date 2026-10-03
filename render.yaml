@@ -194,7 +194,7 @@ services:
     autoDeploy: false
     rootDir: frontend
     # Render installe déjà les dépendances avec npm (voir frontend/.npmrc) : on construit seulement.
-    buildCommand: npm run build
+    buildCommand: CI=false npm run build
     staticPublishPath: build
     envVars:
       - key: NODE_VERSION

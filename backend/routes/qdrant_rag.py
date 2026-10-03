@@ -45,6 +45,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.qdrant_rag")
 
@@ -368,14 +369,14 @@ async def describe_image_with_vision(raw: bytes, mime: str) -> dict:
     so callers can still index the image with user-provided metadata.
     """
     out = {"ocr_text": "", "visual_summary": ""}
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
     if not api_key or not raw:
         return out
     try:
         import base64
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        from ia_client import LlmChat, UserMessage, ImageContent
     except Exception:  # noqa: BLE001
-        logger.exception("[qdrant_rag] emergentintegrations import failed")
+        logger.exception("[qdrant_rag] ia_client import failed")
         return out
     try:
         b64 = base64.b64encode(raw).decode("ascii")

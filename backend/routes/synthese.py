@@ -23,6 +23,7 @@ import logging
 import re
 from datetime import datetime, timezone, date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.synthese")
 
@@ -257,11 +258,11 @@ def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: da
 async def _call_liluvine(db, full_prompt: str) -> str:
     """Send the synthèse prompt to Liluvine and return the plain-text reply."""
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from ia_client import LlmChat, UserMessage
         import os
-        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        api_key = _cle_ia()
         if not api_key:
-            return "❌ EMERGENT_LLM_KEY absent — impossible de générer la synthèse."
+            return "❌ ANTHROPIC_API_KEY absent — impossible de générer la synthèse."
         chat = (
             LlmChat(api_key=api_key, session_id="synthese-cron", system_message="Tu es Liluvine, assistante SAWALI.")
             .with_model("anthropic", "claude-sonnet-4-5-20250929")

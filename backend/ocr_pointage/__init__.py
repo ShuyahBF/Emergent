@@ -46,7 +46,7 @@ libellés concordants. Logique identique à scripts/inventaire/ocr_pointage.py
 du dépôt ShuyahBF/Aizenta-Analyse-Qualit-Gestion-Stocks.
 
 Aucune modification du module commun `ocr_core` : on réutilise son appel IA
-(clé EMERGENT_LLM_KEY), son calcul de coût et son redimensionnement d'image,
+(lot 53 : client IA local, clé ANTHROPIC_API_KEY), son calcul de coût et son redimensionnement d'image,
 mais la préparation diffère (toutes les pages, toujours en image : le PDF
 d'origine contient du texte imprimé, mais c'est l'écriture manuscrite qu'on lit).
 

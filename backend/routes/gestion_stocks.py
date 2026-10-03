@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Body, Depends, File, Form, HTTPException, Query, UploadFile
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.gestion_stocks")
 
@@ -258,7 +259,7 @@ def _quota_refusal(usage: Dict[str, Any], size: int) -> Optional[str]:
 PRODUIT_COLLECTION = "Produit"
 VENTES_DETAIL_COLLECTION = "AAcheté"
 
-# Modèle unique de LlmChat/emergentintegrations, comme LILUVINE_MODEL dans
+# Modèle unique de LlmChat (ia_client, lot 53), comme LILUVINE_MODEL dans
 # liluvine_pro.py — un seul endroit à changer pour un futur rollback.
 GESTION_STOCKS_MODEL = "claude-sonnet-5"
 
@@ -473,16 +474,15 @@ async def _aggregate_stockout_risks(db, client_code: str, historique_jours: int 
 
 
 async def _analyse_llm_send(session_id: str, system_text: str, user_text: str) -> Dict[str, Any]:
-    """Même pattern que liluvine_pro.py::_llm_send — LlmChat/emergentintegrations
-    (pas le SDK Anthropic brut : cette appli appelle Claude via la clé
-    universelle EMERGENT_LLM_KEY, jamais via ANTHROPIC_API_KEY)."""
+    """Même pattern que liluvine_pro.py::_llm_send — LlmChat du client IA local
+    (ia_client, lot 53 : SDK officiel anthropic, clé ANTHROPIC_API_KEY)."""
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from ia_client import LlmChat, UserMessage
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
     if not api_key:
-        raise HTTPException(status_code=503, detail="EMERGENT_LLM_KEY manquant côté serveur.")
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY manquant côté serveur.")
     chat = LlmChat(
         api_key=api_key, session_id=session_id, system_message=system_text,
     ).with_model("anthropic", GESTION_STOCKS_MODEL)

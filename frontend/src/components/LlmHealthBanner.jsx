@@ -23,10 +23,10 @@ const LEVEL_STYLES = {
 };
 
 const LEVEL_LABELS = {
-  exhausted: "Universal Key Emergent ÉPUISÉE — service IA indisponible",
-  critical: "Universal Key Emergent — Consommation CRITIQUE",
-  warning: "Universal Key Emergent — Avertissement de consommation",
-  error: "Universal Key Emergent — Erreur IA détectée",
+  exhausted: "Crédit IA (Anthropic) ÉPUISÉ — service IA indisponible",
+  critical: "Crédit IA (Anthropic) — Consommation CRITIQUE",
+  warning: "Crédit IA (Anthropic) — Avertissement de consommation",
+  error: "Service IA — Erreur détectée",
 };
 
 function fmtUsd(v) {
@@ -130,13 +130,13 @@ export default function LlmHealthBanner() {
             {level === "exhausted" ? (
               <>Liluvine PRO, auto-réponses WA, OCR KB et planificateur IA sont indisponibles. </>
             ) : level === "critical" ? (
-              <>Rechargez la clé Universal Key <strong>immédiatement</strong> pour éviter une coupure imminente du service. </>
+              <>Rechargez le crédit Anthropic <strong>immédiatement</strong> pour éviter une coupure imminente du service. </>
             ) : level === "warning" ? (
               <>Anticipez une recharge pour éviter une coupure du service. </>
             ) : (
               <>Vérifiez le service IA — un problème inattendu a été détecté. </>
             )}
-            <strong className="ml-1">Pour rétablir :</strong> Plateforme Emergent → Profile → Universal Key → <strong>Add Balance</strong>.
+            <strong className="ml-1">Pour rétablir :</strong> console.anthropic.com → Settings → <strong>Billing</strong> (crédit) ; clé ANTHROPIC_API_KEY dans Render → sawali-backend → Environment.
             <span className="opacity-75 ml-2">Dernier check : {checked}</span>
           </p>
         </div>

@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 def _is_preview_request(request) -> bool:
     """Iter35j — return True when the incoming request comes from the
-    Emergent preview environment (host ends with .preview.emergentagent.com
-    OR a custom DEV_HOSTS env override). Used to auto-bypass reCAPTCHA so
+    hosts listed in CAPTCHA_BYPASS_HOSTS (lot 53 : the Emergent preview host is
+    no longer hard-coded). Used to auto-bypass reCAPTCHA so
     developers can log in without registering the preview URL with Google.
     """
     if request is None:
@@ -27,8 +27,8 @@ def _is_preview_request(request) -> bool:
         candidates = " ".join([host, origin, referer, xfh, xfor_h])
         logger.info("recaptcha bypass check: host=%s origin=%s referer=%s xfh=%s",
                     host, origin, referer, xfh)
-        if ".preview.emergentagent.com" in candidates:
-            return True
+        # Lot 53 : plus de passe-droit codé en dur pour l'aperçu Emergent (en-têtes
+        # Origin/Referer falsifiables) ; seuls les hôtes de CAPTCHA_BYPASS_HOSTS sont exemptés.
         # Optional comma-separated override (e.g. for local dev or staging)
         dev_hosts = (os.environ.get("CAPTCHA_BYPASS_HOSTS") or "").lower()
         for h in [x.strip() for x in dev_hosts.split(",") if x.strip()]:

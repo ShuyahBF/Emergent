@@ -60,6 +60,7 @@ from typing import Any, Dict, List, Optional, Set
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState  # lot 26 : état de la connexion temps réel
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 log = logging.getLogger("sawali.internal_chat")
 
@@ -807,8 +808,8 @@ def make_router(*, db, get_current_user, decode_token):
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
                 f.write(data)
                 tmp_path = f.name
-            from emergentintegrations.llm.openai import OpenAISpeechToText
-            stt = OpenAISpeechToText(api_key=os.environ.get("EMERGENT_LLM_KEY"))
+            from ia_client import OpenAISpeechToText
+            stt = OpenAISpeechToText(api_key=_cle_ia("openai"))  # lot 53 : Whisper, OPENAI_API_KEY
             with open(tmp_path, "rb") as fh:
                 resp = await stt.transcribe(
                     file=fh,

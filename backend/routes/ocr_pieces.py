@@ -387,7 +387,9 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
         tenant_id: Optional[str] = Form(None),
         model: Optional[str] = Form(None),
         inventaire_json: Optional[UploadFile] = File(None),
-        photos: Optional[List[UploadFile]] = File(None),
+        # Lot 53 : « List[UploadFile] » et non « Optional[List[UploadFile]] » : avec FastAPI 0.110,
+        # la forme Optional n'est pas lue comme une liste (erreur 422 dès qu'une photo est envoyée).
+        photos: List[UploadFile] = File(None),
         user: dict = Depends(allowed_user),
     ):
         if kind not in PIECE_KINDS:

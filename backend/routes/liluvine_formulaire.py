@@ -68,6 +68,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 import import_formulaire as imp
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.liluvine_formulaire")
 
@@ -116,11 +117,11 @@ async def classer_image_ia(data: bytes) -> Dict[str, Any]:
     import os
     try:
         import ocr_core
-        from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
+        from ia_client import ImageContent, LlmChat, UserMessage
         from ocr_core.engine import parse_json
         from ocr_core.models import get_model
         from ocr_core.prepare import shrink_image
-        api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+        api_key = _cle_ia()
         if not api_key:
             return {"document": True, "categorie": "inconnu", "motif": "classement indisponible"}
         modele = get_model(ocr_core.default_model_id())

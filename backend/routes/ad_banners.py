@@ -62,6 +62,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.ad_banners")
 
@@ -1077,12 +1078,12 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         if (b.get("share_token") or "") != token:
             raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
         try:
-            from emergentintegrations.payments.stripe.checkout import (
+            from paiement_stripe import (
                 StripeCheckout,
                 CheckoutSessionRequest,
             )
         except ImportError as exc:
-            logger.error("[ads] emergentintegrations not installed: %s", exc)
+            logger.error("[ads] module paiement_stripe indisponible : %s", exc)
             raise HTTPException(status_code=500, detail="Module paiement indisponible") from exc
 
         # Resolve Stripe API key from env (same source as payments_stripe.py)
@@ -1161,7 +1162,7 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
                 "duration_days": renewal.get("duration_days"),
             }
         try:
-            from emergentintegrations.payments.stripe.checkout import StripeCheckout
+            from paiement_stripe import StripeCheckout
         except ImportError as exc:
             raise HTTPException(status_code=500, detail="Module paiement indisponible") from exc
         api_key = os.environ.get("STRIPE_API_KEY") or os.environ.get("STRIPE_SECRET_KEY") or ""
@@ -1289,13 +1290,13 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         if cache_age_ok:
             return {**cached, "cached": True}
 
-        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        api_key = _cle_ia()
         if not api_key:
             raise HTTPException(status_code=500, detail="Module IA non configuré")
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            from ia_client import LlmChat, UserMessage
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=f"emergentintegrations indisponible : {exc}") from exc
+            raise HTTPException(status_code=500, detail=f"Client IA indisponible : {exc}") from exc
 
         imp = int(b.get("total_impressions") or 0)
         clicks = int(b.get("total_clicks") or 0)

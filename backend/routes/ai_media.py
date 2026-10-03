@@ -1,5 +1,5 @@
 """
-Iter38k — Gemini Nano Banana image generation via emergentintegrations.
+Iter38k — Gemini Nano Banana image generation (lot 53 : via ia_client, SDK google-genai).
 
 Endpoints:
   POST /api/me/ai/generate-image      — text-to-image (any tenant user)
@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from chemins import BACKEND_DIR, UPLOAD_AI_DIR  # noqa: E402 — lot 49 : chemins portables
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 load_dotenv(BACKEND_DIR / ".env")
 
@@ -65,7 +66,9 @@ def _safe_slug(text: str, n: int = 24) -> str:
 def setup_ai_media_routes(*, db, api, get_current_user):
     """Mount Gemini Nano Banana image-gen routes on the provided `api` router."""
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    # Lot 53 : images par Gemini (GOOGLE_GEMINI_API_KEY), vidéos Sora par OpenAI (OPENAI_API_KEY) ;
+    # les clés sont relues à chaque appel (_cle_ia), cette valeur n'est passée qu'à LlmChat.
+    api_key = _cle_ia("gemini")
 
     # Iter38r-fix5 — Lazy import of the quota tracker to avoid a circular
     # import (server.py mounts ai_quotas which imports from this module's
@@ -122,10 +125,10 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         """Call Gemini Nano Banana and return the FIRST image bytes.
         Raises HTTPException with a friendly French message on failure.
         """
-        if not api_key:
-            raise HTTPException(status_code=503, detail="Service IA non configuré (EMERGENT_LLM_KEY manquant).")
+        if not _cle_ia("gemini"):
+            raise HTTPException(status_code=503, detail="Service IA non configuré (GOOGLE_GEMINI_API_KEY manquant).")
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+            from ia_client import LlmChat, UserMessage, ImageContent
         except ImportError as exc:
             raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
 
@@ -310,12 +313,12 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         chk = await _track(user, "video", 1, payload.model, pre_check=True)
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
-        if not api_key:
-            raise HTTPException(status_code=503, detail="Service IA non configuré (EMERGENT_LLM_KEY manquant).")
+        if not _cle_ia("openai"):
+            raise HTTPException(status_code=503, detail="Génération vidéo indisponible (OPENAI_API_KEY manquant).")
         if payload.duration not in (4, 8, 12):
             raise HTTPException(status_code=400, detail="duration doit être 4, 8 ou 12.")
         try:
-            from emergentintegrations.llm.openai.video_generation import OpenAIVideoGeneration
+            from ia_client import OpenAIVideoGeneration
         except ImportError as exc:
             raise HTTPException(status_code=503, detail=f"Bibliothèque vidéo IA absente : {exc}") from exc
         tid = await _tenant_id(user)
@@ -393,7 +396,10 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             raise HTTPException(status_code=400, detail="Bad path")
         target = UPLOAD_ROOT / tenant_id / filename
         if not target.exists():
-            raise HTTPException(status_code=404, detail="Fichier introuvable")
+            # Lot 53 : disque vide après un déploiement Render -> copie de migration dans R2
+            from storage import arestaurer_fichier_local
+            if not await arestaurer_fichier_local(target):
+                raise HTTPException(status_code=404, detail="Fichier introuvable")
         media_type = "video/mp4" if filename.lower().endswith(".mp4") else "image/png"
         return FileResponse(target, media_type=media_type)
 

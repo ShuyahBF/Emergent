@@ -54,6 +54,7 @@ from dotenv import load_dotenv
 # Iter43-fix24k — Stockage objet persistant (survit aux redéploiements K8s).
 # Si désactivé (clé manquante), retombe gracieusement sur le disque local.
 import object_storage as _obj_storage
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 load_dotenv()
 
@@ -674,7 +675,7 @@ def attach_story_studio_routes(
         try:
             source_url: Optional[str] = None  # URL Fal/Sora CDN pour re-download si fichier perdu
             if engine.startswith("sora"):
-                # Sora renvoie des bytes (pas d'URL CDN persistante exposée par emergentintegrations)
+                # Sora renvoie des bytes (pas d'URL CDN persistante exposée par l'API)
                 video_path = await _generate_with_sora(payload, asset_id)
             else:
                 # Fal.ai : on récupère ET le path local ET l'URL CDN d'origine
@@ -811,12 +812,12 @@ def attach_story_studio_routes(
         }
 
     async def _generate_with_sora(payload: StoryGenerateText2Video, asset_id: str) -> str:
-        """Sora 2 via Universal Key Emergent (emergentintegrations)."""
-        from emergentintegrations.llm.openai.video_generation import OpenAIVideoGeneration  # type: ignore
+        """Sora 2 via l'API OpenAI (ia_client, lot 53, clé OPENAI_API_KEY)."""
+        from ia_client import OpenAIVideoGeneration  # type: ignore
 
-        key = os.environ.get("EMERGENT_LLM_KEY")
+        key = _cle_ia("openai")
         if not key:
-            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY manquant côté serveur")
+            raise HTTPException(status_code=500, detail="Génération vidéo indisponible : OPENAI_API_KEY manquant côté serveur")
         # Iter43-fix10a — Sora 2 contraintes : tailles supportées limitées.
         # Modèle 'sora-2' supporte : 1280x720, 720x1280
         # Modèle 'sora-2-pro' supporte : 1280x720, 720x1280, 1024x1792, 1792x1024
@@ -1212,10 +1213,10 @@ def attach_story_studio_routes(
         user: dict = Depends(get_admin_or_supervisor),
     ):
         """Génère une image (Nano Banana via Universal Key) en format 9:16."""
-        from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration  # type: ignore
-        key = os.environ.get("EMERGENT_LLM_KEY")
+        from ia_client import OpenAIImageGeneration  # type: ignore
+        key = _cle_ia("openai")
         if not key:
-            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY manquant")
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY manquant")
 
         asset_id = str(uuid.uuid4())
         asset_doc = {

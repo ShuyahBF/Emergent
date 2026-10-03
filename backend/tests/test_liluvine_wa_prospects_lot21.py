@@ -58,6 +58,10 @@ def env(monkeypatch):
     _stub(monkeypatch, "emergentintegrations")
     _stub(monkeypatch, "emergentintegrations.llm")
     _stub(monkeypatch, "emergentintegrations.llm.chat", LlmChat=_FakeChat, UserMessage=lambda text: text)
+    # Lot 53 : l'IA passe par le client local ia_client (clé ANTHROPIC_API_KEY)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    _stub(monkeypatch, "ia_client", LlmChat=_FakeChat, UserMessage=lambda text: text,
+          cle_ia=lambda *a, **k: "test-key")
 
     async def _kb(db, max_chars=0, query="", audience="clients"):
         # Lot 23 — le public demandé est inscrit dans le contexte, pour le vérifier.

@@ -42,6 +42,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia, variable_cle as _variable_cle  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.i18n")
 
@@ -79,7 +80,7 @@ COUNTRY_LANG_MAP: Dict[str, str] = {
 
 
 # Iter40-i18n-model — Allowed translation models for the AI-assisted translator.
-# All routed through emergentintegrations LlmChat (universal Emergent LLM key).
+# All routed through ia_client.LlmChat (lot 53 : clé de chaque fournisseur).
 # Tuple format: (provider, model_id).
 _TRANSLATE_MODELS: Dict[str, tuple] = {
     "claude-sonnet-4-5-20250929": ("anthropic", "claude-sonnet-4-5-20250929"),
@@ -744,7 +745,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
     # S046 (2026-02) — AI-assisted translation via Anthropic Claude.
     # Generates a target-language translation from the FR source. Returns
     # the suggestion as JSON — the admin can review and save. Restricted
-    # to admin/superviseur (LLM costs are charged on the EMERGENT_LLM_KEY).
+    # to admin/superviseur (LLM costs are charged on the provider API keys, lot 53).
     # ----------------------------------------------------------
     @api.post("/admin/i18n/translate-suggest", tags=["Admin — i18n"])
     async def admin_translate_suggest(
@@ -765,9 +766,10 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
         if model not in _ALLOWED_TRANSLATE_MODELS:
             raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model}")
 
-        emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+        # Lot 53 : clé du fournisseur du modèle choisi
+        emergent_key = _cle_ia(_resolve_model_provider(model)[0])
         if not emergent_key:
-            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+            raise HTTPException(status_code=500, detail=f"{_variable_cle(_resolve_model_provider(model)[0])} non configurée.")
 
         lang_labels = {
             "en": "English",
@@ -776,10 +778,9 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             "lg2": "Mooré (Burkina Faso national language)",
         }
         target_label = lang_labels[target_lang]
-        # Use emergentintegrations LlmChat (only auth path that works on the
-        # Emergent platform — direct litellm calls reject the universal key).
+        # Lot 53 : client IA local (ia_client), SDK officiel de chaque fournisseur.
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+            from ia_client import LlmChat, UserMessage  # type: ignore
         except ImportError as exc:
             raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
 
@@ -857,11 +858,12 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             raise HTTPException(status_code=400, detail="Langue cible non supportée.")
         if model not in _ALLOWED_TRANSLATE_MODELS:
             raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model}")
-        emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+        # Lot 53 : clé du fournisseur du modèle choisi
+        emergent_key = _cle_ia(_resolve_model_provider(model)[0])
         if not emergent_key:
-            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+            raise HTTPException(status_code=500, detail=f"{_variable_cle(_resolve_model_provider(model)[0])} non configurée.")
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+            from ia_client import LlmChat, UserMessage  # type: ignore
         except ImportError as exc:
             raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
 

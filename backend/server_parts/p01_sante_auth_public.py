@@ -281,7 +281,8 @@ async def public_og_product(product_id: str, request: Request):
     if img and not img.startswith("http"):
         img = f"{base}{'' if img.startswith('/') else '/'}{img}"
     if not img:
-        img = "https://customer-assets.emergentagent.com/job_sawali-portal/artifacts/aprzh1m4_LogoSawaliSmartSystems-removebg.png"
+        # Lot 53 : logo servi par le site (l'ancienne image hébergée chez Emergent n'existe plus)
+        img = f"{base}/logo.png"
     title = f"{name} — SAWALI SMART SYSTEMS"
     teaser = f"{price:,} FCFA HT / {unit}".replace(",", " ") + (f" — {desc[:140]}" if desc else "")
     quote_url = f"{base}/rdv?product={_escape_html(p.get('name'))}&sku={sku}"

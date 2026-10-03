@@ -797,9 +797,11 @@ async def admin_translate_content(slug: str, payload: dict = Body(...), user: di
     }
     if model_id not in _ALLOWED:
         raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model_id}")
-    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    # Lot 53 : clé du fournisseur du modèle choisi (ANTHROPIC_API_KEY, OPENAI_API_KEY ou GOOGLE_GEMINI_API_KEY)
+    from ia_client import cle_ia as _cle_ia, variable_cle as _variable_cle
+    emergent_key = _cle_ia(_ALLOWED[model_id][0])
     if not emergent_key:
-        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+        raise HTTPException(status_code=500, detail=f"{_variable_cle(_ALLOWED[model_id][0])} non configurée.")
     doc = await db.contents.find_one({"slug": slug}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
@@ -828,7 +830,7 @@ async def admin_translate_content(slug: str, payload: dict = Body(...), user: di
         raise HTTPException(status_code=400, detail="Aucun texte à traduire.")
 
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        from ia_client import LlmChat, UserMessage  # type: ignore
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
 

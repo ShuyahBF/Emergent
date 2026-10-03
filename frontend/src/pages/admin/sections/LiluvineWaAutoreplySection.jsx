@@ -33,6 +33,7 @@ const REASON_LABELS = {
   empty_text: ["Message vide", "text-slate-700 bg-slate-50 ring-slate-200"],
   empty_reply: ["L'IA n'a rien renvoyé", "text-rose-700 bg-rose-50 ring-rose-200"],
   llm_error: ["Erreur de l'IA (clé, quota ou réseau)", "text-rose-700 bg-rose-50 ring-rose-200"],
+  ANTHROPIC_API_KEY: ["Clé IA (ANTHROPIC_API_KEY) absente", "text-rose-700 bg-rose-50 ring-rose-200"],
   EMERGENT_LLM_KEY: ["Clé IA (EMERGENT_LLM_KEY) absente", "text-rose-700 bg-rose-50 ring-rose-200"],
   send_failed: ["Échec d'envoi par Meta (fenêtre 24 h, numéro…)", "text-rose-700 bg-rose-50 ring-rose-200"],
   unknown_fallback_disabled: ["Commande « ! » inconnue, réponse de repli désactivée", "text-amber-800 bg-amber-50 ring-amber-200"],

@@ -176,7 +176,7 @@ def attach_ordonnances_stock_routes(*, api, db, get_current_user, fonction_activ
                                     lire_ordonnance: Optional[StatutFn] = None) -> Dict[str, Any]:
     """Branche les routes. `vidal_rechercher(user, q)` / `vidal_equivalents(user, vmp_id)` :
     fonctions du module VIDAL (routes/vidal_fiche.py) ; `lire_ordonnance(images) -> dict` :
-    lecture IA (par défaut ocr_core, clé EMERGENT_LLM_KEY), remplaçable pour les tests."""
+    lecture IA (par défaut ocr_core, clé ANTHROPIC_API_KEY), remplaçable pour les tests."""
 
     # --- Accès ---------------------------------------------------------------------
     def _staff(user: dict) -> bool:

@@ -42,6 +42,7 @@ import httpx
 from fastapi import Body, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.bird_sms")
 
@@ -687,7 +688,7 @@ def setup_bird_sms_routes(*, db, api, get_current_admin):
 
 
 # ===========================================================================
-# Liluvine reply generator (réutilise le LLM Claude via emergentintegrations)
+# Liluvine reply generator (réutilise le LLM Claude via ia_client, lot 53)
 # ===========================================================================
 async def _generate_liluvine_reply(db, from_msisdn: str, text: str) -> str:
     """Génère une réponse Liluvine via Claude Haiku, en lui injectant les KBs.
@@ -717,12 +718,12 @@ async def _generate_liluvine_reply(db, from_msisdn: str, text: str) -> str:
         + (("\n\nDonnées métier :\n" + biz_ctx) if biz_ctx else "")
     )
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
     if not api_key:
         return "Service IA temporairement indisponible. Merci de réessayer plus tard."
 
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from ia_client import LlmChat, UserMessage
         chat = LlmChat(
             api_key=api_key,
             session_id=session_id,

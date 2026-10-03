@@ -41,6 +41,7 @@ import ocr_core
 from ocr_core.engine import parse_json
 from ocr_core.models import compute_cost, get_model
 from ocr_core.prepare import shrink_image
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 # ---------------------------------------------------------------------------
 # Limites
@@ -321,17 +322,17 @@ SYSTEM_SONDAGE = _COMMUN + (
 async def appeler_ia(model_id: str, system: str, texte: str, images: List[bytes]) -> Tuple[str, int, int]:
     """Envoie le texte ET les images au modèle ; renvoie (réponse, tokens entrée, tokens sortie).
 
-    Appel direct à emergentintegrations (même construction que ocr_core.engine.call_llm), car
+    Appel direct au client IA (ia_client, lot 53 ; même construction que ocr_core.engine.call_llm), car
     call_llm n'envoie pas le texte quand il y a des images, et limite la réponse à 8 000 tokens."""
     import asyncio
     import os
 
-    from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
+    from ia_client import ImageContent, LlmChat, UserMessage
 
     model = get_model(model_id) or get_model(ocr_core.default_model_id())
-    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    api_key = _cle_ia()
     if not api_key:
-        raise RuntimeError("Clé LLM non configurée (EMERGENT_LLM_KEY)")
+        raise RuntimeError("Clé LLM non configurée (ANTHROPIC_API_KEY)")
     chat = LlmChat(api_key=api_key, session_id=f"import-formulaire-{secrets.token_urlsafe(8)}",
                    system_message=system).with_model("anthropic", model.id).with_params(max_tokens=MAX_SORTIE_TOKENS)
     consigne = "Déduis la structure de ce questionnaire et réponds uniquement en JSON strict."

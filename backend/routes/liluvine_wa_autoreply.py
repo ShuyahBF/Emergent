@@ -35,6 +35,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.liluvine_wa_autoreply")
 
@@ -1002,16 +1003,16 @@ async def autoreply_to_inbound(
         pass
 
     # Call the LLM
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
     if not api_key:
         try:
             from routes.llm_health import record_llm_outcome
-            await record_llm_outcome(db, ok=False, error="EMERGENT_LLM_KEY missing", context="liluvine_wa_autoreply")
+            await record_llm_outcome(db, ok=False, error="ANTHROPIC_API_KEY missing", context="liluvine_wa_autoreply")
         except Exception:  # noqa: BLE001
             pass
-        return {"ok": False, "reason": "EMERGENT_LLM_KEY missing"}
+        return {"ok": False, "reason": "ANTHROPIC_API_KEY missing"}
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from ia_client import LlmChat, UserMessage
     except Exception as exc:
         return {"ok": False, "reason": f"llm_import_failed: {exc!r}"}
     # Reuse a stable session per phone so the bot keeps context if the user

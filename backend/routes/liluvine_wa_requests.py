@@ -29,6 +29,7 @@ def _now_iso() -> str:
 
 from fastapi import Body, Depends, HTTPException, Query
 from fastapi.responses import Response
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.liluvine_wa_requests")
 
@@ -179,9 +180,9 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
         ).sort("created_at", -1).limit(3):
             samples.append(ex)
 
-        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        api_key = _cle_ia()
         if not api_key:
-            raise HTTPException(status_code=503, detail="EMERGENT_LLM_KEY non disponible côté serveur.")
+            raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY non disponible côté serveur.")
 
         sys_prompt = (
             "Tu es un expert Python/FastAPI/MongoDB et l'auteur du module liluvine_wa_autoreply.py de SAWALI. "
@@ -215,7 +216,7 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
         )
 
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            from ia_client import LlmChat, UserMessage
             chat = LlmChat(
                 api_key=api_key,
                 session_id=f"handler-gen:{cmd_lower}",

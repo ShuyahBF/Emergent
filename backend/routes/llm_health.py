@@ -10,7 +10,7 @@ Workflow:
      `llm_health_state` collection (single doc, _id="current") with status:
        - "ok"             → most recent call succeeded
        - "budget_exceeded"→ an Emergent "Budget has been exceeded" error
-       - "key_missing"    → EMERGENT_LLM_KEY env missing
+       - "key_missing"    → ANTHROPIC_API_KEY env missing (lot 53 ; avant : EMERGENT_LLM_KEY)
        - "unknown_error"  → any other LLM exception
      AND appends one entry to `llm_usage_log` (S032 — burn-rate source).
   2. A scheduled background task pings Claude Haiku 4.5 every 15 min with a
@@ -34,6 +34,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Callable, Awaitable, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.llm_health")
 
@@ -97,7 +98,11 @@ async def record_llm_outcome(
             except ValueError:
                 pass
             update["status"] = "budget_exceeded"
-        elif "EMERGENT_LLM_KEY missing" in msg or "llm_key_missing" in msg:
+        elif "credit balance is too low" in msg.lower():
+            # Lot 53 : crédit Anthropic épuisé (Console Anthropic → Billing)
+            update["status"] = "budget_exceeded"
+        elif ("ANTHROPIC_API_KEY missing" in msg or "EMERGENT_LLM_KEY missing" in msg
+              or "llm_key_missing" in msg or "Clé IA absente" in msg):
             update["status"] = "key_missing"
         else:
             update["status"] = "unknown_error"
@@ -130,12 +135,12 @@ async def record_llm_outcome(
 async def ping_emergent_llm(db) -> dict:
     """1-token health probe. Records outcome via record_llm_outcome and
     returns the resulting state doc."""
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia("anthropic")   # lot 53 : clé Anthropic directe (plus de clé universelle Emergent)
     if not api_key:
-        await record_llm_outcome(db, ok=False, error="EMERGENT_LLM_KEY missing", context="health_probe")
+        await record_llm_outcome(db, ok=False, error="ANTHROPIC_API_KEY missing", context="health_probe")
     else:
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            from ia_client import LlmChat, UserMessage
             chat = LlmChat(
                 api_key=api_key,
                 session_id="health-probe",

@@ -1,0 +1,212 @@
+# =============================================================================
+# SAWALI — Blueprint Render (lot 53 : site indépendant d'Emergent)
+#
+# Deux services :
+#   1. sawali-backend  : serveur FastAPI (dossier backend/), offre « starter »
+#                        TOUJOURS ALLUMÉE (le planificateur des rappels, rapports
+#                        et sauvegardes ne doit pas dormir).
+#   2. sawali-frontend : site React (dossier frontend/), servi en statique ;
+#                        toutes les adresses /api/* sont relayées au backend, si
+#                        bien que les URL publiques restent celles du domaine
+#                        (webhooks Meta, Loois, Stripe…).
+#
+# Aucun service Emergent : IA par les clés des fournisseurs (Anthropic, OpenAI,
+# Google), fichiers dans Cloudflare R2, paiement par la bibliothèque Stripe.
+# La liste complète des variables, leur rôle et où les obtenir :
+# docs/sans-emergent.md.
+#
+# SECRETS : aucune valeur n'est écrite ici. Chaque variable « sync: false » est
+# demandée par Render quand on applique le Blueprint (Dashboard → Blueprints) ;
+# une variable facultative peut être laissée vide.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1) Backend FastAPI
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sawali-backend
+    runtime: python
+    plan: starter                 # payant, jamais mis en veille
+    region: frankfurt
+    repo: https://github.com/ShuyahBF/emergent
+    branch: render-production   # branche déployée par Render
+    autoDeploy: false             # déploiement manuel, version figée
+    rootDir: backend
+    # Plus d'index privé Emergent : uniquement des paquets publics (PyPI).
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      # --- Exécution -----------------------------------------------------------
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      # Planificateur : ACTIF (variable absente). Mettre DISABLE_SCHEDULER=1 seulement
+      # pour une répétition pendant qu'un autre serveur est encore en production.
+      # --- Base de données (MongoDB Atlas) --------------------------------------
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: smartsystems
+      # --- Sessions et chiffrement : STRICTEMENT identiques à l'ancien serveur ---
+      - key: JWT_SECRET
+        sync: false
+      - key: LINK_JWT_SECRET
+        sync: false
+      - key: JWT_ALGORITHM
+        sync: false               # facultatif (HS256 par défaut)
+      - key: JWT_EXPIRE_HOURS
+        sync: false               # facultatif
+      - key: MIGRATION_COFFRE_CLE
+        sync: false               # facultatif (sinon dérivée de JWT_SECRET)
+      - key: WA_PLANNING_RECAP_SECRET
+        sync: false               # facultatif (sinon LINK_JWT_SECRET)
+      # --- IA (lot 53) -------------------------------------------------------------
+      - key: ANTHROPIC_API_KEY    # OBLIGATOIRE : Claude (OCR des pièces et des listes de pointage, Liluvine…)
+        sync: false
+      - key: OPENAI_API_KEY       # facultatif : dictée (Whisper), images GPT, vidéos Sora, traductions GPT
+        sync: false
+      - key: GOOGLE_GEMINI_API_KEY  # facultatif : images Gemini, traductions Gemini
+        sync: false
+      - key: OCR_DEFAULT_MODEL    # facultatif : modèle OCR par défaut (claude-sonnet-5 sinon)
+        sync: false
+      # --- Fichiers dans Cloudflare R2 (lot 53) -----------------------------------
+      - key: R2_FICHIERS_BUCKET   # OBLIGATOIRE : bucket de la migration (celui saisi dans « Migration vers Render »)
+        sync: false
+      - key: R2_FICHIERS_PREFIXE  # OBLIGATOIRE : préfixe de la migration retenue, ex. migration-20261003-190000
+        sync: false
+      - key: R2_FICHIERS_ACCOUNT_ID         # facultatif si R2_SAUVEGARDES_* ou R2_STOCKS_* sont du même compte
+        sync: false
+      - key: R2_FICHIERS_ACCESS_KEY_ID      # idem (jeton R2 avec lecture ET écriture sur ce bucket)
+        sync: false
+      - key: R2_FICHIERS_SECRET_ACCESS_KEY  # idem
+        sync: false
+      - key: R2_FICHIERS_PREFIXES_SECONDAIRES  # facultatif : autres préfixes de migration, en lecture seule
+        sync: false
+      # --- Repli de migration : À RETIRER après la bascule ----------------------------
+      # Objet absent de R2 -> lu chez Emergent puis recopié dans R2, tant que cette clé
+      # existe et qu'Emergent répond. Laisser VIDE si Emergent est déjà arrêté.
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: APP_STORAGE_NAME     # facultatif : préfixe des chemins (sawali par défaut, ne pas changer)
+        sync: false
+      # --- Sauvegardes (lots 47 et 49) ----------------------------------------------
+      - key: SAUVEGARDE_AUTO_PHRASE  # phrase de chiffrement de la sauvegarde quotidienne vers R2
+        sync: false
+      - key: R2_SAUVEGARDES_ACCOUNT_ID
+        sync: false
+      - key: R2_SAUVEGARDES_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SAUVEGARDES_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_SAUVEGARDES_BUCKET
+        sync: false               # facultatif (sawali-sauvegardes par défaut)
+      - key: R2_SAUVEGARDES_PREFIXE
+        sync: false               # facultatif (sauvegardes-completes/ par défaut)
+      # --- Adresses publiques (le site et l'API partagent le domaine) -----------------
+      - key: PUBLIC_BASE_URL
+        value: https://sawalismartsystems.com
+      - key: PUBLIC_APP_URL
+        value: https://sawalismartsystems.com
+      - key: REACT_APP_BACKEND_URL
+        value: https://sawalismartsystems.com
+      - key: BACKEND_PUBLIC_URL
+        value: https://sawalismartsystems.com
+      - key: PUBLIC_BACKEND_URL
+        value: https://sawalismartsystems.com
+      - key: SAWALI_PUBLIC_BASE_URL
+        value: https://sawalismartsystems.com
+      - key: CORS_ORIGINS
+        value: https://sawalismartsystems.com,https://www.sawalismartsystems.com,https://sawali-frontend.onrender.com
+      # --- Comptes d'administration ---------------------------------------------------
+      - key: SUPER_ADMIN_EMAIL
+        sync: false               # facultatif (admin@sawalismartsystems.com par défaut)
+      - key: ADMIN_INIT_EMAIL
+        sync: false               # facultatif : compte créé seulement sur une base vide
+      - key: ADMIN_INIT_PASSWORD
+        sync: false
+      # --- E-mails de la plateforme (lot 52 ; sinon réglage dans Paramètres) ----------
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_EXPEDITEUR
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: ZEPTOMAIL_API_KEY
+        sync: false
+      - key: ZEPTOMAIL_HOTE
+        sync: false
+      - key: EMAIL_EXPEDITEUR
+        sync: false
+      # --- Paiement Stripe -------------------------------------------------------------
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false               # facultatif : repli si STRIPE_API_KEY est vide
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # --- Autres services externes (recopier ceux qui existent) -----------------------
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STOCK_TABLE
+        sync: false
+      - key: R2_STOCKS_ACCOUNT_ID
+        sync: false
+      - key: R2_STOCKS_ACCESS_KEY_ID
+        sync: false
+      - key: R2_STOCKS_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_STOCKS_BUCKET
+        sync: false
+      - key: R2_VIDAL_ACCOUNT_ID
+        sync: false
+      - key: R2_VIDAL_ACCESS_KEY_ID
+        sync: false
+      - key: R2_VIDAL_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_VIDAL_BUCKET
+        sync: false
+      - key: STOCK_SYNC_TOKEN
+        sync: false
+      - key: USD_TO_XOF_RATE
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 2) Frontend React (site statique)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: sawali-frontend
+    runtime: static
+    repo: https://github.com/ShuyahBF/emergent
+    branch: render-production   # même branche que le backend
+    autoDeploy: false
+    rootDir: frontend
+    buildCommand: yarn install --ignore-engines --network-timeout 600000 && yarn build --ignore-engines
+    staticPublishPath: build
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Adresse PUBLIQUE du site (figée au build) : les appels partent vers
+      # <site>/api/... et sont relayés au backend ci-dessous.
+      - key: REACT_APP_BACKEND_URL
+        value: https://sawalismartsystems.com
+    routes:
+      # 1) Toute l'API est relayée au backend (mêmes adresses qu'avant pour les webhooks).
+      #    À ajuster si Render attribue une autre adresse au backend.
+      - type: rewrite
+        source: /api/*
+        destination: https://sawali-backend.onrender.com/api/*
+      # 2) Application à page unique : toute autre adresse affiche index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html

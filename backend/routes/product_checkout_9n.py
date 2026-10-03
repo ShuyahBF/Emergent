@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 import stripe  # noqa: F401  (kept for any direct call fallback)
-from emergentintegrations.payments.stripe.checkout import (
+from paiement_stripe import (
     StripeCheckout,
     CheckoutSessionRequest,
 )
@@ -188,7 +188,7 @@ def setup_product_checkout_routes(app, db, get_current_user, send_email_fn):
             "updated_at": _now_iso(),
         }
         await db.public_orders.insert_one(order_doc.copy())
-        # Build Stripe session via emergentintegrations
+        # Build Stripe session via paiement_stripe (lot 53)
         base_return = (payload.return_url or "").rstrip("/") or str(request.base_url).rstrip("/")
         success_url = f"{base_return}/checkout/success?order_id={order_id}&session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{base_return}/checkout/cancel?order_id={order_id}"

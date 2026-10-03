@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.liluvine_pro")
 
@@ -562,7 +563,7 @@ async def _fetch_context_snippets(db, user: dict, text: str) -> str:
 def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     """Mount Liluvine PRO endpoints on the provided api router."""
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
 
     async def _track(user, units, model, metadata=None):
         try:
@@ -683,11 +684,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         is kept in `LILUVINE_MODEL` so a future rollback is one-line.
         """
         try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            from ia_client import LlmChat, UserMessage
         except ImportError as exc:
             raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
         if not api_key:
-            raise HTTPException(status_code=503, detail="EMERGENT_LLM_KEY manquant côté serveur.")
+            raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY manquant côté serveur.")
         chat = LlmChat(
             api_key=api_key,
             session_id=session_id,
@@ -1396,7 +1397,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     # ----------------------------------------------------------
     # Iter38r-fix9t — POST /chat/stream — Server-Sent Events streaming
     # ----------------------------------------------------------
-    # The underlying emergentintegrations library does NOT expose native
+    # The underlying ia_client.LlmChat (lot 53) does NOT expose native
     # token streaming, so we implement a pseudo-streaming pipeline:
     #   1) call _llm_send() to obtain the full reply (Haiku 4.5 is fast)
     #   2) chunk the reply (~6 chars at a time, ~25 ms cadence)
@@ -2453,7 +2454,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
 
     # ----------------------------------------------------------
     # #2 (2026-02 — suite #1) — Generate documentation draft from a SAWALI
-    # screen's real customer questions. Uses Claude (via emergentintegrations)
+    # screen's real customer questions. Uses Claude (via ia_client, lot 53)
     # to summarize all questions clients asked about this exact screen, and
     # produce a clean Markdown step-by-step guide.
     # ----------------------------------------------------------

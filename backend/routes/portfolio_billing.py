@@ -43,6 +43,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from routes.wa_surveys import compute_question_stats, in_period, rank_contributors
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.portfolio_billing")
 
@@ -293,10 +294,10 @@ def attach_portfolio_billing_routes(
 
     # ---- Analyse IA -------------------------------------------------------
     async def _default_llm(system_text: str, user_text: str):
-        from emergentintegrations.llm.chat import LlmChat, UserMessage   # import local : dépendance lourde
-        key = os.environ.get("EMERGENT_LLM_KEY")
+        from ia_client import LlmChat, UserMessage   # import local : dépendance lourde
+        key = _cle_ia()
         if not key:
-            raise HTTPException(status_code=503, detail="Clé IA absente (EMERGENT_LLM_KEY)")
+            raise HTTPException(status_code=503, detail="Clé IA absente (ANTHROPIC_API_KEY)")
         chat = LlmChat(api_key=key, session_id=f"bilan-{secrets.token_hex(6)}", system_message=system_text).with_model("anthropic", AI_MODEL)
         reply = await chat.send_message(UserMessage(text=user_text))
         return reply or "", max(1, int((len(system_text) + len(user_text) + len(reply or "")) / 4))

@@ -47,21 +47,40 @@ def slow_storage(monkeypatch):
     return calls
 
 
-def test_storage_available_never_blocks(slow_storage):
+def test_storage_available_never_blocks(slow_storage, monkeypatch):
+    # Lot 53 : stockage R2 ; storage_available() ne fait AUCUN appel réseau, même si la clé
+    # Emergent (repli de migration) est encore définie.
+    for nom in ("R2_FICHIERS_BUCKET", "R2_FICHIERS_ACCESS_KEY_ID", "R2_FICHIERS_SECRET_ACCESS_KEY",
+                "R2_FICHIERS_ACCOUNT_ID", "R2_SAUVEGARDES_ACCESS_KEY_ID", "R2_SAUVEGARDES_SECRET_ACCESS_KEY",
+                "R2_SAUVEGARDES_ACCOUNT_ID", "R2_STOCKS_ACCESS_KEY_ID", "R2_STOCKS_SECRET_ACCESS_KEY",
+                "R2_STOCKS_ACCOUNT_ID"):
+        monkeypatch.delenv(nom, raising=False)
     t0 = time.time()
-    assert storage.storage_available() is False          # pas encore de clé : réponse immédiate
+    assert storage.storage_available() is False          # R2 non configuré : réponse immédiate
+    monkeypatch.setenv("R2_FICHIERS_BUCKET", "seau")
+    monkeypatch.setenv("R2_FICHIERS_ACCOUNT_ID", "compte")
+    monkeypatch.setenv("R2_FICHIERS_ACCESS_KEY_ID", "cle")
+    monkeypatch.setenv("R2_FICHIERS_SECRET_ACCESS_KEY", "secret")
+    assert storage.storage_available() is True
     assert time.time() - t0 < 0.2
-    # L'initialisation s'est faite en arrière-plan
-    for _ in range(40):
-        if storage._storage_key:
-            break
-        time.sleep(0.05)
-    assert storage._storage_key == "k-123" and storage.storage_available() is True
-    assert len(slow_storage) == 1
+    time.sleep(0.1)
+    assert slow_storage == []                            # jamais d'appel à Emergent
 
 
-def test_async_init_keeps_event_loop_responsive(slow_storage):
-    """Pendant l'initialisation lente, la boucle continue de tourner."""
+def test_async_init_keeps_event_loop_responsive(monkeypatch):
+    """Pendant un envoi lent vers R2, la boucle continue de tourner (travail dans un thread)."""
+    monkeypatch.setenv("R2_FICHIERS_BUCKET", "seau")
+    monkeypatch.setenv("R2_FICHIERS_ACCOUNT_ID", "compte")
+    monkeypatch.setenv("R2_FICHIERS_ACCESS_KEY_ID", "cle")
+    monkeypatch.setenv("R2_FICHIERS_SECRET_ACCESS_KEY", "secret")
+
+    class _R2Lent:
+        def put_object(self, **_):
+            time.sleep(0.6)
+
+    monkeypatch.setattr(storage, "_r2_client", None)
+    monkeypatch.setattr(storage, "_nouveau_client_r2", lambda cfg: _R2Lent())
+
     async def scenario():
         ticks = 0
         done = False
@@ -73,16 +92,18 @@ def test_async_init_keeps_event_loop_responsive(slow_storage):
                 await asyncio.sleep(0.02)
         t = asyncio.create_task(ticker())
         ok = await storage.astorage_available()
+        chemin = await storage.aupload_bytes("files/a.txt", b"x", "text/plain")
         done = True
         await t
-        return ok, ticks
-    ok, ticks = asyncio.run(scenario())
-    assert ok is True
+        return ok, chemin, ticks
+    ok, chemin, ticks = asyncio.run(scenario())
+    assert ok is True and chemin == "sawali/files/a.txt"
     assert ticks >= 10          # ~0,6 s de travail : la boucle a tourné au moins 10 fois
 
 
 def test_asave_upload_and_cache_without_storage(monkeypatch, tmp_path):
     monkeypatch.setattr(storage, "EMERGENT_KEY", None)
+    monkeypatch.delenv("R2_FICHIERS_BUCKET", raising=False)   # lot 53 : stockage R2 non configuré
     path, sp, err = asyncio.run(storage.asave_upload_and_cache(upload_dir=tmp_path, filename="a.txt", data=b"bonjour"))
     assert path.read_bytes() == b"bonjour" and sp is None and err is None
 

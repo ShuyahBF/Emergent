@@ -7,7 +7,7 @@ Flow:
   3. Backend:
      - Validates the formation (access == "paid", price > 0, available).
      - Reads amount from `formations` collection (NEVER from frontend).
-     - Creates a Stripe Checkout Session via emergentintegrations.
+     - Creates a Stripe Checkout Session via paiement_stripe (bibliothèque officielle stripe, lot 53).
      - Persists a `payment_transactions` row with status "initiated".
      - Returns {url, session_id} → frontend redirects to Stripe.
   4. After payment, Stripe redirects back to `{origin}/portal/formations/{fid}?session_id={CHECKOUT_SESSION_ID}`.
@@ -64,11 +64,11 @@ def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
         return
 
     try:
-        from emergentintegrations.payments.stripe.checkout import (
+        from paiement_stripe import (
             StripeCheckout, CheckoutSessionRequest,
         )
     except ImportError as exc:
-        logger.error("[stripe] emergentintegrations not installed: %s", exc)
+        logger.error("[stripe] module paiement_stripe indisponible : %s", exc)
         return
 
     # Iter38r-fix9o (P1) — import lazy to avoid circular at module load

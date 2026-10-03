@@ -41,6 +41,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Body, Depends, HTTPException
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.linkedin.autopost")
 
@@ -105,11 +106,11 @@ async def _generate_draft(db, topic_prompt: str, session_id: str) -> str:
 
     Returns the draft text. Raises HTTPException on failure.
     """
-    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    emergent_key = _cle_ia()
     if not emergent_key:
-        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée")
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY non configurée")
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        from ia_client import LlmChat, UserMessage  # type: ignore
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
 

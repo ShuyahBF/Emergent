@@ -1,123 +1,68 @@
-"""Iter38r-fix8 — Emergent Object Storage helper for SAWALI SMART SYSTEMS.
+"""Iter38r-fix8 — Stockage objet de SAWALI (lot 53 : Cloudflare R2, plus Emergent).
 
 Persistent storage for files that must survive deployments:
-  - AI-generated images (Gemini Nano Banana)
-  - AI-generated videos (Sora 2)
+  - AI-generated images / videos
   - Media library uploads
   - WhatsApp attachments (inbound + outbound)
-  - User avatars + profile photos
+  - User avatars + profile photos, pièces OCR
 
-Pattern :
+Pattern (inchangé) :
   put_object(path, bytes, content_type) → {"path": "...", "size": ..., "etag": "..."}
   get_object(path)                       → (bytes, content_type)
 
+Lot 53 : les octets vont dans Cloudflare R2 via `storage.py` (même convention de
+clés que l'outil « Migration vers Render » : « <R2_FICHIERS_PREFIXE>/objets/<path> »),
+avec repli de lecture chez Emergent tant qu'EMERGENT_LLM_KEY est définie.
+
 Paths are prefixed with `sawali/` so we never collide with other apps in the
-shared bucket. We also include a tenant prefix (`sawali/{client_id}/...`) so
-admins of a tenant can never accidentally read files from another tenant.
+shared bucket. We also include a tenant prefix (`sawali/{client_id}/...`).
 
 DB pattern : every uploaded object is logged in `stored_objects` so we can
-soft-delete and list (the storage API has no delete/list endpoints).
+soft-delete and list.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
-import requests
+import storage as _stockage
 
 logger = logging.getLogger("sawali.object_storage")
 
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_PREFIX = "sawali"
 
-_storage_key: Optional[str] = None
-_storage_init_failed_at: Optional[float] = None
-_INIT_LOCK = asyncio.Lock()
-
 
 # ============================================================
-# Init (idempotent, retried lazily)
+# Init (aucun appel réseau)
 # ============================================================
-def _init_storage_sync() -> Optional[str]:
-    """Returns a session-scoped storage_key, or None when storage is not
-    reachable (e.g., the EMERGENT_LLM_KEY is missing). Callers handle None
-    by falling back to local-disk persistence."""
-    global _storage_key, _storage_init_failed_at
-    if _storage_key:
-        return _storage_key
-    api_key = (os.environ.get("EMERGENT_LLM_KEY") or "").strip()
-    if not api_key:
-        logger.warning("[object_storage] EMERGENT_LLM_KEY missing — storage disabled")
-        return None
-    try:
-        resp = requests.post(
-            f"{STORAGE_URL}/init",
-            json={"emergent_key": api_key},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        _storage_key = resp.json().get("storage_key")
-        if _storage_key:
-            logger.info("[object_storage] initialized successfully")
-        return _storage_key
-    except Exception as exc:
-        logger.warning("[object_storage] init failed (%s) — fallback to local disk", exc)
-        _storage_init_failed_at = datetime.now(timezone.utc).timestamp()
-        return None
-
-
 async def init_storage() -> Optional[str]:
-    """Async wrapper around the sync init (network call)."""
-    if _storage_key:
-        return _storage_key
-    async with _INIT_LOCK:
-        return await asyncio.to_thread(_init_storage_sync)
+    """Renvoie une valeur vraie si le stockage R2 est configuré, sinon None
+    (les appelants se replient alors sur le disque local)."""
+    return "r2" if _stockage.storage_available() else None
 
 
 def is_enabled() -> bool:
     """Quick check that doesn't trigger a network call."""
-    return _storage_key is not None
+    return _stockage.storage_available()
 
 
 # ============================================================
 # Put / Get
 # ============================================================
 def _put_sync(path: str, data: bytes, content_type: str) -> Dict[str, Any]:
-    key = _init_storage_sync()
-    if not key:
-        raise RuntimeError("Object Storage non initialisé (EMERGENT_LLM_KEY manquant ?).")
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data,
-        timeout=120,
-    )
-    # 409 = path already exists; treat as success and just return the path
-    if resp.status_code == 409:
-        return {"path": path, "size": len(data), "etag": "exists"}
-    resp.raise_for_status()
-    out = resp.json()
-    out.setdefault("path", path)
-    out.setdefault("size", len(data))
-    return out
+    if not _stockage.storage_available():
+        raise RuntimeError("Stockage R2 non configuré (R2_FICHIERS_BUCKET et identifiants R2).")
+    # Chemin gardé tel quel (déjà « sawali/... ») : même clé que la migration
+    chemin = _stockage.upload_bytes(path, data, content_type, normaliser=False)
+    return {"path": chemin, "size": len(data), "etag": None}
 
 
 def _get_sync(path: str) -> Tuple[bytes, str]:
-    key = _init_storage_sync()
-    if not key:
-        raise RuntimeError("Object Storage non initialisé.")
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+    return _stockage.fetch_bytes(path)
 
 
 async def put_object(path: str, data: bytes, content_type: str) -> Dict[str, Any]:
@@ -223,7 +168,7 @@ async def save_and_log(
 
 
 async def soft_delete(db, storage_path: str) -> bool:
-    """Mark the file as deleted in DB (storage has no delete API)."""
+    """Marque le fichier supprimé en base (l'objet reste dans R2, comme avant chez Emergent)."""
     res = await db.stored_objects.update_one(
         {"storage_path": storage_path},
         {"$set": {"is_deleted": True, "deleted_at": datetime.now(timezone.utc).isoformat()}},

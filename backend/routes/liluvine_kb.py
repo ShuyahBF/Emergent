@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 
 logger = logging.getLogger("sawali.liluvine_kb")
 
@@ -119,13 +120,13 @@ async def _ocr_image_with_claude_vision(raw: bytes, mime: str) -> str:
     to OCR all text from it. Returns the extracted text (no description),
     formatted as plain text for storage in the KB."""
     import base64
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = _cle_ia()
     if not api_key:
-        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée")
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY non configurée")
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        from ia_client import LlmChat, UserMessage, ImageContent
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"emergentintegrations indisponible : {exc}")
+        raise HTTPException(status_code=500, detail=f"Client IA indisponible : {exc}")
     b64 = base64.b64encode(raw).decode("ascii")
     img = ImageContent(image_base64=b64)
     chat = LlmChat(

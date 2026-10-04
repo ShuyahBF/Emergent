@@ -13,6 +13,7 @@ import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
+import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
 import VidalActionsSection from "@/components/admin/VidalActionsSection";
@@ -1009,13 +1010,35 @@ export default function AdminSettings() {
         <Section icon={ShieldCheck} title="Transmission WA Universelle Liluvine — POST /api/webhook/liluvine-send">
           <p className="text-xs text-slate-500">
             Permet aux autres plateformes (Ster, adLyn, ALBARKA, beAuthentik…) d'envoyer un message
-            WhatsApp par la ligne Liluvine de SAWALI, sans compte utilisateur. Corps JSON attendu :{" "}
-            <code className="rounded bg-slate-100 px-1">{`{"to": "+22670000000", "message": "...", "source": "ster"}`}</code>{" "}
-            (<code>to</code> = numéro du destinataire au format international ; <code>source</code> = nom de la
-            plateforme, facultatif). La requête est signée avec le secret ci-dessous (en-têtes{" "}
-            <code>X-Timestamp</code> et <code>X-Signature</code>, HMAC-SHA256 sur{" "}
-            <code>{"{timestamp}.{corps brut}"}</code>, fenêtre anti-rejeu ±5 minutes).
+            WhatsApp par la ligne Liluvine de SAWALI quand elles n'ont pas leurs propres paramètres WhatsApp.
+            Chaque plateforme a sa propre clé (tableau ci-dessous) et signe ses requêtes (en-têtes{" "}
+            <code>X-Emetteur</code>, <code>X-Timestamp</code>, <code>X-Signature</code> = HMAC-SHA256 sur{" "}
+            <code>{"{timestamp}.{corps brut}"}</code>, ±5 minutes). Corps :{" "}
+            <code className="rounded bg-slate-100 px-1">{`{"id": "uuid", "to": "+22670000000", "message": "...", "source": "Ster — Cabinet X"}`}</code>.
+            Protections : même « id » jamais envoyé deux fois, quota par jour et par plateforme, 20 envois
+            par heure au plus vers un même numéro, texte des messages jamais conservé.
           </p>
+          {/* Modèle WhatsApp à 3 variables : {{1}} Date/Heure, {{2}} Émetteur, {{3}} Message */}
+          <div className="grid grid-cols-1 gap-3 mt-2 md:grid-cols-2">
+            <Input
+              label="Modèle WhatsApp (3 variables : Date/Heure, Émetteur, Message)"
+              value={s.liluvine_transmission_modele || ""}
+              onChange={(v) => upd("liluvine_transmission_modele", v)}
+              placeholder="nom exact du modèle approuvé par Meta (vide = texte libre, fenêtre 24 h)"
+              testid="liluvine-transmission-modele"
+            />
+            <Input
+              label="Langue du modèle"
+              value={s.liluvine_transmission_langue || ""}
+              onChange={(v) => upd("liluvine_transmission_langue", v)}
+              placeholder="fr"
+              testid="liluvine-transmission-langue"
+            />
+          </div>
+          <div className="mt-4">
+            <LiluvineEmetteursSection />
+          </div>
+          <p className="mt-4 text-xs font-semibold text-slate-600">Ancien mode (clé unique, sans en-tête X-Emetteur)</p>
           <div className="grid grid-cols-1 gap-3 mt-2">
             <Input
               label="Numéro WhatsApp par défaut (utilisé seulement si « to » est absent)"

@@ -1064,7 +1064,12 @@ from routes.liluvine_wa_autoreply import (  # noqa: E402
 # Liluvine d'envoyer un message WhatsApp via SAWALI (numéro cible + secret
 # paramétrables dans AdminSettings).
 from routes.liluvine_send_webhook import attach_liluvine_send_webhook_routes as _attach_liluvine_send_webhook  # noqa: E402
-_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text)
+_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text, wa_send_template=_wa_send_template)
+
+# Lot 57.4 — Transmission WA Universelle Liluvine : plateformes émettrices
+# (une clé HMAC par plateforme) et journal des transmissions (administrateur).
+from routes.liluvine_emetteurs import make_liluvine_emetteurs_router as _make_liluvine_emetteurs_router  # noqa: E402
+api.include_router(_make_liluvine_emetteurs_router(db=db, get_current_admin=get_current_admin))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

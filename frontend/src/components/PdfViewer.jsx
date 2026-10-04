@@ -10,6 +10,7 @@ import {
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Search, X, Download, BookOpen, Loader2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { jetonCourant } from "@/lib/api";
 
 // pdf.js worker — fixed CDN URL matched to bundled version (4.8.69)
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -110,7 +111,15 @@ export default function PdfViewer({ src, title = "Document PDF", onClose, allowD
     setPageNumber(searchHits[i].page);
   };
 
-  const file = useMemo(() => ({ url: src }), [src]);
+  // Lot 57.7 — les PDF servis par notre API (ex. relais des documents VIDAL
+  // /api/vidal/documents/proxy) exigent la session : on joint le jeton de
+  // connexion à la requête. Sans lui le serveur répondait 401 et la
+  // visionneuse affichait « Impossible de charger le PDF ».
+  const file = useMemo(() => {
+    const versNotreApi = typeof src === "string" && /\/api\//.test(src) && !src.startsWith("blob:") && !src.startsWith("data:");
+    const jeton = versNotreApi ? jetonCourant() : null;
+    return jeton ? { url: src, httpHeaders: { Authorization: `Bearer ${jeton}` } } : { url: src };
+  }, [src]);
 
   // Disable native context menu + Ctrl/Cmd+S so non-admins can't save easily.
   useEffect(() => {

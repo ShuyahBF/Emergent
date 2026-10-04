@@ -69,6 +69,19 @@ function signatureSaisie(clinique, nouvelles, traitements) {
   return JSON.stringify({ c: cliniqueSaisie, n: nouvelles.map(ligne), t: traitements.map(ligne) });
 }
 
+// Lot 57.6 (recette VIDAL, urgent) — saisie contrôlée de l'identité du patient :
+// - nom : lettres (accents compris), espaces, trait d'union, apostrophe et point
+//   uniquement, toujours en MAJUSCULES ; les chiffres et autres signes sont ignorés ;
+// - n° WhatsApp : chiffres, espaces et « + » en tête uniquement (20 caractères au plus).
+export const filtrerNomPatient = (v) => (v || "").replace(/[^\p{L}\s'’.-]/gu, "").replace(/\s{2,}/g, " ").toUpperCase();
+export const filtrerNumeroWhatsapp = (v) => {
+  const brut = (v || "").replace(/[^\d+\s]/g, "");
+  // Le « + » n'est accepté qu'en première position
+  return (brut.startsWith("+") ? "+" : "") + brut.replace(/\+/g, "").slice(0, 19);
+};
+// Numéro complet valide : 8 à 15 chiffres, « + » facultatif
+const numeroWhatsappValide = (v) => /^\+?\d{8,15}$/.test((v || "").replace(/\s/g, ""));
+
 export default function VidalSecurisation() {
   // ---- Patient et données cliniques ----
   const [clinique, setClinique] = useState(cliniqueVide());
@@ -188,8 +201,8 @@ export default function VidalSecurisation() {
       // On garde la ligne de la liste si le détail est indisponible.
     }
     setPatient(doc);
-    setPatientName(doc.name || "");
-    setPatientWhatsapp(doc.whatsapp_number || "");
+    setPatientName(filtrerNomPatient(doc.name || ""));
+    setPatientWhatsapp(filtrerNumeroWhatsapp(doc.whatsapp_number || ""));
     setClinique(cliniqueDepuisPatient(doc));
     setResultat(null); setConsultationPassee(null); setErreur(null); setDerniereOrdonnanceId(null);
     setNouvellesLignes([nouvelleLigneSaisie()]);
@@ -212,6 +225,11 @@ export default function VidalSecurisation() {
     }
     if (Object.keys(controle.patient).length) {
       toast.error("Corrigez les données cliniques signalées en rouge avant d'enregistrer.");
+      return;
+    }
+    // Numéro WhatsApp : s'il est saisi, il doit être complet (indicatif pays compris)
+    if (patientWhatsapp && !numeroWhatsappValide(patientWhatsapp)) {
+      toast.error("N° WhatsApp invalide : 8 à 15 chiffres, avec l'indicatif pays (ex. +226 70 00 00 00).");
       return;
     }
     setEnregistrement(true);
@@ -446,6 +464,11 @@ export default function VidalSecurisation() {
       toast.warning("Renseignez le n° WhatsApp du patient avant d'envoyer.");
       return;
     }
+    // Numéro incomplet ou mal formé : refusé avant tout envoi
+    if (!numeroWhatsappValide(patientWhatsapp)) {
+      toast.error("N° WhatsApp invalide : 8 à 15 chiffres, avec l'indicatif pays.");
+      return;
+    }
     setEnvoiWa(true);
     try {
       await api.post(`/vidal/ordonnance/${derniereOrdonnanceId}/send-whatsapp`, { phone: patientWhatsapp });
@@ -530,11 +553,13 @@ export default function VidalSecurisation() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, alignItems: "end" }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>Nom du patient (usage interne, jamais transmis à VIDAL)</label>
-            <input className="champ-saisie" value={patientName} disabled={!!patient?.est_fictif} onChange={(e) => setPatientName(e.target.value)} placeholder="Nom" data-testid="sec-patient-name" />
+            <input className="champ-saisie" value={patientName} disabled={!!patient?.est_fictif} onChange={(e) => setPatientName(filtrerNomPatient(e.target.value))} placeholder="NOM ET PRÉNOM" autoComplete="off"
+                   style={{ textTransform: "uppercase" }} data-testid="sec-patient-name" />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>N° WhatsApp (ordonnance)</label>
-            <input className="champ-saisie" value={patientWhatsapp} disabled={!!patient?.est_fictif} onChange={(e) => setPatientWhatsapp(e.target.value)} placeholder="+226…" data-testid="sec-patient-whatsapp" />
+            <input className="champ-saisie" value={patientWhatsapp} disabled={!!patient?.est_fictif} onChange={(e) => setPatientWhatsapp(filtrerNumeroWhatsapp(e.target.value))} placeholder="+226…"
+                   inputMode="tel" autoComplete="off" maxLength={20} data-testid="sec-patient-whatsapp" />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={enregistrerPatient} disabled={enregistrement} data-testid="sec-save-patient">

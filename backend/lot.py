@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.5"
-LOT_LIBELLE = "Transmission WA Universelle v3 : médias et documents, réponses relayées aux plateformes, statuts, STOP, alertes ; bleu VIDAL éclairci"
+LOT = "57.6"
+LOT_LIBELLE = "VIDAL : nom du patient en MAJUSCULES sans chiffres, n° WhatsApp limité aux chiffres (recette)"

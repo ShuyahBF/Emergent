@@ -179,17 +179,24 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, onB
             {optionsDepuis(TYPES_MEDICAMENT).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
-        {/* Lot 56.10 — bascule vers l'autre liste (nouvelle prescription <-> traitements en cours) */}
-        {onBasculer && (
-          <button type="button" onClick={onBasculer} className="bouton-secondaire"
-            title={estTraitementEnCours ? "Déplacer vers la nouvelle prescription (pour modifier les prises)" : "Déplacer vers les traitements en cours"}
-            style={{ fontSize: 11, padding: "4px 8px", whiteSpace: "nowrap", alignSelf: "end" }}>
-            ⇄ {estTraitementEnCours ? "Vers nouvelle prescription" : "Vers traitements en cours"}
-          </button>
-        )}
-        {onRetirer ? (
-          <button onClick={onRetirer} title="Retirer cette ligne" style={{ border: "none", background: "none", color: "var(--vidal-rouge)", cursor: "pointer", display: "flex", padding: "8px 4px" }}><X size={16} /></button>
-        ) : <span />}
+        {/* Lot 57.9 — les deux boutons d'action (bascule ⇄ et retrait ×) partagent la
+            4e colonne de la grille : avant, ils occupaient deux cellules sur une grille de
+            4 colonnes, et le bouton « Retirer cette ligne » passait seul sur une 2e rangée. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, alignSelf: "end" }}>
+          {/* Lot 56.10 — bascule vers l'autre liste (nouvelle prescription <-> traitements en cours) */}
+          {onBasculer && (
+            <button type="button" onClick={onBasculer} className="bouton-secondaire"
+              title={estTraitementEnCours ? "Déplacer vers la nouvelle prescription (pour modifier les prises)" : "Déplacer vers les traitements en cours"}
+              style={{ fontSize: 11, padding: "4px 8px", whiteSpace: "nowrap" }}>
+              ⇄ {estTraitementEnCours ? "Vers nouvelle prescription" : "Vers traitements en cours"}
+            </button>
+          )}
+          {/* Retrait de la ligne (croix rouge), toujours sur la même rangée que le produit */}
+          {onRetirer && (
+            <button type="button" onClick={onRetirer} title="Retirer cette ligne" aria-label="Retirer cette ligne"
+              style={{ border: "none", background: "none", color: "var(--vidal-rouge)", cursor: "pointer", display: "flex", padding: "8px 4px" }}><X size={16} /></button>
+          )}
+        </div>
       </div>
 
       {ligne.nonSecurise && (

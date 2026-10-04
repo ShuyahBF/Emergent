@@ -1034,6 +1034,21 @@ export default function AdminSettings() {
               placeholder="fr"
               testid="liluvine-transmission-langue"
             />
+            {/* Lot 57.5 — modèle avec en-tête média (document / image / vidéo) + mêmes 3 variables */}
+            <Input
+              label="Modèle WhatsApp média (en-tête document/image + 3 variables)"
+              value={s.liluvine_transmission_modele_media || ""}
+              onChange={(v) => upd("liluvine_transmission_modele_media", v)}
+              placeholder="facultatif : sinon lien de téléchargement (7 jours) dans le message"
+              testid="liluvine-transmission-modele-media"
+            />
+            <Input
+              label="E-mail d'alerte (série d'échecs ou de signatures refusées)"
+              value={s.liluvine_transmission_email_alerte || ""}
+              onChange={(v) => upd("liluvine_transmission_email_alerte", v)}
+              placeholder="jfrancois.ouoba@gmail.com"
+              testid="liluvine-transmission-email-alerte"
+            />
           </div>
           <div className="mt-4">
             <LiluvineEmetteursSection />

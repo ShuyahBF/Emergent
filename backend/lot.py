@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.4"
-LOT_LIBELLE = "Transmission WA Universelle Liluvine v2 : une clé par plateforme, modèle à 3 variables, anti-doublon, quotas, journal"
+LOT = "57.5"
+LOT_LIBELLE = "Transmission WA Universelle v3 : médias et documents, réponses relayées aux plateformes, statuts, STOP, alertes ; bleu VIDAL éclairci"

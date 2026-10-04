@@ -2194,7 +2194,25 @@ async def whatsapp_webhook_incoming(request: Request):
                     # Lot 24 — chaque message reçu laisse une trace de la décision de
                     # Liluvine (répondu, ou pourquoi pas) : Paramètres → Auto-réponse
                     # WhatsApp → « Pourquoi Liluvine n'a pas répondu ? ».
-                    if skip_autoreply or hr_handled:
+                    # Lot 57.5 — Transmission WA Universelle : réponse d'un client à un message
+                    # envoyé pour une plateforme (relayée à celle-ci), ou STOP / REPRENDRE.
+                    # Liluvine ne répond alors pas elle-même.
+                    relais_plateforme = False
+                    if not skip_autoreply and not hr_handled:
+                        try:
+                            from routes.liluvine_relais import traiter_message_entrant as _liluvine_relais_entrant
+                            _ctx = msg.get("context") or {}
+                            _rel = await _liluvine_relais_entrant(
+                                db, de=from_num, type_message=mtype, texte=text_body or media_caption,
+                                fichier_local=str(UPLOAD_DIR / media_info["stored_name"]) if (media_info or {}).get("stored_name") else None,
+                                mime=(media_info or {}).get("mime_type"), nom_fichier=(media_info or {}).get("filename"),
+                                cite_message_id=_ctx.get("id"), send_text=_wa_send_text)
+                            relais_plateforme = bool(_rel.get("traite"))
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[liluvine_relais] traitement du message entrant impossible", exc_info=True)
+                    if relais_plateforme:
+                        ar_result = {"ok": False, "reason": "relais_plateforme"}
+                    elif skip_autoreply or hr_handled:
                         ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
                     elif mtype != "text" or not text_body:
                         ar_result = {"ok": False, "reason": "non_text_message", "message_type": mtype}
@@ -2280,6 +2298,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         {"$or": [{"message_id": mid}, {"wa_message_id": mid}]},
                         {"$set": update},
                     )
+                    # Lot 57.5 — statut d'un message de la Transmission WA Universelle -> plateforme
+                    try:
+                        from routes.liluvine_relais import mettre_a_jour_statut as _liluvine_statut
+                        await _liluvine_statut(db, mid, status_val, update.get("wa_error_message"))
+                    except Exception:  # noqa: BLE001
+                        logger.warning("[liluvine_relais] statut non transmis", exc_info=True)
                     if res.matched_count == 0:
                         # Stash so the matching outbound row can self-heal later
                         await db.wa_pending_statuses.update_one(

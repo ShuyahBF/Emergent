@@ -1064,7 +1064,11 @@ from routes.liluvine_wa_autoreply import (  # noqa: E402
 # Liluvine d'envoyer un message WhatsApp via SAWALI (numéro cible + secret
 # paramétrables dans AdminSettings).
 from routes.liluvine_send_webhook import attach_liluvine_send_webhook_routes as _attach_liluvine_send_webhook  # noqa: E402
-_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text, wa_send_template=_wa_send_template)
+_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text, wa_send_template=_wa_send_template,
+                              wa_send_media=_wa_send_media)
+# Lot 57.5 — lien public (jeton, 7 jours) des fichiers transmis par les plateformes
+from routes.liluvine_relais import attach_liluvine_fichiers_route as _attach_liluvine_fichiers  # noqa: E402
+_attach_liluvine_fichiers(api=api, db=db)
 
 # Lot 57.4 — Transmission WA Universelle Liluvine : plateformes émettrices
 # (une clé HMAC par plateforme) et journal des transmissions (administrateur).

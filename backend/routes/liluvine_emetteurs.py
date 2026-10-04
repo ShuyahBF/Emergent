@@ -29,12 +29,22 @@ class NouvelEmetteur(BaseModel):
     code: str
     nom: str
     quota_jour: Optional[int] = 500
+    url_retour: Optional[str] = None   # https://<plateforme>/api/webhooks/liluvine-retour (lot 57.5)
 
 
 class ModifEmetteur(BaseModel):
     nom: Optional[str] = None
     actif: Optional[bool] = None
     quota_jour: Optional[int] = None
+    url_retour: Optional[str] = None
+
+
+def _url_retour_valide(url: Optional[str]) -> str:
+    """URL de retour : vide (pas de retour) ou adresse HTTPS."""
+    url = (url or "").strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(status_code=422, detail="L'URL de retour doit commencer par https://")
+    return url[:300]
 
 
 def _nouvelle_cle() -> str:
@@ -69,6 +79,7 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         await db.liluvine_emetteurs.insert_one({
             "code": code, "nom": donnees.nom.strip()[:60] or code, "secret": cle, "actif": True,
             "quota_jour": max(1, int(donnees.quota_jour or 500)), "cree_le": maintenant,
+            "url_retour": _url_retour_valide(donnees.url_retour),
             "cle_regeneree_le": maintenant, "cree_par": admin.get("email"),
         })
         return {"code": code, "cle": cle}
@@ -94,6 +105,8 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["actif"] = bool(donnees.actif)
         if donnees.quota_jour is not None:
             changements["quota_jour"] = max(1, int(donnees.quota_jour))
+        if donnees.url_retour is not None:
+            changements["url_retour"] = _url_retour_valide(donnees.url_retour)
         if not changements:
             return {"ok": True}
         r = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": changements})
@@ -114,6 +127,27 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         limite = max(1, min(int(limite), 500))
         lignes = await db.liluvine_transmissions.find({}, {"_id": 0}).sort("date", -1).to_list(limite)
         return {"transmissions": lignes}
+
+    @router.get("/liluvine-desinscriptions")
+    async def desinscriptions(admin: dict = Depends(get_current_admin)):
+        """Numéros qui ont répondu STOP (par plateforme)."""
+        lignes = await db.liluvine_desinscriptions.find({"actif": True}, {"_id": 0}).sort("date", -1).to_list(500)
+        return {"desinscriptions": lignes}
+
+    @router.post("/liluvine-desinscriptions/reinscrire")
+    async def reinscrire(donnees: dict = Body(...), admin: dict = Depends(get_current_admin)):
+        """Réinscription manuelle d'un numéro pour une plateforme {emetteur, numero}."""
+        numero = "".join(c for c in str(donnees.get("numero") or "") if c.isdigit())
+        r = await db.liluvine_desinscriptions.update_one(
+            {"emetteur": donnees.get("emetteur"), "numero": numero, "actif": True},
+            {"$set": {"actif": False, "reprise_le": datetime.now(timezone.utc).isoformat(), "reprise_par": admin.get("email")}})
+        return {"ok": bool(r.modified_count)}
+
+    @router.get("/liluvine-reponses")
+    async def reponses(admin: dict = Depends(get_current_admin)):
+        """Dernières réponses de clients relayées aux plateformes."""
+        lignes = await db.liluvine_reponses.find({}, {"_id": 0}).sort("date", -1).to_list(100)
+        return {"reponses": lignes}
 
     return router
 

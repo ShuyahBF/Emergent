@@ -143,11 +143,13 @@
 }
 
 /* Lot 56.10 — demande du propriétaire (recette VIDAL) : distinguer d'un coup d'œil
-   les VALEURS SAISIES (bleu foncé) des LIBELLÉS des champs (noir).
+   les VALEURS SAISIES (bleu, un ton sous le cadre) des LIBELLÉS des champs (noir).
    Valable pour tous les champs des pages VIDAL (Sécurisation, Analyse prescription),
    y compris les champs Tailwind de la page Analyse ; en mode sombre, bleu clair / blanc. */
 .vidal-v2 {
-  --vidal-valeur: #1e3a8a;   /* bleu foncé des valeurs saisies */
+  /* Lot 57.5 (recette VIDAL) : bleu des valeurs saisies éclairci, un ton juste
+     en dessous du filet bleu du cadre (--ring : hsl(211 100% 50%)) */
+  --vidal-valeur: hsl(211 100% 42%);
   --vidal-libelle: #000000;  /* noir des libellés */
 }
 .dark .vidal-v2 {

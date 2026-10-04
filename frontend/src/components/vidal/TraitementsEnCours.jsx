@@ -24,7 +24,8 @@ function resumePeriode(t) {
   return morceaux.join(" ");
 }
 
-export default function TraitementsEnCours({ traitements, onChange, chargement, erreurs = [], patientSelectionne }) {
+// Lot 56.10 — `onBasculer(idx)` : déplace un traitement en cours vers la nouvelle prescription.
+export default function TraitementsEnCours({ traitements, onChange, chargement, erreurs = [], patientSelectionne, onBasculer = null }) {
   const [ouverts, setOuverts] = useState({});
 
   function majTraitement(idx, patch) {
@@ -74,6 +75,10 @@ export default function TraitementsEnCours({ traitements, onChange, chargement, 
                   </div>
                 </div>
                 {nbErreurs > 0 && <span style={{ fontSize: 11, color: "var(--vidal-rouge)" }}>{nbErreurs} champ(s) à corriger</span>}
+                {onBasculer && (
+                  <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} title="Déplacer vers la nouvelle prescription (pour modifier les prises)"
+                    onClick={() => onBasculer(idx)}>⇄ Vers nouvelle prescription</button>
+                )}
                 <button type="button" className="bouton-secondaire" style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }} onClick={() => setOuverts({ ...ouverts, [idx]: !ouverts[idx] })}>
                   {ouverts[idx] ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Détail
                 </button>
@@ -85,6 +90,7 @@ export default function TraitementsEnCours({ traitements, onChange, chargement, 
                   ligne={t} estTraitementEnCours erreurs={erreurs[idx] || {}}
                   onChange={(patch) => majTraitement(idx, patch)}
                   onRetirer={t.ordonnance_reference ? null : () => onChange((prev) => prev.filter((_, i) => i !== idx))}
+                  onBasculer={onBasculer ? () => onBasculer(idx) : null}
                 />
               </div>
             )}

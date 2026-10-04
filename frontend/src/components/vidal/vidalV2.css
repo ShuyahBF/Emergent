@@ -141,3 +141,38 @@
 .vidal-v2 .lucide-tourne {
   animation: vidal-rotation 1s linear infinite;
 }
+
+/* Lot 56.10 — demande du propriétaire (recette VIDAL) : distinguer d'un coup d'œil
+   les VALEURS SAISIES (bleu foncé) des LIBELLÉS des champs (noir).
+   Valable pour tous les champs des pages VIDAL (Sécurisation, Analyse prescription),
+   y compris les champs Tailwind de la page Analyse ; en mode sombre, bleu clair / blanc. */
+.vidal-v2 {
+  --vidal-valeur: #1e3a8a;   /* bleu foncé des valeurs saisies */
+  --vidal-libelle: #000000;  /* noir des libellés */
+}
+.dark .vidal-v2 {
+  --vidal-valeur: #93c5fd;
+  --vidal-libelle: #ffffff;
+}
+.vidal-v2 label,
+.vidal-v2 .libelle-champ {
+  color: var(--vidal-libelle);
+}
+.vidal-v2 input:not([type="checkbox"]):not([type="radio"]),
+.vidal-v2 select,
+.vidal-v2 textarea,
+.vidal-v2 .champ-saisie {
+  color: var(--vidal-valeur);
+  font-weight: 600;
+}
+/* Textes d'aide (placeholder) : restent gris, sans gras */
+.vidal-v2 input::placeholder,
+.vidal-v2 textarea::placeholder {
+  color: var(--vidal-gris);
+  font-weight: 400;
+}
+/* Les options des listes déroulantes gardent la couleur normale du texte */
+.vidal-v2 select option {
+  color: var(--vidal-texte);
+  font-weight: 400;
+}

@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
 import { FileText, Loader2, X } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
+import ApercuPdfIntegre from "./ApercuPdfIntegre";
 import { formatDateFr, ajouterJours, aujourdhuiISO, ALLAITEMENTS, META_SEVERITE, messageErreurApi } from "@/lib/vidalReferentiels";
 
 const ORIGINES = { fiche: "Fiche patient", securisation: "Page Sécurisation", posologie: "Page Posologie", validation_vidal: "Patients fictifs (validation VIDAL)" };
@@ -79,6 +80,7 @@ export default function HistoriqueDonneesCliniques({ patientId }) {
   const [erreur, setErreur] = useState("");
   const [detail, setDetail] = useState(null);
   const [pdfEnCours, setPdfEnCours] = useState(false);
+  const [apercuPdf, setApercuPdf] = useState(null); // Lot 56.10 — aperçu PDF intégré
 
   useEffect(() => {
     if (!patientId) return;
@@ -93,7 +95,8 @@ export default function HistoriqueDonneesCliniques({ patientId }) {
     setPdfEnCours(true);
     try {
       const r = await api.get(`/vidal/patients/${patientId}/historique-clinique/pdf`, { responseType: "blob" });
-      window.open(window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), "_blank");
+      // Lot 56.10 — aperçu intégré à la page (plus de nouvel onglet, pas de téléchargement)
+      setApercuPdf({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: "Historique des données cliniques" });
     } catch (err) {
       setErreur(messageErreurApi(err, "Export PDF impossible."));
     }
@@ -121,10 +124,11 @@ export default function HistoriqueDonneesCliniques({ patientId }) {
 
   return (
     <div>
+      <ApercuPdfIntegre apercu={apercuPdf} onFermer={() => setApercuPdf(null)} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 12.5, color: "var(--vidal-gris-fonce)" }}>{versions.length} version{versions.length > 1 ? "s" : ""} du profil clinique — {securisations.length} sécurisation{securisations.length > 1 ? "s" : ""}</div>
         <button className="bouton-secondaire" onClick={ouvrirPdf} disabled={pdfEnCours || (!versions.length && !securisations.length)} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          {pdfEnCours ? <Loader2 size={13} className="lucide-tourne" /> : <FileText size={13} />} Exporter en PDF
+          {pdfEnCours ? <Loader2 size={13} className="lucide-tourne" /> : <FileText size={13} />} Aperçu PDF
         </button>
       </div>
 

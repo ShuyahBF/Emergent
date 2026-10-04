@@ -39,6 +39,7 @@ import BandeauValidationVidal, { BadgeFictif, chargerEtatValidation } from "@/co
 import HistoriqueDonneesCliniques from "@/components/vidal/HistoriqueDonneesCliniques";
 import ParametresGroupesDfg from "@/components/vidal/ParametresGroupesDfg";
 import ValidationVidal from "@/components/vidal/ValidationVidal";
+import ApercuPdfIntegre from "@/components/vidal/ApercuPdfIntegre";
 import { useAuth } from "@/contexts/AuthContext";
 import { construirePayloadSecurisation, resumeErreurs, validerFormulaireSecurisation } from "@/components/vidal/payloadSecurisation";
 // Lot 56.4 — chronomètre de saisie (mode « Validation VIDAL » uniquement).
@@ -110,6 +111,8 @@ export default function VidalSecurisation() {
   const [patientsFictifs, setPatientsFictifs] = useState([]);
   const [cleBandeau, setCleBandeau] = useState(0);
   const [parametresOuverts, setParametresOuverts] = useState(false);
+  // Lot 56.10 — aperçu PDF intégré à la page (jamais de nouvel onglet ni de téléchargement)
+  const [apercuPdf, setApercuPdf] = useState(null);
   // Lot 56.9 — « Paramètres VIDAL » (groupes du DFG, validation VIDAL, patients fictifs, journal)
   // réservés à l'administrateur / superviseur de la plateforme (le serveur le contrôle aussi).
   const { user } = useAuth() || {};
@@ -142,6 +145,26 @@ export default function VidalSecurisation() {
   // (une ligne reçoit deux mises à jour successives quand un médicament est choisi).
   function majLigne(idx, patch) {
     setNouvellesLignes((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  }
+
+  // Lot 56.10 — bascule entre « nouvelle prescription » et « traitements en cours » :
+  // le médecin peut reprendre un traitement en cours pour en changer les prises, ou
+  // classer une ligne saisie comme traitement déjà en cours. La ligne garde tout ce
+  // qui a été saisi (produit VIDAL, posologie, dates) ; seul son classement change.
+  function versTraitementsEnCours(idx) {
+    const ligne = nouvellesLignes[idx];
+    setTraitementsEnCours((prev) => [...prev, { ...ligne, groupType: "PREVIOUS_ORDER", inclus: true }]);
+    setNouvellesLignes((prev) => {
+      const reste = prev.filter((_, i) => i !== idx);
+      return reste.length ? reste : [nouvelleLigneSaisie()];
+    });
+  }
+  function versNouvellePrescription(idx) {
+    // eslint-disable-next-line no-unused-vars
+    const { inclus, ordonnance_reference, date_ordonnance, ...ligne } = traitementsEnCours[idx];
+    // La ligne vide de départ (aucun produit choisi) est remplacée par la ligne déplacée
+    setNouvellesLignes((prev) => [...prev.filter((l) => l.vidal_id || l.query), { ...ligne, groupType: "SAME_ORDER" }]);
+    setTraitementsEnCours((prev) => prev.filter((_, i) => i !== idx));
   }
   function basculerTypeAlerte(t) {
     setTypesAlerte((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
@@ -404,7 +427,7 @@ export default function VidalSecurisation() {
         lines: lignes,
         alerts_summary: (resultat?.analyse?.summary || []).filter((s) => s.severity && s.severity !== "NO_ALERT"),
       }, { responseType: "blob" });
-      window.open(window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), "_blank");
+      setApercuPdf({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: "Ordonnance sécurisée" });
       // L'identifiant voyage en en-tête (le corps de la réponse est le PDF) — nécessaire pour « Envoi WA ».
       setDerniereOrdonnanceId(r.headers?.["x-ordonnance-id"] || null);
     } catch {
@@ -519,7 +542,7 @@ export default function VidalSecurisation() {
             <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setHistoriqueCliniqueOuvert(true)} disabled={!patient?.id} title={patient?.id ? "" : "Enregistrez ou chargez d'abord un patient"}>
               <FileText size={13} /> Historique clinique
             </button>
-            <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={reinitialiser}>
+            <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={reinitialiser} title="Tout effacer : patient, données cliniques, traitements en cours et prescription (nouveau patient)">
               <UserPlus size={13} /> Nouveau patient
             </button>
           </div>
@@ -554,7 +577,7 @@ export default function VidalSecurisation() {
       </div>
 
       <div className="carte">
-        <TraitementsEnCours traitements={traitementsEnCours} onChange={setTraitementsEnCours} chargement={chargementTraitements}
+        <TraitementsEnCours traitements={traitementsEnCours} onChange={setTraitementsEnCours} chargement={chargementTraitements} onBasculer={versNouvellePrescription}
           erreurs={controle.traitements} patientSelectionne={patient} />
       </div>
 
@@ -597,7 +620,8 @@ export default function VidalSecurisation() {
         )}
         {nouvellesLignes.map((ligne, idx) => (
           <LignePrescriptionVidal key={idx} ligne={ligne} erreurs={controle.nouvelles[idx]} onChange={(patch) => majLigne(idx, patch)}
-            onRetirer={nouvellesLignes.length > 1 ? () => setNouvellesLignes((prev) => prev.filter((_, i) => i !== idx)) : null} />
+            onRetirer={nouvellesLignes.length > 1 ? () => setNouvellesLignes((prev) => prev.filter((_, i) => i !== idx)) : null}
+            onBasculer={ligne.vidal_id || ligne.query ? () => versTraitementsEnCours(idx) : null} />
         ))}
         <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setNouvellesLignes((prev) => [...prev, nouvelleLigneSaisie()])}>+ Ajouter un médicament</button>
       </div>
@@ -630,9 +654,9 @@ export default function VidalSecurisation() {
       <ChronoSaisie chrono={chrono} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" className="bouton-secondaire" onClick={reinitialiser}><RotateCcw size={13} /> Réinitialiser</button>
+        <button type="button" className="bouton-secondaire" onClick={reinitialiser} title="Tout effacer : patient, données cliniques, traitements en cours et prescription (nouveau patient)"><RotateCcw size={13} /> Réinitialiser</button>
         {/* Lot 56.5 — nouvelle prescription pour le même patient, chronomètre remis à zéro */}
-        <button type="button" className="bouton-secondaire" onClick={nouvelleSaisie} data-testid="sec-nouvelle-saisie"><RotateCcw size={13} /> Nouvelle saisie</button>
+        <button type="button" className="bouton-secondaire" onClick={nouvelleSaisie} data-testid="sec-nouvelle-saisie" title="Même patient : garde le patient, ses données cliniques et ses traitements en cours ; vide seulement la nouvelle prescription et le résultat"><RotateCcw size={13} /> Nouvelle saisie</button>
         <button type="button" className="bouton-primaire" style={{ background: ROUGE }} onClick={() => lancerAnalyse()} disabled={enCours} data-testid="sec-run">
           {enCours ? <><Loader2 size={14} className="lucide-tourne" /> Analyse en cours…</> : <><HeartPulse size={14} /> Sécuriser</>}
         </button>
@@ -665,6 +689,8 @@ export default function VidalSecurisation() {
           <ResultatSecurisation analyse={resultat.analyse} onOuvrirRubrique={consultationPassee ? null : (ancre) => ouvrirRapportHtml({ ancre })} />
         </div>
       )}
+
+      <ApercuPdfIntegre apercu={apercuPdf} onFermer={() => setApercuPdf(null)} />
 
       <RapportHtmlSecurisation rapport={rapport} onFermer={() => setRapport(null)} onFiltrer={(rubriques) => ouvrirRapportHtml({ rubriques })} />
 

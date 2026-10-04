@@ -21,7 +21,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
  *  - onClose        : optional callback (utilisé si embarqué dans un modal)
  *  - allowDownload  : override, sinon calculé via le rôle utilisateur
  */
-export default function PdfViewer({ src, title = "Document PDF", onClose, allowDownload }) {
+// Lot 56.10 — `messageLecture` : texte du bandeau quand le téléchargement est bloqué (aperçus VIDAL).
+export default function PdfViewer({ src, title = "Document PDF", onClose, allowDownload, messageLecture = null }) {
   const { user } = useAuth() || {};
   const role = (user?.role || "").toLowerCase();
   const tracked = (user?.tracked_role || "").toLowerCase();
@@ -256,7 +257,7 @@ export default function PdfViewer({ src, title = "Document PDF", onClose, allowD
         </div>
         {!canDownload && (
           <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-800 text-center" data-testid="pdf-download-blocked">
-            🔒 Lecture en ligne uniquement — le téléchargement est réservé aux rôles Admin / Superviseur.
+            {messageLecture || "🔒 Lecture en ligne uniquement — le téléchargement est réservé aux rôles Admin / Superviseur."}
           </div>
         )}
       </div>

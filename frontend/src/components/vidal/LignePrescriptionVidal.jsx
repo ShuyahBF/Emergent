@@ -83,7 +83,9 @@ function chargerFormesGaleniques() {
   return promesseFormes;
 }
 
-export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, erreurs = {}, estTraitementEnCours = false }) {
+// Lot 56.10 — `onBasculer` : déplace la ligne entre « nouvelle prescription » et « traitements
+// en cours » (le médecin veut par exemple changer les prises d'un traitement en cours).
+export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, onBasculer = null, erreurs = {}, estTraitementEnCours = false }) {
   const [intervallesOuverts, setIntervallesOuverts] = useState((ligne.dosages || []).length > 0);
   const [formesApi, setFormesApi] = useState([]);
   const [aldsProposees, setAldsProposees] = useState([]);
@@ -177,6 +179,14 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, err
             {optionsDepuis(TYPES_MEDICAMENT).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
+        {/* Lot 56.10 — bascule vers l'autre liste (nouvelle prescription <-> traitements en cours) */}
+        {onBasculer && (
+          <button type="button" onClick={onBasculer} className="bouton-secondaire"
+            title={estTraitementEnCours ? "Déplacer vers la nouvelle prescription (pour modifier les prises)" : "Déplacer vers les traitements en cours"}
+            style={{ fontSize: 11, padding: "4px 8px", whiteSpace: "nowrap", alignSelf: "end" }}>
+            ⇄ {estTraitementEnCours ? "Vers nouvelle prescription" : "Vers traitements en cours"}
+          </button>
+        )}
         {onRetirer ? (
           <button onClick={onRetirer} title="Retirer cette ligne" style={{ border: "none", background: "none", color: "var(--vidal-rouge)", cursor: "pointer", display: "flex", padding: "8px 4px" }}><X size={16} /></button>
         ) : <span />}

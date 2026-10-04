@@ -5,7 +5,6 @@
 // backend/routes/vidal_fiche.py (aucune donnée simulée, contrairement à la
 // maquette d'origine).
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,13 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Loader2, Pill, Route as RouteIcon, ExternalLink, Layers } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
+import ApercuPdfIntegre from "@/components/vidal/ApercuPdfIntegre";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
 export default function VidalFicheProduit() {
   const { vidalAdminNotes } = useVidalUiSettings();
-  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [product, setProduct] = useState(null); // {vidal_id, title}
   const [detail, setDetail] = useState(null); // {name, vmp_id, routes, documents}
@@ -69,18 +68,17 @@ export default function VidalFicheProduit() {
   // ce même lecteur ici plutôt que de laisser le navigateur ouvrir le PDF
   // brut. (Les pages VIDAL en HTML — is_html — ne sont pas des PDF et ne
   // peuvent pas passer par ce lecteur ; elles restent ouvertes normalement.)
+  // Lot 56.10 — règle du propriétaire : aperçu INTÉGRÉ à la page (fenêtre par-dessus),
+  // jamais de nouvel onglet ni de téléchargement (PDF comme page HTML VIDAL).
+  const [apercuDoc, setApercuDoc] = useState(null);
   const openDocument = (doc) => {
-    if (doc.is_html) {
-      window.open(doc.url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    const src = documentHref(doc);
-    const title = doc.title || doc.item_type;
-    navigate(`/portal/brochures?src=${encodeURIComponent(src)}&title=${encodeURIComponent(title)}&kind=pdf`);
+    setApercuDoc({ src: documentHref(doc), titre: doc.title || doc.item_type, html: !!doc.is_html });
   };
 
   return (
     <div className="space-y-4" data-testid="vidal-fiche-page">
+      {/* Lot 56.10 — aperçu intégré des documents VIDAL (PDF ou page HTML) */}
+      <ApercuPdfIntegre apercu={apercuDoc} onFermer={() => setApercuDoc(null)} />
       <div className="flex items-center gap-3">
         {/* #BB2323 = même rouge que Sécurisation/Posologie (échantillonné sur
             capture réelle de la maquette d'origine), à la place du bleu

@@ -40,6 +40,7 @@ import HistoriqueDonneesCliniques from "@/components/vidal/HistoriqueDonneesClin
 import ParametresGroupesDfg from "@/components/vidal/ParametresGroupesDfg";
 import ValidationVidal from "@/components/vidal/ValidationVidal";
 import ApercuPdfIntegre from "@/components/vidal/ApercuPdfIntegre";
+import MesOrdonnancesVidal from "@/components/vidal/MesOrdonnancesVidal";
 import { useAuth } from "@/contexts/AuthContext";
 import { construirePayloadSecurisation, resumeErreurs, validerFormulaireSecurisation } from "@/components/vidal/payloadSecurisation";
 // Lot 56.4 — chronomètre de saisie (mode « Validation VIDAL » uniquement).
@@ -691,6 +692,9 @@ export default function VidalSecurisation() {
       )}
 
       <ApercuPdfIntegre apercu={apercuPdf} onFermer={() => setApercuPdf(null)} />
+
+      {/* Lot 57 — ordonnances émises et retour des officines (servie, partielle, rupture) */}
+      <MesOrdonnancesVidal cleRafraichissement={derniereOrdonnanceId || ""} />
 
       <RapportHtmlSecurisation rapport={rapport} onFermer={() => setRapport(null)} onFiltrer={(rubriques) => ouvrirRapportHtml({ rubriques })} />
 

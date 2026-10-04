@@ -7,7 +7,9 @@
 //     interne PdfViewer (rendu image, clic droit et Ctrl+S bloqués), SANS bouton
 //     de téléchargement, quel que soit le rôle ;
 //   - page HTML VIDAL : affichée dans un cadre intégré.
-// `apercu` = { src, titre, html } ; `src` peut être une adresse « blob: » (PDF
+// Lot 57.1 — `apercu.telechargement` : vrai pour une ORDONNANCE uniquement (elle doit pouvoir
+// être imprimée / enregistrée) ; jamais pour un document VIDAL.
+// `apercu` = { src, titre, html, telechargement } ; `src` peut être une adresse « blob: » (PDF
 // généré par le serveur) : elle est libérée à la fermeture.
 import { useEffect } from "react";
 import { X } from "lucide-react";
@@ -35,7 +37,7 @@ export default function ApercuPdfIntegre({ apercu, onFermer }) {
             <iframe title={apercu.titre} src={apercu.src} sandbox="allow-scripts allow-same-origin" style={{ flex: 1, border: 0, width: "100%" }} />
           </>
         ) : (
-          <PdfViewer src={apercu.src} title={apercu.titre} onClose={onFermer} allowDownload={false}
+          <PdfViewer src={apercu.src} title={apercu.titre} onClose={onFermer} allowDownload={!!apercu.telechargement}
             messageLecture="🔒 Aperçu intégré uniquement — le téléchargement est désactivé." />
         )}
       </div>

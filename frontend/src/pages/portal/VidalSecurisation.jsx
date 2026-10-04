@@ -428,7 +428,7 @@ export default function VidalSecurisation() {
         lines: lignes,
         alerts_summary: (resultat?.analyse?.summary || []).filter((s) => s.severity && s.severity !== "NO_ALERT"),
       }, { responseType: "blob" });
-      setApercuPdf({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: "Ordonnance sécurisée" });
+      setApercuPdf({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: "Ordonnance sécurisée", telechargement: true });
       // L'identifiant voyage en en-tête (le corps de la réponse est le PDF) — nécessaire pour « Envoi WA ».
       setDerniereOrdonnanceId(r.headers?.["x-ordonnance-id"] || null);
     } catch {

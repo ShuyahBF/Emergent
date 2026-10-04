@@ -50,7 +50,7 @@ export default function MesOrdonnancesVidal({ cleRafraichissement = 0 }) {
   const voirPdf = async (o) => {
     try {
       const r = await api.get(`/vidal/ordonnances/${o.id}/pdf`, { responseType: "blob" });
-      setApercu({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: `Ordonnance ${o.reference}` });
+      setApercu({ src: window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), titre: `Ordonnance ${o.reference}`, telechargement: true });
     } catch { /* aperçu indisponible : rien à afficher */ }
   };
 

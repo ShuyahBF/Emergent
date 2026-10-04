@@ -17,6 +17,7 @@ export default function InvoicePrint() {
   const [qrBlob, setQrBlob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [pispi, setPispi] = useState(null);   // lot 57.8 — bloc « Payer par PI-SPI » (ou null)
 
   useEffect(() => {
     (async () => {
@@ -25,6 +26,11 @@ export default function InvoicePrint() {
         setI(resp.data);
         const qr = await apiClient.get(`/cashier/invoices/${id}/qr.png`, { responseType: "blob" });
         setQrBlob(URL.createObjectURL(qr.data));
+        // Lot 57.8 — Bloc PI-SPI : affiché seulement si actif et facture non soldée (décidé par le serveur)
+        try {
+          const p = await apiClient.get(`/cashier/invoices/${id}/pispi`);
+          setPispi(p.data && p.data.afficher ? p.data : null);
+        } catch { setPispi(null); }
       } catch { /* noop */ } finally { setLoading(false); }
     })();
     return () => { if (qrBlob) URL.revokeObjectURL(qrBlob); /* eslint-disable-next-line */ };
@@ -179,6 +185,22 @@ export default function InvoicePrint() {
               <p className="text-xs italic text-slate-600 text-right">({i.amount_in_words})</p>
             </div>
           </div>
+
+          {/* Lot 57.8 — Bloc « Payer par PI-SPI » : QR fourni par la banque, montant restant dû et
+              référence (n° de facture) écrits à côté, car le QR statique ne contient pas le montant */}
+          {pispi && (
+            <div className="mt-6 flex items-center gap-4 rounded-lg border border-teal-700 bg-teal-50 p-3 break-inside-avoid" data-testid="invoice-pispi">
+              <img src={pispi.qr_data_url} alt="QR PI-SPI" className="h-28 w-28 shrink-0 bg-white" />
+              <div className="text-xs text-slate-800 space-y-0.5">
+                <p className="text-sm font-bold text-teal-800">{pispi.titre}</p>
+                <p><strong>Montant à payer :</strong> {pispi.montant_texte}</p>
+                <p><strong>Référence à indiquer :</strong> <span className="font-mono">{pispi.reference}</span></p>
+                <p><strong>Adresse de paiement :</strong> <span className="font-mono">{pispi.adresse_paiement}</span></p>
+                {(pispi.titulaire || pispi.banque) && <p><strong>Bénéficiaire :</strong> {pispi.titulaire}{pispi.banque ? ` — ${pispi.banque}` : ""}</p>}
+                <p className="pt-1 text-[11px] text-slate-600">{pispi.consigne}</p>
+              </div>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="mt-10 pt-4 border-t border-slate-200 text-xs text-slate-500 flex items-end justify-between">

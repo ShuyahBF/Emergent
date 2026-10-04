@@ -1294,6 +1294,9 @@ const EditInvoicePaymentModal = ({ invoice, onClose, onSaved }) => {
   const [deposited, setDeposited] = useState(isoToLocalInput(invoice.deposited_at));
   const [paid, setPaid] = useState(isoToLocalInput(invoice.paid_at));
   const [dueDays, setDueDays] = useState(invoice.due_days ?? 30);
+  // Lot 57.8 — Mode de règlement (PI-SPI = référence bancaire obligatoire)
+  const [mode, setMode] = useState(invoice.paid_mode || "");
+  const [refBanque, setRefBanque] = useState(invoice.paid_reference || "");
   const [saving, setSaving] = useState(false);
 
   const setDepositedNow = () => setDeposited(isoToLocalInput(new Date().toISOString()));
@@ -1309,6 +1312,12 @@ const EditInvoicePaymentModal = ({ invoice, onClose, onSaved }) => {
       else payload.clear_deposited_at = true;
       if (paid) payload.paid_at = localInputToIso(paid);
       else payload.clear_paid_at = true;
+      // Lot 57.8 — Mode de règlement et référence bancaire (obligatoire en PI-SPI)
+      if (paid && mode) {
+        if (mode === "PISPI" && !refBanque.trim()) { toast.error("Référence bancaire PI-SPI obligatoire"); setSaving(false); return; }
+        payload.mode_reglement = mode;
+        if (refBanque.trim()) payload.reference_bancaire = refBanque.trim();
+      }
       await apiClient.put(`/admin/invoices/from-interventions/${invoice.id}`, payload);
       toast.success("Facture mise à jour");
       onSaved();
@@ -1385,6 +1394,27 @@ const EditInvoicePaymentModal = ({ invoice, onClose, onSaved }) => {
           </div>
           <p className="text-[10px] text-slate-500 mt-1">Laisser vide tant que la facture n'a pas été réglée.</p>
         </div>
+
+        {/* Lot 57.8 — Mode de règlement (PI-SPI : référence bancaire de l'opération obligatoire) */}
+        {paid && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Mode de règlement</label>
+              <select value={mode} onChange={(e) => setMode(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="invoice-edit-mode">
+                <option value="">—</option>
+                <option value="PISPI">PI-SPI (paiement instantané)</option>
+                <option value="VIREMENT">Virement</option>
+                <option value="ESPECES">Espèces</option>
+                <option value="CHEQUE">Chèque</option>
+                <option value="MOBILE_MONEY">Mobile money</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Référence bancaire</label>
+              <input value={refBanque} onChange={(e) => setRefBanque(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="invoice-edit-ref-banque" />
+            </div>
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>

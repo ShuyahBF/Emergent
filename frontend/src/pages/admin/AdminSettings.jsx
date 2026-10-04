@@ -54,6 +54,7 @@ import DeconnexionGeneraleSection from "@/pages/admin/sections/DeconnexionGenera
 import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessionsSection";  // lot 50
 import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
 import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSection";  // lot 52
+import PispiSection from "@/pages/admin/sections/PispiSection";  // lot 57.8 — encaissement PI-SPI
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — version détaillée
 
@@ -69,6 +70,8 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lot 57.8 — encaissement PI-SPI (QR de la banque sur les factures émises par SAWALI)
+  "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "2026-10-04",
   // Lot 52 — choix du service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)
   "Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)": "2026-10-02",
   // Lot 51 — cycle de vie du non-renouvellement (suspension J+110, archivage J+113)
@@ -563,6 +566,12 @@ export default function AdminSettings() {
           remplace l'ancienne section « SMTP (envoi des codes OTP par email) » (champs SMTP conservés) */}
       <Filterable title="Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)" anchorId="s-email-fournisseur" category="comms">
         <EmailFournisseurSection />
+      </Filterable>
+
+      {/* Lot 57.8 — encaissement PI-SPI : paramètres globaux (super-admin), bloc « Payer par PI-SPI »
+          imprimé sur les factures non soldées émises par SAWALI */}
+      <Filterable title="Encaissement PI-SPI (paiement instantané BCEAO) — factures" anchorId="s-pispi" category="paiements">
+        <PispiSection />
       </Filterable>
 
       <Section icon={KeyRound} title="Authentification — OTP par domaine">

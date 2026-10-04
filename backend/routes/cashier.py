@@ -84,7 +84,7 @@ class ProductCategoryPayload(BaseModel):
 
 class PaymentMethodPayload(BaseModel):
     label: str = Field(..., min_length=1, max_length=80)
-    kind: str = Field("electronic")  # 'cash' | 'check' | 'electronic'
+    kind: str = Field("electronic")  # 'cash' | 'check' | 'electronic' | 'pispi' (lot 57.8 : PI-SPI BCEAO)
     active: bool = True
     sort_order: int = 0
 
@@ -246,8 +246,12 @@ def build_receipt_pdf(receipt: dict) -> bytes:
     return buf.getvalue()
 
 
-def build_invoice_pdf(invoice: dict) -> bytes:
-    """ReportLab PDF for a proforma/invoice — A4 portrait, items table, totals."""
+def build_invoice_pdf(invoice: dict, pispi_bloc: Optional[dict] = None) -> bytes:
+    """ReportLab PDF for a proforma/invoice — A4 portrait, items table, totals.
+
+    Lot 57.8 — `pispi_bloc` (préparé par routes.pispi.bloc_facture_caisse) ajoute le cadre
+    « Payer par PI-SPI » (QR de la banque, adresse de paiement, montant restant dû, référence)
+    sous les totaux, à côté du QR de vérification qui reste en place."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
@@ -338,6 +342,10 @@ def build_invoice_pdf(invoice: dict) -> bytes:
     if invoice.get("notes"):
         story.append(Spacer(1, 8))
         story.append(Paragraph(f"<b>Note</b> : {invoice.get('notes')}", body))
+    # Lot 57.8 — Bloc « Payer par PI-SPI » (seulement si actif et facture non soldée)
+    if pispi_bloc:
+        from routes.pispi import flowables_pdf
+        story.extend(flowables_pdf(pispi_bloc))
     # QR
     try:
         qr_url = invoice.get("qr_url") or ""
@@ -555,6 +563,18 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         settings = await _settings()
         base = _public_base_url(settings)
         return f"{base}/verify/{token}"
+
+    async def _bloc_pispi(inv: Optional[dict]) -> dict:
+        """Lot 57.8 — Bloc « Payer par PI-SPI » d'une facture de la Caisse.
+        Ne s'affiche que pour la Caisse de SAWALI (entité choisie dans les paramètres PI-SPI),
+        si l'encaissement est actif et si la facture n'est pas soldée. Une erreur n'empêche
+        jamais l'impression de la facture : le bloc est simplement omis."""
+        try:
+            from routes.pispi import bloc_facture_caisse
+            return await bloc_facture_caisse(inv)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[pispi] bloc non calculé : %s", exc)
+            return {"afficher": False}
 
     # ----------------------------------------------------------------
     # Iter38j — Backfill: rewrite qr_url base for existing receipts/invoices
@@ -1591,6 +1611,17 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         await _ensure_tenant_access(user, i)  # Iter37e
         return Response(content=build_qr_png(i["qr_url"]), media_type="image/png")
 
+    # Lot 57.8 — Contenu du bloc « Payer par PI-SPI » pour la page d'impression de la facture
+    # ({afficher: false} si inactif, facture soldée, proforma ou facture d'une autre entité).
+    @router.get("/cashier/invoices/{iid}/pispi")
+    async def invoice_pispi(iid: str, user: dict = Depends(get_current_user)):
+        if not _can_view_cashier(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        i = await db.invoices.find_one({"id": iid}, {"_id": 0})
+        await _ensure_tenant_access(user, i)
+        from routes.pispi import sans_octets
+        return sans_octets(await _bloc_pispi(i))
+
     # Iter36v — Send invoice/proforma to client via WhatsApp (1-click)
     # Iter37g — Now uses a Meta template (`document_piecejointe_facturation`
     # by default) with the invoice PDF attached as DOCUMENT header.
@@ -1864,6 +1895,11 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 pm = await _resolve_payment_method(payload.payment_method_id, user=user)
                 if not pm:
                     raise HTTPException(status_code=400, detail="Mode de paiement invalide")
+                # Lot 57.8 — Règlement PI-SPI : la référence bancaire de l'opération est obligatoire
+                from routes.pispi import est_mode_pispi
+                reglement_pispi = est_mode_pispi(pm)
+                if reglement_pispi and not (payload.payment_reference or "").strip():
+                    raise HTTPException(status_code=400, detail="Référence bancaire PI-SPI obligatoire pour ce mode de paiement")
                 updates["status"] = "paid"
                 updates["paid_at"] = _now_iso()
                 updates["paid_by"] = user["id"]
@@ -1903,6 +1939,18 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 rdoc.pop("_id", None)
                 updates["paid_via_receipt_id"] = rdoc["id"]
                 generated_receipt = rdoc
+                # Lot 57.8 — Trace l'encaissement PI-SPI (rapproché avec cette facture)
+                if reglement_pispi:
+                    try:
+                        from routes.pispi import enregistrer_transaction
+                        await enregistrer_transaction(
+                            reference=updates.get("number", inv["number"]), montant=float(inv["net_to_pay"]),
+                            statut="rapproche", source="manuel", reference_bancaire=payload.payment_reference,
+                            document={"type": "caisse", "id": inv["id"], "numero": updates.get("number", inv["number"]),
+                                      "recu": rnumber},
+                            saisi_par=user.get("email"))
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("[pispi] transaction non enregistrée : %s", exc)
         if updates:
             await db.invoices.update_one({"id": iid}, {"$set": updates})
         updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
@@ -2090,7 +2138,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         i = await db.invoices.find_one({"qr_token": token, "deleted_at": None}, {"_id": 0})
         if not i:
             raise HTTPException(status_code=404, detail="Document introuvable")
-        pdf = build_invoice_pdf(i)
+        pdf = build_invoice_pdf(i, pispi_bloc=await _bloc_pispi(i))  # lot 57.8
         kind_lbl = "facture" if (i.get("kind") == "invoice") else "proforma"
         filename = f"{kind_lbl}-{i.get('number') or token[:6]}.pdf"
         return Response(
@@ -2122,7 +2170,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=403, detail="Accès refusé")
         i = await db.invoices.find_one({"id": iid}, {"_id": 0})
         await _ensure_tenant_access(user, i)
-        pdf = build_invoice_pdf(i)
+        pdf = build_invoice_pdf(i, pispi_bloc=await _bloc_pispi(i))  # lot 57.8
         kind_lbl = "facture" if (i.get("kind") == "invoice") else "proforma"
         return Response(
             content=pdf,

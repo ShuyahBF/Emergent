@@ -1968,6 +1968,9 @@ class InvoicePaymentUpdate(BaseModel):
     due_days: Optional[int] = None          # délai d'échéance (jours)
     clear_deposited_at: bool = False        # True pour reset deposited_at à None
     clear_paid_at: bool = False             # True pour reset paid_at à None
+    # Lot 57.8 — Mode de règlement (ex. « PISPI ») et référence bancaire de l'opération
+    mode_reglement: Optional[str] = None
+    reference_bancaire: Optional[str] = None
 
 
 @api.put("/admin/invoices/from-interventions/{inv_id}", tags=["Admin"])
@@ -2009,6 +2012,23 @@ async def admin_update_intervention_invoice_payment(
             raise HTTPException(status_code=400, detail="paid_at: format ISO invalide")
         update["paid_at"] = payload.paid_at
 
+    # Lot 57.8 — Règlement PI-SPI : référence bancaire obligatoire, mode et référence gardés
+    # sur la facture, et encaissement tracé dans pispi_transactions (rapproché).
+    mode = (payload.mode_reglement or "").strip().upper()
+    reglement_pispi = bool(mode == "PISPI" and update.get("paid_at"))
+    if reglement_pispi:
+        if not (payload.reference_bancaire or "").strip():
+            raise HTTPException(status_code=400, detail="Référence bancaire PI-SPI obligatoire")
+        update["paid_mode"] = "PISPI"
+        update["paid_reference"] = payload.reference_bancaire.strip()
+    elif mode and update.get("paid_at"):
+        update["paid_mode"] = mode[:30]
+        if (payload.reference_bancaire or "").strip():
+            update["paid_reference"] = payload.reference_bancaire.strip()[:120]
+    if payload.clear_paid_at:
+        unset["paid_mode"] = ""
+        unset["paid_reference"] = ""
+
     if payload.due_days is not None:
         if payload.due_days < 0 or payload.due_days > 365:
             raise HTTPException(status_code=400, detail="due_days doit être entre 0 et 365")
@@ -2021,6 +2041,16 @@ async def admin_update_intervention_invoice_payment(
     if unset:
         mongo_update["$unset"] = unset
     await db.interventions_invoices.update_one({"id": inv_id}, mongo_update)
+    if reglement_pispi:
+        try:
+            from routes.pispi import enregistrer_transaction as _pispi_transaction
+            await _pispi_transaction(
+                reference=inv.get("invoice_number") or "", montant=float(inv.get("total_xof") or 0),
+                statut="rapproche", source="manuel", reference_bancaire=update["paid_reference"],
+                document={"type": "intervention", "id": inv_id, "numero": inv.get("invoice_number")},
+                saisi_par=_.get("email"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[pispi] transaction non enregistrée : %s", exc)
     fresh = await db.interventions_invoices.find_one({"id": inv_id}, {"_id": 0})
     if fresh:
         _enrich_invoice_payment(fresh)
@@ -2109,6 +2139,13 @@ async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_curr
         story.append(Spacer(1, 6))
         story.append(Paragraph(f"<font color='green'><b>PAYÉE le {paid_dt}</b></font>", styles["Normal"]))
     else:
+        # Lot 57.8 — Bloc « Payer par PI-SPI » (QR de la banque de SAWALI, adresse de paiement,
+        # montant restant dû, référence = n° de facture) si l'encaissement PI-SPI est actif.
+        try:
+            from routes.pispi import bloc_facture_intervention, flowables_pdf
+            story.extend(flowables_pdf(await bloc_facture_intervention(inv)))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[pispi] bloc non ajouté à la facture %s : %s", inv.get("invoice_number"), exc)
         # Calcule retard si dépôt renseigné
         _enrich_invoice_payment(inv)
         od = inv.get("days_overdue")

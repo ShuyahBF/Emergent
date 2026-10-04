@@ -695,9 +695,16 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
     const pmId = window.prompt("Mode de paiement ID (collez ici)\n" +
       paymentMethods.map((p) => `${p.id} → ${p.label}`).join("\n"));
     if (!pmId) return;
+    // Lot 57.8 — Mode PI-SPI : la référence bancaire de l'opération est obligatoire
+    const mode = paymentMethods.find((p) => p.id === pmId.trim());
+    let reference = null;
+    if (mode && mode.kind === "pispi") {
+      reference = window.prompt("Référence bancaire de l'opération PI-SPI");
+      if (!reference || !reference.trim()) { toast.error("Référence bancaire PI-SPI obligatoire"); return; }
+    }
     try {
       const r = await apiClient.patch(`/cashier/invoices/${iid}`, {
-        status: "paid", payment_method_id: pmId,
+        status: "paid", payment_method_id: pmId.trim(), payment_reference: reference ? reference.trim() : undefined,
       });
       toast.success(`Réglée — reçu ${r.data.generated_receipt?.number} généré`);
       load();
@@ -1879,6 +1886,8 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             { key: "label", label: "Libellé", required: true, full: true },
             { key: "kind", label: "Catégorie", type: "select", options: [
               { value: "cash", label: "Espèces" }, { value: "check", label: "Chèque" }, { value: "electronic", label: "Monnaie électronique" },
+              // Lot 57.8 — PI-SPI (BCEAO) : la référence bancaire est demandée au règlement
+              { value: "pispi", label: "PI-SPI (paiement instantané)" },
             ]},
             { key: "sort_order", label: "Ordre d'affichage", type: "number" },
             { key: "active", label: "Actif", type: "checkbox" },

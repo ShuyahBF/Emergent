@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.7"
-LOT_LIBELLE = "VIDAL : documents PDF (RCP, monographies) de nouveau lisibles dans la visionneuse intégrée"
+LOT = "57.8"
+LOT_LIBELLE = "Encaissement PI-SPI : QR de la banque, montant restant dû et référence sur les factures non soldées ; paramètres globaux ; encaissements PI-SPI"

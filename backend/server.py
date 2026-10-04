@@ -1223,6 +1223,12 @@ api.include_router(_presence_router)
 from routes.connexions_ip import router as _connexions_ip_router  # noqa: E402
 api.include_router(_connexions_ip_router)
 
+# Lot 57.8 — Encaissement PI-SPI (BCEAO) : paramètres globaux (super-admin), bloc « Payer par
+# PI-SPI » sur les factures émises par SAWALI, encaissements (pispi_transactions), connecteur
+# manuel seul actif et route de notification bancaire désactivée : routes/pispi.py.
+from routes.pispi import router as _pispi_router  # noqa: E402
+api.include_router(_pispi_router)
+
 
 @app.on_event("startup")
 async def _index_connexions_ip():

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.2"
-LOT_LIBELLE = "Affichage « Version · déployée le » à la connexion et dans le portail, libellé complet (lot et commit) dans l'administration"
+LOT = "57.3"
+LOT_LIBELLE = "Transmission WA Universelle Liluvine : destinataire dans le corps du message, bouton « Regénérer HMAC », journal des envois"

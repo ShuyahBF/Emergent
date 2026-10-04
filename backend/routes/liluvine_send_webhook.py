@@ -1,9 +1,15 @@
-"""Lot Liluvine (2026-09, point 6) — Webhook entrant HMAC-signé permettant à
-un système tiers (Liluvine ou autre) de déclencher l'envoi d'un message
-WhatsApp via SAWALI, sans authentification utilisateur classique.
+"""« Transmission WA Universelle Liluvine » (lot 57.3, à partir du webhook du
+lot Liluvine 2026-09) — webhook entrant HMAC-signé permettant aux autres
+plateformes (Ster, adLyn, ALBARKA, beAuthentik…) d'envoyer un message WhatsApp
+par la ligne de SAWALI / Liluvine, sans compte utilisateur.
 
-Body attendu (JSON simple) :
-    {"message": "texte à envoyer"}
+Body attendu (JSON) :
+    {"to": "+22670000000", "message": "texte à envoyer", "source": "ster"}
+  - to      : numéro WhatsApp du destinataire (format international) ;
+              facultatif : à défaut, numéro par défaut des Paramètres ;
+  - message : texte à envoyer (obligatoire, 4 096 caractères au plus) ;
+  - source  : nom de la plateforme qui envoie (facultatif, pour le journal).
+Chaque envoi est noté dans la collection `liluvine_transmissions`.
 
 Header layout (même pattern que routes/vidal_dashboard.py::public_register) :
     X-Timestamp:   epoch seconds (±5 min)
@@ -19,7 +25,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Body, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -29,6 +37,19 @@ logger = logging.getLogger("sawali.liluvine_send_webhook")
 
 class LiluvineSendPayload(BaseModel):
     message: str
+    to: Optional[str] = None       # numéro WhatsApp du destinataire (facultatif)
+    source: Optional[str] = None   # plateforme émettrice (facultatif, journal)
+
+
+def normaliser_numero(brut: str) -> Optional[str]:
+    """« +226 70 00 00 00 » -> « +22670000000 » ; None si ce n'est pas un numéro
+    international plausible (8 à 15 chiffres, préfixe + ou 00 accepté)."""
+    chiffres = re.sub(r"[\s.\-()]", "", brut or "")
+    if chiffres.startswith("00"):
+        chiffres = "+" + chiffres[2:]
+    if not re.fullmatch(r"\+?\d{8,15}", chiffres):
+        return None
+    return chiffres if chiffres.startswith("+") else "+" + chiffres
 
 
 def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text):
@@ -47,9 +68,6 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text):
         secret = (s.get("liluvine_send_webhook_hmac_secret") or "").encode()
         if not secret:
             raise HTTPException(status_code=503, detail="Webhook Liluvine désactivé (secret HMAC non configuré).")
-        target_number = (s.get("liluvine_send_webhook_target_number") or "").strip()
-        if not target_number:
-            raise HTTPException(status_code=503, detail="Webhook Liluvine désactivé (numéro WA cible non configuré).")
 
         # Timestamp window (±300 s) — anti-rejeu.
         try:
@@ -67,13 +85,39 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text):
         if not hmac.compare_digest(expected, x_signature):
             raise HTTPException(status_code=401, detail="Signature HMAC invalide")
 
-        result = await wa_send_text(target_number, payload.message)
+        # Destinataire : « to » du corps (signé), sinon le numéro par défaut des Paramètres
+        if payload.to:
+            target_number = normaliser_numero(payload.to)
+            if not target_number:
+                raise HTTPException(status_code=422, detail="Numéro « to » invalide (format international attendu, ex. +22670000000)")
+        else:
+            target_number = normaliser_numero(s.get("liluvine_send_webhook_target_number") or "")
+            if not target_number:
+                raise HTTPException(status_code=422, detail="Aucun destinataire : champ « to » absent et pas de numéro par défaut configuré.")
+        message = (payload.message or "").strip()
+        if not message:
+            raise HTTPException(status_code=422, detail="Message vide")
+        if len(message) > 4096:
+            raise HTTPException(status_code=422, detail="Message trop long (4 096 caractères au plus)")
+        source = (payload.source or "").strip()[:40] or "inconnue"
+
+        result = await wa_send_text(target_number, message)
+        # Journal de la Transmission WA Universelle (sans le texte du message)
+        try:
+            await db.liluvine_transmissions.insert_one({
+                "date": datetime.now(timezone.utc).isoformat(), "source": source, "to": target_number,
+                "ok": bool(result.get("ok")), "message_id": result.get("message_id"),
+                "erreur": None if result.get("ok") else str(result.get("error") or "inconnu")[:300],
+                "longueur": len(message),
+            })
+        except Exception:  # noqa: BLE001 — le journal ne bloque jamais l'envoi
+            logger.exception("[liluvine_send_webhook] journal indisponible")
         if not result.get("ok"):
-            logger.warning("[liluvine_send_webhook] échec envoi WA vers %s: %s", target_number, result.get("error"))
+            logger.warning("[liluvine_send_webhook] échec envoi WA (source %s) vers %s: %s", source, target_number, result.get("error"))
             raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {result.get('error') or 'inconnu'}")
-        return {"ok": True, "to": target_number, "message_id": result.get("message_id")}
+        return {"ok": True, "to": target_number, "source": source, "message_id": result.get("message_id")}
 
     logger.info("[liluvine_send_webhook] route mounted at POST /api/webhook/liluvine-send")
 
 
-__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload"]
+__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload", "normaliser_numero"]

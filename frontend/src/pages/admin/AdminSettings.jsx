@@ -1003,33 +1003,73 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
-      {/* Lot Liluvine (2026-09, point 6) — Webhook entrant HMAC */}
-      <Filterable title="Liluvine PRO — Webhook entrant (envoi WhatsApp)" anchorId="s-liluvine-send-webhook">
-        <Section icon={ShieldCheck} title="POST /api/webhook/liluvine-send">
+      {/* Lot 57.3 — « Transmission WA Universelle Liluvine » : webhook entrant HMAC
+          qui permet aux autres plateformes d'envoyer un WhatsApp via Liluvine */}
+      <Filterable title="Transmission WA Universelle Liluvine (webhook entrant)" anchorId="s-liluvine-send-webhook">
+        <Section icon={ShieldCheck} title="Transmission WA Universelle Liluvine — POST /api/webhook/liluvine-send">
           <p className="text-xs text-slate-500">
-            Permet à Liluvine (ou un autre système autorisé) de déclencher l'envoi d'un message
-            WhatsApp via SAWALI, sans compte utilisateur. Body JSON attendu :{" "}
-            <code className="rounded bg-slate-100 px-1">{`{"message": "..."}`}</code>. La requête
-            doit être signée avec le secret ci-dessous (headers <code>X-Timestamp</code> et{" "}
-            <code>X-Signature</code>, HMAC-SHA256 sur <code>{"{timestamp}.{corps brut}"}</code>,
-            fenêtre anti-rejeu ±5 minutes).
+            Permet aux autres plateformes (Ster, adLyn, ALBARKA, beAuthentik…) d'envoyer un message
+            WhatsApp par la ligne Liluvine de SAWALI, sans compte utilisateur. Corps JSON attendu :{" "}
+            <code className="rounded bg-slate-100 px-1">{`{"to": "+22670000000", "message": "...", "source": "ster"}`}</code>{" "}
+            (<code>to</code> = numéro du destinataire au format international ; <code>source</code> = nom de la
+            plateforme, facultatif). La requête est signée avec le secret ci-dessous (en-têtes{" "}
+            <code>X-Timestamp</code> et <code>X-Signature</code>, HMAC-SHA256 sur{" "}
+            <code>{"{timestamp}.{corps brut}"}</code>, fenêtre anti-rejeu ±5 minutes).
           </p>
           <div className="grid grid-cols-1 gap-3 mt-2">
             <Input
-              label="Numéro WhatsApp destinataire"
+              label="Numéro WhatsApp par défaut (utilisé seulement si « to » est absent)"
               value={s.liluvine_send_webhook_target_number || ""}
               onChange={(v) => upd("liluvine_send_webhook_target_number", v)}
-              placeholder="+2250700000000"
+              placeholder="+22670000000"
               testid="liluvine-send-webhook-target-number"
             />
             <Input
-              label="Secret HMAC"
+              label="Secret HMAC (partagé avec les plateformes émettrices)"
               type="password"
               value={s.liluvine_send_webhook_hmac_secret || ""}
               onChange={(v) => upd("liluvine_send_webhook_hmac_secret", v)}
-              placeholder={s.liluvine_send_webhook_hmac_secret === "********" ? "(déjà défini — cliquer pour modifier)" : "Générer une valeur aléatoire longue et la transmettre à Liluvine"}
+              placeholder={s.liluvine_send_webhook_hmac_secret === "********" ? "(déjà défini — « Regénérer HMAC » pour le remplacer)" : "Cliquer sur « Regénérer HMAC »"}
               testid="liluvine-send-webhook-hmac-secret"
             />
+            {/* Boutons : nouvelle clé aléatoire (64 caractères) et copie dans le presse-papiers */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // Clé aléatoire forte, générée dans le navigateur (48 octets -> 64 caractères base64url)
+                  const octets = new Uint8Array(48);
+                  window.crypto.getRandomValues(octets);
+                  const cle = btoa(String.fromCharCode(...octets)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+                  upd("liluvine_send_webhook_hmac_secret", cle);
+                  toast.success("Nouvelle clé HMAC générée : enregistrez les Paramètres, puis transmettez-la aux plateformes émettrices.");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+                data-testid="liluvine-send-webhook-regenerer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Regénérer HMAC
+              </button>
+              <button
+                type="button"
+                disabled={!s.liluvine_send_webhook_hmac_secret || s.liluvine_send_webhook_hmac_secret === "********"}
+                onClick={async () => {
+                  // Copie possible seulement juste après la génération (la clé enregistrée n'est jamais renvoyée en clair)
+                  try {
+                    await navigator.clipboard.writeText(s.liluvine_send_webhook_hmac_secret);
+                    toast.success("Clé HMAC copiée");
+                  } catch {
+                    toast.error("Copie impossible : affichez la clé (œil) et copiez-la à la main");
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                data-testid="liluvine-send-webhook-copier"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copier la clé
+              </button>
+              <span className="text-[11px] text-slate-500">
+                Après « Regénérer », pensez à « Enregistrer » : l'ancienne clé cesse alors de fonctionner.
+              </span>
+            </div>
           </div>
         </Section>
       </Filterable>

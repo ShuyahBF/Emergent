@@ -20,9 +20,18 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
 ## Version et lot (règles 1 et 2)
 1. À chaque déploiement, le numéro de version ET le numéro de lot sont mis à
    jour (jamais une constante figée qui n'est plus incrémentée).
-2. Version et lot sont toujours affichés sur les pages de connexion et dans
-   le portail (barre latérale, en-tête ou pied de page de toutes les pages
-   connectées), au format « Version X · Lot N (commit) ».
+2. Affichage de la version (règle du 04/10/2026) :
+   - page de connexion ET portail (barre latérale, en-tête ou pied de page de
+     toutes les pages connectées) : « Version X · déployée le JJ/MM/AAAA HH:MM »
+     (ex. « Version 1.84 · déployée le 04/10/2026 01:35 »), sans lot ni commit ;
+   - pages d'administration / paramétrage : libellé complet
+     « Version X · Lot N · commit · déployée le JJ/MM/AAAA HH:MM »
+     (ex. « Version 1.84 · Lot 57.1 · 252c6a7 · déployée le 04/10/2026 01:35 ») ;
+   - date/heure au format français court
+     (`toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })`).
+   - SAWALI : fonction `libelleVersion(version, detaille)` et composant
+     `BandeauVersion` dans `frontend/src/components/EtatConnexion.jsx`
+     (libellé détaillé affiché en haut de /admin/settings).
 - Une seule source par plateforme :
   - SAWALI : `backend/lot.py` (LOT, LOT_LIBELLE), exposé par `/api/version` ;
     version = compteur de déploiements `1.N`. Modifier `lot.py` à chaque

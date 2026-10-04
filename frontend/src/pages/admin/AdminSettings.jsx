@@ -54,6 +54,7 @@ import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessio
 import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
 import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSection";  // lot 52
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
+import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — version détaillée
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -542,6 +543,9 @@ export default function AdminSettings() {
       <div>
         <h1 className="text-2xl font-display font-bold">Paramètres</h1>
         <p className="text-sm text-slate-500">Configurez reCAPTCHA, l'envoi d'OTP par email et Google Calendar.</p>
+        {/* Lot 57.2 — libellé complet de la version (version · lot · commit · date de déploiement),
+            réservé aux pages d'administration / paramétrage */}
+        <BandeauVersion className="mt-1" />
       </div>
       <SettingsToolbar />
       {/* Lot 49 — alerte si la sauvegarde automatique hors serveur est désactivée ou trop ancienne */}
@@ -3070,7 +3074,7 @@ export default function AdminSettings() {
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
             }}
           >
-            v1.0 · 06/05/2026 13:09
+            Version 1.0 · déployée le 06/05/2026 13:09
           </span>
         </div>
       </Section>

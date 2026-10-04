@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { libelleVersion } from "@/components/EtatConnexion";
 
 /*
   Tiny version pill rendered at the bottom-left of any page.
@@ -48,9 +49,9 @@ export default function VersionStamp() {
   }, []);
 
   if (!info) return null;
-  const stamp = info.started_at
-    ? new Date(info.started_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })
-    : "—";
+  // Règle du 04/10/2026 : hors administration, « Version X · déployée le JJ/MM/AAAA HH:MM »
+  // (plus de lot ni de commit) — même libellé que la page de connexion et la barre latérale.
+  const texte = libelleVersion(info, false);
 
   const fontSize = SIZE_PX[style.size] || SIZE_PX.xs;
   const fontWeight = (style.style || "").includes("bold") ? 700 : 400;
@@ -63,7 +64,7 @@ export default function VersionStamp() {
     <div
       className="fixed bottom-2 left-3 z-30 select-none pointer-events-none tracking-wide"
       data-testid="version-stamp"
-      title={`Version ${info.version}${info.lot ? ` — Lot ${info.lot}` : ""} — déployé le ${stamp}`}
+      title={texte}
       style={{
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize,
@@ -73,8 +74,8 @@ export default function VersionStamp() {
         color,
       }}
     >
-      {/* Règle permanente : version + lot + date de déploiement */}
-      v{info.version}{info.lot ? ` · Lot ${info.lot}` : ""} · {stamp}
+      {/* Règle permanente : version + date de déploiement (lot et commit réservés à l'administration) */}
+      {texte}
     </div>
   );
 }

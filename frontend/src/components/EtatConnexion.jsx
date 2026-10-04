@@ -6,8 +6,11 @@ import React, { useEffect, useState, useCallback } from "react";
   - Pastille verte  : le serveur répond (temps de réponse affiché).
   - Pastille orange : le serveur répond lentement (plus de 2 s).
   - Pastille rouge  : pas de réseau sur l'appareil, ou serveur injoignable.
-  - Version : numéro de déploiement, commit et date/heure de mise en ligne
-    (lus sur /api/version, sans aucune donnée sensible).
+  - Version (lue sur /api/version, sans aucune donnée sensible) — règle du
+    propriétaire du 04/10/2026 :
+      * connexion et barre latérale : « Version X · déployée le JJ/MM/AAAA HH:MM » ;
+      * pages d'administration / paramétrage (prop `detaille`) :
+        « Version X · Lot N · commit · déployée le JJ/MM/AAAA HH:MM ».
 
   Vérification toutes les 30 s, et immédiatement quand l'appareil retrouve
   ou perd le réseau. `tone` : "dark" (barre latérale) ou "light" (connexion).
@@ -15,7 +18,54 @@ import React, { useEffect, useState, useCallback } from "react";
 const LENT_MS = 2000;      // au-delà : connexion lente (orange)
 const INTERVALLE_MS = 30000;
 
-export default function EtatConnexion({ tone = "light", className = "", compact = false }) {
+/*
+  libelleVersion(version, detaille) — construit le texte de version à afficher.
+  `version` : objet renvoyé par /api/version ({ version, lot, git_sha, started_at }).
+  `detaille` : false (défaut) → « Version X · déployée le JJ/MM/AAAA HH:MM »
+               true           → « Version X · Lot N · commit · déployée le JJ/MM/AAAA HH:MM ».
+  Renvoie "" si l'objet est absent. Fonction exportée pour être réutilisée
+  (bandeau des pages d'administration, tampon de version).
+*/
+export function libelleVersion(version, detaille = false) {
+  if (!version) return "";
+  // Date/heure de mise en ligne au format français court (ex. « 04/10/2026 01:35 »)
+  const misEnLigne = version.started_at
+    ? new Date(version.started_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })
+    : null;
+  const morceaux = [`Version ${version.version}`];
+  if (detaille) {
+    // Libellé complet réservé à l'administration : lot puis commit court
+    if (version.lot) morceaux.push(`Lot ${version.lot}`);
+    if (version.git_sha && version.git_sha !== "unknown") morceaux.push(version.git_sha);
+  }
+  if (misEnLigne) morceaux.push(`déployée le ${misEnLigne}`);
+  return morceaux.join(" · ");
+}
+
+/*
+  BandeauVersion — petit bandeau discret affichant le libellé DÉTAILLÉ de la
+  version (pages d'administration / paramétrage). Lit /api/version une fois
+  au chargement ; n'affiche rien tant que la réponse n'est pas arrivée.
+*/
+export function BandeauVersion({ className = "" }) {
+  const [version, setVersion] = useState(null);
+  useEffect(() => {
+    let actif = true;   // évite une mise à jour d'état après fermeture de la page
+    fetch("/api/version", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (actif && j) setVersion(j); })
+      .catch(() => {});
+    return () => { actif = false; };
+  }, []);
+  if (!version) return null;
+  return (
+    <p className={`text-[11px] text-slate-500 font-mono ${className}`} data-testid="bandeau-version-detaillee">
+      {libelleVersion(version, true)}
+    </p>
+  );
+}
+
+export default function EtatConnexion({ tone = "light", className = "", compact = false, detaille = false }) {
   const [etat, setEtat] = useState({ statut: "verif", ms: null });
   const [version, setVersion] = useState(null);
 
@@ -72,10 +122,6 @@ export default function EtatConnexion({ tone = "light", className = "", compact 
   };
   const a = AFFICHAGE[etat.statut] || AFFICHAGE.verif;
 
-  const misEnLigne = version?.started_at
-    ? new Date(version.started_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })
-    : null;
-
   const sombre = tone === "dark";
   return (
     <div
@@ -98,11 +144,9 @@ export default function EtatConnexion({ tone = "light", className = "", compact 
       </div>
       {version && (
         <div className="mt-0.5 opacity-80" data-testid="etat-connexion-version">
-          Version {version.version}
-          {/* Règle permanente : le numéro de lot accompagne toujours la version */}
-          {version.lot ? ` · Lot ${version.lot}` : ""}
-          {version.git_sha && version.git_sha !== "unknown" ? ` · ${version.git_sha}` : ""}
-          {misEnLigne ? ` · déployée le ${misEnLigne}` : ""}
+          {/* Connexion / barre latérale : « Version X · déployée le … » ;
+              libellé complet (lot + commit) seulement si `detaille` */}
+          {libelleVersion(version, detaille)}
         </div>
       )}
     </div>

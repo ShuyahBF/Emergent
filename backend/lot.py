@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.9"
-LOT_LIBELLE = "VIDAL : bouton « Retirer cette ligne » remis sur la même rangée que le médicament dans la prescription"
+LOT = "57.10"
+LOT_LIBELLE = "Sauvegardes de migration : garde-fou — la base en service ne peut jamais être choisie comme cible (ponctuel et programmé)"

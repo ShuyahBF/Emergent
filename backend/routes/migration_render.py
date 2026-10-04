@@ -117,7 +117,12 @@ router = APIRouter(prefix="/admin/migration", tags=["Migration vers Render"])
 # Lot 50 : ni l'état de la maintenance de la plateforme (le nouveau site ne démarre pas « en
 # maintenance »), ni les sessions des comptes (chacun se reconnecte sur le nouveau site).
 EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation",
-           "maintenance_plateforme", "sessions_comptes"}
+           "maintenance_plateforme", "sessions_comptes", "migration_garde"}
+# Lot 57.10 — collection du jeton qui sert à reconnaître la base EN SERVICE (garde-fou ci-dessous)
+GARDE_COLLECTION = "migration_garde"
+MESSAGE_CIBLE_PRODUCTION = (
+    "La base cible est la base en service du site : sauvegarde refusée (le mode « Remplacer » la viderait, "
+    "et une copie sur elle-même ne protège rien). Indiquez un autre cluster Atlas ou un autre nom de base.")
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
@@ -232,6 +237,26 @@ def _hote(uri: str) -> str:
         return urlparse(uri).hostname or "?"
     except Exception:  # noqa: BLE001
         return "?"
+
+
+async def verifier_cible_differente(client, mongo_db: str) -> None:
+    """Lot 57.10 — GARDE-FOU : refuse une base cible qui serait la base en service du site.
+
+    Comparer les URI ne suffit pas (mongodb+srv:// ou liste d'hôtes, ordre, alias, majuscules…).
+    On écrit donc un jeton aléatoire dans la base du site, puis on le cherche dans la base cible
+    par la connexion cible : s'il y est, les deux désignent la même base -> HTTPException 400.
+    Une base cible illisible est refusée aussi (on ne lance rien sans avoir pu vérifier).
+    La collection du jeton est exclue de la copie (EXCLUES)."""
+    jeton = secrets.token_urlsafe(24)
+    await db[GARDE_COLLECTION].replace_one(
+        {"_id": "garde"}, {"_id": "garde", "jeton": jeton, "date": _maintenant()}, upsert=True)
+    try:
+        trouve = await client[mongo_db][GARDE_COLLECTION].find_one({"_id": "garde", "jeton": jeton})
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Vérification de la base cible impossible : {str(exc)[:200]}")
+    if trouve:
+        logger.warning("[migration] cible refusée : c'est la base en service (base %s)", mongo_db)
+        raise HTTPException(400, MESSAGE_CIBLE_PRODUCTION)
 
 
 def _client_cible(uri: str):
@@ -643,6 +668,12 @@ async def _demarrer(cible: Cible, lance_par: str, programmee: bool = False) -> D
             await client.admin.command("ping")
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, f"Connexion à MongoDB Atlas impossible : {str(exc)[:200]}")
+        # Lot 57.10 — jamais la base en service comme cible (bouton « Lancer » ET sauvegardes programmées)
+        try:
+            await verifier_cible_differente(client, cible.mongo_db)
+        except HTTPException:
+            client.close()
+            raise
     r2 = _client_r2(cible.r2_account_id, cible.r2_access_key_id, cible.r2_secret_access_key)
     try:
         await asyncio.to_thread(r2.head_bucket, Bucket=cible.r2_bucket)

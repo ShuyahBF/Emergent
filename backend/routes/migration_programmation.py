@@ -787,6 +787,10 @@ async def enregistrer_identifiants(corps: IdentifiantsIn, admin: dict = Depends(
         try:
             client = mr._client_cible(corps.mongo_uri)
             await client.admin.command("ping")
+            # Lot 57.10 — refus d'enregistrer la base en service comme cible des sauvegardes programmées
+            await mr.verifier_cible_differente(client, corps.mongo_db)
+        except HTTPException:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, f"Connexion à MongoDB Atlas impossible : {str(exc)[:200]}")
         finally:

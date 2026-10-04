@@ -157,6 +157,12 @@ def enregistrer_identifiants(monkeypatch, r2=None):
         def close(self):
             pass
 
+        # Lot 57.10 : la cible est une AUTRE base (vide) que celle du site -> garde-fou satisfait
+        _cible = mongomock_motor.AsyncMongoMockClient()
+
+        def __getitem__(self, nom):
+            return self._cible[nom]
+
     monkeypatch.setattr(mr, "_client_cible", lambda uri: FauxClient())
     corps = mp.IdentifiantsIn(mongo_uri=URI_ATLAS, mongo_db="sawali", r2_account_id="compte", r2_access_key_id="acces",
                               r2_secret_access_key=SECRET_R2, r2_bucket="seau")
@@ -403,3 +409,53 @@ def test_purger_maintenant_envoie_un_rapport(base, envois, monkeypatch):
     res = asyncio.run(mp.purger_maintenant(ADMIN))
     assert [s["prefixe"] for s in res["supprimees"]] == ["migration-20250101-000000"]
     assert "Rapport de purge" in envois["email"][0][2] and "1 sauvegarde(s) supprimée(s)" in envois["email"][0][2]
+
+
+# ---------------------------------------------------------------------------
+# Lot 57.10 — garde-fou : jamais la base EN SERVICE comme cible
+# ---------------------------------------------------------------------------
+class ClientMemeBase:
+    """Faux client Atlas qui pointe sur la base du site elle-même (cas à refuser)."""
+
+    def __init__(self, base):
+        self._base = base
+
+    class admin:  # noqa: N801
+        @staticmethod
+        async def command(_):
+            return {"ok": 1}
+
+    def __getitem__(self, nom):
+        return self._base
+
+    def close(self):
+        pass
+
+
+def test_garde_fou_identifiants_programmes_refuses_si_base_en_service(base, monkeypatch):
+    monkeypatch.setattr(mr, "_client_r2", lambda *a: FauxR2())
+    monkeypatch.setattr(mr, "_client_cible", lambda uri: ClientMemeBase(base))
+    corps = mp.IdentifiantsIn(mongo_uri=URI_ATLAS, mongo_db="sawali", r2_account_id="compte", r2_access_key_id="acces",
+                              r2_secret_access_key=SECRET_R2, r2_bucket="seau")
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(mp.enregistrer_identifiants(corps, ADMIN))
+    assert err.value.status_code == 400 and "base en service" in err.value.detail
+    # Rien n'est enregistré
+    assert asyncio.run(base.migration_programmation.find_one({"_id": "identifiants"})) is None
+
+
+def test_garde_fou_sauvegarde_ponctuelle_refusee_si_base_en_service(base, monkeypatch):
+    monkeypatch.setattr(mr, "_client_r2", lambda *a: FauxR2())
+    monkeypatch.setattr(mr, "_client_cible", lambda uri: ClientMemeBase(base))
+    cible = mr.Cible(mongo_uri=URI_ATLAS, mongo_db="sawali", remplacer=True, r2_account_id="compte",
+                     r2_access_key_id="acces", r2_secret_access_key=SECRET_R2, r2_bucket="seau",
+                     sauver_secrets=False)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(mr._demarrer(cible, "admin@sawali.test"))
+    assert err.value.status_code == 400 and "base en service" in err.value.detail
+    # Aucune sauvegarde lancée
+    assert asyncio.run(base.migration_jobs.count_documents({})) == 0
+
+
+def test_garde_fou_collection_du_jeton_exclue_de_la_copie():
+    assert mr.GARDE_COLLECTION in mr.EXCLUES

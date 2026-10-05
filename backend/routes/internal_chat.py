@@ -677,6 +677,10 @@ def make_router(*, db, get_current_user, decode_token):
     @router.websocket("/ws/chat")
     async def ws_chat(websocket: WebSocket, token: Optional[str] = Query(None)):
         await websocket.accept()
+        # Lot 57.14 — jeton reçu dans le PREMIER message (jamais dans l'adresse, qui est journalisée) ;
+        # « ?token= » reste accepté pour les onglets encore ouverts avec l'ancienne interface.
+        import ws_auth
+        token = await ws_auth.lire_jeton(websocket, token)
         if not token:
             await websocket.send_json({"type": "error", "detail": "token manquant"})
             await websocket.close(code=4401)

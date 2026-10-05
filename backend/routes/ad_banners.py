@@ -1398,7 +1398,15 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
     # Clients can ignore events for banners they're not tracking.
     # =====================================================================
     @api.websocket("/ws/ad-banners-live")
-    async def ws_ad_banners_live(websocket: WebSocket, token: str = Query(..., min_length=1)):
+    async def ws_ad_banners_live(websocket: WebSocket, token: Optional[str] = Query(None)):
+        # Lot 57.14 — jeton reçu dans le PREMIER message {"type":"auth","token":…} (plus dans l'adresse,
+        # journalisée par Render) ; « ?token= » reste accepté pour les onglets de l'ancienne interface.
+        await websocket.accept()
+        import ws_auth
+        token = await ws_auth.lire_jeton(websocket, token)
+        if not token:
+            await websocket.close(code=4401)
+            return
         try:
             from auth import decode_token as _decode  # type: ignore
             payload = _decode(token)
@@ -1410,7 +1418,6 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         except Exception:  # noqa: BLE001
             await websocket.close(code=4401)
             return
-        await websocket.accept()
         await live_hub.connect(websocket)
         try:
             # Initial snapshot — all active banners with current totals

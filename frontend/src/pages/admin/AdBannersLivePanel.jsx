@@ -19,7 +19,8 @@ export default function AdBannersLivePanel() {
   useEffect(() => {
     const token = localStorage.getItem("sawali_token") || "";
     if (!token) return;
-    const url = `${WS_BASE}/api/ws/ad-banners-live?token=${encodeURIComponent(token)}`;
+    // Lot 57.14 — jeton envoyé dans le premier message (jamais dans l'adresse, journalisée par le serveur)
+    const url = `${WS_BASE}/api/ws/ad-banners-live`;
     let cancelled = false;
     let reconnectTimer = null;
 
@@ -27,7 +28,10 @@ export default function AdBannersLivePanel() {
       if (cancelled) return;
       const ws = new WebSocket(url);
       wsRef.current = ws;
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        try { ws.send(JSON.stringify({ type: "auth", token })); } catch { /* ignore */ }
+        setConnected(true);
+      };
       ws.onclose = () => {
         setConnected(false);
         if (!cancelled) reconnectTimer = setTimeout(open, 3000);

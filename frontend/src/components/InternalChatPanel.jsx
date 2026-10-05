@@ -22,24 +22,46 @@ import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import ImageAnnotator from "@/components/ImageAnnotator";
 
 /*
- * Iter36r — Distinct sound for incoming internal chat messages.
+ * Son de réception d'un message du chat interne.
  *
- * To stand out from the WhatsApp notifier (880Hz → 1320Hz, single tone),
- * we play a warmer two-note motif (E5 → G5, triangle wave) reminiscent
- * of a friendly conversation chime. ~280 ms total, soft attack.
+ * Lot 57.15 — demande du 05/10/2026 : « recevoir un son à chaque arrivée d'un message ».
+ * Avant (Iter36r) : 2 notes de 0,3 s à faible volume, souvent inaudibles, et un AudioContext créé à
+ * chaque message (que le navigateur peut laisser « suspendu »). Maintenant :
+ *   - UN SEUL AudioContext, réveillé (resume) au premier clic / touche de l'utilisateur sur la page
+ *     (les navigateurs interdisent le son avant une première interaction) ;
+ *   - carillon plus net : 3 notes montantes (Mi5 → Sol5 → Do6), ~0,6 s, volume plus fort.
  */
+let audioCtx = null;
+function contexteAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+// Déverrouille le son dès la première interaction avec la page (règle des navigateurs)
+if (typeof window !== "undefined") {
+  const deverrouiller = () => {
+    contexteAudio();
+    window.removeEventListener("pointerdown", deverrouiller);
+    window.removeEventListener("keydown", deverrouiller);
+  };
+  window.addEventListener("pointerdown", deverrouiller);
+  window.addEventListener("keydown", deverrouiller);
+}
+
 function playChatBlip() {
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+    const ctx = contexteAudio();
+    if (!ctx) return;
     const masterGain = ctx.createGain();
     masterGain.connect(ctx.destination);
-    masterGain.gain.value = 0.25;
-
+    masterGain.gain.value = 0.6;
+    const t0 = ctx.currentTime + 0.02;
     const tones = [
-      { freq: 659.25, start: 0,    dur: 0.16 }, // E5
-      { freq: 783.99, start: 0.10, dur: 0.20 }, // G5 (slight overlap for legato)
+      { freq: 659.25, start: 0,    dur: 0.18 }, // Mi5
+      { freq: 783.99, start: 0.14, dur: 0.18 }, // Sol5
+      { freq: 1046.5, start: 0.28, dur: 0.32 }, // Do6 (tenu)
     ];
     tones.forEach(({ freq, start, dur }) => {
       const osc = ctx.createOscillator();
@@ -47,15 +69,37 @@ function playChatBlip() {
       osc.connect(env);
       env.connect(masterGain);
       osc.type = "triangle";
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-      env.gain.setValueAtTime(0.0001, ctx.currentTime + start);
-      env.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + start + 0.02);
-      env.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + dur + 0.02);
+      osc.frequency.setValueAtTime(freq, t0 + start);
+      env.gain.setValueAtTime(0.0001, t0 + start);
+      env.gain.exponentialRampToValueAtTime(0.9, t0 + start + 0.02);
+      env.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+      osc.start(t0 + start);
+      osc.stop(t0 + start + dur + 0.02);
     });
-    setTimeout(() => { try { ctx.close(); } catch { /* noop */ } }, 600);
   } catch { /* best effort */ }
+}
+
+/*
+ * Lot 57.15 — onglet en arrière-plan : le titre de la page clignote « 💬 Nouveau message » jusqu'au
+ * retour sur l'onglet, pour ne pas rater un message quand SAWALI n'est pas au premier plan.
+ */
+let titreClignotant = null;
+function signalerDansLeTitre(texte) {
+  if (typeof document === "undefined" || !document.hidden || titreClignotant) return;
+  const titreOriginal = document.title;
+  let bascule = false;
+  titreClignotant = setInterval(() => {
+    bascule = !bascule;
+    document.title = bascule ? texte : titreOriginal;
+  }, 1000);
+  const arreter = () => {
+    if (document.hidden) return;
+    clearInterval(titreClignotant);
+    titreClignotant = null;
+    document.title = titreOriginal;
+    document.removeEventListener("visibilitychange", arreter);
+  };
+  document.addEventListener("visibilitychange", arreter);
 }
 
 function fmtTime(iso) {
@@ -399,9 +443,15 @@ export default function InternalChatPanel() {
       // directly in the conversation.
       if (!isMine) {
         playChatBlip();
+        signalerDansLeTitre(`💬 ${message.sender_name || "Nouveau message"}`);
       }
       // If currently viewing this thread, append + auto-mark-read
+      // Lot 57.15 — « Support Loois » (espace partagé par l'équipe) : le fil d'un poste reçoit TOUS ses
+      // messages, quel que soit l'administrateur destinataire (avant : affichés seulement après un rechargement)
+      const filSupport = client_id === "support-loois" && message.recipient_id &&
+        (activeThreadKey === message.sender_id || activeThreadKey === message.recipient_id);
       if (open && activeClientId === client_id && (
+        filSupport ||
         (activeThreadKey === "general" && !message.recipient_id) ||
         (activeThreadKey === message.sender_id && message.recipient_id === user?.id) ||
         (activeThreadKey === message.recipient_id && message.sender_id === user?.id)

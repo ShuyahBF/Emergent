@@ -135,6 +135,41 @@ async def membres_postes(db, est_en_ligne: Callable[[str], bool]) -> List[Dict[s
     return out
 
 
+def requete_fil(pid: str) -> Dict[str, Any]:
+    """Tous les messages du fil d'un poste, QUEL QUE SOIT l'administrateur (espace partagé entre admins)."""
+    return {"client_id": ESPACE_ID, "$or": [{"sender_id": pid}, {"recipient_id": pid}]}
+
+
+def requete_non_lus(uid: str) -> Dict[str, Any]:
+    """Messages des postes Loois pas encore lus par cet administrateur."""
+    return {"client_id": ESPACE_ID, "sender_id": {"$regex": "^loois-"}, "read_by": {"$nin": [uid]}}
+
+
+async def ids_admins(db) -> List[str]:
+    """Tous les administrateurs : ils partagent l'espace « Support Loois »."""
+    return [a["id"] async for a in db.users.find({"role": "admin"}, {"_id": 0, "id": 1})]
+
+
+async def fils(db, uid: str) -> List[Dict[str, Any]]:
+    """
+    Liste des fils de l'espace « Support Loois » pour UN administrateur : un fil par poste qui a déjà écrit
+    ou reçu un message, avec le dernier message et le nombre de messages du poste non lus PAR CET ADMIN.
+    Lot 57.12.1 — partagé entre TOUS les administrateurs (avant : seul l'admin destinataire voyait le fil).
+    """
+    out: List[Dict[str, Any]] = []
+    async for p in db.support_loois_postes.find({}, {"_id": 0}):
+        pid = p["id"]
+        dernier = await db.internal_chat_messages.find_one(requete_fil(pid), {"_id": 0}, sort=[("created_at", -1)])
+        if not dernier:
+            continue
+        non_lus = await db.internal_chat_messages.count_documents(
+            {"client_id": ESPACE_ID, "sender_id": pid, "read_by": {"$nin": [uid]}})
+        out.append({"kind": "dm", "key": pid, "label": p.get("nom") or pid, "unread": int(non_lus),
+                    "last_message": dernier})
+    out.sort(key=lambda f: (f["last_message"] or {}).get("created_at") or "", reverse=True)
+    return out
+
+
 async def _admin_destinataire(db, pid: str) -> Optional[str]:
     """Administrateur qui reçoit le message d'un poste : celui de LOOIS_SUPPORT_ADMIN_EMAIL, sinon le
     dernier administrateur qui a répondu à ce poste, sinon le premier administrateur actif."""
@@ -246,7 +281,8 @@ def installer(*, router, db, manager, now_iso: Callable[[], str]) -> None:
                 doc.pop("_id", None)
                 await db.support_loois_postes.update_one({"id": pid}, {"$set": {"dernier_contact": now_iso()}})
                 diffusion = {"type": "message", "client_id": ESPACE_ID, "message": doc}
-                for cible in (pid, admin_id):
+                # Lot 57.12.1 — poussé à TOUS les administrateurs connectés (espace partagé), pas seulement au destinataire
+                for cible in {pid, admin_id, *(await ids_admins(db))}:
                     try:
                         await manager.send_to_user(cible, diffusion)
                     except Exception:

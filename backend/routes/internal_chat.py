@@ -189,8 +189,9 @@ def make_router(*, db, get_current_user, decode_token):
                 out.append(c)
             # Lot 57.12 — espace virtuel « Support Loois » (administrateurs seulement)
             if support_loois.actif():
-                out.append({"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
-                            "company": support_loois.ESPACE_NOM})
+                # en TÊTE de liste : c'est l'espace ouvert par défaut dans le chat des administrateurs
+                out.insert(0, {"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
+                               "company": support_loois.ESPACE_NOM})
             return out
 
         # Find clients of which user is the client himself
@@ -309,6 +310,9 @@ def make_router(*, db, get_current_user, decode_token):
     @router.get("/me/chat/{client_id}/threads")
     async def me_chat_threads(client_id: str, user: dict = Depends(get_current_user)):
         await _ensure_member(user, client_id)
+        # Lot 57.12.1 — « Support Loois » : un fil par poste, visible par TOUS les administrateurs
+        if client_id == support_loois.ESPACE_ID:
+            return await support_loois.fils(db, user["id"])
         # 1) Collective channel — unread count = messages in #general not read by me
         general_unread = await db.internal_chat_messages.count_documents({
             "client_id": client_id,
@@ -384,7 +388,10 @@ def make_router(*, db, get_current_user, decode_token):
     ):
         await _ensure_member(user, client_id)
         q: Dict[str, Any] = {"client_id": client_id}
-        if with_user == "general":
+        if client_id == support_loois.ESPACE_ID and with_user != "general":
+            # Lot 57.12.1 — tout le fil du poste, quel que soit l'administrateur qui a répondu
+            q = support_loois.requete_fil(with_user)
+        elif with_user == "general":
             q["recipient_id"] = None
         else:
             q["recipient_id"] = {"$ne": None}
@@ -441,6 +448,9 @@ def make_router(*, db, get_current_user, decode_token):
         # - General: every member of the client
         if recipient_id:
             targets = {user["id"], recipient_id}
+            # Lot 57.12.1 — « Support Loois » : la réponse d'un admin s'affiche aussi chez les autres admins
+            if client_id == support_loois.ESPACE_ID:
+                targets |= set(await support_loois.ids_admins(db))
         else:
             targets = await _list_member_user_ids(client_id)
         broadcast_payload = {"type": "message", "client_id": client_id, "message": doc}
@@ -611,7 +621,10 @@ def make_router(*, db, get_current_user, decode_token):
         """Marque en masse tous les messages d'un thread comme lus pour l'utilisateur courant."""
         await _ensure_member(user, client_id)
         q: Dict[str, Any] = {"client_id": client_id, "read_by": {"$nin": [user["id"]]}}
-        if thread_key == "general":
+        if client_id == support_loois.ESPACE_ID and thread_key != "general":
+            # Lot 57.12.1 — marque lu tout le fil du poste pour cet administrateur
+            q = {**support_loois.requete_fil(thread_key), "read_by": {"$nin": [user["id"]]}}
+        elif thread_key == "general":
             q["recipient_id"] = None
         else:
             q["recipient_id"] = {"$ne": None}
@@ -631,6 +644,12 @@ def make_router(*, db, get_current_user, decode_token):
         total = 0
         per_client: Dict[str, int] = {}
         for c in clients:
+            # Lot 57.12.1 — « Support Loois » : messages des postes non lus par cet administrateur
+            if c["id"] == support_loois.ESPACE_ID:
+                n = await db.internal_chat_messages.count_documents(support_loois.requete_non_lus(user["id"]))
+                per_client[c["id"]] = int(n)
+                total += int(n)
+                continue
             # General messages not from me + DM messages addressed to me, not yet read
             q = {
                 "client_id": c["id"],

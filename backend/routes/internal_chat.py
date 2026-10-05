@@ -546,6 +546,9 @@ def make_router(*, db, get_current_user, decode_token):
         # Broadcast (same logic as text send)
         if recipient:
             targets = {user["id"], recipient}
+            # Lot 57.13 — « Support Loois » : la photo d'un admin s'affiche aussi chez les autres admins
+            if client_id == support_loois.ESPACE_ID:
+                targets |= set(await support_loois.ids_admins(db))
         else:
             targets = await _list_member_user_ids(client_id)
         broadcast_payload = {"type": "message", "client_id": client_id, "message": doc}

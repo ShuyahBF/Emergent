@@ -36,7 +36,9 @@ import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import WebSocket, WebSocketDisconnect
+from urllib.parse import unquote
+
+from fastapi import File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 # Identifiant de l'espace virtuel dans internal_chat_messages.client_id
@@ -47,6 +49,10 @@ ESPACE_NOM = "Support Loois"
 TEXTE_MAX = 2000
 MESSAGES_PAR_MINUTE = 20
 HISTORIQUE_MAX = 100
+
+# Lot 57.13 — images échangées avec Loois : types acceptés (→ extension du fichier stocké) et taille maximale
+TYPES_IMAGES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+IMAGE_MAX = 10 * 1024 * 1024
 
 
 # =====================================================================
@@ -200,7 +206,9 @@ def installer(*, router, db, manager, now_iso: Callable[[], str]) -> None:
     async def ws_support_loois(websocket: WebSocket):
         await websocket.accept()
         q = websocket.query_params
-        if not actif() or not cle_valide(q.get("cle")):
+        # Lot 57.13 — clé lue de préférence dans l'en-tête X-Loois-Cle (jamais journalisée dans l'adresse)
+        cle = websocket.headers.get("x-loois-cle") or q.get("cle")
+        if not actif() or not cle_valide(cle):
             await websocket.send_json({"type": "erreur", "detail": "Support fermé ou clé du support incorrecte."})
             await websocket.close(code=4401)
             return
@@ -289,3 +297,83 @@ def installer(*, router, db, manager, now_iso: Callable[[], str]) -> None:
                         pass
         finally:
             await manager.disconnect(pid, websocket)
+
+    # ------------------------------------------------------------------
+    # Lot 57.13 — IMAGES échangées avec les postes Loois
+    # ------------------------------------------------------------------
+    def _poste_de_la_requete(request: Request) -> Dict[str, str]:
+        """Identité du poste dans les en-têtes X-Loois-* (valeurs encodées en %XX par Loois) ; 401 si clé refusée."""
+        h = request.headers
+        if not actif() or not cle_valide(h.get("x-loois-cle")):
+            raise HTTPException(status_code=401, detail="Support fermé ou clé du support incorrecte.")
+        ecole = nettoyer(unquote(h.get("x-loois-ecole") or ""), 80)
+        poste = nettoyer(unquote(h.get("x-loois-poste") or ""), 60)
+        utilisateur = nettoyer(unquote(h.get("x-loois-utilisateur") or ""), 60)
+        return {"pid": poste_id(ecole, poste, utilisateur), "nom": nom_affiche(ecole, poste, utilisateur),
+                "ecole": ecole, "poste": poste, "utilisateur": utilisateur}
+
+    @router.post("/support-loois/photo")
+    async def support_loois_photo(request: Request, photo: UploadFile = File(...), caption: Optional[str] = Form(None)):
+        """Un poste Loois envoie une image (capture d'écran, photo) au support : rangée dans le chat interne
+        comme une photo ordinaire, visible et annotable par les administrateurs."""
+        ident = _poste_de_la_requete(request)
+        pid = ident["pid"]
+        mime = (photo.content_type or "").lower()
+        if mime not in TYPES_IMAGES:
+            raise HTTPException(status_code=400, detail="Format non supporté : JPEG, PNG ou WebP uniquement.")
+        data = await photo.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if len(data) > IMAGE_MAX:
+            raise HTTPException(status_code=413, detail="Image trop volumineuse (plus de 10 Mo).")
+        admin_id = await _admin_destinataire(db, pid)
+        if not admin_id:
+            raise HTTPException(status_code=503, detail="Aucun administrateur SAWALI pour recevoir l'image.")
+        await db.support_loois_postes.update_one(
+            {"id": pid},
+            {"$set": {"nom": ident["nom"], "ecole": ident["ecole"], "poste": ident["poste"],
+                      "utilisateur": ident["utilisateur"], "dernier_contact": now_iso()},
+             "$setOnInsert": {"id": pid, "premier_contact": now_iso()}},
+            upsert=True,
+        )
+        msg_id = str(uuid.uuid4())
+        try:
+            from storage import aupload_bytes, astorage_available  # stockage des images (R2)
+            if not await astorage_available():
+                raise HTTPException(status_code=503, detail="Stockage indisponible : réessayez plus tard.")
+            chemin = await aupload_bytes(f"chat/{ESPACE_ID}/{msg_id}{TYPES_IMAGES[mime]}", data, mime)
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Envoi de l'image échoué : {str(exc)[:160]}")
+        doc = {
+            "id": msg_id, "client_id": ESPACE_ID, "sender_id": pid, "sender_name": ident["nom"],
+            "recipient_id": admin_id, "text": ((caption or "").strip())[:500],
+            "media_url": f"/api/me/chat/media/{msg_id}", "media_mime": mime, "media_size": len(data),
+            "media_kind": "image", "storage_path": chemin, "created_at": now_iso(), "read_by": [pid],
+        }
+        await db.internal_chat_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        diffusion = {"type": "message", "client_id": ESPACE_ID, "message": doc}
+        for cible in {pid, admin_id, *(await ids_admins(db))}:
+            try:
+                await manager.send_to_user(cible, diffusion)
+            except Exception:
+                pass
+        return doc
+
+    @router.get("/support-loois/media/{msg_id}")
+    async def support_loois_media(msg_id: str, request: Request):
+        """Image d'un message du fil de CE poste (envoyée par lui ou par un administrateur) ; jamais celle
+        d'un autre poste ni d'un autre espace."""
+        pid = _poste_de_la_requete(request)["pid"]
+        m = await db.internal_chat_messages.find_one({"id": msg_id, "client_id": ESPACE_ID}, {"_id": 0})
+        if not m or pid not in (m.get("sender_id"), m.get("recipient_id")) or not m.get("storage_path"):
+            raise HTTPException(status_code=404, detail="Image introuvable.")
+        try:
+            from storage import afetch_bytes
+            data, ct = await afetch_bytes(m["storage_path"])
+        except Exception:
+            raise HTTPException(status_code=502, detail="Lecture de l'image impossible.")
+        return Response(content=data, media_type=ct or m.get("media_mime") or "application/octet-stream",
+                        headers={"Cache-Control": "private, max-age=86400"})

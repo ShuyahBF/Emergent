@@ -18,6 +18,8 @@ import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
 import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
+// Lot 57.13 — annotation des images avant envoi (même outil que la discussion WhatsApp)
+import ImageAnnotator from "@/components/ImageAnnotator";
 
 /*
  * Iter36r — Distinct sound for incoming internal chat messages.
@@ -111,6 +113,8 @@ export default function InternalChatPanel() {
 
   // Iter36n — Photo upload state
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // Lot 57.13 — image en cours d'annotation : { file, nouvelle } (nouvelle = choisie/collée, sinon image reçue)
+  const [aAnnoter, setAAnnoter] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0); // 0..100
   const [lightbox, setLightbox] = useState(null); // {url, filename} when zoomed
   const cameraInputRef = useRef(null);
@@ -582,12 +586,42 @@ export default function InternalChatPanel() {
     reader.readAsDataURL(file);
   });
 
-  const handlePhotoFile = async (file) => {
+  // Lot 57.13 — toute photo choisie ou collée passe d'abord par l'annotateur (flèches, cercles, texte,
+  // flou…), comme dans WhatsApp ; « Terminer » envoie l'image annotée.
+  const handlePhotoFile = (file) => {
     if (!file || !activeClientId || !activeThreadKey) return;
     if (!file.type.startsWith("image/")) {
       toast.error("Seules les photos sont supportées pour le moment");
       return;
     }
+    setAAnnoter({ file, nouvelle: true });
+  };
+
+  // Lot 57.13 — « Annoter et renvoyer » une image reçue (ex. capture d'écran envoyée par un poste Loois)
+  const annoterImageRecue = async (url) => {
+    try {
+      const path = new URL(url).pathname.replace(/^\/api/, "");
+      const r = await apiClient.get(path, { responseType: "blob" });
+      const type = r.data.type || "image/jpeg";
+      setLightbox(null);
+      setAAnnoter({ file: new File([r.data], `image-${Date.now()}.${type.includes("png") ? "png" : "jpg"}`, { type }), nouvelle: false });
+    } catch {
+      toast.error("Image indisponible pour l'annotation");
+    }
+  };
+
+  // Lot 57.13 — Ctrl+V d'une capture d'écran dans la zone de saisie : ouverte dans l'annotateur
+  const collerImage = (e) => {
+    const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    const f = item.getAsFile();
+    if (!f) return;
+    e.preventDefault();
+    handlePhotoFile(new File([f], `capture-${Date.now()}.png`, { type: f.type || "image/png" }));
+  };
+
+  const envoyerPhoto = async (file) => {
+    if (!file || !activeClientId || !activeThreadKey) return;
     setUploadingPhoto(true);
     setUploadProgress(0);
     try {
@@ -1170,6 +1204,7 @@ export default function InternalChatPanel() {
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
+                    onPaste={collerImage}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -1226,7 +1261,30 @@ export default function InternalChatPanel() {
             className="max-h-[90vh] max-w-[95vw] rounded-lg shadow-2xl object-contain"
             full
           />
+          {/* Lot 57.13 — annoter l'image affichée puis la renvoyer dans la discussion ouverte */}
+          {activeClientId && activeThreadKey && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); annoterImageRecue(lightbox.url); }}
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-2 shadow-lg cursor-pointer"
+              data-testid="chat-media-annoter"
+            >
+              ✏️ Annoter et renvoyer
+            </button>
+          )}
         </div>
+      )}
+      {/* Lot 57.13 — annotateur d'image (avant envoi, ou image reçue à renvoyer annotée) */}
+      {aAnnoter && (
+        <ImageAnnotator
+          file={aAnnoter.file}
+          onCancel={() => {
+            const a = aAnnoter;
+            setAAnnoter(null);
+            if (a.nouvelle && window.confirm("Envoyer la photo sans annotation ?")) envoyerPhoto(a.file);
+          }}
+          onDone={(f) => { setAAnnoter(null); envoyerPhoto(f); }}
+        />
       )}
     </>
   );

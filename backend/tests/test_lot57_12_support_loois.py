@@ -164,3 +164,83 @@ def test_espace_partage_entre_tous_les_administrateurs(env, monkeypatch):
         assert ws.receive_json()["message"]["text"] == "Réponse de adm1"
         msgs2 = client.get(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers={"X-User": "adm2"}, params={"with_user": pid}).json()
         assert [m["text"] for m in msgs2] == ["Bonjour support", "Réponse de adm1"]
+
+
+# ----------------------------------------------------------------------
+# Lot 57.13 — images échangées avec les postes Loois (stockage simulé)
+# ----------------------------------------------------------------------
+ENTETES_POSTE = {"X-Loois-Cle": "cle-de-test", "X-Loois-Ecole": "Ecole%20des%20M%C3%A9tiers",
+                 "X-Loois-Poste": "PC-SECRETARIAT", "X-Loois-Utilisateur": "marie"}
+
+
+@pytest.fixture()
+def stockage(monkeypatch):
+    """Remplace le module storage (R2) par un dictionnaire en mémoire."""
+    import types
+    fichiers = {}
+    faux = types.ModuleType("storage")
+
+    async def astorage_available():
+        return True
+
+    async def aupload_bytes(path, data, content_type="application/octet-stream"):
+        fichiers[path] = (data, content_type)
+        return path
+
+    async def afetch_bytes(path):
+        return fichiers[path]
+
+    faux.astorage_available, faux.aupload_bytes, faux.afetch_bytes = astorage_available, aupload_bytes, afetch_bytes
+    monkeypatch.setitem(sys.modules, "storage", faux)
+    return fichiers
+
+
+def test_images_aller_retour_poste_et_administrateur(env, stockage):
+    client, _ = env
+    with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
+        pid = ws.receive_json()["poste_id"]
+        ws.receive_json()
+
+        # 1) Le poste envoie une capture : message image dans le chat interne, poussé en direct
+        r = client.post("/api/support-loois/photo", headers=ENTETES_POSTE,
+                        files={"photo": ("capture.png", b"\x89PNG-image", "image/png")}, data={"caption": "Erreur ici"})
+        assert r.status_code == 200, r.text
+        doc = r.json()
+        assert doc["media_kind"] == "image" and doc["sender_id"] == pid and doc["text"] == "Erreur ici"
+        assert ws.receive_json()["message"]["id"] == doc["id"]
+
+        # 2) Le poste relit son image ; l'administrateur la voit dans le fil
+        img = client.get(f"/api/support-loois/media/{doc['id']}", headers=ENTETES_POSTE)
+        assert img.status_code == 200 and img.content == b"\x89PNG-image"
+        msgs = client.get(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers={"X-User": "adm1"}, params={"with_user": pid}).json()
+        assert msgs[-1]["media_kind"] == "image"
+
+        # 3) L'administrateur renvoie une image annotée : le poste la reçoit et peut la télécharger
+        r2 = client.post(f"/api/me/chat/{sl.ESPACE_ID}/messages/photo", headers={"X-User": "adm1"},
+                         files={"photo": ("annotee.jpg", b"JPEG-annotee", "image/jpeg")}, data={"recipient_id": pid})
+        assert r2.status_code == 200, r2.text
+        recu = ws.receive_json()["message"]
+        assert recu["media_kind"] == "image"
+        assert client.get(f"/api/support-loois/media/{recu['id']}", headers=ENTETES_POSTE).content == b"JPEG-annotee"
+
+
+def test_images_protegees(env, stockage):
+    client, _ = env
+    # Clé absente ou fausse : refusé
+    assert client.post("/api/support-loois/photo", files={"photo": ("a.png", b"x", "image/png")}).status_code == 401
+    mauvais = {**ENTETES_POSTE, "X-Loois-Cle": "faux"}
+    assert client.post("/api/support-loois/photo", headers=mauvais, files={"photo": ("a.png", b"x", "image/png")}).status_code == 401
+    # Type refusé
+    r = client.post("/api/support-loois/photo", headers=ENTETES_POSTE, files={"photo": ("a.exe", b"MZ", "application/octet-stream")})
+    assert r.status_code == 400
+    # Un AUTRE poste ne peut pas lire l'image du premier
+    doc = client.post("/api/support-loois/photo", headers=ENTETES_POSTE, files={"photo": ("a.png", b"img", "image/png")}).json()
+    autre = {**ENTETES_POSTE, "X-Loois-Poste": "PC-AUTRE"}
+    assert client.get(f"/api/support-loois/media/{doc['id']}", headers=autre).status_code == 404
+
+
+def test_cle_dans_l_en_tete_du_websocket(env):
+    client, _ = env
+    url = "/api/ws/support-loois?ecole=E&poste=P&utilisateur=U"
+    with client.websocket_connect(url, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        assert ws.receive_json()["type"] == "hello"

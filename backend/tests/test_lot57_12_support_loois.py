@@ -21,6 +21,8 @@ ADMIN = {"id": "adm1", "role": "admin", "full_name": "Jean-François", "email": 
          "account_status": "active", "created_at": "2026-01-01T00:00:00+00:00"}
 ADMIN2 = {"id": "adm2", "role": "admin", "full_name": "Compte Support", "email": "support@sawali.test",
           "account_status": "active", "created_at": "2026-02-01T00:00:00+00:00"}
+SUPERVISEUR = {"id": "sup1", "role": "superviseur", "full_name": "Jean-François (superviseur)",
+               "email": "Proprio@Sawali.test", "account_status": "active", "created_at": "2026-03-01T00:00:00+00:00"}
 CLIENT = {"id": "cli1", "role": "client", "full_name": "Pharmacie X", "account_status": "active"}
 URL_WS = "/api/ws/support-loois?cle={cle}&ecole=Ecole%20des%20M%C3%A9tiers&poste=PC-SECRETARIAT&utilisateur=marie&version=1.0"
 
@@ -31,7 +33,7 @@ def env(monkeypatch):
     monkeypatch.setenv("LOOIS_SUPPORT_CLE", "cle-de-test")
     monkeypatch.delenv("LOOIS_SUPPORT_ADMIN_EMAIL", raising=False)
     db = mongomock_motor.AsyncMongoMockClient()["sawali_support"]
-    utilisateurs = {"adm1": ADMIN, "adm2": ADMIN2, "cli1": CLIENT}
+    utilisateurs = {"adm1": ADMIN, "adm2": ADMIN2, "sup1": SUPERVISEUR, "cli1": CLIENT}
 
     async def get_user(request: Request):
         u = utilisateurs.get(request.headers.get("X-User", ""))
@@ -45,7 +47,7 @@ def env(monkeypatch):
     app.include_router(api)
     with TestClient(app) as client:
         # Comptes réels dans la base simulée (l'administrateur reçoit les messages des postes)
-        client.portal.call(db.users.insert_many, [dict(ADMIN), dict(ADMIN2), dict(CLIENT)])
+        client.portal.call(db.users.insert_many, [dict(ADMIN), dict(ADMIN2), dict(SUPERVISEUR), dict(CLIENT)])
         yield client, db
 
 
@@ -244,3 +246,36 @@ def test_cle_dans_l_en_tete_du_websocket(env):
     url = "/api/ws/support-loois?ecole=E&poste=P&utilisateur=U"
     with client.websocket_connect(url, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
         assert ws.receive_json()["type"] == "hello"
+
+
+def test_compte_superviseur_designe_voit_et_repond(env, monkeypatch, stockage):
+    """Lot 57.13.1 — cas réel : le propriétaire est connecté avec un compte « superviseur » désigné dans
+    LOOIS_SUPPORT_ADMIN_EMAIL (majuscules indifférentes) : il voit l'espace, reçoit en direct et répond."""
+    client, _ = env
+    monkeypatch.setenv("LOOIS_SUPPORT_ADMIN_EMAIL", "proprio@sawali.test")
+    h = {"X-User": "sup1"}
+    ids = [c["id"] for c in client.get("/api/me/chat/clients", headers=h).json()]
+    assert ids[0] == sl.ESPACE_ID
+    with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
+        pid = ws.receive_json()["poste_id"]
+        ws.receive_json()
+        ws.send_json({"type": "message", "texte": "Bonjour"})
+        msg = ws.receive_json()["message"]
+        assert msg["recipient_id"] == "sup1"          # destinataire = le compte superviseur désigné
+        fils = client.get(f"/api/me/chat/{sl.ESPACE_ID}/threads", headers=h).json()
+        assert any(f["key"] == pid and f["unread"] == 1 for f in fils)
+        r = client.post(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers=h, json={"text": "Réponse", "recipient_id": pid})
+        assert r.status_code == 200, r.text
+        assert ws.receive_json()["message"]["text"] == "Réponse"
+        # Le superviseur voit aussi l'image envoyée par un administrateur au poste
+        doc = client.post(f"/api/me/chat/{sl.ESPACE_ID}/messages/photo", headers={"X-User": "adm1"},
+                          files={"photo": ("a.jpg", b"JPG", "image/jpeg")}, data={"recipient_id": pid}).json()
+        assert client.get(f"/api/me/chat/media/{doc['id']}", headers=h).status_code == 200
+
+
+def test_superviseur_non_designe_ne_voit_rien(env, monkeypatch):
+    client, _ = env
+    monkeypatch.setenv("LOOIS_SUPPORT_ADMIN_EMAIL", "autre@sawali.test")
+    h = {"X-User": "sup1"}
+    assert sl.ESPACE_ID not in [c["id"] for c in client.get("/api/me/chat/clients", headers=h).json()]
+    assert client.get(f"/api/me/chat/{sl.ESPACE_ID}/threads", headers=h).status_code == 403

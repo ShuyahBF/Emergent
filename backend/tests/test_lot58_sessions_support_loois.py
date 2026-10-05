@@ -396,3 +396,23 @@ def test_details_du_support_regeneres(env, monkeypatch):
     assert r.json()["details_support"] == "Problème signalé : écran figé"
     t = client.portal.call(db.support_tickets.find_one, {"id": r.json()["ticket_id"]})
     assert t["details_support"] == "Problème signalé : écran figé" and t["status"] == "done"
+
+
+def test_historique_du_poste_garde_le_ticket_apres_une_nouvelle_demande(env):
+    """Lot 58.3 — cas réel du 05/10/2026 : session terminée (ticket …0004), puis Loois rouvert (nouvelle demande) :
+    le ticket de la session terminée reste visible dans l'historique du poste."""
+    client, _ = env
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        pid, etat = ouvrir(ws)
+        sid = etat["session_id"]
+        numero = client.post(f"/api/support-loois/sessions/{sid}/accepter", headers=H_ADMIN,
+                             json={"client_id": "cli-ecole"}).json()["ticket_number"]
+        client.post(f"/api/support-loois/sessions/{sid}/terminer", headers=H_ADMIN)
+        attendre(ws, "fin_session")
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        ouvrir(ws)                                                  # nouvelle demande en attente
+        h = client.get(f"/api/support-loois/postes/{pid}/historique", headers=H_ADMIN).json()
+        assert h[0]["statut"] == "attente" and h[0]["ticket"] is None
+        ancien = next(x for x in h if x["id"] == sid)
+        assert ancien["ticket"]["number"] == numero and ancien["ticket"]["status"] == "done"
+        assert ancien["ticket"]["intervention_number"].startswith("INT-")

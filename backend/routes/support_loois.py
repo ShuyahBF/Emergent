@@ -644,6 +644,22 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         return {"session": session, "client_id_suggere": poste.get("client_id"),
                 "duree_max_s": int(sessions.duree_max_secondes())}
 
+    @router.get("/support-loois/postes/{pid}/historique")
+    async def historique_du_poste(pid: str, user: dict = Depends(equipe)):
+        """Lot 58.3 — dernières sessions d'un poste avec l'état de leur ticket (numéro, statut, clôture,
+        intervention) : le ticket d'une session terminée reste consultable même si une nouvelle demande a suivi."""
+        out = []
+        async for s in db.support_loois_sessions.find({"poste_id": pid}, {"_id": 0}).sort("demande_le", -1).limit(20):
+            ticket = None
+            if s.get("ticket_id"):
+                t = await db.support_tickets.find_one({"id": s["ticket_id"]}, {"_id": 0}) or {}
+                ticket = {"id": t.get("id"), "number": t.get("number") or s.get("ticket_number"),
+                          "status": t.get("status") or "introuvable", "closed_at": t.get("closed_at"),
+                          "archived": bool(t.get("archived_at")), "intervention_number": t.get("intervention_number"),
+                          "client_id": t.get("client_id")}
+            out.append({**s, "ticket": ticket})
+        return out
+
     @router.get("/support-loois/clients")
     async def clients_pour_ticket(q: Optional[str] = None, user: dict = Depends(equipe)):
         """Clients SAWALI à qui rattacher le ticket (recherche par nom ou société)."""

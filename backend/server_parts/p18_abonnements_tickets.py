@@ -496,6 +496,14 @@ async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
     scope = await _resolve_visible_client_ids(user)
     scope_clause = {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
     own_clauses = [{"opened_by_id": user.get("id")}, {"owner_id": user.get("id")}]
+    # Lot 58.3 — les tickets du « Support Loois » (créés à l'acceptation d'une session) sont visibles de TOUTE
+    # l'équipe du support (administrateurs + comptes de LOOIS_SUPPORT_ADMIN_EMAIL), quel que soit le client
+    try:
+        from routes import support_loois as _support_loois
+        if user.get("role") == "admin" or _support_loois.est_compte_support(user):
+            own_clauses.append({"source": "support_loois"})
+    except Exception:  # noqa: BLE001
+        pass
     return {"$or": [scope_clause, *own_clauses]}
 
 

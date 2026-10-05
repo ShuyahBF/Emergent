@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.12"
-LOT_LIBELLE = "Support Loois : le bouton « Ecrire Support » de Loois (e-Kol) discute en direct avec les administrateurs dans le chat interne"
+LOT = "57.12.1"
+LOT_LIBELLE = "Support Loois partagé entre tous les administrateurs (fils, non lus, réponses) et affiché en tête du chat interne"

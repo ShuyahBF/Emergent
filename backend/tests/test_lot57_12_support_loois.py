@@ -19,6 +19,8 @@ import routes.support_loois as sl  # noqa: E402
 
 ADMIN = {"id": "adm1", "role": "admin", "full_name": "Jean-François", "email": "admin@sawali.test",
          "account_status": "active", "created_at": "2026-01-01T00:00:00+00:00"}
+ADMIN2 = {"id": "adm2", "role": "admin", "full_name": "Compte Support", "email": "support@sawali.test",
+          "account_status": "active", "created_at": "2026-02-01T00:00:00+00:00"}
 CLIENT = {"id": "cli1", "role": "client", "full_name": "Pharmacie X", "account_status": "active"}
 URL_WS = "/api/ws/support-loois?cle={cle}&ecole=Ecole%20des%20M%C3%A9tiers&poste=PC-SECRETARIAT&utilisateur=marie&version=1.0"
 
@@ -29,7 +31,7 @@ def env(monkeypatch):
     monkeypatch.setenv("LOOIS_SUPPORT_CLE", "cle-de-test")
     monkeypatch.delenv("LOOIS_SUPPORT_ADMIN_EMAIL", raising=False)
     db = mongomock_motor.AsyncMongoMockClient()["sawali_support"]
-    utilisateurs = {"adm1": ADMIN, "cli1": CLIENT}
+    utilisateurs = {"adm1": ADMIN, "adm2": ADMIN2, "cli1": CLIENT}
 
     async def get_user(request: Request):
         u = utilisateurs.get(request.headers.get("X-User", ""))
@@ -43,7 +45,7 @@ def env(monkeypatch):
     app.include_router(api)
     with TestClient(app) as client:
         # Comptes réels dans la base simulée (l'administrateur reçoit les messages des postes)
-        client.portal.call(db.users.insert_many, [dict(ADMIN), dict(CLIENT)])
+        client.portal.call(db.users.insert_many, [dict(ADMIN), dict(ADMIN2), dict(CLIENT)])
         yield client, db
 
 
@@ -132,3 +134,33 @@ def test_trop_de_messages_refuses(env, monkeypatch):
             assert ws.receive_json()["type"] == "message"
         ws.send_json({"type": "message", "texte": "m3"})
         assert ws.receive_json()["type"] == "erreur"
+
+
+def test_espace_partage_entre_tous_les_administrateurs(env, monkeypatch):
+    """Lot 57.12.1 — messages adressés au compte « support » (LOOIS_SUPPORT_ADMIN_EMAIL) : un AUTRE
+    administrateur voit aussi le fil, ses messages non lus, et peut répondre (cas réel du 05/10/2026)."""
+    client, _ = env
+    monkeypatch.setenv("LOOIS_SUPPORT_ADMIN_EMAIL", "support@sawali.test")
+    with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
+        pid = ws.receive_json()["poste_id"]
+        ws.receive_json()
+        ws.send_json({"type": "message", "texte": "Bonjour support"})
+        msg = ws.receive_json()["message"]
+        assert msg["recipient_id"] == "adm2"          # destinataire = compte support
+
+        h = {"X-User": "adm1"}                        # l'AUTRE administrateur
+        fils = client.get(f"/api/me/chat/{sl.ESPACE_ID}/threads", headers=h).json()
+        fil = next(f for f in fils if f["key"] == pid)
+        assert fil["unread"] == 1
+        assert client.get("/api/me/chat/unread-count", headers=h).json()["per_client"][sl.ESPACE_ID] == 1
+        msgs = client.get(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers=h, params={"with_user": pid}).json()
+        assert [m["text"] for m in msgs] == ["Bonjour support"]
+        client.post(f"/api/me/chat/{sl.ESPACE_ID}/threads/{pid}/mark-all-read", headers=h)
+        assert client.get("/api/me/chat/unread-count", headers=h).json()["per_client"][sl.ESPACE_ID] == 0
+
+        # adm1 répond : le poste la reçoit en direct, et le fil complet contient les 2 messages
+        r = client.post(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers=h, json={"text": "Réponse de adm1", "recipient_id": pid})
+        assert r.status_code == 200, r.text
+        assert ws.receive_json()["message"]["text"] == "Réponse de adm1"
+        msgs2 = client.get(f"/api/me/chat/{sl.ESPACE_ID}/messages", headers={"X-User": "adm2"}, params={"with_user": pid}).json()
+        assert [m["text"] for m in msgs2] == ["Bonjour support", "Réponse de adm1"]

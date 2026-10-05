@@ -913,6 +913,7 @@ def make_router(*, db, get_current_user, decode_token):
         }
 
     # Lot 57.12 — WebSocket des postes Loois (bouton « Ecrire Support »), même gestionnaire de connexions
-    support_loois.installer(router=router, db=db, manager=manager, now_iso=_now_iso)
+    support_loois.installer(router=router, db=db, manager=manager, now_iso=_now_iso,
+                            get_current_user=get_current_user)
 
     return router

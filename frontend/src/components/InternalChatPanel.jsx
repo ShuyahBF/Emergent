@@ -20,6 +20,8 @@ import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 // Lot 57.13 — annotation des images avant envoi (même outil que la discussion WhatsApp)
 import ImageAnnotator from "@/components/ImageAnnotator";
+// Lot 58 — sessions d'assistance Loois (bandeau) et fichiers (vidéos, documents) dans les bulles
+import { SupportLooisBandeau, ChatFichier } from "@/components/SupportLooisSession";
 
 /*
  * Son de réception d'un message du chat interne.
@@ -430,6 +432,17 @@ export default function InternalChatPanel() {
   // ---- WebSocket event handler ----
   useEffect(() => {
     if (!lastEvent) return;
+    // Lot 58 — nouvelle demande d'assistance d'un poste Loois : son + toast pour toute l'équipe
+    if (lastEvent.type === "support_loois_session") {
+      const s = lastEvent.session || {};
+      if (s.statut === "attente") {
+        playChatBlip();
+        signalerDansLeTitre("🆘 Demande d'assistance Loois");
+        toast.warning(`🆘 Demande d'assistance Loois : ${s.poste_nom || ""}`, { duration: 8000 });
+      }
+      if (activeClientId === "support-loois") loadThreads("support-loois");
+      return;
+    }
     if (lastEvent.type === "message") {
       const { client_id, message } = lastEvent;
       const isMine = message?.sender_id === user?.id;
@@ -997,6 +1010,11 @@ export default function InternalChatPanel() {
               </div>
             )}
 
+            {/* Lot 58 — session d'assistance du poste Loois affiché (accepter, ticket, terminer, Liluvine) */}
+            {activeClientId === "support-loois" && activeThreadKey && activeThreadKey !== "general" && (
+              <SupportLooisBandeau posteId={activeThreadKey} lastEvent={lastEvent} onSuggestion={(t) => setText(t)} />
+            )}
+
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
               {!activeThreadKey ? (
                 <p className="text-center text-slate-400 italic text-sm py-8">
@@ -1071,6 +1089,9 @@ export default function InternalChatPanel() {
                           >
                             <ChatMediaThumb src={`${process.env.REACT_APP_BACKEND_URL}${m.media_url}`} />
                           </button>
+                        )}
+                        {(m.media_kind === "video" || m.media_kind === "document") && m.media_url && (
+                          <ChatFichier message={m} mine={mine} />
                         )}
                         {m.text && (
                           <p className="whitespace-pre-wrap break-words">{m.text}</p>

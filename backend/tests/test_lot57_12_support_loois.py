@@ -32,6 +32,7 @@ def env(monkeypatch):
     """Application minimale : chat interne + base simulée + utilisateur choisi par l'en-tête X-User."""
     monkeypatch.setenv("LOOIS_SUPPORT_CLE", "cle-de-test")
     monkeypatch.delenv("LOOIS_SUPPORT_ADMIN_EMAIL", raising=False)
+    monkeypatch.setenv("LOOIS_SUPPORT_LILUVINE", "0")      # lot 58 : pas d'appel IA dans ces tests
     db = mongomock_motor.AsyncMongoMockClient()["sawali_support"]
     utilisateurs = {"adm1": ADMIN, "adm2": ADMIN2, "sup1": SUPERVISEUR, "cli1": CLIENT}
 
@@ -80,6 +81,7 @@ def test_aller_retour_poste_loois_et_administrateur(env):
         assert hello["type"] == "hello"
         pid = hello["poste_id"]
         assert ws.receive_json() == {"type": "historique", "messages": []}
+        assert ws.receive_json()["statut"] == "attente"       # lot 58 : demande en attente d'un agent
 
         # 1) Le poste écrit : message rangé dans le chat interne, adressé à l'administrateur
         ws.send_json({"type": "message", "texte": "Bonjour, le PDF ne s'ouvre pas"})
@@ -130,7 +132,7 @@ def test_trop_de_messages_refuses(env, monkeypatch):
     monkeypatch.setattr(sl, "MESSAGES_PAR_MINUTE", 2)
     monkeypatch.setattr(sl.LimiteDebit.__init__, "__defaults__", (2, 60.0))
     with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
-        ws.receive_json(); ws.receive_json()
+        ws.receive_json(); ws.receive_json(); ws.receive_json()
         for i in range(2):
             ws.send_json({"type": "message", "texte": f"m{i}"})
             assert ws.receive_json()["type"] == "message"
@@ -146,6 +148,7 @@ def test_espace_partage_entre_tous_les_administrateurs(env, monkeypatch):
     with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
         pid = ws.receive_json()["poste_id"]
         ws.receive_json()
+        ws.receive_json()                             # lot 58 : état de la session
         ws.send_json({"type": "message", "texte": "Bonjour support"})
         msg = ws.receive_json()["message"]
         assert msg["recipient_id"] == "adm2"          # destinataire = compte support
@@ -202,6 +205,7 @@ def test_images_aller_retour_poste_et_administrateur(env, stockage):
     with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
         pid = ws.receive_json()["poste_id"]
         ws.receive_json()
+        ws.receive_json()                             # lot 58 : état de la session
 
         # 1) Le poste envoie une capture : message image dans le chat interne, poussé en direct
         r = client.post("/api/support-loois/photo", headers=ENTETES_POSTE,
@@ -259,6 +263,7 @@ def test_compte_superviseur_designe_voit_et_repond(env, monkeypatch, stockage):
     with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
         pid = ws.receive_json()["poste_id"]
         ws.receive_json()
+        ws.receive_json()                             # lot 58 : état de la session
         ws.send_json({"type": "message", "texte": "Bonjour"})
         msg = ws.receive_json()["message"]
         assert msg["recipient_id"] == "sup1"          # destinataire = le compte superviseur désigné
@@ -281,15 +286,9 @@ def test_superviseur_non_designe_ne_voit_rien(env, monkeypatch):
     assert client.get(f"/api/me/chat/{sl.ESPACE_ID}/threads", headers=h).status_code == 403
 
 
-def test_session_limitee_ferme_avec_fin_session(env, monkeypatch):
-    """Lot 57.16 — à l'échéance de la session (30 min ; ici 0,6 s), le serveur envoie « fin_session » et ferme."""
-    client, _ = env
+def test_duree_de_session_configurable(monkeypatch):
+    """Lot 57.16 — durée maximale (30 min par défaut) ; lot 58 : comptée depuis l'acceptation (voir test_lot58)."""
     monkeypatch.setenv("LOOIS_SUPPORT_SESSION_MINUTES", "0.01")
-    with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
-        ws.receive_json()
-        ws.receive_json()
-        fin = ws.receive_json()
-        assert fin["type"] == "fin_session" and "30 minutes" in fin["detail"]
     assert sl.duree_session_secondes() == pytest.approx(0.6)
     monkeypatch.delenv("LOOIS_SUPPORT_SESSION_MINUTES")
     assert sl.duree_session_secondes() == 1800

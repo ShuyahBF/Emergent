@@ -327,7 +327,7 @@ const MigrationRenderSection = () => {
       ? "Reprendre la sauvegarde interrompue ? Les collections déjà copiées seront sautées."
       : form.remplacer
       ? "Mode REMPLACER : chaque collection de la base cible sera VIDÉE puis recopiée. Continuer ?"
-      : "Lancer la sauvegarde de migration ? Le site reste utilisable pendant la copie.";
+      : "Sauvegarder maintenant ? Le site reste utilisable pendant la copie.";
     if (!window.confirm(avertissement)) return;
     setEnvoi(true);
     try {
@@ -467,9 +467,10 @@ const MigrationRenderSection = () => {
   return (
     <div className="space-y-5" data-testid="migration-render-section">
       <p className="text-sm text-slate-600">
-        Copie <b>complète</b> du site vers la nouvelle infrastructure : toutes les collections MongoDB (avec leurs index) vers
-        <b> MongoDB Atlas</b>, une archive de chaque collection, les fichiers (stockage Emergent + disque) et les variables
-        d'environnement <b>chiffrées</b> vers <b>Cloudflare R2</b>. Relançable à volonté ; pour la bascule finale, cochez « Remplacer ».
+        {/* Lot 57.11 — la migration est terminée : cette section sert désormais de sauvegarde complète */}
+        Sauvegarde <b>complète</b> du site : toutes les collections MongoDB (avec leurs index) vers une
+        <b> base Atlas de secours</b> (jamais la base en service : refusée automatiquement), une archive de chaque
+        collection, les fichiers et les variables d'environnement <b>chiffrées</b> vers <b>Cloudflare R2</b>. Relançable à volonté.
       </p>
 
       {/* ---------- Inventaire ---------- */}
@@ -539,21 +540,21 @@ const MigrationRenderSection = () => {
       {/* ---------- Cible ---------- */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-2 rounded-xl border border-slate-200 p-4">
-          <p className="font-semibold">MongoDB Atlas (nouvelle base)</p>
+          <p className="font-semibold">MongoDB Atlas (base de secours)</p>
           <PasswordInput className={champ} placeholder="mongodb+srv://utilisateur:motdepasse@cluster.xxxxx.mongodb.net" value={form.mongo_uri} onChange={maj("mongo_uri")} autoComplete="off" />
           <input className={champ} placeholder="Nom de la base (ex. sawali)" value={form.mongo_db} onChange={maj("mongo_db")} />
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={form.remplacer} onChange={maj("remplacer")} />
-            <span><b>Remplacer</b> (vider chaque collection cible avant copie). À utiliser pour la bascule finale ; sinon les données sont fusionnées.</span>
+            <span><b>Remplacer</b> (vider chaque collection cible avant copie). Sinon, les données sont fusionnées dans la base de secours.</span>
           </label>
-          <p className="text-xs text-slate-500">Dans Atlas : Network Access doit autoriser 0.0.0.0/0 pendant la migration (les adresses d'Emergent ne sont pas fixes).</p>
+          <p className="text-xs text-slate-500">Dans Atlas : Network Access doit autoriser le serveur Render (0.0.0.0/0 ou ses adresses de sortie).</p>
         </div>
         <div className="space-y-2 rounded-xl border border-slate-200 p-4">
           <p className="font-semibold">Cloudflare R2 (archives et fichiers)</p>
           <input className={champ} placeholder="Account ID" value={form.r2_account_id} onChange={maj("r2_account_id")} autoComplete="off" />
           <input className={champ} placeholder="Access Key ID" value={form.r2_access_key_id} onChange={maj("r2_access_key_id")} autoComplete="off" />
           <PasswordInput className={champ} placeholder="Secret Access Key" value={form.r2_secret_access_key} onChange={maj("r2_secret_access_key")} autoComplete="off" />
-          <input className={champ} placeholder="Bucket (privé), ex. sawali-migration" value={form.r2_bucket} onChange={maj("r2_bucket")} />
+          <input className={champ} placeholder="Bucket (privé), ex. sawali-sauvegardes" value={form.r2_bucket} onChange={maj("r2_bucket")} />
         </div>
       </div>
 
@@ -587,7 +588,7 @@ const MigrationRenderSection = () => {
         className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
         data-testid="migration-lancer">
         {form.reprendre ? <RotateCcw className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        {envoi ? "Vérification des connexions…" : enCours ? "Sauvegarde en cours…" : form.reprendre ? "Reprendre la sauvegarde" : "Lancer la sauvegarde de migration"}
+        {envoi ? "Vérification des connexions…" : enCours ? "Sauvegarde en cours…" : form.reprendre ? "Reprendre la sauvegarde" : "Sauvegarder maintenant"}
       </button>
 
       {/* ---------- Suivi de la sauvegarde sélectionnée ---------- */}

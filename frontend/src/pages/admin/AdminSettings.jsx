@@ -1281,8 +1281,8 @@ export default function AdminSettings() {
       <Filterable title="Sauvegarde / transfert des données" anchorId="s-sauvegarde-transfert" category="diagnostics">
         <SauvegardeTransfertSection />
       </Filterable>
-      {/* Migration vers Render : sauvegarde complète vers MongoDB Atlas + Cloudflare R2 */}
-      <Filterable title="Migration vers Render (sauvegarde complète)" anchorId="s-migration-render" category="diagnostics">
+      {/* Lot 57.11 — ex « Migration vers Render » : sauvegarde complète vers une base Atlas de secours + Cloudflare R2 */}
+      <Filterable title="Sauvegarde complète (base de secours Atlas + R2)" anchorId="s-migration-render" category="diagnostics">
         <MigrationRenderSection />
       </Filterable>
       {/* Lot 44 — journal des sessions « Voir en tant que » (Admin) */}

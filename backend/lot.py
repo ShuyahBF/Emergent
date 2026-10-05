@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.10"
-LOT_LIBELLE = "Sauvegardes de migration : garde-fou — la base en service ne peut jamais être choisie comme cible (ponctuel et programmé)"
+LOT = "57.11"
+LOT_LIBELLE = "Sauvegardes : bouton « Sauvegarder maintenant » et libellés de sauvegarde (la migration est terminée)"

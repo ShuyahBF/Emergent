@@ -156,10 +156,8 @@ def make_router(*, db, get_current_user, decode_token):
         """
         # Lot 57.12 — « Support Loois » : membres = postes Loois + administrateurs (aucun client réel)
         if client_id == support_loois.ESPACE_ID:
-            members = set(await support_loois.ids_postes(db))
-            async for a in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
-                members.add(a["id"])
-            return members
+            # postes Loois + équipe du support (admins + comptes de LOOIS_SUPPORT_ADMIN_EMAIL)
+            return set(await support_loois.ids_postes(db)) | set(await support_loois.ids_admins(db))
         members: Set[str] = {client_id}
         cursor = db.tracked_users.find(
             {"client_id": client_id, "status": {"$ne": "archived"}, "user_account_id": {"$ne": None}},
@@ -193,6 +191,11 @@ def make_router(*, db, get_current_user, decode_token):
                 out.insert(0, {"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
                                "company": support_loois.ESPACE_NOM})
             return out
+
+        # Lot 57.13.1 — compte du support désigné (ex. superviseur) : espace « Support Loois » en tête
+        if support_loois.actif() and support_loois.est_compte_support(user):
+            out.append({"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
+                        "company": support_loois.ESPACE_NOM})
 
         # Find clients of which user is the client himself
         own = await db.users.find_one(
@@ -573,8 +576,9 @@ def make_router(*, db, get_current_user, decode_token):
         await _ensure_member(user, m["client_id"])
         # For DMs, ensure the requester is one of the two parties
         if m.get("recipient_id") and user["id"] not in (m["sender_id"], m["recipient_id"]):
-            # Admins still allowed (they see everything in a client's space)
-            if user.get("role") != "admin":
+            # Admins still allowed (they see everything in a client's space) ; lot 57.13.1 : toute l'équipe
+            # du support voit les images de l'espace « Support Loois » (membre vérifié juste au-dessus)
+            if user.get("role") != "admin" and m["client_id"] != support_loois.ESPACE_ID:
                 raise HTTPException(status_code=403, detail="Accès refusé")
         if not m.get("storage_path"):
             raise HTTPException(status_code=404, detail="Média introuvable")

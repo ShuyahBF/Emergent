@@ -24,7 +24,9 @@ Protocole du WebSocket Loois (JSON)
 Variables d'environnement
 -------------------------
   LOOIS_SUPPORT_CLE           clé partagée (obligatoire pour ouvrir le support) — jamais dans le code ;
-  LOOIS_SUPPORT_ADMIN_EMAIL   (facultatif) e-mail de l'administrateur qui reçoit les messages ;
+  LOOIS_SUPPORT_ADMIN_EMAIL   (facultatif) e-mail(s) du/des compte(s) du support (séparés par « , » ou « ; »),
+                              QUEL QUE SOIT LEUR RÔLE (admin, superviseur…) : ils voient l'espace et reçoivent
+                              les messages (lot 57.13.1) ;
                               sinon : le dernier administrateur qui a répondu au poste, sinon le 1er admin.
 """
 from __future__ import annotations
@@ -32,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
@@ -151,9 +154,32 @@ def requete_non_lus(uid: str) -> Dict[str, Any]:
     return {"client_id": ESPACE_ID, "sender_id": {"$regex": "^loois-"}, "read_by": {"$nin": [uid]}}
 
 
+def emails_support() -> List[str]:
+    """E-mails des comptes du support (LOOIS_SUPPORT_ADMIN_EMAIL), en minuscules."""
+    brut = (os.environ.get("LOOIS_SUPPORT_ADMIN_EMAIL") or "").replace(";", ",")
+    return [e.strip().lower() for e in brut.split(",") if e.strip()]
+
+
+def _filtre_emails(emails: List[str]) -> Dict[str, Any]:
+    """Recherche d'utilisateurs par e-mail sans tenir compte des majuscules."""
+    return {"$or": [{"email": {"$regex": f"^{re.escape(e)}$", "$options": "i"}} for e in emails]}
+
+
+def est_compte_support(user: Dict[str, Any]) -> bool:
+    """Lot 57.13.1 — compte désigné par LOOIS_SUPPORT_ADMIN_EMAIL (ex. un compte « superviseur »)."""
+    return (user.get("email") or "").strip().lower() in emails_support()
+
+
 async def ids_admins(db) -> List[str]:
-    """Tous les administrateurs : ils partagent l'espace « Support Loois »."""
-    return [a["id"] async for a in db.users.find({"role": "admin"}, {"_id": 0, "id": 1})]
+    """
+    L'ÉQUIPE DU SUPPORT, qui partage l'espace « Support Loois » : tous les administrateurs + les comptes de
+    LOOIS_SUPPORT_ADMIN_EMAIL quel que soit leur rôle (cas réel du 05/10/2026 : compte « superviseur »).
+    """
+    ids = {a["id"] async for a in db.users.find({"role": "admin"}, {"_id": 0, "id": 1})}
+    emails = emails_support()
+    if emails:
+        ids |= {u["id"] async for u in db.users.find(_filtre_emails(emails), {"_id": 0, "id": 1})}
+    return list(ids)
 
 
 async def fils(db, uid: str) -> List[Dict[str, Any]]:
@@ -179,9 +205,10 @@ async def fils(db, uid: str) -> List[Dict[str, Any]]:
 async def _admin_destinataire(db, pid: str) -> Optional[str]:
     """Administrateur qui reçoit le message d'un poste : celui de LOOIS_SUPPORT_ADMIN_EMAIL, sinon le
     dernier administrateur qui a répondu à ce poste, sinon le premier administrateur actif."""
-    email = (os.environ.get("LOOIS_SUPPORT_ADMIN_EMAIL") or "").strip().lower()
-    if email:
-        a = await db.users.find_one({"role": "admin", "email": email}, {"_id": 0, "id": 1})
+    # Lot 57.13.1 — le compte désigné reçoit les messages QUEL QUE SOIT son rôle (avant : admin seulement)
+    emails = emails_support()
+    if emails:
+        a = await db.users.find_one(_filtre_emails(emails[:1]), {"_id": 0, "id": 1})
         if a:
             return a["id"]
     derniere = await db.internal_chat_messages.find_one(

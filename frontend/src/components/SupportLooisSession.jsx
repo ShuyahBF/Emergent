@@ -109,6 +109,22 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
     agir("terminer", {}, "Session terminée : ticket clôturé, intervention créée");
   };
 
+  // ---- Lot 58.2 — Liluvine (re)génère les « Détails du Support » d'une session terminée ----
+  const genererDetails = async () => {
+    setOccupe(true);
+    const attente = toast.loading("Patientez… Liluvine résume l'assistance");
+    try {
+      const r = await apiClient.post(`/support-loois/sessions/${session.id}/details`);
+      setSession(r.data);
+      setVoirDetails(true);
+      toast.success("Détails du Support enregistrés (ticket et intervention)", { id: attente });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Résumé impossible", { id: attente });
+    } finally {
+      setOccupe(false);
+    }
+  };
+
   // ---- Liluvine propose la prochaine réponse (placée dans la zone de saisie, à relire) ----
   const suggerer = async () => {
     setOccupe(true);
@@ -209,12 +225,25 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
             <span className="font-semibold text-slate-800">✅ Session terminée</span>
             {session.ticket_number && <span>Ticket {session.ticket_number} clôturé</span>}
             {session.intervention_number && <span>· Intervention {session.intervention_number}</span>}
+            {/* Lot 58.2 — le ticket clôturé reste consultable (la liste des tickets n'affiche que les ouverts par défaut) */}
+            {session.ticket_number && (
+              <a
+                href={`/portal/tickets?numero=${encodeURIComponent(session.ticket_number)}`}
+                className={`${bouton} bg-slate-100 text-slate-700 hover:bg-slate-200`}
+                data-testid="support-loois-voir-ticket"
+              >
+                🎫 Voir le ticket
+              </a>
+            )}
             {session.details_support ? (
               <button onClick={() => setVoirDetails((v) => !v)} className={`${bouton} ml-auto bg-sky-50 text-sky-700 hover:bg-sky-100`}>
                 📝 Détails du Support
               </button>
             ) : (
-              <span className="ml-auto italic text-slate-400">Détails du Support : en préparation par Liluvine…</span>
+              <button onClick={genererDetails} disabled={occupe} className={`${bouton} ml-auto bg-violet-100 text-violet-700 hover:bg-violet-200`}
+                      title="Liluvine résume la conversation (si le résumé automatique n'est pas arrivé)">
+                {occupe && <Loader2 className="h-3 w-3 animate-spin" />} 📝 Générer les Détails du Support
+              </button>
             )}
           </div>
           {voirDetails && session.details_support && (

@@ -58,9 +58,43 @@ _EMBED_VECTOR_SIZE = 384
 _EMBED_MODEL = None
 
 
+# Lot 58.2 — le modèle d'indexation (≈ 235 Mo + moteur ONNX) ne tient pas dans un serveur de 512 Mo :
+# Render l'arrêtait (« mémoire dépassée », 05/10/2026). Il n'est chargé que si la mémoire du conteneur
+# atteint QDRANT_MEMOIRE_MIN_MO (1024 Mo par défaut) ; QDRANT_EMBED_FORCE=1 force le chargement.
+def memoire_conteneur_octets() -> Optional[int]:
+    """Limite mémoire du conteneur (cgroup v2 puis v1) ; None si inconnue ou illimitée."""
+    for chemin in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(chemin, encoding="ascii") as f:
+                brut = f.read().strip()
+        except OSError:
+            continue
+        if brut.isdigit() and int(brut) < (1 << 60):
+            return int(brut)
+        return None
+    return None
+
+
+def embeddings_autorises() -> bool:
+    """Vrai si le modèle d'indexation peut être chargé sans faire tomber le serveur."""
+    if (os.environ.get("QDRANT_EMBED_FORCE") or "").strip() in ("1", "oui", "true"):
+        return True
+    limite = memoire_conteneur_octets()
+    if limite is None:
+        return True   # poste de développement, serveur sans limite connue
+    try:
+        minimum_mo = float(os.environ.get("QDRANT_MEMOIRE_MIN_MO") or 1024)
+    except ValueError:
+        minimum_mo = 1024.0
+    return limite >= minimum_mo * 1024 * 1024
+
+
 def _get_embedder():
     global _EMBED_MODEL
     if _EMBED_MODEL is None:
+        if not embeddings_autorises():
+            raise RuntimeError("Recherche Qdrant suspendue : mémoire du serveur insuffisante pour le modèle "
+                               "d'indexation (offre Render à 1 Go ou plus nécessaire).")
         from fastembed import TextEmbedding
         logger.info("[qdrant_rag] loading embedding model %s (first call)…", _EMBED_MODEL_NAME)
         t = time.time()
@@ -640,6 +674,8 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
     enabled = [name for name, cfg in coll_meta.items() if (cfg or {}).get("enabled_for_liluvine")]
     if not enabled:
         return ""
+    if not embeddings_autorises():
+        return ""   # lot 58.2 : serveur trop petit pour le modèle d'indexation (voir embeddings_autorises)
     try:
         url, key = await _resolve_credentials(db)
         client = _make_client(url, key)

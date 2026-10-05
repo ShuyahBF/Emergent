@@ -704,6 +704,22 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         await apres_fin(session)
         return session
 
+    @router.post("/support-loois/sessions/{sid}/details")
+    async def details_du_support(sid: str, user: dict = Depends(equipe)):
+        """Lot 58.2 — (re)génère les « Détails du Support » d'une session terminée (par exemple si le résumé
+        automatique a été interrompu par un redéploiement)."""
+        session = await sessions.lire(db, sid)
+        if not session or session.get("statut") != "terminee":
+            raise HTTPException(status_code=409, detail="La session n'est pas terminée.")
+        if not sessions.liluvine_active():
+            raise HTTPException(status_code=503, detail="Liluvine n'est pas disponible (clé IA ou LOOIS_SUPPORT_LILUVINE).")
+        try:
+            details = await sessions.resumer(db, session)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Liluvine n'a pas pu résumer : {str(exc)[:160]}")
+        await sessions.enregistrer_details(db, session, details)
+        return await sessions.lire(db, sid)
+
     @router.post("/support-loois/postes/{pid}/suggestion")
     async def suggestion_liluvine(pid: str, user: dict = Depends(equipe)):
         """Liluvine propose la prochaine réponse de l'agent (à relire avant envoi)."""

@@ -657,6 +657,18 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         out.sort(key=lambda c: c["nom"].lower())
         return out
 
+    @router.post("/support-loois/postes/{pid}/client")
+    async def associer_client_au_poste(pid: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(equipe)):
+        """Lot 58.1 — associe le poste à un client SAWALI dès la demande : Liluvine répond alors avec le
+        prompt et les règles d'accès de ce client ; il est retenu pour les demandes suivantes."""
+        client_id = (corps or {}).get("client_id")
+        if not client_id or not await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=400, detail="Client SAWALI introuvable.")
+        if not await db.support_loois_postes.find_one({"id": pid}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu.")
+        await sessions.associer_client(db, pid, client_id)
+        return {"ok": True, "client_id": client_id}
+
     @router.post("/support-loois/sessions/{sid}/accepter")
     async def accepter_session(sid: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(equipe)):
         """Prise en charge : ticket créé pour le client choisi, numéro annoncé au poste."""

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "58"
-LOT_LIBELLE = "Support Loois : sessions acceptées (ticket, intervention), fichiers et vidéos, Liluvine (réponses, Détails du Support)"
+LOT = "58.1"
+LOT_LIBELLE = "Support Loois : Liluvine avec le prompt et l'accès du client lié, sans saturation mémoire"

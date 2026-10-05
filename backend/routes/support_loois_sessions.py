@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -129,7 +130,13 @@ async def ouvrir_ou_reprendre(db, pid: str, nom: str, now_iso) -> tuple:
     existante = await session_en_cours(db, pid)
     if existante:
         return existante, False
-    poste = await db.support_loois_postes.find_one({"id": pid}, {"_id": 0, "client_id": 1}) or {}
+    poste = await db.support_loois_postes.find_one({"id": pid}, {"_id": 0, "client_id": 1, "ecole": 1}) or {}
+    # Lot 58.1 — 1re demande d'un poste : client SAWALI retrouvé par le nom de l'école (s'il correspond)
+    if not poste.get("client_id"):
+        trouve = await client_par_nom(db, poste.get("ecole"))
+        if trouve:
+            await associer_client(db, pid, trouve, auto=True)
+            poste["client_id"] = trouve
     session = {
         "id": uuid.uuid4().hex, "poste_id": pid, "poste_nom": nom, "statut": "attente", "en_cours": True,
         "demande_le": now_iso(), "client_id_suggere": poste.get("client_id"),
@@ -137,6 +144,32 @@ async def ouvrir_ou_reprendre(db, pid: str, nom: str, now_iso) -> tuple:
     }
     await db.support_loois_sessions.insert_one(dict(session))
     return session, True
+
+
+def _normaliser(nom: Optional[str]) -> str:
+    """« École des Métiers » → « ecole des metiers » (sans accents, ponctuation ni espaces multiples)."""
+    t = unicodedata.normalize("NFKD", nom or "")
+    t = "".join(c for c in t if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", t).split())
+
+
+async def client_par_nom(db, ecole: Optional[str]) -> Optional[str]:
+    """Client SAWALI dont la société (ou le nom) est EXACTEMENT celui de l'école (accents et casse ignorés)."""
+    cible = _normaliser(ecole)
+    if not cible:
+        return None
+    async for c in db.users.find({"role": "client"}, {"_id": 0, "id": 1, "company": 1, "full_name": 1}):
+        if cible in (_normaliser(c.get("company")), _normaliser(c.get("full_name"))):
+            return c["id"]
+    return None
+
+
+async def associer_client(db, pid: str, client_id: str, *, auto: bool = False) -> None:
+    """Lot 58.1 — associe le poste à un client SAWALI (prompt Liluvine du client, ticket proposé) ;
+    la demande en attente de ce poste est mise à jour aussi."""
+    await db.support_loois_postes.update_one({"id": pid}, {"$set": {"client_id": client_id, "client_associe_auto": auto}})
+    await db.support_loois_sessions.update_one({"poste_id": pid, "statut": "attente"},
+                                               {"$set": {"client_id_suggere": client_id}})
 
 
 async def abandonner_si_en_attente(db, sid: str, now_iso) -> bool:
@@ -335,25 +368,78 @@ SYSTEME_RESUME = (
 )
 
 
+MESSAGE_RESTREINT_DEFAUT = ("Bonjour, les réponses automatiques Liluvine pour {client_name} sont disponibles "
+                            "uniquement pendant les heures/jours ouvrés avec votre formule actuelle. "
+                            "Un conseiller vous répondra dès la reprise.")
+
+
+async def client_du_poste(db, pid: str, session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Client SAWALI lié : celui de la session acceptée, sinon celui associé au poste ({} si aucun)."""
+    session = session or await session_en_cours(db, pid) or {}
+    cid = session.get("client_id") or session.get("client_id_suggere")
+    if not cid:
+        cid = ((await db.support_loois_postes.find_one({"id": pid}, {"_id": 0, "client_id": 1})) or {}).get("client_id")
+    if not cid:
+        return {}
+    return await db.users.find_one({"id": cid}, {"_id": 0, "password_hash": 0}) or {}
+
+
+def acces_restreint_maintenant(client_doc: Dict[str, Any], reglages: Dict[str, Any]) -> bool:
+    """« Accès Liluvine (WA) » de la fiche client (et seuil de montant du contrat) : en mode Restreint,
+    Liluvine ne répond qu'aux jours et heures ouvrés (mêmes règles que l'auto-réponse WhatsApp)."""
+    if not client_doc:
+        return False
+    try:
+        from routes.liluvine_wa_autoreply import _in_business_window, _tenant_effective_access_mode
+        if _tenant_effective_access_mode(client_doc, reglages) != "restricted":
+            return False
+        ouverture = int(str(reglages.get("business_open_time") or "09:00").split(":", 1)[0])
+        fermeture = int(str(reglages.get("business_close_time") or "18:00").split(":", 1)[0])
+        return not _in_business_window(reglages.get("business_days"), ouverture, fermeture)
+    except Exception:  # noqa: BLE001 — en cas de doute, Liluvine répond (comme l'auto-réponse WA)
+        return False
+
+
+async def systeme_liluvine(db, client_doc: Dict[str, Any]) -> str:
+    """Prompt de Liluvine : celui du CLIENT lié (fiche client, « liluvine_pro_system_prompt ») s'il existe,
+    complété par les consignes du support Loois et la base de connaissances SAWALI (sans recherche
+    sémantique : le modèle d'indexation ne tient pas dans la mémoire du serveur — panne du 05/10/2026)."""
+    prompt_client = (client_doc.get("liluvine_pro_system_prompt") or "").strip()
+    base = (prompt_client + "\n\n[Mode support Loois]\n" + SYSTEME_REPONSE) if prompt_client else SYSTEME_REPONSE
+    if client_doc:
+        base += f"\n\nClient SAWALI de ce poste : {client_doc.get('company') or client_doc.get('full_name')}."
+    try:
+        from routes.liluvine_kb import build_kb_context
+        connaissances = await build_kb_context(db, max_chars=4000, query=None, audience="clients")
+    except Exception:  # noqa: BLE001 — sans base de connaissances, Liluvine répond quand même
+        connaissances = ""
+    return base + (("\n\n" + connaissances) if connaissances else "")
+
+
 async def reponse_liluvine(db, pid: str, en_attente: bool = True) -> str:
-    """Réponse (attente) ou suggestion (session active, pour l'agent) à partir de la conversation récente
-    et de la base de connaissances de Liluvine (RAG), si elle est activée."""
+    """Réponse (attente) ou suggestion (session active, pour l'agent) à partir de la conversation récente,
+    du prompt du client lié et de la base de connaissances.
+    En attente, si l'accès Liluvine du client est « Restreint » hors heures ouvrées : un seul message
+    d'information par session, puis silence (l'agent répondra)."""
     messages = await conversation(db, pid, limite=20)
     if not messages:
         return ""
-    question = next((m.get("text") for m in reversed(messages) if m.get("sender_id") == pid and m.get("text")), "")
-    contexte = ""
-    try:
-        from routes.qdrant_rag import build_rag_context
-        contexte = await build_rag_context(db, query=question or transcrire(messages[-3:], pid), max_chars=4000)
-    except Exception:  # noqa: BLE001 — sans base de connaissances, Liluvine répond quand même
-        contexte = ""
+    session = await session_en_cours(db, pid) or {}
+    client_doc = await client_du_poste(db, pid, session)
+    if en_attente:
+        reglages = await db.settings.find_one({"_id": "global"}) or {}
+        if acces_restreint_maintenant(client_doc, reglages):
+            if session.get("liluvine_restreint_annonce"):
+                return ""
+            await db.support_loois_sessions.update_one({"id": session.get("id")},
+                                                       {"$set": {"liluvine_restreint_annonce": True}})
+            modele = (reglages.get("liluvine_access_restricted_message") or "").strip() or MESSAGE_RESTREINT_DEFAUT
+            return modele.replace("{client_name}", client_doc.get("company") or client_doc.get("full_name") or "votre établissement")
     consigne = ("Un agent humain va prendre le relais : dis-le si l'utilisateur attend une intervention."
                 if en_attente else
                 "Rédige la PROCHAINE réponse que l'agent du support pourra envoyer (il la relira).")
-    texte = (f"{consigne}\n\n" + (f"--- CONNAISSANCES ---\n{contexte}\n--- FIN ---\n\n" if contexte else "")
-             + f"Conversation :\n{transcrire(messages, pid)}\n\nTa réponse :")
-    return (await appeler_ia(SYSTEME_REPONSE, texte, MODELE_REPONSE))[:2000]
+    texte = f"{consigne}\n\nConversation :\n{transcrire(messages, pid)}\n\nTa réponse :"
+    return (await appeler_ia(await systeme_liluvine(db, client_doc), texte, MODELE_REPONSE))[:2000]
 
 
 async def resumer(db, session: Dict[str, Any]) -> str:

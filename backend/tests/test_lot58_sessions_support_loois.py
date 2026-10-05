@@ -282,3 +282,64 @@ def test_liluvine_repond_en_attente_suggere_et_resume(env, monkeypatch):
     i = client.portal.call(db.interventions.find_one, {"id": s["intervention_id"]})
     assert t["details_support"] == s["details_support"] == i["details_support"]
     assert "Détails du Support (Liluvine)" in i["description"]
+
+
+# ----------------------------------------------------------------------
+# Lot 58.1 — Liluvine avec le prompt du client lié, accès « Restreint », sans recherche sémantique
+# ----------------------------------------------------------------------
+def test_association_automatique_par_le_nom_de_l_ecole(env):
+    client, db = env
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        pid, etat = ouvrir(ws)
+    poste = client.portal.call(db.support_loois_postes.find_one, {"id": pid})
+    assert poste["client_id"] == "cli-ecole" and poste["client_associe_auto"] is True   # « Ecole des Métiers »
+    s = client.portal.call(db.support_loois_sessions.find_one, {"id": etat["session_id"]})
+    assert s["client_id_suggere"] == "cli-ecole"
+    assert ss._normaliser("  École des MÉTIERS ") == "ecole des metiers"
+
+
+def test_liluvine_utilise_le_prompt_du_client_et_l_acces_restreint(env, monkeypatch):
+    client, db = env
+    monkeypatch.setattr(ss, "liluvine_active", lambda: True)
+    systemes = []
+
+    async def fausse_ia(systeme, texte, modele):
+        systemes.append(systeme)
+        return "Réponse Liluvine"
+
+    monkeypatch.setattr(ss, "appeler_ia", fausse_ia)
+    # La recherche sémantique (modèle d'indexation, trop gourmand en mémoire) n'est jamais appelée
+    import routes.qdrant_rag as qr
+
+    async def interdit(*a, **k):
+        raise AssertionError("build_rag_context ne doit pas être appelé")
+
+    monkeypatch.setattr(qr, "build_rag_context", interdit)
+    client.portal.call(db.users.update_one, {"id": "cli2"},
+                       {"$set": {"liluvine_pro_system_prompt": "Tu es l'assistante de la Pharmacie X."}})
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        pid, _ = ouvrir(ws)
+        # L'agent associe le poste à un AUTRE client dès la demande : son prompt est utilisé
+        r = client.post(f"/api/support-loois/postes/{pid}/client", headers=H_ADMIN, json={"client_id": "cli2"})
+        assert r.status_code == 200, r.text
+        ws.send_json({"type": "message", "texte": "Bonjour"})
+        attendre(ws, "message")
+        assert attendre(ws, "message")["message"]["sender_id"] == "liluvine"
+        assert systemes[-1].startswith("Tu es l'assistante de la Pharmacie X.")
+        assert "Client SAWALI de ce poste : Pharmacie X" in systemes[-1]
+
+        # Accès « Restreint » hors heures ouvrées (aucun jour ouvré) : un seul message d'information, puis silence
+        client.portal.call(db.users.update_one, {"id": "cli2"}, {"$set": {"contract_access_mode": "restricted"}})
+        client.portal.call(db.settings.insert_one, {"_id": "global", "business_days": [9],
+                                                    "contract_min_amount_full_access": 0})
+        nb = len(systemes)
+        ws.send_json({"type": "message", "texte": "Vous êtes là ?"})
+        attendre(ws, "message")
+        info = attendre(ws, "message")["message"]
+        assert info["sender_id"] == "liluvine" and "heures/jours ouvrés" in info["text"] and "Pharmacie X" in info["text"]
+        ws.send_json({"type": "message", "texte": "Allô ?"})
+        attendre(ws, "message")
+        time.sleep(0.3)
+        assert len(systemes) == nb                                  # aucun appel IA en accès restreint
+        msgs = client.portal.call(db.internal_chat_messages.count_documents, {"sender_id": "liluvine"})
+        assert msgs == 2

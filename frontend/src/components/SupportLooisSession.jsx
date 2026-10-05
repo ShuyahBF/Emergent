@@ -83,6 +83,18 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
     }
   };
 
+  // Lot 58.1 — le client choisi est associé TOUT DE SUITE au poste : Liluvine répond avec son prompt
+  const associer = async (id) => {
+    setClientId(id);
+    if (!id) return;
+    try {
+      await apiClient.post(`/support-loois/postes/${posteId}/client`, { client_id: id });
+      toast.success("Client associé au poste : Liluvine utilise son prompt");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Association impossible");
+    }
+  };
+
   const accepter = () => {
     if (!clientId) { toast.error("Choisissez le client SAWALI de ce poste."); return; }
     agir("accepter", { client_id: clientId, motif }, "Session acceptée : ticket créé");
@@ -143,7 +155,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
           <span className="font-semibold text-amber-700">⏳ Demande d'assistance en attente</span>
           <select
             value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
+            onChange={(e) => associer(e.target.value)}
             className="rounded-md border border-slate-300 px-2 py-1 text-xs max-w-[220px]"
             data-testid="support-loois-client"
           >

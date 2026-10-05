@@ -81,6 +81,16 @@ def restant_secondes(session: Dict[str, Any], maintenant: Optional[datetime] = N
 # =====================================================================
 # Trames envoyées au poste Loois
 # =====================================================================
+def duree_session_secondes(session: Dict[str, Any], maintenant: Optional[datetime] = None) -> Optional[int]:
+    """Lot 58.4 — durée réelle de l'assistance (base de la facturation) : de l'acceptation par l'agent à la fin
+    de la session (ou jusqu'à maintenant si elle est encore active) ; None si elle n'a jamais été acceptée."""
+    debut = _date(session.get("acceptee_le"))
+    if not debut:
+        return None
+    fin = _date(session.get("terminee_le")) or (maintenant or datetime.now(timezone.utc))
+    return max(0, int((fin - debut).total_seconds()))
+
+
 def trame_session(session: Dict[str, Any]) -> Dict[str, Any]:
     """État de la session tel que Loois l'affiche (sans les informations internes : client, notes…)."""
     restant = restant_secondes(session)
@@ -287,6 +297,8 @@ async def terminer(db, sid: str, agent: Optional[Dict[str, Any]], now_iso, *, ra
     if not res.modified_count:
         raise ErreurSession(409, "Cette session n'est pas active.")
     session = await lire(db, sid)
+    # Lot 58.4 — durée de l'assistance gardée sur la session (base de facturation, visible dans le chat)
+    await db.support_loois_sessions.update_one({"id": sid}, {"$set": {"duree_secondes": duree_session_secondes(session)}})
     ticket = await db.support_tickets.find_one({"id": session.get("ticket_id")}, {"_id": 0}) \
         if session.get("ticket_id") else None
     if ticket:

@@ -656,8 +656,11 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
                 ticket = {"id": t.get("id"), "number": t.get("number") or s.get("ticket_number"),
                           "status": t.get("status") or "introuvable", "closed_at": t.get("closed_at"),
                           "archived": bool(t.get("archived_at")), "intervention_number": t.get("intervention_number"),
-                          "client_id": t.get("client_id")}
-            out.append({**s, "ticket": ticket})
+                          "client_id": t.get("client_id"),
+                          # Lot 58.4 — facturation calculée à la clôture (tickets_clients.calculer_facturation)
+                          "active_hours": t.get("active_hours"), "cost_amount": t.get("cost_amount"),
+                          "cost_currency": t.get("cost_currency"), "cost_mode": t.get("cost_mode")}
+            out.append({**s, "ticket": ticket, "duree_secondes": sessions.duree_session_secondes(s)})
         return out
 
     @router.get("/support-loois/clients")

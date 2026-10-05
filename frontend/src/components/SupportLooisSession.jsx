@@ -18,6 +18,19 @@ function formaterDuree(secondes) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// Lot 58.4 — durée lisible pour la facturation : « 12 min », « 1 h 05 »
+function dureeLisible(secondes) {
+  if (secondes === null || secondes === undefined) return "—";
+  const minutes = Math.max(1, Math.round(secondes / 60));
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
+}
+
+// Montant lisible : « 2 500 XOF »
+function montantLisible(montant, devise) {
+  if (montant === null || montant === undefined) return "—";
+  return `${Number(montant).toLocaleString("fr-FR")} ${devise || "XOF"}`;
+}
+
 // Fichier envoyé au poste : documents, vidéos et images (20 à 50 Mo selon le type, contrôlé par le serveur)
 const TYPES_ACCEPTES = "image/*,video/mp4,video/webm,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv";
 
@@ -237,6 +250,9 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
           <div className="flex flex-wrap items-center gap-2 text-slate-600">
             <span className="font-semibold text-slate-800">✅ Session terminée</span>
             {session.ticket_number && <span>Ticket {session.ticket_number} clôturé</span>}
+            {session.duree_secondes !== undefined && session.duree_secondes !== null && (
+              <span title="Durée de l'assistance (de l'acceptation à la fin) — base de la facturation">⏱ {dureeLisible(session.duree_secondes)}</span>
+            )}
             {session.intervention_number && <span>· Intervention {session.intervention_number}</span>}
             {/* Lot 58.2 — le ticket clôturé reste consultable (la liste des tickets n'affiche que les ouverts par défaut) */}
             {session.ticket_number && (
@@ -285,6 +301,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
               <thead>
                 <tr className="text-left text-slate-500">
                   <th className="py-1 pr-2">Date</th><th className="pr-2">Ticket</th><th className="pr-2">État du ticket</th>
+                  <th className="pr-2">Durée</th><th className="pr-2">Coût</th>
                   <th className="pr-2">Intervention</th><th>Détails du Support</th>
                 </tr>
               </thead>
@@ -302,6 +319,10 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
                         {{ open: "Ouvert", in_progress: "En cours", suspended: "Suspendu", done: "Terminé", cancelled: "Annulé" }[h.ticket.status] || h.ticket.status}
                         {h.ticket.archived && " (corbeille)"}
                       </td>
+                      <td className="pr-2 whitespace-nowrap" title="De l'acceptation à la fin de la session">{dureeLisible(h.duree_secondes)}</td>
+                      <td className="pr-2 whitespace-nowrap" title={h.ticket.cost_mode === "flat" ? "Forfait" : "Taux horaire × durée"}>
+                        {montantLisible(h.ticket.cost_amount, h.ticket.cost_currency)}
+                      </td>
                       <td className="pr-2">{h.ticket.intervention_number || "—"}</td>
                       <td>
                         {h.details_support ? (
@@ -313,7 +334,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
                     </tr>
                     {detailsOuverts === h.id && h.details_support && (
                       <tr>
-                        <td colSpan={5}>
+                        <td colSpan={7}>
                           <pre className="my-1 whitespace-pre-wrap font-sans text-[11px] text-slate-700 bg-slate-50 rounded-md p-2 max-h-60 overflow-y-auto">{h.details_support}</pre>
                         </td>
                       </tr>

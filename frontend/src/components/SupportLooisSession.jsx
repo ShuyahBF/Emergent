@@ -31,6 +31,10 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
   const [maintenant, setMaintenant] = useState(Date.now());
   const [voirDetails, setVoirDetails] = useState(false);
   const fichierRef = useRef(null);
+  // Lot 58.3 — sessions précédentes du poste (ticket, intervention, détails) : restent consultables
+  const [historique, setHistorique] = useState([]);
+  const [voirHistorique, setVoirHistorique] = useState(false);
+  const [detailsOuverts, setDetailsOuverts] = useState(null);   // id de la session dont on lit les détails
 
   // ---- Chargement de la session du poste (et du client retenu pour ce poste) ----
   const charger = useCallback(async () => {
@@ -42,6 +46,12 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
       if (r.data.client_id_suggere) setClientId((c) => c || r.data.client_id_suggere);
     } catch {
       setSession(null);
+    }
+    try {
+      const h = await apiClient.get(`/support-loois/postes/${posteId}/historique`);
+      setHistorique(h.data || []);
+    } catch {
+      setHistorique([]);
     }
   }, [posteId]);
 
@@ -57,6 +67,8 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
   useEffect(() => {
     if (lastEvent?.type === "support_loois_session" && lastEvent.session?.poste_id === posteId) {
       setSession(lastEvent.session);
+      // l'historique (ticket clôturé, intervention, détails) est relu à chaque changement d'état
+      apiClient.get(`/support-loois/postes/${posteId}/historique`).then((h) => setHistorique(h.data || [])).catch(() => {});
     }
   }, [lastEvent, posteId]);
 
@@ -110,13 +122,14 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
   };
 
   // ---- Lot 58.2 — Liluvine (re)génère les « Détails du Support » d'une session terminée ----
-  const genererDetails = async () => {
+  const genererDetails = async (sid = session?.id) => {
     setOccupe(true);
     const attente = toast.loading("Patientez… Liluvine résume l'assistance");
     try {
-      const r = await apiClient.post(`/support-loois/sessions/${session.id}/details`);
-      setSession(r.data);
-      setVoirDetails(true);
+      const r = await apiClient.post(`/support-loois/sessions/${sid}/details`);
+      if (sid === session?.id) { setSession(r.data); setVoirDetails(true); }
+      setHistorique((h) => h.map((x) => (x.id === sid ? { ...x, details_support: r.data.details_support } : x)));
+      setDetailsOuverts(sid);
       toast.success("Détails du Support enregistrés (ticket et intervention)", { id: attente });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Résumé impossible", { id: attente });
@@ -158,9 +171,9 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
     }
   };
 
-  if (!session) return null;
-  const statut = session.statut;
-  const restant = statut === "active" && session.acceptee_le
+  if (!session && historique.length === 0) return null;
+  const statut = session?.statut;
+  const restant = statut === "active" && session?.acceptee_le
     ? dureeMax - (maintenant - new Date(session.acceptee_le).getTime()) / 1000 : null;
   const bouton = "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50";
 
@@ -240,7 +253,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
                 📝 Détails du Support
               </button>
             ) : (
-              <button onClick={genererDetails} disabled={occupe} className={`${bouton} ml-auto bg-violet-100 text-violet-700 hover:bg-violet-200`}
+              <button onClick={() => genererDetails()} disabled={occupe} className={`${bouton} ml-auto bg-violet-100 text-violet-700 hover:bg-violet-200`}
                       title="Liluvine résume la conversation (si le résumé automatique n'est pas arrivé)">
                 {occupe && <Loader2 className="h-3 w-3 animate-spin" />} 📝 Générer les Détails du Support
               </button>
@@ -258,6 +271,59 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
         <span className="text-slate-500">
           {statut === "refusee" ? `⛔ Dernière demande refusée : ${session.motif_refus || ""}` : "Dernière demande abandonnée par le poste."}
         </span>
+      )}
+
+      {/* Lot 58.3 — historique des sessions du poste avec leur ticket (même après une nouvelle demande) */}
+      {historique.some((h) => h.ticket) && (
+        <div className="mt-2 border-t border-slate-100 pt-2">
+          <button onClick={() => setVoirHistorique((v) => !v)} className="text-[11px] font-semibold text-slate-600 hover:text-slate-900"
+                  data-testid="support-loois-historique">
+            {voirHistorique ? "▾" : "▸"} 🗂 Sessions et tickets de ce poste ({historique.filter((h) => h.ticket).length})
+          </button>
+          {voirHistorique && (
+            <table className="mt-1 w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="py-1 pr-2">Date</th><th className="pr-2">Ticket</th><th className="pr-2">État du ticket</th>
+                  <th className="pr-2">Intervention</th><th>Détails du Support</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historique.filter((h) => h.ticket).map((h) => (
+                  <React.Fragment key={h.id}>
+                    <tr className="border-t border-slate-100">
+                      <td className="py-1 pr-2 whitespace-nowrap">{new Date(h.acceptee_le || h.demande_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
+                      <td className="pr-2">
+                        <a className="text-sky-700 underline" href={`/portal/tickets?numero=${encodeURIComponent(h.ticket.number || "")}`}>
+                          🎫 {h.ticket.number}
+                        </a>
+                      </td>
+                      <td className="pr-2">
+                        {{ open: "Ouvert", in_progress: "En cours", suspended: "Suspendu", done: "Terminé", cancelled: "Annulé" }[h.ticket.status] || h.ticket.status}
+                        {h.ticket.archived && " (corbeille)"}
+                      </td>
+                      <td className="pr-2">{h.ticket.intervention_number || "—"}</td>
+                      <td>
+                        {h.details_support ? (
+                          <button className="text-sky-700 underline" onClick={() => setDetailsOuverts(detailsOuverts === h.id ? null : h.id)}>📝 Voir</button>
+                        ) : h.statut === "terminee" ? (
+                          <button className="text-violet-700 underline disabled:opacity-50" disabled={occupe} onClick={() => genererDetails(h.id)}>📝 Générer</button>
+                        ) : "—"}
+                      </td>
+                    </tr>
+                    {detailsOuverts === h.id && h.details_support && (
+                      <tr>
+                        <td colSpan={5}>
+                          <pre className="my-1 whitespace-pre-wrap font-sans text-[11px] text-slate-700 bg-slate-50 rounded-md p-2 max-h-60 overflow-y-auto">{h.details_support}</pre>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
     </div>
   );

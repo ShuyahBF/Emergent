@@ -1,7 +1,9 @@
 /*
  * Iter36k — Internal chat WebSocket hook.
  *
- * Connects to /api/ws/chat?token=<JWT> with auto-reconnect, exposes:
+ * Connects to /api/ws/chat with auto-reconnect, exposes:
+ * (lot 57.14 : le jeton est envoyé dans le PREMIER message {type:"auth", token},
+ *  jamais dans l'adresse — l'adresse est écrite dans les journaux du serveur)
  *   - connected (bool)
  *   - messageStream: latest server event ({type, ...})
  *   - sendTyping(client_id, recipient_id?)
@@ -15,12 +17,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
-function buildWsUrl(token) {
+function buildWsUrl() {
   if (!BACKEND) return null;
-  // BACKEND is https://...  → wss://.../api/ws/chat
+  // BACKEND is https://...  → wss://.../api/ws/chat (sans jeton : voir ws.onopen)
   const proto = BACKEND.startsWith("https") ? "wss" : "ws";
   const host = BACKEND.replace(/^https?:\/\//, "");
-  return `${proto}://${host}/api/ws/chat?token=${encodeURIComponent(token)}`;
+  return `${proto}://${host}/api/ws/chat`;
 }
 
 export function useInternalChat({ token, enabled }) {
@@ -43,12 +45,14 @@ export function useInternalChat({ token, enabled }) {
 
   const connect = useCallback(() => {
     if (!token || !enabled) return;
-    const url = buildWsUrl(token);
+    const url = buildWsUrl();
     if (!url) return;
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
       ws.onopen = () => {
+        // Lot 57.14 — authentification par le premier message (le jeton ne passe plus dans l'adresse)
+        try { ws.send(JSON.stringify({ type: "auth", token })); } catch { /* noop */ }
         setConnected(true);
         reconnectAttemptsRef.current = 0;
         // Keep-alive ping every 30s

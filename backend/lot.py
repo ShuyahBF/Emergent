@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "57.13.1"
-LOT_LIBELLE = "Support Loois : le compte désigné par LOOIS_SUPPORT_ADMIN_EMAIL (ex. superviseur) voit l'espace, reçoit les messages et répond"
+LOT = "57.14"
+LOT_LIBELLE = "Sécurité : jeton de session des WebSockets (chat interne, bannières en direct) envoyé dans le premier message, plus dans l'adresse journalisée"

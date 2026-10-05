@@ -61,6 +61,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, 
 from starlette.websockets import WebSocketState  # lot 26 : état de la connexion temps réel
 from pydantic import BaseModel, Field
 from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
+from routes import support_loois  # noqa: E402 — lot 57.12 : espace virtuel « Support Loois »
 
 log = logging.getLogger("sawali.internal_chat")
 
@@ -139,6 +140,9 @@ def make_router(*, db, get_current_user, decode_token):
     # Helpers
     # --------------------------------------------------------------
     async def _client_chat_enabled(client_id: str) -> bool:
+        # Lot 57.12 — espace virtuel « Support Loois » : ouvert si la clé du support est configurée
+        if client_id == support_loois.ESPACE_ID:
+            return support_loois.actif()
         u = await db.users.find_one({"id": client_id}, {"_id": 0, "features": 1})
         if not u:
             return False
@@ -150,6 +154,12 @@ def make_router(*, db, get_current_user, decode_token):
         - every tracked_user (status != archived) with a bridged user_account_id
         - every admin (so SAWALI staff can talk to any client's team)
         """
+        # Lot 57.12 — « Support Loois » : membres = postes Loois + administrateurs (aucun client réel)
+        if client_id == support_loois.ESPACE_ID:
+            members = set(await support_loois.ids_postes(db))
+            async for a in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
+                members.add(a["id"])
+            return members
         members: Set[str] = {client_id}
         cursor = db.tracked_users.find(
             {"client_id": client_id, "status": {"$ne": "archived"}, "user_account_id": {"$ne": None}},
@@ -177,6 +187,10 @@ def make_router(*, db, get_current_user, decode_token):
             )
             async for c in cursor:
                 out.append(c)
+            # Lot 57.12 — espace virtuel « Support Loois » (administrateurs seulement)
+            if support_loois.actif():
+                out.append({"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
+                            "company": support_loois.ESPACE_NOM})
             return out
 
         # Find clients of which user is the client himself
@@ -217,6 +231,10 @@ def make_router(*, db, get_current_user, decode_token):
             raise HTTPException(status_code=403, detail="Vous n'êtes pas membre de ce client.")
 
     async def _resolve_display_name(uid: str) -> str:
+        # Lot 57.12 — poste Loois : « École — POSTE (utilisateur) »
+        nom_poste = await support_loois.nom_du_poste(db, uid)
+        if nom_poste:
+            return nom_poste
         u = await db.users.find_one({"id": uid}, {"_id": 0, "full_name": 1, "email": 1})
         if u:
             return u.get("full_name") or u.get("email") or uid
@@ -279,6 +297,9 @@ def make_router(*, db, get_current_user, decode_token):
                 "online": manager.is_online(u["id"]),
                 "is_self": u["id"] == user["id"],
             })
+        # Lot 57.12 — postes Loois de l'espace « Support Loois »
+        if client_id == support_loois.ESPACE_ID:
+            out.extend(await support_loois.membres_postes(db, manager.is_online))
         out.sort(key=lambda x: (not x["online"], x["name"].lower()))
         return out
 
@@ -860,5 +881,8 @@ def make_router(*, db, get_current_user, decode_token):
             "total": total,
             "ts": _now_iso(),
         }
+
+    # Lot 57.12 — WebSocket des postes Loois (bouton « Ecrire Support »), même gestionnaire de connexions
+    support_loois.installer(router=router, db=db, manager=manager, now_iso=_now_iso)
 
     return router

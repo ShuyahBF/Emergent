@@ -308,13 +308,15 @@ def test_liluvine_utilise_le_prompt_du_client_et_l_acces_restreint(env, monkeypa
         return "Réponse Liluvine"
 
     monkeypatch.setattr(ss, "appeler_ia", fausse_ia)
-    # La recherche sémantique (modèle d'indexation, trop gourmand en mémoire) n'est jamais appelée
+    # Lot 58.2 — la recherche Qdrant reçoit la question du poste (base de connaissances + Qdrant)
     import routes.qdrant_rag as qr
+    questions = []
 
-    async def interdit(*a, **k):
-        raise AssertionError("build_rag_context ne doit pas être appelé")
+    async def faux_rag(db_, *, query, max_chars=6000):
+        questions.append(query)
+        return "[Qdrant] Procédure : réinstaller le lecteur PDF."
 
-    monkeypatch.setattr(qr, "build_rag_context", interdit)
+    monkeypatch.setattr(qr, "build_rag_context", faux_rag)
     client.portal.call(db.users.update_one, {"id": "cli2"},
                        {"$set": {"liluvine_pro_system_prompt": "Tu es l'assistante de la Pharmacie X."}})
     with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
@@ -327,6 +329,7 @@ def test_liluvine_utilise_le_prompt_du_client_et_l_acces_restreint(env, monkeypa
         assert attendre(ws, "message")["message"]["sender_id"] == "liluvine"
         assert systemes[-1].startswith("Tu es l'assistante de la Pharmacie X.")
         assert "Client SAWALI de ce poste : Pharmacie X" in systemes[-1]
+        assert "Bonjour" in questions[-1] and "[Qdrant] Procédure" in systemes[-1]
 
         # Accès « Restreint » hors heures ouvrées (aucun jour ouvré) : un seul message d'information, puis silence
         client.portal.call(db.users.update_one, {"id": "cli2"}, {"$set": {"contract_access_mode": "restricted"}})
@@ -343,3 +346,53 @@ def test_liluvine_utilise_le_prompt_du_client_et_l_acces_restreint(env, monkeypa
         assert len(systemes) == nb                                  # aucun appel IA en accès restreint
         msgs = client.portal.call(db.internal_chat_messages.count_documents, {"sender_id": "liluvine"})
         assert msgs == 2
+
+
+def test_qdrant_suspendu_si_memoire_insuffisante(monkeypatch):
+    """Lot 58.2 — serveur de 512 Mo : le modèle d'indexation n'est jamais chargé (plus d'arrêt « mémoire dépassée »)."""
+    import asyncio
+    import routes.qdrant_rag as qr
+    monkeypatch.delenv("QDRANT_EMBED_FORCE", raising=False)
+    monkeypatch.delenv("QDRANT_MEMOIRE_MIN_MO", raising=False)
+    monkeypatch.setattr(qr, "memoire_conteneur_octets", lambda: 512 * 1024 * 1024)
+    assert qr.embeddings_autorises() is False
+    with pytest.raises(RuntimeError, match="mémoire du serveur insuffisante"):
+        qr._get_embedder()
+    db = mongomock_motor.AsyncMongoMockClient()["qdrant_memoire"]
+
+    async def scenario():
+        await db.settings.insert_one({"_id": "global", "qdrant_enabled": True,
+                                      "qdrant_collection_settings": {"docs": {"enabled_for_liluvine": True}}})
+        return await qr.build_rag_context(db, query="PDF")
+
+    assert asyncio.run(scenario()) == ""
+    # Offre Render de 2 Go : autorisé ; forçage possible par variable d'environnement
+    monkeypatch.setattr(qr, "memoire_conteneur_octets", lambda: 2 * 1024 * 1024 * 1024)
+    assert qr.embeddings_autorises() is True
+    monkeypatch.setattr(qr, "memoire_conteneur_octets", lambda: 512 * 1024 * 1024)
+    monkeypatch.setenv("QDRANT_EMBED_FORCE", "1")
+    assert qr.embeddings_autorises() is True
+
+
+def test_details_du_support_regeneres(env, monkeypatch):
+    client, db = env
+    monkeypatch.setattr(ss, "liluvine_active", lambda: True)
+
+    async def fausse_ia(systeme, texte, modele):
+        return "Problème signalé : écran figé"
+
+    monkeypatch.setattr(ss, "appeler_ia", fausse_ia)
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        _, etat = ouvrir(ws)
+        sid = etat["session_id"]
+        assert client.post(f"/api/support-loois/sessions/{sid}/details", headers=H_ADMIN).status_code == 409
+        ws.send_json({"type": "message", "texte": "L'écran est figé"})
+        attendre(ws, "message")
+        client.post(f"/api/support-loois/sessions/{sid}/accepter", headers=H_ADMIN, json={"client_id": "cli-ecole"})
+        client.post(f"/api/support-loois/sessions/{sid}/terminer", headers=H_ADMIN)
+        attendre(ws, "fin_session")
+    r = client.post(f"/api/support-loois/sessions/{sid}/details", headers=H_ADMIN)
+    assert r.status_code == 200, r.text
+    assert r.json()["details_support"] == "Problème signalé : écran figé"
+    t = client.portal.call(db.support_tickets.find_one, {"id": r.json()["ticket_id"]})
+    assert t["details_support"] == "Problème signalé : écran figé" and t["status"] == "done"

@@ -400,17 +400,18 @@ def acces_restreint_maintenant(client_doc: Dict[str, Any], reglages: Dict[str, A
         return False
 
 
-async def systeme_liluvine(db, client_doc: Dict[str, Any]) -> str:
+async def systeme_liluvine(db, client_doc: Dict[str, Any], question: str = "") -> str:
     """Prompt de Liluvine : celui du CLIENT lié (fiche client, « liluvine_pro_system_prompt ») s'il existe,
-    complété par les consignes du support Loois et la base de connaissances SAWALI (sans recherche
-    sémantique : le modèle d'indexation ne tient pas dans la mémoire du serveur — panne du 05/10/2026)."""
+    complété par les consignes du support Loois et la base de connaissances SAWALI + recherche Qdrant sur
+    la question (lot 58.2 ; Qdrant n'est interrogé que si la mémoire du serveur le permet, voir
+    qdrant_rag.embeddings_autorises — sinon la base de connaissances seule)."""
     prompt_client = (client_doc.get("liluvine_pro_system_prompt") or "").strip()
     base = (prompt_client + "\n\n[Mode support Loois]\n" + SYSTEME_REPONSE) if prompt_client else SYSTEME_REPONSE
     if client_doc:
         base += f"\n\nClient SAWALI de ce poste : {client_doc.get('company') or client_doc.get('full_name')}."
     try:
         from routes.liluvine_kb import build_kb_context
-        connaissances = await build_kb_context(db, max_chars=4000, query=None, audience="clients")
+        connaissances = await build_kb_context(db, max_chars=5000, query=question or None, audience="clients")
     except Exception:  # noqa: BLE001 — sans base de connaissances, Liluvine répond quand même
         connaissances = ""
     return base + (("\n\n" + connaissances) if connaissances else "")
@@ -439,7 +440,9 @@ async def reponse_liluvine(db, pid: str, en_attente: bool = True) -> str:
                 if en_attente else
                 "Rédige la PROCHAINE réponse que l'agent du support pourra envoyer (il la relira).")
     texte = f"{consigne}\n\nConversation :\n{transcrire(messages, pid)}\n\nTa réponse :"
-    return (await appeler_ia(await systeme_liluvine(db, client_doc), texte, MODELE_REPONSE))[:2000]
+    # Question à rechercher dans Qdrant : derniers messages du poste
+    question = " ".join(m.get("text") or "" for m in messages if m.get("sender_id") == pid)[-500:]
+    return (await appeler_ia(await systeme_liluvine(db, client_doc, question), texte, MODELE_REPONSE))[:2000]
 
 
 async def resumer(db, session: Dict[str, Any]) -> str:

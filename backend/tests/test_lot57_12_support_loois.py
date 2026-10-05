@@ -279,3 +279,17 @@ def test_superviseur_non_designe_ne_voit_rien(env, monkeypatch):
     h = {"X-User": "sup1"}
     assert sl.ESPACE_ID not in [c["id"] for c in client.get("/api/me/chat/clients", headers=h).json()]
     assert client.get(f"/api/me/chat/{sl.ESPACE_ID}/threads", headers=h).status_code == 403
+
+
+def test_session_limitee_ferme_avec_fin_session(env, monkeypatch):
+    """Lot 57.16 — à l'échéance de la session (30 min ; ici 0,6 s), le serveur envoie « fin_session » et ferme."""
+    client, _ = env
+    monkeypatch.setenv("LOOIS_SUPPORT_SESSION_MINUTES", "0.01")
+    with client.websocket_connect(URL_WS.format(cle="cle-de-test")) as ws:
+        ws.receive_json()
+        ws.receive_json()
+        fin = ws.receive_json()
+        assert fin["type"] == "fin_session" and "30 minutes" in fin["detail"]
+    assert sl.duree_session_secondes() == pytest.approx(0.6)
+    monkeypatch.delenv("LOOIS_SUPPORT_SESSION_MINUTES")
+    assert sl.duree_session_secondes() == 1800

@@ -31,6 +31,7 @@ Variables d'environnement
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -52,6 +53,16 @@ ESPACE_NOM = "Support Loois"
 TEXTE_MAX = 2000
 MESSAGES_PAR_MINUTE = 20
 HISTORIQUE_MAX = 100
+
+
+def duree_session_secondes() -> float:
+    """Lot 57.16 — durée MAXIMALE d'une session de chat Loois (30 min par défaut ; variable
+    LOOIS_SUPPORT_SESSION_MINUTES pour l'ajuster). Au-delà, le serveur ferme la session."""
+    try:
+        minutes = float(os.environ.get("LOOIS_SUPPORT_SESSION_MINUTES") or 30)
+    except ValueError:
+        minutes = 30.0
+    return max(minutes, 0.01) * 60
 
 # Lot 57.13 — images échangées avec Loois : types acceptés (→ extension du fichier stocké) et taille maximale
 TYPES_IMAGES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
@@ -269,13 +280,26 @@ def installer(*, router, db, manager, now_iso: Callable[[], str]) -> None:
             await websocket.send_json({"type": "historique", "messages": historique})
 
             mauvais = 0
+            # Lot 57.16 — session limitée (30 min par défaut) : à l'échéance, « fin_session » puis fermeture
+            fin_session = time.monotonic() + duree_session_secondes()
             while True:
                 if websocket.application_state != WebSocketState.CONNECTED or \
                         websocket.client_state != WebSocketState.CONNECTED:
                     break
+                reste = fin_session - time.monotonic()
                 try:
-                    data = await websocket.receive_json()
+                    if reste <= 0:
+                        raise asyncio.TimeoutError
+                    data = await asyncio.wait_for(websocket.receive_json(), timeout=reste)
                     mauvais = 0
+                except asyncio.TimeoutError:
+                    try:
+                        await websocket.send_json({"type": "fin_session",
+                                                   "detail": "Session terminée : 30 minutes maximum. Ouvrez une nouvelle session pour continuer."})
+                        await websocket.close(code=4000)
+                    except Exception:
+                        pass
+                    break
                 except (WebSocketDisconnect, RuntimeError):
                     break
                 except Exception:

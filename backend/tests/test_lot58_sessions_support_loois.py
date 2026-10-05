@@ -416,3 +416,9 @@ def test_historique_du_poste_garde_le_ticket_apres_une_nouvelle_demande(env):
         ancien = next(x for x in h if x["id"] == sid)
         assert ancien["ticket"]["number"] == numero and ancien["ticket"]["status"] == "done"
         assert ancien["ticket"]["intervention_number"].startswith("INT-")
+        # Lot 58.4 — durée de l'assistance (acceptation → fin) et facturation calculée à la clôture
+        assert isinstance(ancien["duree_secondes"], int) and ancien["duree_secondes"] >= 0
+        assert ancien["ticket"]["cost_currency"] == "XOF" and ancien["ticket"]["active_hours"] is not None
+        assert ss.duree_session_secondes({"acceptee_le": "2026-10-05T05:23:52+00:00",
+                                          "terminee_le": "2026-10-05T05:35:02+00:00"}) == 670
+        assert ss.duree_session_secondes({"statut": "attente"}) is None

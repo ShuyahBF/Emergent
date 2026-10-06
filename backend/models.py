@@ -961,6 +961,14 @@ class SettingsUpdate(BaseModel):
     wa_principal_telephone: Optional[str] = None     # numéro affiché de la ligne principale
     wa_numeros: Optional[List[Dict[str, Any]]] = None  # lignes supplémentaires [{id, libelle, telephone, vip, prospects, complement_prompt}]
     wa_seuil_vip: Optional[float] = None             # montant de contrat à partir duquel le client passe sur la ligne VIP
+    # Lot 63 — barrière anti-rafale (voir routes/barriere_wa.py)
+    wa_barriere_active: Optional[bool] = None
+    wa_barriere_seuil: Optional[int] = None
+    wa_barriere_fenetre_heures: Optional[int] = None
+    wa_barriere_message: Optional[str] = None
+    wa_barriere_image_url: Optional[str] = None
+    wa_barriere_liluvine_compte: Optional[bool] = None
+    wa_barriere_exemptes: Optional[str] = None
     wa_principal_couleur_fond: Optional[str] = None  # Lot 59.1 — couleur de fond de la pastille (défaut #ffffff)
     wa_principal_couleur_texte: Optional[str] = None # Lot 59.1 — couleur du texte de la pastille (défaut #000000)
     # Iter35b — WhatsApp inbound-silence detector

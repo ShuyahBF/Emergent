@@ -192,6 +192,8 @@ const adminLinks = [
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
   // Portage site-meetafrican — Suivi des logs VIDAL (appels API réels + sync référentiel)
   { to: "/admin/vidal-logs", label: "Suivi des logs VIDAL", icon: History, adminOrSup: true },
+  // Lot 63 — activité des plateformes (adLyn, Ster, beAuthentik…) en temps réel
+  { to: "/admin/plateformes-temps-reel", label: "Plateformes (temps réel)", icon: Activity, adminOnly: true },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

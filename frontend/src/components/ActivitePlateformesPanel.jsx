@@ -3,13 +3,26 @@
 // Mêmes chiffres que le bloc « 🌐 Activité des plateformes » de la synthèse quotidienne :
 // messages WhatsApp transmis par SAWALI pour chaque plateforme (envois, réussite, remise,
 // lecture), réponses des clients, désinscriptions, incidents et usage du quota.
+// Lot 62 : + activité INTERNE fournie par chaque plateforme (connexions, ventes, inscriptions…).
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function ActivitePlateformesPanel() {
   const [jours, setJours] = useState(1);            // période : 1, 7 ou 30 derniers jours
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
+
+  // Lot 62 — interroge tout de suite une plateforme (sans cache) et affiche sa réponse
+  const tester = async (code) => {
+    try {
+      const r = await apiClient.post(`/admin/plateformes-activite/${encodeURIComponent(code)}/tester`);
+      setDonnees((d) => d && ({ ...d, items: d.items.map((p) => (p.code === code ? { ...p, interne: r.data } : p)) }));
+      if (r.data?.ok) toast.success("Statistiques reçues"); else toast.error(`Échec : ${r.data?.erreur || "inconnu"}`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Test impossible");
+    }
+  };
 
   // Lecture de l'activité à chaque changement de période
   useEffect(() => {
@@ -58,6 +71,7 @@ export default function ActivitePlateformesPanel() {
                 <th className="px-2 py-1.5 text-right">Incidents</th>
                 <th className="px-2 py-1.5 text-right">Quota</th>
                 <th className="px-2 py-1.5 text-left">Dernier envoi</th>
+                <th className="px-2 py-1.5 text-left">Activité interne (fournie par la plateforme)</th>
               </tr>
             </thead>
             <tbody>
@@ -75,6 +89,35 @@ export default function ActivitePlateformesPanel() {
                   <td className="px-2 py-1.5 text-right tabular-nums">{p.usage_quota_pct != null ? `${p.usage_quota_pct} %` : "—"}</td>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {p.dernier_envoi ? new Date(p.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                  </td>
+                  {/* Lot 62 — statistiques internes : indicateurs choisis par chaque plateforme */}
+                  <td className="px-2 py-1.5 min-w-[220px]">
+                    {p.interne?.ok ? (
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap gap-1">
+                          {(p.interne.indicateurs || []).map((i) => (
+                            <span key={i.cle} className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] text-sky-900">
+                              {i.libelle} <strong>{i.valeur}</strong>
+                            </span>
+                          ))}
+                        </div>
+                        {(p.interne.faits_marquants || []).map((f, k) => (
+                          <p key={k} className="text-[10px] text-slate-600">◦ {f}</p>
+                        ))}
+                      </div>
+                    ) : p.interne ? (
+                      <span className="text-[10px] text-rose-700">Indisponible : {p.interne.erreur}</span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        {p.stats_configurees ? "—" : "Non branchée (URL de retour ou URL des statistiques à renseigner)"}
+                      </span>
+                    )}
+                    {p.stats_configurees && (
+                      <button type="button" onClick={() => tester(p.code)}
+                        className="ml-1 text-[10px] text-sky-700 hover:underline" data-testid={`stats-tester-${p.code}`}>
+                        Tester
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

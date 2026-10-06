@@ -175,7 +175,7 @@ export default function LiluvineEmetteursSection() {
               <th className="py-1 pr-2">Code</th><th className="pr-2">Nom</th><th className="pr-2">État</th>
               <th className="pr-2">Quota / jour</th><th className="pr-2">Envois du jour</th>
               <th className="pr-2">Dernier envoi</th><th className="pr-2">Clé générée le</th>
-              <th className="pr-2">URL de retour</th><th></th>
+              <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -205,6 +205,16 @@ export default function LiluvineEmetteursSection() {
                          className="w-56 rounded border border-slate-300 px-1 py-0.5" />
                   {e.dernier_retour_echec && (
                     <div className="text-[10px] text-red-700">Dernier retour en échec : {fmt(e.dernier_retour_echec)}</div>
+                  )}
+                </td>
+                <td className="pr-2">
+                  {/* Lot 62 — adresse des statistiques internes (vide = l'URL de retour est utilisée) */}
+                  <input defaultValue={e.url_stats || ""} onClick={(ev) => ev.stopPropagation()} placeholder="vide = URL de retour"
+                         onBlur={(ev) => ev.target.value !== (e.url_stats || "") && modifier(e.code, { url_stats: ev.target.value })}
+                         className="w-48 rounded border border-slate-300 px-1 py-0.5" />
+                  {e.derniere_stats_ok && <div className="text-[10px] text-emerald-700">Statistiques reçues : {fmt(e.derniere_stats_ok)}</div>}
+                  {e.derniere_stats_echec && (!e.derniere_stats_ok || e.derniere_stats_echec > e.derniere_stats_ok) && (
+                    <div className="text-[10px] text-red-700">Dernier échec : {fmt(e.derniere_stats_echec)}</div>
                   )}
                 </td>
                 <td className="whitespace-nowrap">

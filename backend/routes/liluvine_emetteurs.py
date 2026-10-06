@@ -30,6 +30,7 @@ class NouvelEmetteur(BaseModel):
     nom: str
     quota_jour: Optional[int] = 500
     url_retour: Optional[str] = None   # https://<plateforme>/api/webhooks/liluvine-retour (lot 57.5)
+    url_stats: Optional[str] = None    # lot 62 — statistiques internes (vide = URL de retour)
 
 
 class ModifEmetteur(BaseModel):
@@ -37,6 +38,7 @@ class ModifEmetteur(BaseModel):
     actif: Optional[bool] = None
     quota_jour: Optional[int] = None
     url_retour: Optional[str] = None
+    url_stats: Optional[str] = None    # lot 62
 
 
 def _url_retour_valide(url: Optional[str]) -> str:
@@ -80,6 +82,7 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             "code": code, "nom": donnees.nom.strip()[:60] or code, "secret": cle, "actif": True,
             "quota_jour": max(1, int(donnees.quota_jour or 500)), "cree_le": maintenant,
             "url_retour": _url_retour_valide(donnees.url_retour),
+            "url_stats": _url_retour_valide(donnees.url_stats),   # lot 62
             "cle_regeneree_le": maintenant, "cree_par": admin.get("email"),
         })
         return {"code": code, "cle": cle}
@@ -107,6 +110,8 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["quota_jour"] = max(1, int(donnees.quota_jour))
         if donnees.url_retour is not None:
             changements["url_retour"] = _url_retour_valide(donnees.url_retour)
+        if donnees.url_stats is not None:   # lot 62 — adresse des statistiques internes
+            changements["url_stats"] = _url_retour_valide(donnees.url_stats)
         if not changements:
             return {"ok": True}
         r = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": changements})

@@ -1,0 +1,132 @@
+# stats_plateformes.py — Lot 62 : statistiques INTERNES de chaque plateforme (adLyn, beAuthentik,
+# Ster, ALBARKA, DentalCare…) — connexions, ventes, inscriptions… — dans la synthèse quotidienne
+# de Liluvine et le tableau « Activité des plateformes ».
+#
+# Protocole (le même canal signé que les « retours » du lot 57.5, avec la même clé d'émetteur) :
+#   SAWALI → POST <url_stats ou, à défaut, url_retour de la plateforme>
+#     en-têtes : X-Emetteur: sawali · X-Timestamp: <heure Unix> ·
+#                X-Signature: HMAC-SHA256(clé de l'émetteur, "<heure>.<corps>")
+#     corps    : {"type": "stats_du_jour", "debut": "<ISO>", "fin": "<ISO>"}
+#   Plateforme → réponse JSON :
+#     {"indicateurs": [{"cle": "connexions", "libelle": "Connexions", "valeur": 42}, …],
+#      "faits_marquants": ["3 nouvelles boutiques", …]}          (faits_marquants facultatif)
+#   Chaque plateforme choisit ses indicateurs ; SAWALI les affiche tels quels.
+#
+# Résultat gardé 10 minutes (collection plateformes_stats) : l'écran d'administration ne
+# relance pas un appel à chaque affichage ; la synthèse quotidienne le relit au besoin.
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+DUREE_CACHE = timedelta(minutes=10)
+DELAI_APPEL_S = 10
+MAX_INDICATEURS = 20
+
+
+def _maintenant() -> datetime:
+    """Date et heure actuelles (UTC)."""
+    return datetime.now(timezone.utc)
+
+
+def adresse_stats(emetteur: Dict[str, Any]) -> str:
+    """Adresse à interroger : URL dédiée aux statistiques, sinon l'URL de retour (lot 57.5)."""
+    return ((emetteur.get("url_stats") or "").strip() or (emetteur.get("url_retour") or "").strip())
+
+
+def _nettoyer(reponse: Any) -> Dict[str, Any]:
+    """Garde uniquement des indicateurs bien formés (libellé + valeur affichable)."""
+    if not isinstance(reponse, dict):
+        raise ValueError("réponse non JSON")
+    indicateurs = []
+    for brut in (reponse.get("indicateurs") or [])[:MAX_INDICATEURS]:
+        if not isinstance(brut, dict):
+            continue
+        libelle = str(brut.get("libelle") or brut.get("cle") or "").strip()[:60]
+        valeur = brut.get("valeur")
+        if not libelle or valeur is None or isinstance(valeur, (dict, list)):
+            continue
+        indicateurs.append({"cle": str(brut.get("cle") or libelle)[:40], "libelle": libelle,
+                            "valeur": valeur if isinstance(valeur, (int, float)) else str(valeur)[:40]})
+    faits = [str(f).strip()[:200] for f in (reponse.get("faits_marquants") or [])[:5] if str(f).strip()]
+    if not indicateurs and not faits:
+        raise ValueError("aucun indicateur dans la réponse")
+    return {"indicateurs": indicateurs, "faits_marquants": faits}
+
+
+async def interroger(emetteur: Dict[str, Any], debut_iso: str, fin_iso: str) -> Dict[str, Any]:
+    """Appel signé à la plateforme ; renvoie {ok, indicateurs, faits_marquants} ou {ok: False, erreur}."""
+    url = adresse_stats(emetteur)
+    cle = (emetteur.get("secret") or "").encode()
+    if not url:
+        return {"ok": False, "erreur": "aucune adresse de statistiques (URL de retour ou URL des statistiques)"}
+    if not cle:
+        return {"ok": False, "erreur": "clé de l'émetteur absente"}
+    corps = json.dumps({"type": "stats_du_jour", "debut": debut_iso, "fin": fin_iso}, ensure_ascii=False)
+    ts = str(int(time.time()))
+    signature = hmac.new(cle, f"{ts}.{corps}".encode(), hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=DELAI_APPEL_S) as http:
+            r = await http.post(url, content=corps.encode(), headers={
+                "Content-Type": "application/json", "X-Emetteur": "sawali",
+                "X-Timestamp": ts, "X-Signature": signature})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erreur": f"plateforme injoignable ({type(exc).__name__})"}
+    if r.status_code >= 300:
+        return {"ok": False, "erreur": f"HTTP {r.status_code}"}
+    try:
+        return {"ok": True, **_nettoyer(r.json())}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erreur": f"réponse inexploitable : {exc}"}
+
+
+async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso: str,
+                           forcer: bool = False) -> Dict[str, Any]:
+    """Statistiques internes d'une plateforme pour la période (cache de 10 minutes)."""
+    code = emetteur.get("code")
+    cle_cache = f"{code}|{debut_iso[:13]}|{fin_iso[:13]}"     # période arrondie à l'heure
+    if not forcer:
+        en_cache = await db.plateformes_stats.find_one({"_id": cle_cache})
+        if en_cache:
+            try:
+                if _maintenant() - datetime.fromisoformat(en_cache["recu_le"]) < DUREE_CACHE:
+                    return en_cache["resultat"]
+            except (KeyError, ValueError):
+                pass
+    resultat = await interroger(emetteur, debut_iso, fin_iso)
+    resultat["recu_le"] = _maintenant().isoformat()
+    await db.plateformes_stats.update_one(
+        {"_id": cle_cache},
+        {"$set": {"code": code, "debut": debut_iso, "fin": fin_iso, "recu_le": resultat["recu_le"],
+                  "resultat": resultat}}, upsert=True)
+    await db.liluvine_emetteurs.update_one({"code": code}, {"$set": {
+        ("derniere_stats_ok" if resultat.get("ok") else "derniere_stats_echec"): resultat["recu_le"]}})
+    return resultat
+
+
+async def stats_toutes(db, emetteurs: List[Dict[str, Any]], debut_iso: str, fin_iso: str) -> Dict[str, Dict[str, Any]]:
+    """Statistiques internes de toutes les plateformes actives qui ont une adresse (en parallèle)."""
+    cibles = [e for e in emetteurs if e.get("actif", True) and adresse_stats(e) and e.get("secret")]
+    resultats = await asyncio.gather(*(stats_plateforme(db, e, debut_iso, fin_iso) for e in cibles),
+                                     return_exceptions=True)
+    sortie: Dict[str, Dict[str, Any]] = {}
+    for e, res in zip(cibles, resultats):
+        sortie[e["code"]] = res if isinstance(res, dict) else {"ok": False, "erreur": str(res)[:120]}
+    return sortie
+
+
+def texte_indicateurs(interne: Optional[Dict[str, Any]]) -> str:
+    """« Connexions 42 · Ventes 12 » (ou la raison de l'absence de statistiques)."""
+    if not interne:
+        return ""
+    if not interne.get("ok"):
+        return f"statistiques internes indisponibles ({interne.get('erreur') or 'erreur'})"
+    morceaux = [f"{i['libelle']} {i['valeur']}" for i in interne.get("indicateurs") or []]
+    return " · ".join(morceaux)

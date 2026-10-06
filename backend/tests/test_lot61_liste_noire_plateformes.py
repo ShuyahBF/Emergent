@@ -116,7 +116,7 @@ def test_activite_par_plateforme_dans_la_synthese(db):
     assert "secret" not in adlyn
     texte = rp.bloc_plateformes(plateformes)
     assert "adLyn : 4 envoi(s), 3 réussi(s), 1 échec(s)" in texte
-    assert "beAuthentik : aucune activité" in texte
+    assert "beAuthentik : aucun message WhatsApp transmis" in texte
     # Intégré aux indicateurs et au texte transmis à Liluvine
     kpis = lancer(sy._gather_kpis(db, "", date(2026, 10, 5), date(2026, 10, 5)))
     assert len(kpis["plateformes"]) == 2

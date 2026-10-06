@@ -206,6 +206,8 @@ class DirectoryContactCreate(BaseModel):
     # honoré uniquement si l'appelant est élevé ET si ce client existe
     # (voir me_create_contact) ; ignoré sinon (le scope reste self).
     client_id: Optional[str] = None
+    # Lot 59 — ligne WhatsApp dédiée (« principal » ou Phone Number ID ; vide = automatique)
+    wa_ligne: Optional[str] = None
 
 
 class DirectoryContactUpdate(BaseModel):
@@ -220,6 +222,25 @@ class DirectoryContactUpdate(BaseModel):
     photo_url: Optional[str] = None
     vidal_riche: Optional[bool] = None
     is_decision_maker: Optional[bool] = None
+    wa_ligne: Optional[str] = None   # Lot 59 — ligne WhatsApp dédiée ("" = automatique)
+
+
+@api.get("/me/wa-lignes", tags=["Portail Client"])
+async def me_wa_lignes(user: dict = Depends(get_current_user)):
+    """Lot 59 — lignes WhatsApp de la plateforme (Liluvine Standard / VIP / Publicités…).
+
+    Renvoie pour l'utilisateur : les lignes qu'il voit, et s'il peut affecter un
+    contact à une ligne (réservé à ceux qui voient toutes les lignes). Aucun secret.
+    """
+    from routes.numeros_wa import lignes_configurees, lignes_autorisees, seuil_vip
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    autorisees = lignes_autorisees(user, s)
+    lignes = [
+        {k: l[k] for k in ("cle", "libelle", "telephone", "vip", "prospects", "principale")}
+        for l in lignes_configurees(s) if autorisees is None or l["cle"] in autorisees
+    ]
+    return {"lignes": lignes, "restreint": autorisees is not None,
+            "peut_affecter": autorisees is None, "seuil_vip": seuil_vip(s)}
 
 
 @api.get("/me/contacts/export.csv", tags=["Portail Client"])
@@ -344,6 +365,18 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     items = await db.directory_contacts.find(
         {"client_id": {"$in": client_ids}}, {"_id": 0},
     ).sort("name", 1).to_list(2000)
+    # Lot 59 — lignes WhatsApp (Liluvine Standard / VIP…) : l'utilisateur ne voit
+    # que les contacts des lignes qui lui sont autorisées ; chaque contact porte
+    # sa ligne (wa_ligne_cle / wa_ligne_libelle) pour l'affichage d'un badge.
+    from routes.numeros_wa import VisibiliteLignes, ligne_par_cle
+    vis = await VisibiliteLignes.charger(db, user, complet=True)
+    if vis.restreint:
+        items = [c for c in items if vis.contact_visible(c)]
+    if vis.derniere_ligne or vis.tenants_vip or any(c.get("wa_ligne") for c in items):
+        for c in items:
+            cle = vis.cle_contact(c)
+            c["wa_ligne_cle"] = cle
+            c["wa_ligne_libelle"] = (ligne_par_cle(vis.settings, cle) or {}).get("libelle")
     flags = await _resolve_anon_flags(user)
     if any(flags.values()):
         items = [_apply_anon_to_contact(c, flags) for c in items]
@@ -496,6 +529,15 @@ async def me_update_contact(cid: str, payload: DirectoryContactUpdate, user: dic
     if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Lot 59 — l'affectation d'un contact à une ligne WhatsApp est réservée aux
+    # utilisateurs qui voient toutes les lignes (superviseurs, administrateurs…)
+    if "wa_ligne" in update:
+        from routes.numeros_wa import lignes_autorisees, ligne_par_cle
+        s_lignes = await db.settings.find_one({"_id": "global"}) or {}
+        if lignes_autorisees(user, s_lignes) is not None:
+            update.pop("wa_ligne")
+        elif update["wa_ligne"] and not ligne_par_cle(s_lignes, update["wa_ligne"]):
+            raise HTTPException(status_code=400, detail="Ligne WhatsApp inconnue")
     # Iter35f — RGPD: a frontend that displays anonymized values may resend
     # them back on save (the user didn't touch the field). Detect the
     # `***` sentinel and DROP that key so we never overwrite the real
@@ -975,6 +1017,9 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     to = await _resolve_real_phone(payload.contact_id, "whatsapp", payload.to or "")
     if not to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+    # Lot 59 — correspondant d'une ligne WhatsApp non attribuée à l'utilisateur : envoi refusé
+    from routes.numeros_wa import exiger_telephone_visible
+    await exiger_telephone_visible(db, user, to, payload.contact_id)
     result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
     # Extract any /pay/{slug} URL embedded in the template variables for channel attribution
     pay_slug = None
@@ -1132,6 +1177,9 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
     to = await _resolve_real_phone(payload.contact_id, "whatsapp", payload.to or "")
     if not to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+    # Lot 59 — correspondant d'une ligne WhatsApp non attribuée à l'utilisateur : envoi refusé
+    from routes.numeros_wa import exiger_telephone_visible
+    await exiger_telephone_visible(db, user, to, payload.contact_id)
 
     client_scope = (user.get("client_id") or user.get("id"))
     digits_only = "".join(ch for ch in to if ch.isdigit())
@@ -1241,6 +1289,9 @@ async def me_whatsapp_send_media(
     real_to = await _resolve_real_phone(contact_id, "whatsapp", to or "")
     if not real_to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+    # Lot 59 — correspondant d'une ligne WhatsApp non attribuée à l'utilisateur : envoi refusé
+    from routes.numeros_wa import exiger_telephone_visible
+    await exiger_telephone_visible(db, user, real_to, contact_id)
 
     digits_only = "".join(ch for ch in real_to if ch.isdigit())
 
@@ -1855,8 +1906,14 @@ async def _wa_visible_contact_index(user: dict) -> Tuple[List[str], set, Dict[st
     chiffres du numéro → id du contact » (rattachement des messages)."""
     visible_scope = await _resolve_visible_client_ids(user)
     contacts = await db.directory_contacts.find(
-        {"client_id": {"$in": visible_scope}}, {"_id": 0, "id": 1, "whatsapp": 1, "phone": 1},
+        {"client_id": {"$in": visible_scope}},
+        {"_id": 0, "id": 1, "whatsapp": 1, "phone": 1, "client_id": 1, "wa_ligne": 1},
     ).to_list(5000)
+    # Lot 59 — seuls les contacts des lignes WhatsApp autorisées à l'utilisateur
+    from routes.numeros_wa import VisibiliteLignes
+    vis = await VisibiliteLignes.charger(db, user)
+    if vis.restreint:
+        contacts = [c for c in contacts if vis.contact_visible(c)]
     ids = {c["id"] for c in contacts if c.get("id")}
     by_suffix: Dict[str, str] = {}
     for c in contacts:
@@ -1953,6 +2010,10 @@ async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_curre
     contact = await db.directory_contacts.find_one(
         {"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0},
     )
+    # Lot 59 — contact d'une ligne WhatsApp non autorisée : invisible pour cet utilisateur
+    from routes.numeros_wa import telephone_visible
+    if contact and not await telephone_visible(db, user, contact.get("whatsapp") or contact.get("phone"), contact):
+        contact = None
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
     # Lot 23 — mêmes critères que le comptage (id du contact OU 8 derniers chiffres du numéro).

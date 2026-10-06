@@ -844,6 +844,13 @@ async def autoreply_to_inbound(
     # donnée du tenant dans le contexte, et possibilité de couper ces réponses
     # (Admin → Paramètres → Auto-réponse WhatsApp → « Prospects »).
     is_prospect = await _is_prospect_sender(db, contact)
+    # Lot 59 — message reçu sur une ligne « prospects » (ex. numéro des publicités Meta) :
+    # l'expéditeur est traité en prospect (prompt prospects, aucune donnée du tenant).
+    try:
+        from routes.numeros_wa import ligne_recue_prospects
+        is_prospect = is_prospect or ligne_recue_prospects(settings_doc)
+    except Exception:  # noqa: BLE001
+        pass
     if is_prospect and settings_doc.get("liluvine_wa_prospect_enabled") is False:
         return {"ok": False, "reason": "prospect_replies_disabled"}
     # Lot 21 — le compte de la plateforme n'est pas soumis aux contrôles de contrat.
@@ -993,6 +1000,12 @@ async def autoreply_to_inbound(
         + (("\n\n" + kb) if kb else "")
         + contact_tag
     )
+    # Lot 59 — consignes propres à la ligne qui a reçu le message (ex. accueil VIP)
+    try:
+        from routes.numeros_wa import complement_prompt_ligne
+        sys_text = sys_text + await complement_prompt_ligne(settings_doc)
+    except Exception:  # noqa: BLE001
+        pass
     # S036 — Allow Liluvine to flag herself as needing human help. The
     # marker [ESCALATE: <reason>] will be stripped from the user-facing
     # reply and trigger a WhatsApp notification to the admin.
@@ -1633,7 +1646,9 @@ async def _wa_send_location(
         s = await db_ref.settings.find_one({"_id": "global"}) or {}
     s = s or {}
     access_token = s.get("wa_access_token")
-    phone_number_id = s.get("wa_phone_number_id")
+    # Lot 59 — réponse depuis le numéro qui a reçu le message (Standard / VIP…)
+    from routes.numeros_wa import numero_reponse
+    phone_number_id = numero_reponse(s)
     wa_graph_version = s.get("wa_graph_version") or "v22.0"
     if not access_token or not phone_number_id:
         return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)"}
@@ -1699,7 +1714,9 @@ async def _wa_send_image(
         s = await db_ref.settings.find_one({"_id": "global"}) or {}
     s = s or {}
     access_token = s.get("wa_access_token")
-    phone_number_id = s.get("wa_phone_number_id")
+    # Lot 59 — réponse depuis le numéro qui a reçu le message (Standard / VIP…)
+    from routes.numeros_wa import numero_reponse
+    phone_number_id = numero_reponse(s)
     wa_graph_version = s.get("wa_graph_version") or "v22.0"
     if not access_token or not phone_number_id:
         return {"ok": False, "error": "WhatsApp non configuré"}

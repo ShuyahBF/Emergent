@@ -601,6 +601,9 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
     real_to = await _resolve_real_phone(payload.contact_id, "phone", payload.to or "")
     if not real_to:
         raise HTTPException(status_code=400, detail="Destinataire requis")
+    # Lot 59 — correspondant d'une ligne non attribuée à l'utilisateur : envoi refusé
+    from routes.numeros_wa import exiger_telephone_visible
+    await exiger_telephone_visible(db, user, real_to, payload.contact_id)
     result = await _sms_dispatch(payload.provider or "auto", real_to, payload.message, payload.sender)
     pay_slug = _extract_pay_slug(payload.message)
     doc = {
@@ -650,6 +653,14 @@ async def me_sms_messages(limit: int = 100, contact_id: Optional[str] = None, us
     restrictions = await _resolve_content_restrictions(user)
     if restrictions.get("anon_communications"):
         items = [m for m in items if (m.get("sender_id") == user["id"] or m.get("owner_id") == user["id"])]
+    # Lot 59 — SMS des correspondants d'une ligne WhatsApp non attribuée : masqués
+    from routes.numeros_wa import VisibiliteLignes
+    vis = await VisibiliteLignes.charger(db, user)
+    if vis.restreint and items:
+        ids_contacts = list({m.get("contact_id") for m in items if m.get("contact_id")})
+        fiches = {c["id"]: c async for c in db.directory_contacts.find(
+            {"id": {"$in": ids_contacts}}, {"_id": 0, "id": 1, "client_id": 1, "wa_ligne": 1, "whatsapp": 1, "phone": 1})}
+        items = [m for m in items if vis.contact_visible(fiches.get(m.get("contact_id")), m.get("msisdn"))]
     return items
 
 
@@ -1316,6 +1327,10 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
     contact = await db.directory_contacts.find_one(
         {"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0},
     )
+    # Lot 59 — conversation d'une ligne WhatsApp non autorisée : invisible pour cet utilisateur
+    from routes.numeros_wa import telephone_visible
+    if contact and not await telephone_visible(db, user, contact.get("whatsapp") or contact.get("phone"), contact):
+        contact = None
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
     # Match by contact_id OR by phone number (covers inbound messages from unknown senders).
@@ -1552,9 +1567,16 @@ async def whatsapp_webhook_incoming(request: Request):
     except Exception:
         pass
 
+    # Lot 59 — fonctions des numéros WhatsApp multiples (Liluvine Standard / VIP…)
+    from routes.numeros_wa import definir_numero_recu
     for entry in body.get("entry") or []:
         for change in entry.get("changes") or []:
             val = change.get("value") or {}
+            # Lot 59 — numéro SAWALI qui a reçu ces messages (metadata.phone_number_id) :
+            # mémorisé sur chaque message et utilisé pour toutes les réponses envoyées
+            # pendant ce traitement (Liluvine répond depuis le même numéro).
+            numero_recu = str((val.get("metadata") or {}).get("phone_number_id") or "").strip() or None
+            definir_numero_recu(numero_recu)
             # Build a wa_id → profile.name map from the contacts array (Meta
             # always includes it alongside inbound messages). Used to:
             #  1. fill `from_profile_name` on inbound messages
@@ -1839,6 +1861,8 @@ async def whatsapp_webhook_incoming(request: Request):
                         "received_at": ts_iso,
                         "created_at": _now(),
                         "read_by_us_at": None,
+                        # Lot 59 — numéro SAWALI (Phone Number ID) qui a reçu le message
+                        "wa_numero_id": numero_recu,
                     }
                     if media_info:
                         doc["media_id"] = media_info.get("file_id")

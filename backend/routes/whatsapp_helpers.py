@@ -445,7 +445,7 @@ def attach_whatsapp_helpers(
     # Otherwise we fall back to the global `db.settings` config used by the
     # legacy senders. This makes every sender tenant-aware without touching
     # 30+ call sites.
-    async def _resolve_wa_credentials(tenant_id: Optional[str]) -> Dict[str, Any]:
+    async def _resolve_wa_credentials(tenant_id: Optional[str], to_e164: Optional[str] = None) -> Dict[str, Any]:
         tid = (tenant_id or "").strip()
         if tid:
             try:
@@ -463,9 +463,18 @@ def attach_whatsapp_helpers(
                     "tenant_id": tid,
                 }
         g = await db.settings.find_one({"_id": "global"}) or {}
+        # Lot 59 — plusieurs numéros SAWALI (ex. Liluvine Standard / Liluvine VIP) :
+        # on répond depuis le numéro qui a reçu le message, sinon depuis la ligne du
+        # correspondant (affectation, règle VIP) — voir routes/numeros_wa.py.
+        numero = (g.get("wa_phone_number_id") or "").strip()
+        try:
+            from routes.numeros_wa import numero_envoi
+            numero = (await numero_envoi(db, to_e164, g)) or numero
+        except Exception:  # noqa: BLE001 — en cas d'erreur, le numéro principal
+            logger.debug("[numeros_wa] choix du numéro d'envoi impossible", exc_info=True)
         return {
             "access_token": (g.get("wa_access_token") or "").strip(),
-            "phone_number_id": (g.get("wa_phone_number_id") or "").strip(),
+            "phone_number_id": numero,
             "waba_id": (g.get("wa_business_account_id") or "").strip(),  # Lot 27 : modèles (boutons Flux)
             "source": "global",
             "tenant_id": None,
@@ -523,7 +532,7 @@ def attach_whatsapp_helpers(
         2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
         Smart Comm WA credentials instead of the global ones.
         """
-        creds = await _resolve_wa_credentials(tenant_id)
+        creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
         if not access_token or not phone_number_id:
@@ -623,7 +632,7 @@ def attach_whatsapp_helpers(
         2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
         Smart Comm WA credentials instead of the global ones.
         """
-        creds = await _resolve_wa_credentials(tenant_id)
+        creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
         if not access_token or not phone_number_id:
@@ -762,7 +771,7 @@ def attach_whatsapp_helpers(
         WhatsApp caps: body text 1024 chars, button id 256 chars, button
         title 20 chars — all silently truncated here rather than rejected.
         """
-        creds = await _resolve_wa_credentials(tenant_id)
+        creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
         if not access_token or not phone_number_id:
@@ -824,6 +833,12 @@ def attach_whatsapp_helpers(
         s = await db.settings.find_one({"_id": "global"}) or {}
         access_token = s.get("wa_access_token")
         phone_number_id = s.get("wa_phone_number_id")
+        # Lot 59 — même numéro que la conversation (Standard / VIP…)
+        try:
+            from routes.numeros_wa import numero_envoi
+            phone_number_id = (await numero_envoi(db, to_e164, s)) or phone_number_id
+        except Exception:  # noqa: BLE001
+            logger.debug("[numeros_wa] choix du numéro d'envoi impossible (média)", exc_info=True)
         if not access_token or not phone_number_id:
             return {"ok": False, "error": "WhatsApp non configuré", "status": None, "message_id": None, "raw": None}
         to_clean = _normalize_wa_phone(to_e164)

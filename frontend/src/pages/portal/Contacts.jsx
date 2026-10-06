@@ -739,6 +739,16 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
               data-testid={`contact-name-${c.id}`}
             >
               <span className="truncate">{c.name}</span>
+              {/* Lot 59 — ligne WhatsApp du contact (affichée seulement s'il en existe plusieurs) */}
+              {c.wa_ligne_libelle && (
+                <span
+                  className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
+                  title="Ligne WhatsApp de Liluvine qui sert ce contact"
+                  data-testid={`contact-ligne-${c.id}`}
+                >
+                  {c.wa_ligne_libelle}
+                </span>
+              )}
               {unreadCount > 0 && (
                 <span
                   className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-white shadow-sm animate-pulse"
@@ -966,6 +976,11 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // Lot 59 — lignes WhatsApp (Liluvine Standard / VIP…) pour l'affectation du contact
+  const [lignesWa, setLignesWa] = useState({ lignes: [], peut_affecter: false });
+  useEffect(() => {
+    apiClient.get("/me/wa-lignes").then((r) => setLignesWa(r.data || { lignes: [] })).catch(() => {});
+  }, []);
   const photoInputRef = React.useRef(null);
 
   const uploadPhoto = async (file) => {
@@ -1250,6 +1265,26 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             (contrat invalide/expiré, accès restreint hors heures ouvrées).
           </p>
         </div>
+        {/* Lot 59 — ligne WhatsApp dédiée (superviseurs / administrateurs, s'il existe plusieurs lignes) */}
+        {lignesWa.peut_affecter && (lignesWa.lignes || []).length > 1 && (
+          <div className="p-2.5 rounded-lg bg-emerald-50 ring-1 ring-emerald-200" data-testid="contact-field-wa-ligne">
+            <label className="block text-xs font-semibold text-emerald-900 mb-1">📱 Ligne WhatsApp de Liluvine</label>
+            <select
+              value={form.wa_ligne || ""}
+              onChange={(e) => setForm({ ...form, wa_ligne: e.target.value })}
+              className="w-full rounded border border-emerald-300 bg-white px-2 py-1 text-sm"
+            >
+              <option value="">Automatique (montant du contrat / dernier numéro utilisé)</option>
+              {lignesWa.lignes.map((l) => (
+                <option key={l.cle} value={l.cle}>{l.libelle}{l.telephone ? ` — ${l.telephone}` : ""}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-emerald-700 mt-1 leading-snug">
+              Les messages vers ce contact partent de cette ligne, et seuls les utilisateurs autorisés sur cette ligne
+              le voient dans le Centre de messagerie.
+            </p>
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
           <button

@@ -236,7 +236,8 @@ async def me_wa_lignes(user: dict = Depends(get_current_user)):
     s = await db.settings.find_one({"_id": "global"}) or {}
     autorisees = lignes_autorisees(user, s)
     lignes = [
-        {k: l[k] for k in ("cle", "libelle", "telephone", "vip", "prospects", "principale")}
+        {k: l[k] for k in ("cle", "libelle", "telephone", "vip", "prospects", "principale",
+                           "couleur_fond", "couleur_texte")}
         for l in lignes_configurees(s) if autorisees is None or l["cle"] in autorisees
     ]
     return {"lignes": lignes, "restreint": autorisees is not None,
@@ -375,8 +376,12 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     if vis.derniere_ligne or vis.tenants_vip or any(c.get("wa_ligne") for c in items):
         for c in items:
             cle = vis.cle_contact(c)
+            ligne = ligne_par_cle(vis.settings, cle) or {}
             c["wa_ligne_cle"] = cle
-            c["wa_ligne_libelle"] = (ligne_par_cle(vis.settings, cle) or {}).get("libelle")
+            c["wa_ligne_libelle"] = ligne.get("libelle")
+            # Lot 59.1 — couleurs de la pastille de la ligne
+            c["wa_ligne_fond"] = ligne.get("couleur_fond")
+            c["wa_ligne_texte"] = ligne.get("couleur_texte")
     flags = await _resolve_anon_flags(user)
     if any(flags.values()):
         items = [_apply_anon_to_contact(c, flags) for c in items]

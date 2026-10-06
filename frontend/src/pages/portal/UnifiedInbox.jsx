@@ -7,6 +7,7 @@
  * fil (nom, numéro, code) : seul le fil défile, plus toute la page.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
 import EmojiPicker from "@/components/EmojiPicker";
 import CalendrierModal from "@/components/CalendrierModal";   // lot 41
 import { apiClient } from "@/lib/api";
@@ -266,6 +267,11 @@ export default function UnifiedInbox() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-medium text-slate-800 truncate">{t.peer_name || t.peer_id}</p>
+                          {/* Lot 59.1 — ligne WhatsApp de la conversation (nom + couleur) */}
+                          {t.wa_ligne && (
+                            <PastilleLigneWa libelle={t.wa_ligne.libelle} fond={t.wa_ligne.fond} texte={t.wa_ligne.texte}
+                              testid={`inbox-thread-ligne-${t.peer_id}`} />
+                          )}
                           {t.unread_count > 0 && (
                             <span className="inline-flex items-center justify-center bg-rose-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 font-medium">
                               {t.unread_count}
@@ -357,6 +363,13 @@ export default function UnifiedInbox() {
                         </button>
                       )}
                       <div className={`max-w-[70%] rounded-2xl px-3 py-2 text-sm ${isOut ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-800"}`}>
+                        {/* Lot 59.1 — ligne WhatsApp qui a reçu ce message */}
+                        {!isOut && m.wa_ligne && (
+                          <div className="mb-1">
+                            <PastilleLigneWa libelle={m.wa_ligne.libelle} fond={m.wa_ligne.fond} texte={m.wa_ligne.texte}
+                              testid={`inbox-msg-ligne-${m.id}`} />
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap break-words">{m.text || <em>(média)</em>}</p>
                         {m.media_url && <a href={m.media_url} target="_blank" rel="noreferrer" className={`text-xs underline mt-1 block ${isOut ? "text-indigo-100" : "text-indigo-600"}`}>📎 Pièce jointe</a>}
                         <p className={`text-[10px] mt-1 ${isOut ? "text-indigo-200" : "text-slate-400"}`}>{m.at ? new Date(m.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</p>

@@ -961,6 +961,8 @@ class SettingsUpdate(BaseModel):
     wa_principal_telephone: Optional[str] = None     # numéro affiché de la ligne principale
     wa_numeros: Optional[List[Dict[str, Any]]] = None  # lignes supplémentaires [{id, libelle, telephone, vip, prospects, complement_prompt}]
     wa_seuil_vip: Optional[float] = None             # montant de contrat à partir duquel le client passe sur la ligne VIP
+    wa_principal_couleur_fond: Optional[str] = None  # Lot 59.1 — couleur de fond de la pastille (défaut #ffffff)
+    wa_principal_couleur_texte: Optional[str] = None # Lot 59.1 — couleur du texte de la pastille (défaut #000000)
     # Iter35b — WhatsApp inbound-silence detector
     # When at least `wa_silence_alert_threshold` outbound messages were sent
     # in the trailing `wa_silence_alert_window_hours` window AND zero webhook

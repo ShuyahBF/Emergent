@@ -22,6 +22,7 @@ export default function BarriereWaSection() {
   const [numeroTest, setNumeroTest] = useState("");
   const [diag, setDiag] = useState(null);
   const [diagEnCours, setDiagEnCours] = useState(false);
+  const [rattachement, setRattachement] = useState(false);
   const fichierRef = useRef(null);
 
   // Lecture des réglages actuels
@@ -91,6 +92,22 @@ export default function BarriereWaSection() {
       toast.error(err?.response?.data?.detail || "Diagnostic impossible");
     } finally {
       setDiagEnCours(false);
+    }
+  };
+
+  // Lot 64.14 — rattache à MA fiche les messages de ce numéro rangés sur la fiche d'un autre compte
+  const rattacher = async () => {
+    if (!window.confirm("Rattacher à votre fiche les messages de ce numéro rangés chez un autre compte ? "
+      + "Votre fiche deviendra la fiche prioritaire pour ce numéro (les prochains messages y arriveront).")) return;
+    setRattachement(true);
+    try {
+      const r = await apiClient.post("/admin/barriere-wa/rattacher", null, { params: { numero: numeroTest } });
+      toast.success(`${r.data?.rattaches || 0} message(s) rattaché(s) à la fiche « ${r.data?.fiche} »`);
+      await verifierNumero();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Rattachement impossible");
+    } finally {
+      setRattachement(false);
     }
   };
 
@@ -185,6 +202,17 @@ export default function BarriereWaSection() {
                   ? `${new Date(diag.derniere_reponse_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}${diag.derniere_reponse_par ? ` par ${diag.derniere_reponse_par}` : ""}`
                   : "aucune"}
               </p>
+            )}
+            {/* Lot 64.14 — messages rangés chez un autre compte : bouton de rattachement */}
+            {(diag.echanges || []).some((e) => e.visible === false) && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded bg-rose-50 p-2 text-rose-800" data-testid="alerte-autre-compte">
+                <span>Des messages de ce numéro sont rangés sur la fiche d'un autre compte : vous ne les voyez pas dans la conversation.</span>
+                <button type="button" onClick={rattacher} disabled={rattachement}
+                  className="rounded-lg bg-rose-600 px-3 py-1 font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                  data-testid="rattacher-ma-fiche">
+                  {rattachement ? "Patientez…" : "Rattacher à ma fiche"}
+                </button>
+              </div>
             )}
             {/* Lot 64.4 — 10 derniers échanges avec ce numéro et leur effet sur la barrière */}
             {(diag.echanges || []).length > 0 && (

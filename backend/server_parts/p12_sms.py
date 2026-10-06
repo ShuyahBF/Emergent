@@ -1816,7 +1816,17 @@ async def whatsapp_webhook_incoming(request: Request):
                     # arbitrarily and messages get routed to a tenant the
                     # legitimate viewer can't see (→ "name disappeared" bug).
                     contact = None
-                    if digits_only:
+                    # Lot 64.14 — fiche PRIORITAIRE pour ce numéro (choisie par « Rattacher à ma fiche »
+                    # dans le diagnostic de la barrière) : utilisée avant toute autre fiche, sinon le
+                    # message pouvait être rangé sur la fiche d'un autre compte ayant le même numéro.
+                    if len(digits_only) >= 8:
+                        _fin8 = _phone_suffix_regex(digits_only)   # 8 derniers chiffres, espaces tolérés
+                        contact = await db.directory_contacts.find_one(
+                            {"wa_prioritaire": True, "$or": [{"whatsapp": {"$regex": _fin8}}, {"phone": {"$regex": _fin8}},
+                                                             {"phone_digits": {"$regex": _fin8}}]},
+                            {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1, "vidal_riche": 1},
+                        )
+                    if digits_only and not contact:
                         phone_match = {"$or": [
                             {"whatsapp": {"$regex": digits_only}},
                             {"phone": {"$regex": digits_only}},

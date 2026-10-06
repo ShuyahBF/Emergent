@@ -3,10 +3,11 @@
 // Two complementary user-feedback channels for when the SAWALI tab is in
 // background / minimized :
 //
-//   1. The `document.title` flashes every 1.2s, e.g.
-//      "(3) SAWALI Portal"   ←→   "🔔 New activity"
-//      The count is the sum of unread badges (notifications, tickets,
-//      contacts, …) returned by `/me/notifications/counts`.
+//   1. Lot 64.2 — le titre de l'onglet affiche EN PERMANENCE (et rafraîchit toutes les 15 s)
+//      le nombre de messages reçus non lus (WhatsApp, y compris expéditeurs inconnus) et
+//      d'appels WhatsApp manqués non rattrapés, par ex. « (💬 3 · 📞 1) SAWALI ».
+//      Avant, il affichait la somme des compteurs de notifications (erreurs comprises).
+//      Onglet en arrière-plan : le titre clignote quand l'un des deux nombres augmente.
 //
 //   2. Native Notification API : a Windows / macOS / Android system toast
 //      is fired the first time the unread count GROWS while the tab is
@@ -24,151 +25,172 @@ import { useAuth } from "@/contexts/AuthContext";
 import { apiClient } from "@/lib/api";
 import { useUIFlags } from "@/lib/useUIFlags";
 
-const POLL_MS = 25_000;
+const POLL_MS = 15_000;
 const BLINK_MS = 1_200;
 const BASE_TITLE = "SAWALI · Espace Loois";
+// Préfixe ajouté par ce composant (retiré avant d'en poser un nouveau)
+const PREFIXE_RE = /^\((?:💬|📞)[^)]*\)\s*/;
+const CLIGNOTANT_RE = /^🔔 /;
+
+// Titre de base : titre actuel sans nos compteurs (le nom de marque peut changer après le chargement)
+function titreDeBase() {
+  const t = (document.title || "").replace(PREFIXE_RE, "");
+  return !t || CLIGNOTANT_RE.test(t) ? BASE_TITLE : t;
+}
+
+// « (💬 3 · 📞 1) » — seulement les compteurs non nuls
+function prefixe(messages, appels) {
+  const parties = [];
+  if (messages > 0) parties.push(`💬 ${messages}`);
+  if (appels > 0) parties.push(`📞 ${appels}`);
+  return parties.length ? `(${parties.join(" · ")}) ` : "";
+}
+
+// Texte clair pour le clignotement et la notification système
+function phrase(messages, appels) {
+  const parties = [];
+  if (messages > 0) parties.push(`${messages} message${messages > 1 ? "s" : ""} non lu${messages > 1 ? "s" : ""}`);
+  if (appels > 0) parties.push(`${appels} appel${appels > 1 ? "s" : ""} manqué${appels > 1 ? "s" : ""}`);
+  return parties.join(" · ");
+}
 
 export default function BrowserNotifications() {
   const { user } = useAuth();
   const flags = useUIFlags();
-  // S164 — Admin global switch (default true when field missing).
+  // S164 — Interrupteur global de l'administrateur (activé par défaut)
   const globalEnabled = flags?.browser_notifications_enabled !== false;
-  // S164 — Per-user opt-out stored in localStorage so users can silence
-  // toasts they find intrusive without needing an admin round-trip.
+  // S164 — Désactivation par l'utilisateur (mémorisée dans le navigateur)
   const userOptedOut = (() => {
     try { return localStorage.getItem("sawali_browser_notifs_optout") === "1"; }
     catch { return false; }
   })();
   const featureActive = globalEnabled && !userOptedOut;
-  const baseTitleRef = useRef(BASE_TITLE);
-  const totalRef = useRef(0);
+  const baseRef = useRef(BASE_TITLE);
+  const compteursRef = useRef({ messages: 0, appels: 0 });
   const lastShownRef = useRef(0);
   const blinkTimerRef = useRef(null);
   const blinkToggleRef = useRef(false);
   const permRequestedRef = useRef(false);
 
-  // Capture the original document title once so we can restore it later.
+  // Titre normal : compteurs + titre de base
+  const poserTitre = () => {
+    const { messages, appels } = compteursRef.current;
+    document.title = prefixe(messages, appels) + baseRef.current;
+  };
+
+  // Au démontage (déconnexion) : titre sans compteurs
   useEffect(() => {
-    baseTitleRef.current = document.title || BASE_TITLE;
-    return () => { document.title = baseTitleRef.current; };
+    baseRef.current = titreDeBase();
+    return () => { document.title = baseRef.current; };
   }, []);
 
-  // Ask the user once (politely) for notification permission.
+  // Demande (une seule fois) l'autorisation des notifications système
   useEffect(() => {
     if (!user || permRequestedRef.current) return;
-    if (!featureActive) return;  // S164 — Respect admin/user toggle
+    if (!featureActive) return;  // S164 — réglage administrateur / utilisateur
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "default") {
-      // Defer the request a bit so it doesn't compete with login redirects.
       const t = setTimeout(() => {
         try { Notification.requestPermission().catch(() => {}); }
-        catch { /* noop */ }
+        catch { /* rien */ }
       }, 5000);
       permRequestedRef.current = true;
       return () => clearTimeout(t);
     }
   }, [user, featureActive]);
 
-  // Compute the total across all badge categories.
-  const sumCounts = (countsObj) => {
-    if (!countsObj || typeof countsObj !== "object") return 0;
-    return Object.values(countsObj).reduce(
-      (acc, v) => acc + (Number.isFinite(+v) ? +v : 0),
-      0,
-    );
-  };
-
-  // Start / stop the blinking title.
+  // Arrêt du clignotement (retour au titre avec compteurs)
   const stopBlinking = () => {
     if (blinkTimerRef.current) {
       clearInterval(blinkTimerRef.current);
       blinkTimerRef.current = null;
     }
-    document.title = baseTitleRef.current;
+    poserTitre();
   };
 
-  const startBlinking = (n) => {
-    stopBlinking();
-    const base = baseTitleRef.current;
+  // Clignotement tant que l'onglet est en arrière-plan
+  const startBlinking = () => {
+    if (blinkTimerRef.current) return;
     blinkToggleRef.current = false;
     blinkTimerRef.current = setInterval(() => {
       if (!document.hidden) { stopBlinking(); return; }
       blinkToggleRef.current = !blinkToggleRef.current;
-      document.title = blinkToggleRef.current
-        ? `🔔 Nouvelle activité · (${n})`
-        : `(${n}) ${base}`;
+      const { messages, appels } = compteursRef.current;
+      if (blinkToggleRef.current) document.title = `🔔 ${phrase(messages, appels)}`;
+      else poserTitre();
     }, BLINK_MS);
   };
 
-  // Resume normal title when user comes back to the tab.
-  useEffect(() => {
-    const onVisible = () => {
-      if (!document.hidden) {
-        stopBlinking();
-        // Reset the "last shown" count so subsequent growth re-triggers notif.
-        lastShownRef.current = totalRef.current;
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
-
-  // Poll the counts endpoint and react to deltas.
+  // Lecture des compteurs, mise à jour du titre et alertes
   useEffect(() => {
     if (!user) return undefined;
-    if (!featureActive) {
-      // S164 — Feature disabled globally or by user; stop blinking / no toast.
-      stopBlinking();
-      return undefined;
-    }
     let cancelled = false;
 
     const tick = async () => {
-      try {
-        const r = await apiClient.get("/me/notifications/counts");
-        const counts = r.data?.counts || {};
-        // Also fetch tickets pending count (separate endpoint)
-        let tickets = 0;
-        try {
-          const r2 = await apiClient.get("/me/tickets/pending-count");
-          tickets = Number(r2.data?.count) || 0;
-        } catch { /* noop */ }
-        const total = sumCounts(counts) + tickets;
-        if (cancelled) return;
-        const previous = totalRef.current;
-        totalRef.current = total;
+      // Messages reçus non lus (contacts + expéditeurs inconnus) et appels manqués non rattrapés
+      const [rMsg, rApp] = await Promise.allSettled([
+        apiClient.get("/me/whatsapp/unread"),
+        apiClient.get("/me/wa-appels/non-repondus"),
+      ]);
+      if (cancelled) return;
+      const precedent = compteursRef.current;
+      const messages = rMsg.status === "fulfilled"
+        ? (Number(rMsg.value.data?.total) || 0) + (Number(rMsg.value.data?.unknown) || 0) : precedent.messages;
+      const appels = rApp.status === "fulfilled" ? Number(rApp.value.data?.total) || 0 : precedent.appels;
+      compteursRef.current = { messages, appels };
+      // Le titre de base peut avoir changé (nom de marque chargé entre-temps)
+      if (!blinkTimerRef.current) baseRef.current = titreDeBase();
+      if (!blinkTimerRef.current) poserTitre();
 
-        // Only act when the count GREW while the tab was hidden.
-        if (total > previous && document.hidden) {
-          startBlinking(total);
-          // Fire a system notification at most once per growth event.
-          if (
-            "Notification" in window &&
-            Notification.permission === "granted" &&
-            total > lastShownRef.current
-          ) {
-            try {
-              const n = new Notification(BASE_TITLE, {
-                body: `${total} notification${total > 1 ? "s" : ""} en attente. Cliquez pour ouvrir.`,
-                tag: "sawali-unread",
-                renotify: true,
-                silent: false,
-              });
-              n.onclick = () => { window.focus(); n.close(); };
-              lastShownRef.current = total;
-            } catch { /* noop */ }
-          }
-        } else if (total === 0) {
-          stopBlinking();
-          lastShownRef.current = 0;
+      const total = messages + appels;
+      const aAugmente = messages > precedent.messages || appels > precedent.appels;
+      if (aAugmente && document.hidden && featureActive) {
+        startBlinking();
+        // Notification système, une fois par hausse
+        if ("Notification" in window && Notification.permission === "granted" && total > lastShownRef.current) {
+          try {
+            const n = new Notification(BASE_TITLE, {
+              body: `${phrase(messages, appels)}. Cliquez pour ouvrir.`,
+              tag: "sawali-unread",
+              renotify: true,
+              silent: false,
+            });
+            n.onclick = () => { window.focus(); n.close(); };
+            lastShownRef.current = total;
+          } catch { /* rien */ }
         }
-      } catch { /* noop */ }
+      } else if (total === 0) {
+        stopBlinking();
+        lastShownRef.current = 0;
+      }
     };
+
+    // Retour sur l'onglet : arrêt du clignotement et relecture immédiate
+    const onVisible = () => {
+      if (document.hidden) return;
+      stopBlinking();
+      lastShownRef.current = compteursRef.current.messages + compteursRef.current.appels;
+      tick();
+    };
+    // Relecture immédiate quand une conversation est lue ou un appel traité ailleurs dans le portail
+    const onMaj = () => tick();
 
     tick();
     const timer = setInterval(tick, POLL_MS);
-    return () => { cancelled = true; clearInterval(timer); stopBlinking(); };
-  }, [user, featureActive]);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("sawali:compteurs-maj", onMaj);
+    window.addEventListener("sawali:wa-messages-read", onMaj);   // conversation lue (Contacts, Inbox unifiée)
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("sawali:compteurs-maj", onMaj);
+      window.removeEventListener("sawali:wa-messages-read", onMaj);
+      if (blinkTimerRef.current) clearInterval(blinkTimerRef.current);
+      blinkTimerRef.current = null;
+      document.title = baseRef.current;
+    };
+  }, [user, featureActive]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }

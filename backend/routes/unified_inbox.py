@@ -520,6 +520,9 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                 "direction": "outbound",
                 "to_number": payload.thread_id,
                 "text": payload.text,
+                # Lot 64.2 — auteur de la réponse (une réponse humaine lève la barrière anti-rafale)
+                "sender_id": user.get("id"),
+                "sender_label": user.get("full_name") or user.get("email"),
                 "wa_message_id": r.get("message_id"),
                 "wa_status": "sent",
                 "created_at": now_iso,

@@ -59,7 +59,11 @@ def test_seuil_avertissement_puis_retenue_puis_levee(db):
     # … sauf si le réglage l'autorise
     assert lancer(bw.decision(db, TEL, "text", "Allô", {**REGLAGES, "wa_barriere_liluvine_compte": True})) == "normal"
     # Réponse d'un utilisateur : la barrière se lève
-    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to_number": "+" + TEL, "created_at": il_y_a(5)}))
+    # Lot 64.2 — une réponse automatique SANS la marque ai_generated (ex. VIDAL) ne lève pas non plus la barrière
+    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to": "+" + TEL, "created_at": il_y_a(6), "auto_reply": True}))
+    assert lancer(bw.decision(db, TEL, "text", "Allô", REGLAGES)) == "retenir"
+    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to_number": "+" + TEL, "created_at": il_y_a(5),
+                                            "sender_id": "u1", "sender_label": "Agent"}))
     assert lancer(bw.decision(db, TEL, "text", "Merci", REGLAGES)) == "normal"
 
 
@@ -92,3 +96,29 @@ def test_presence_plateforme_nettoyee():
     assert r["utilisateurs_connectes"] == 2
     assert sp._nettoyer({"indicateurs": [{"cle": "c", "libelle": "C", "valeur": 1}]})["utilisateurs_connectes"] is None
     assert sp._nettoyer({"indicateurs": [{"cle": "c", "libelle": "C", "valeur": 1}], "utilisateurs_connectes": "x"})["utilisateurs_connectes"] is None
+
+
+def test_diagnostic_barriere(db):
+    """Lot 64.2 — diagnostic d'un numéro : désactivée, puis seuil atteint, puis levée."""
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    async def utilisateur():
+        """Administrateur factice (pas d'authentification dans ce test)."""
+        return {"id": "adm", "role": "admin"}
+
+    api = APIRouter(prefix="/api")
+    bw.setup_barriere_wa_routes(db=db, api=api, get_current_user=utilisateur)
+    app = FastAPI()
+    app.include_router(api)
+    c = TestClient(app)
+    lancer(db.settings.insert_one({"_id": "global", "wa_barriere_active": False}))
+    assert c.get("/api/admin/barriere-wa/diagnostic", params={"numero": "+226 70 11 22 33"}).json()["active"] is False
+    lancer(db.settings.update_one({"_id": "global"}, {"$set": {"wa_barriere_active": True, "wa_barriere_seuil": 2}}))
+    recu(db, 10)
+    r = c.get("/api/admin/barriere-wa/diagnostic", params={"numero": "+226 70 11 22 33"}).json()
+    assert r["messages_sans_reponse"] == 1 and r["decision"] == "avertir"
+    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to": "+" + TEL, "created_at": il_y_a(5),
+                                            "sender_id": "u1", "sender_label": "Agent"}))
+    r = c.get("/api/admin/barriere-wa/diagnostic", params={"numero": TEL}).json()
+    assert r["decision"] == "normal" and r["derniere_reponse_par"] == "Agent"

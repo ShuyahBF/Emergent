@@ -202,3 +202,20 @@ def test_appel_sortant_refuse_vers_ligne_non_autorisee(env):
                                              "whatsapp": "+22670000005", "wa_ligne": "PN-VIP"}))
     r = c.post("/api/me/wa-appels/appeler", json={"telephone": "+22670000005", "sdp": SDP}, headers={"X-User": "agent-b"})
     assert r.status_code == 403
+
+
+def test_appels_non_repondus_titre_onglet(env):
+    """Lot 64.2 — compteur du titre de l'onglet : appels manqués non rattrapés, un par numéro."""
+    db, c = env["db"], env["client"]
+    # Deux appels manqués du même numéro : comptés une seule fois
+    for cid in ("wacid.N1", "wacid.N2"):
+        lancer(aw.traiter_webhook_appels(db, appel_entrant(cid)))
+        lancer(aw.traiter_webhook_appels(db, fin_appel(cid, 0)))
+    assert c.get("/api/me/wa-appels/non-repondus", headers={"X-User": "sup"}).json()["total"] == 1
+    # Une autre entreprise ne voit pas cet appel
+    assert c.get("/api/me/wa-appels/non-repondus", headers={"X-User": "autre"}).json()["total"] == 0
+    # Le client rappelle et l'appel aboutit : le manqué est rattrapé
+    lancer(aw.traiter_webhook_appels(db, appel_entrant("wacid.N3")))
+    assert c.post("/api/me/wa-appels/wacid.N3/decrocher", json={"sdp": SDP}, headers={"X-User": "agent-a"}).status_code == 200
+    lancer(aw.traiter_webhook_appels(db, fin_appel("wacid.N3", 40)))
+    assert c.get("/api/me/wa-appels/non-repondus", headers={"X-User": "sup"}).json()["total"] == 0

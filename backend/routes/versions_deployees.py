@@ -20,11 +20,29 @@
 #    stats_plateformes.py). SAWALI lui-même : backend/lot.py + compteur de déploiements.
 #
 #   GET /api/admin/versions-deployees  (administrateur) → {sawali, plateformes, logiciels}
+#
+# Lot 66 — INVENTAIRE DES POSTES (demande du propriétaire, 06/10/2026) :
+#   - le signal peut porter un objet facultatif « inventaire » (système, processeur, mémoire, disques,
+#     cartes réseau avec MAC / IP, tâches en cours…), envoyé par Loois au premier signal puis au plus
+#     toutes les 30 minutes. Il est nettoyé (types simples, textes et listes bornés), refusé s'il dépasse
+#     MAX_INVENTAIRE_OCTETS, et gardé (le dernier reçu) dans la collection `inventaires_postes`, une fiche
+#     par machine : un signal léger ne l'efface pas ;
+#   - à chaque inventaire, la fiche de l'équipement est créée ou complétée dans « Parc informatique »
+#     (collection `parc_equipements`, lot 47) : clé = nom de la machine (puis adresse MAC). Seuls les
+#     champs AUTOMATIQUES sont écrits (nom d'hôte, système, fabricant, modèle, MAC, IP, site), et
+#     seulement s'ils sont vides ou encore égaux à la valeur que Loois y avait mise : une saisie à la main
+#     (client, lieu, notes, utilisateur…) n'est JAMAIS écrasée. Une fiche créée ainsi n'est rattachée à
+#     aucun compte client (« À affecter ») : l'administrateur l'affecte ensuite depuis le parc ;
+#   GET /api/admin/versions-deployees/poste-details?machine=…&application=…  (administrateur)
+#     → tous les composants vus sur la machine, dernier inventaire, fiche du parc liée (lien « Détails »).
 from __future__ import annotations
 
 import hmac
+import json
+import math
 import os
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -37,6 +55,17 @@ _CHAMPS = {                    # champ → longueur maximale conservée
     "utilisateur": 80, "site": 120, "systeme": 120, "demarre_le": 40,
 }
 _NOM_APPLICATION = re.compile(r"^[A-Za-z0-9 ._\-]{2,40}$")
+
+# ---- Lot 66 : inventaire des postes ----
+MAX_INVENTAIRE_OCTETS = 200_000   # au-delà, l'inventaire est ignoré (le signal reste accepté)
+_INV_PROFONDEUR = 5               # profondeur maximale des objets imbriqués
+_INV_MAX_CLES = 60                # nombre maximal de clés par objet
+_INV_MAX_LISTE = 300              # nombre maximal d'éléments par liste
+_INV_MAX_TEXTE = 300              # longueur maximale d'un texte
+_CLE_INVENTAIRE = re.compile(r"^[A-Za-z0-9_]{1,40}$")   # clés sûres pour MongoDB (ni « $ » ni « . »)
+# Champs de la fiche du parc remplis automatiquement (jamais s'ils ont été modifiés à la main)
+CHAMPS_PARC_AUTO = ("nom_hote", "systeme_exploitation", "fabricant", "modele", "adresse_mac", "adresse_ip", "site")
+CATEGORIES_PARC = {"serveur": "Serveur", "portable": "PC portable", "poste": "PC de bureau"}
 
 
 def _maintenant() -> datetime:
@@ -65,6 +94,145 @@ def nettoyer_presence(corps: Any) -> Dict[str, str]:
         raise ValueError("nom d'application invalide")
     propre.setdefault("composant", propre["application"])
     return propre
+
+
+def _nettoyer_valeur(valeur: Any, profondeur: int) -> Any:
+    """Copie sûre d'une valeur d'inventaire : objets et listes bornés, textes coupés, nombres finis.
+    Renvoie None pour tout type inattendu (ou trop profond)."""
+    if valeur is None or isinstance(valeur, bool):
+        return valeur
+    if isinstance(valeur, int):
+        return valeur if abs(valeur) < 10**15 else None
+    if isinstance(valeur, float):
+        return valeur if math.isfinite(valeur) else None
+    if isinstance(valeur, str):
+        return valeur.strip()[:_INV_MAX_TEXTE]
+    if profondeur >= _INV_PROFONDEUR:
+        return None
+    if isinstance(valeur, list):
+        return [_nettoyer_valeur(v, profondeur + 1) for v in valeur[:_INV_MAX_LISTE]]
+    if isinstance(valeur, dict):
+        propre: Dict[str, Any] = {}
+        for cle, v in list(valeur.items())[:_INV_MAX_CLES]:
+            if isinstance(cle, str) and _CLE_INVENTAIRE.match(cle):
+                propre[cle] = _nettoyer_valeur(v, profondeur + 1)
+        return propre
+    return None
+
+
+def nettoyer_inventaire(inventaire: Any) -> Optional[Dict[str, Any]]:
+    """Logique pure (testée) : inventaire du poste nettoyé, ou None s'il est absent, n'est pas un
+    objet ou dépasse MAX_INVENTAIRE_OCTETS (protection contre l'envoi massif)."""
+    if not isinstance(inventaire, dict) or not inventaire:
+        return None
+    try:
+        taille = len(json.dumps(inventaire, ensure_ascii=False, default=str).encode("utf-8"))
+    except (TypeError, ValueError):
+        return None
+    if taille > MAX_INVENTAIRE_OCTETS:
+        return None
+    return _nettoyer_valeur(inventaire, 0) or None
+
+
+def _normaliser_mac(valeur: Any) -> Optional[str]:
+    """« aa-bb-cc-dd-ee-ff » → « AA:BB:CC:DD:EE:FF » (même règle que le parc) ; None si invalide ou nulle."""
+    hexa = re.sub(r"[\s:.\-]", "", str(valeur or ""))
+    if not re.fullmatch(r"[0-9A-Fa-f]{12}", hexa) or set(hexa) == {"0"}:
+        return None
+    return ":".join(hexa[i:i + 2] for i in range(0, 12, 2)).upper()
+
+
+def _ipv4_valide(valeur: Any) -> Optional[str]:
+    """Adresse IPv4 canonique, ou None (adresses APIPA 169.254.x.x ignorées)."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(str(valeur or "").strip())
+    except ValueError:
+        return None
+    if ip.version != 4 or ip.is_link_local or ip.is_loopback:
+        return None
+    return str(ip)
+
+
+def cartes_principales(inventaire: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Logique pure (testée) : cartes réseau avec MAC valide, la carte « principale » d'abord
+    (une IPv4 ET une passerelle, puis une IPv4 seulement)."""
+    cartes = []
+    for c in (inventaire.get("reseau") or []):
+        if not isinstance(c, dict):
+            continue
+        mac = _normaliser_mac(c.get("mac"))
+        if not mac:
+            continue
+        ips = [ip for ip in (_ipv4_valide(x) for x in (c.get("ipv4") or [])) if ip]
+        rang = 0 if ips and (c.get("passerelles") or []) else (1 if ips else 2)
+        cartes.append({"mac": mac, "ip": ips[0] if ips else None, "rang": rang, "nom": c.get("nom")})
+    cartes.sort(key=lambda c: c["rang"])
+    return cartes
+
+
+def champs_parc_auto(fiche: Dict[str, Any], inventaire: Dict[str, Any], maintenant: str,
+                     verifie: bool = False) -> Dict[str, Any]:
+    """Logique pure (testée) : valeurs AUTOMATIQUES de la fiche du parc tirées du signal + inventaire.
+
+    Renvoie {"champs": {nom_hote, systeme_exploitation, …}, "categorie": …, "loois": {résumé technique}}."""
+    systeme = inventaire.get("systeme") if isinstance(inventaire.get("systeme"), dict) else {}
+    processeur = inventaire.get("processeur") if isinstance(inventaire.get("processeur"), dict) else {}
+    memoire = inventaire.get("memoire") if isinstance(inventaire.get("memoire"), dict) else {}
+    cartes = cartes_principales(inventaire)
+    nom_systeme = " ".join(x for x in (systeme.get("nom"), systeme.get("version")) if x) or fiche.get("systeme")
+    champs = {
+        "nom_hote": fiche.get("machine"),
+        "systeme_exploitation": (nom_systeme or "")[:120] or None,
+        "fabricant": (systeme.get("fabricant") or "")[:120] or None,
+        "modele": (systeme.get("modele") or "")[:160] or None,
+        "adresse_mac": cartes[0]["mac"] if cartes else None,
+        "adresse_ip": next((c["ip"] for c in cartes if c["ip"]), None),
+        "site": (fiche.get("site") or "")[:120] or None,
+    }
+    type_poste = inventaire.get("type_poste") if inventaire.get("type_poste") in CATEGORIES_PARC else "poste"
+    disques = [{"lettre": d.get("lettre"), "total_go": d.get("total_go"), "libre_go": d.get("libre_go"),
+                "libre_pct": d.get("libre_pct")}
+               for d in (inventaire.get("disques") or []) if isinstance(d, dict)][:26]
+    loois = {
+        "source": "Loois",
+        "machine": fiche.get("machine"),
+        "type_poste": type_poste,
+        "processeur": processeur.get("nom"),
+        "coeurs_logiques": processeur.get("coeurs_logiques"),
+        "ram_go": memoire.get("totale_go"),
+        "disques": disques,
+        "macs": [c["mac"] for c in cartes][:16],
+        "ips": [c["ip"] for c in cartes if c["ip"]][:16],
+        "utilisateur": fiche.get("utilisateur"),
+        "site": fiche.get("site"),
+        "verifie": bool(verifie),
+        "inventaire_le": maintenant,
+        "vu_le": maintenant,
+    }
+    return {"champs": champs, "categorie": CATEGORIES_PARC[type_poste], "loois": loois}
+
+
+def fusion_parc(existant: Dict[str, Any], champs: Dict[str, Any]) -> Dict[str, Any]:
+    """Logique pure (testée) : champs automatiques à écrire sur une fiche EXISTANTE du parc.
+
+    Un champ n'est écrit que s'il est vide ou encore égal à la valeur que Loois y avait mise la
+    dernière fois (`loois_auto`) : toute saisie à la main est conservée. Renvoie le $set à appliquer
+    (champs écrits + nouveau `loois_auto`)."""
+    precedent = existant.get("loois_auto") or {}
+    a_ecrire: Dict[str, Any] = {}
+    auto = dict(precedent)
+    for champ in CHAMPS_PARC_AUTO:
+        nouveau = champs.get(champ)
+        if nouveau in (None, ""):
+            continue
+        actuel = existant.get(champ)
+        if actuel in (None, "") or actuel == precedent.get(champ):
+            if actuel != nouveau:
+                a_ecrire[champ] = nouveau
+            auto[champ] = nouveau
+    a_ecrire["loois_auto"] = auto
+    return a_ecrire
 
 
 def cle_valide(cle_recue: Optional[str]) -> bool:
@@ -117,6 +285,55 @@ def _cle_version(version: str):
         return (0, (version,))
 
 
+async def _numero_inventaire_loois(db) -> str:
+    """Numéro d'inventaire d'une fiche créée par Loois (pas encore de client) : PARC-LOOIS-0001."""
+    c = await db.compteurs.find_one_and_update({"_id": "parc:loois"}, {"$inc": {"n": 1}}, upsert=True,
+                                               return_document=True)
+    return f"PARC-LOOIS-{((c or {}).get('n') or 1):04d}"
+
+
+async def synchroniser_parc(db, fiche: Dict[str, Any], inventaire: Dict[str, Any], maintenant: str,
+                            verifie: bool = False) -> Optional[str]:
+    """Crée ou complète la fiche « Parc informatique » de la machine. Renvoie l'id de la fiche.
+
+    Clé : le nom de la machine (`loois_machine`), sinon une adresse MAC déjà saisie dans le parc
+    (la fiche existante est alors liée à la machine). Seuls les champs automatiques sont écrits."""
+    auto = champs_parc_auto(fiche, inventaire, maintenant, verifie)
+    cle_machine = fiche["machine"].upper()
+    existant = await db.parc_equipements.find_one({"loois_machine": cle_machine}, {"_id": 0})
+    if not existant and auto["loois"]["macs"]:
+        existant = await db.parc_equipements.find_one(
+            {"adresse_mac": {"$in": auto["loois"]["macs"]}, "loois_machine": {"$exists": False}}, {"_id": 0})
+    if existant:
+        a_ecrire = fusion_parc(existant, auto["champs"])
+        # Adresse MAC unique dans le parc d'un client : ne pas l'écrire si une autre fiche la porte déjà
+        if a_ecrire.get("adresse_mac") and await db.parc_equipements.find_one(
+                {"tenant_id": existant.get("tenant_id"), "adresse_mac": a_ecrire["adresse_mac"],
+                 "id": {"$ne": existant["id"]}}, {"_id": 1}):
+            a_ecrire.pop("adresse_mac")
+            a_ecrire["loois_auto"].pop("adresse_mac", None)
+        await db.parc_equipements.update_one({"id": existant["id"]}, {"$set": {
+            **a_ecrire, "loois": auto["loois"], "loois_machine": cle_machine, "maj_le": maintenant}})
+        return existant["id"]
+    # Nouvelle fiche (plafond identique à celui des postes : protection contre les faux signaux)
+    if await db.parc_equipements.count_documents({"loois_machine": {"$exists": True}}) >= MAX_POSTES:
+        return None
+    champs = {k: v for k, v in auto["champs"].items() if v not in (None, "")}
+    doc = {
+        "id": secrets.token_hex(8), "tenant_id": None, "client_nom": "",
+        "numero_inventaire": await _numero_inventaire_loois(db), "categorie": auto["categorie"],
+        # Champs du formulaire du parc (lot 47) : vides tant que le propriétaire ne les a pas saisis
+        "fabricant": None, "modele": None, "numero_serie": None, "numero_serie_cle": None, "adresse_ip": None,
+        "adresse_mac": None, "nom_hote": None, "systeme_exploitation": None, "utilisateur_affecte": None,
+        "site": None, "service": None, "bureau": None, "date_achat": None, "fin_garantie": None,
+        "fournisseur": None, "etat": "en_service", "notes": None, "photos": [],
+        **champs, "loois_auto": champs, "loois": auto["loois"], "loois_machine": cle_machine,
+        "source": "loois", "cree_par": "Loois (automatique)", "cree_le": maintenant, "maj_le": maintenant,
+    }
+    await db.parc_equipements.insert_one(dict(doc))
+    return doc["id"]
+
+
 def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=None) -> None:
     """Branche les routes du lot 65 (appelée depuis server_parts/p20).
 
@@ -127,7 +344,8 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
     async def presence_logiciel(request: Request):
         """Signal de présence d'un logiciel de bureau (Loois…) : version + machine. Jamais de secret renvoyé."""
         try:
-            fiche = nettoyer_presence(await request.json())
+            corps = await request.json()
+            fiche = nettoyer_presence(corps)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception:  # noqa: BLE001 — corps illisible
@@ -137,12 +355,66 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
         if not existe and await db.presences_logiciels.count_documents({}) >= MAX_POSTES:
             raise HTTPException(status_code=429, detail="trop de postes enregistrés")
         maintenant = _maintenant().isoformat()
+        verifie = cle_valide(request.headers.get("X-Cle-Loois"))
+        # Lot 66 : inventaire facultatif (ignoré s'il est trop gros ou illisible ; le signal reste accepté)
+        inventaire = nettoyer_inventaire(corps.get("inventaire"))
+        en_plus: Dict[str, Any] = {"inventaire_le": maintenant} if inventaire else {}
         await db.presences_logiciels.update_one(cle, {
-            "$set": {**fiche, "vu_le": maintenant, "verifie": cle_valide(request.headers.get("X-Cle-Loois")),
-                     "adresse_ip": (request.client.host if request.client else None)},
+            "$set": {**fiche, "vu_le": maintenant, "verifie": verifie,
+                     "adresse_ip": (request.client.host if request.client else None), **en_plus},
             "$setOnInsert": {"premiere_fois": maintenant},
         }, upsert=True)
-        return {"ok": True}
+        if inventaire:
+            # Dernier inventaire de la MACHINE (une fiche par machine, quel que soit le composant qui l'envoie)
+            await db.inventaires_postes.update_one({"machine_cle": fiche["machine"].upper()}, {"$set": {
+                "machine": fiche["machine"], "machine_cle": fiche["machine"].upper(), "inventaire": inventaire,
+                "inventaire_le": maintenant, "application": fiche["application"], "composant": fiche["composant"],
+                "verifie": verifie, "adresse_ip_publique": (request.client.host if request.client else None),
+            }}, upsert=True)
+            # Fiche du parc informatique créée ou complétée (jamais bloquant pour le signal)
+            try:
+                await synchroniser_parc(db, fiche, inventaire, maintenant, verifie)
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True, "inventaire": bool(inventaire)}
+
+    @api.get("/admin/versions-deployees/poste-details", tags=["Versions déployées"])
+    async def poste_details(machine: str, application: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Lien « Détails » d'un poste : tous ses composants, son dernier inventaire et sa fiche du parc."""
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        nom = (machine or "").strip()[:80]
+        if not nom:
+            raise HTTPException(status_code=422, detail="machine attendue")
+        # Recherche sans tenir compte de la casse (nom exact, caractères spéciaux neutralisés)
+        motif = {"$regex": f"^{re.escape(nom)}$", "$options": "i"}
+        fiches = [f async for f in db.presences_logiciels.find({"machine": motif}, {"_id": 0, "adresse_ip": 0})]
+        inv = await db.inventaires_postes.find_one({"machine_cle": nom.upper()}, {"_id": 0})
+        if not fiches and not inv:
+            raise HTTPException(status_code=404, detail="Poste inconnu")
+        limite = _maintenant() - timedelta(minutes=EN_LIGNE_MINUTES)
+        composants = []
+        for f in fiches:
+            try:
+                en_ligne = datetime.fromisoformat(f.get("vu_le") or "") >= limite
+            except ValueError:
+                en_ligne = False
+            composants.append({**f, "en_ligne": en_ligne})
+        # Application demandée d'abord, puis par application et composant
+        composants.sort(key=lambda c: (c.get("application") != application, c.get("application") or "", c.get("composant") or ""))
+        equipement = await db.parc_equipements.find_one(
+            {"loois_machine": nom.upper()},
+            {"_id": 0, "id": 1, "numero_inventaire": 1, "client_nom": 1, "tenant_id": 1, "categorie": 1, "etat": 1})
+        return {
+            "machine": (fiches[0]["machine"] if fiches else inv.get("machine")),
+            "composants": composants,
+            "inventaire": (inv or {}).get("inventaire"),
+            "inventaire_le": (inv or {}).get("inventaire_le"),
+            "inventaire_composant": (inv or {}).get("composant"),
+            "adresse_ip_publique": (inv or {}).get("adresse_ip_publique"),
+            "equipement": ({**equipement, "a_affecter": not equipement.get("tenant_id")} if equipement else None),
+            "en_ligne_minutes": EN_LIGNE_MINUTES,
+        }
 
     @api.get("/admin/versions-deployees", tags=["Versions déployées"])
     async def versions_deployees(user: dict = Depends(get_current_user)):

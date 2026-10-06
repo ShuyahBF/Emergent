@@ -3,11 +3,15 @@
 // Lot 65.1 : section recentrée sur les postes Windows (suivi des postes clients), tableau des plateformes
 // web retiré ; colonne « Lancé le » (heure de démarrage du logiciel sur le poste).
 //
+// Lot 66 : lien « Détails » sur chaque ligne de machine → fenêtre DetailsPoste.jsx (inventaire du poste :
+// système, mémoire, disques, réseau, tâches en cours, fiche du parc informatique), relue chaque minute.
+//
 // - logiciels de bureau : un tableau des postes qui les exécutent, avec
 //   la version de chacun, l'utilisateur Windows, le site, et une pastille verte s'il a donné signe
 //   de vie il y a moins de 12 minutes. Les postes qui n'ont pas la dernière version sont signalés.
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import DetailsPoste from "./DetailsPoste";
 
 const INTERVALLE_MS = 60000;
 
@@ -41,6 +45,7 @@ export default function VersionsDeployees() {
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
   const [selection, setSelection] = useState(null);   // ligne sélectionnée (règle des tableaux)
+  const [details, setDetails] = useState(null);       // poste affiché dans la fenêtre « Détails » ({machine, application})
 
   // Lecture des versions (SAWALI, plateformes, postes)
   const lire = useCallback(async () => {
@@ -90,6 +95,7 @@ export default function VersionsDeployees() {
                     <tr>
                       <th className="px-2 py-1.5">Machine</th><th className="px-2 py-1.5">Composant</th><th className="px-2 py-1.5">Version</th>
                       <th className="px-2 py-1.5">Utilisateur</th><th className="px-2 py-1.5">Site</th><th className="px-2 py-1.5">Lancé le</th><th className="px-2 py-1.5">Dernier signal</th>
+                      <th className="px-2 py-1.5" />
                     </tr>
                   </thead>
                   <tbody>
@@ -114,6 +120,13 @@ export default function VersionsDeployees() {
                           {/* Heure de démarrage du logiciel sur ce poste (connexion en cours) */}
                           <td className="px-2 py-1.5">{dateCourte(p.demarre_le) || "—"}</td>
                           <td className="px-2 py-1.5 text-slate-500" title={p.systeme || ""}>{depuis(p.vu_le)}</td>
+                          {/* Lot 66 : inventaire complet du poste (système, disques, réseau, tâches…) */}
+                          <td className="px-2 py-1.5 text-right">
+                            <button type="button" className="text-sky-700 underline hover:text-sky-900" data-testid={`details-${p.machine}`}
+                              onClick={(e) => { e.stopPropagation(); setSelection(cle); setDetails({ machine: p.machine, application: app.application }); }}>
+                              Détails
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -124,6 +137,7 @@ export default function VersionsDeployees() {
           ))}
         </>
       )}
+      {details && <DetailsPoste machine={details.machine} application={details.application} onClose={() => setDetails(null)} />}
     </section>
   );
 }

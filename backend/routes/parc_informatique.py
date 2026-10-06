@@ -720,7 +720,7 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
     @api.get("/me/parc/equipements/{eid}", tags=["Parc informatique"])
     async def lire_equipement(eid: str, user: dict = Depends(utilisateur)):
         e = await _equipement(user, eid)
-        historique = await db.parc_interventions.find({"equipement_ids": eid, "tenant_id": e["tenant_id"]},
+        historique = await db.parc_interventions.find({"equipement_ids": eid, "tenant_id": e.get("tenant_id")},
                                                       {"_id": 0}).to_list(1000)
         # Ordre chronologique inverse (début, sinon date de création)
         historique.sort(key=lambda i: i.get("debut") or i.get("cree_le") or "", reverse=True)
@@ -730,8 +730,16 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
     async def modifier_equipement(eid: str, data: EquipementIn, user: dict = Depends(utilisateur)):
         e = await _equipement(user, eid)
         d = _champs_equipement(data)
-        await _verifier_unicite(e["tenant_id"], d, sauf=eid)
-        await db.parc_equipements.update_one({"id": eid}, {"$set": {**d, "maj_le": _maintenant(),
+        # Lot 66 : une fiche créée automatiquement par Loois (sans client) est affectée ici à un compte
+        # client par l'Admin / le Superviseur ; un équipement déjà affecté ne change jamais de client.
+        affectation: Dict[str, Any] = {}
+        if not e.get("tenant_id") and data.compte_client_id:
+            if not is_admin_like(user):
+                raise HTTPException(status_code=403, detail="Seuls l'Admin et le Superviseur affectent un équipement")
+            tenant_id = await _tenant_cible(user, data.compte_client_id)
+            affectation = {"tenant_id": tenant_id, "client_nom": _nom_compte(await _compte(tenant_id))}
+        await _verifier_unicite(affectation.get("tenant_id", e.get("tenant_id")), d, sauf=eid)
+        await db.parc_equipements.update_one({"id": eid}, {"$set": {**d, **affectation, "maj_le": _maintenant(),
                                                                     "maj_par": _auteur(user)}})
         return await lire_equipement(eid, user)
 
@@ -784,7 +792,11 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         equipements = await db.parc_equipements.find({"id": {"$in": ids}, **_perimetre(user)}, {"_id": 0}).to_list(100)
         if len(equipements) != len(ids):
             raise HTTPException(status_code=404, detail="Équipement introuvable")
-        tenants = {e["tenant_id"] for e in equipements}
+        tenants = {e.get("tenant_id") for e in equipements}
+        # Lot 66 : une fiche créée par Loois doit d'abord être affectée à un client
+        if None in tenants:
+            raise HTTPException(status_code=400, detail="Affectez d'abord l'équipement à un compte client "
+                                                        "(fiche créée automatiquement par Loois)")
         if len(tenants) > 1:
             raise HTTPException(status_code=400, detail="Les équipements d'une intervention appartiennent au même client")
         par_id = {e["id"]: e for e in equipements}

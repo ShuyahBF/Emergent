@@ -9,8 +9,13 @@
   Admin / Superviseur : choix du compte client ; un compte client : son parc.
   Fonction activable « Parc informatique » (Outils+).
   API : /me/parc/…, /me/parc-clients, /me/parc-categories (backend/routes/parc_informatique.py).
+  Lot 66 : fiches créées automatiquement par Loois (inventaire des postes, sans client : « À affecter ») ;
+  l'Admin / le Superviseur les affecte à un compte client depuis le formulaire ; la fiche affiche le
+  résumé technique envoyé par Loois ; « ?equipement=<id> » dans l'adresse ouvre directement une fiche
+  (lien « Ouvrir la fiche de l'équipement » des détails d'un poste).
 */
 import React, { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Download, Loader2, Monitor, Plus, Search, Trash2, Upload, Wrench, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
@@ -29,13 +34,16 @@ const lieu = (e) => [e.site, e.service, e.bureau].filter(Boolean).join(" / ");
 const Etat = ({ etat }) => <span className={`rounded-full px-2 py-0.5 text-[11px] ${ETATS[etat]?.[1] || ""}`}>{ETATS[etat]?.[0] || etat}</span>;
 
 // Formulaire d'un équipement (nouveau ou existant)
-function FormulaireEquipement({ equipement, categories, compteClientId, onAjoutCategorie, onClose, onEnregistre }) {
+function FormulaireEquipement({ equipement, categories, compteClientId, clients, onAjoutCategorie, onClose, onEnregistre }) {
   const [f, setF] = useState(() => (equipement ? { ...VIDE, ...Object.fromEntries(Object.keys(VIDE).map((k) => [k, equipement[k] ?? VIDE[k]])) } : { ...VIDE }));
   const [occupe, setOccupe] = useState(false);
+  // Lot 66 : fiche créée par Loois sans client → l'Admin / le Superviseur choisit le compte client
+  const aAffecter = Boolean(equipement && !equipement.tenant_id && clients?.admin);
+  const [affectation, setAffectation] = useState("");
   const maj = (x) => setF((p) => ({ ...p, ...x }));
   const enregistrer = async () => {
     setOccupe(true);
-    const corps = { ...f, compte_client_id: equipement ? undefined : compteClientId || null,
+    const corps = { ...f, compte_client_id: equipement ? (aAffecter && affectation ? affectation : undefined) : compteClientId || null,
       date_achat: f.date_achat || null, fin_garantie: f.fin_garantie || null };
     try {
       const r = equipement ? await apiClient.put(`/me/parc/equipements/${equipement.id}`, corps) : await apiClient.post("/me/parc/equipements", corps);
@@ -51,6 +59,15 @@ function FormulaireEquipement({ equipement, categories, compteClientId, onAjoutC
           <h2 className="font-semibold text-slate-800">{equipement ? `Équipement ${equipement.numero_inventaire}` : "Nouvel équipement"}</h2>
           <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
+        {aAffecter && (
+          <label className="block rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+            Fiche créée automatiquement par Loois : choisissez le compte client de cet équipement
+            <select className={champ} value={affectation} onChange={(e) => setAffectation(e.target.value)} data-testid="parc-affectation">
+              <option value="">— À affecter plus tard —</option>
+              {(clients.items || []).map((c) => <option key={c.id} value={c.id}>{c.nom}{c.code ? ` · ${c.code}` : ""}</option>)}
+            </select>
+          </label>
+        )}
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-xs text-slate-600">Catégorie *
             <div className="flex gap-1">
@@ -107,8 +124,17 @@ function FicheEquipement({ id, equipements, onClose, onModifier, onChange }) {
   if (!e) return null;
   const lignes = [["Catégorie", e.categorie], ["Fabricant / modèle", [e.fabricant, e.modele].filter(Boolean).join(" ")], ["N° de série", e.numero_serie],
     ["Adresse IP", e.adresse_ip], ["Adresse MAC", e.adresse_mac], ["Nom d'hôte", e.nom_hote], ["Système", e.systeme_exploitation],
-    ["Utilisateur affecté", e.utilisateur_affecte], ["Lieu", lieu(e)], ["Client", e.client_nom], ["Achat", dateFr(e.date_achat)],
+    ["Utilisateur affecté", e.utilisateur_affecte], ["Lieu", lieu(e)], ["Client", e.tenant_id ? e.client_nom : "À affecter (fiche créée par Loois)"], ["Achat", dateFr(e.date_achat)],
     ["Fin de garantie", dateFr(e.fin_garantie)], ["Fournisseur", e.fournisseur], ["Notes", e.notes]];
+  // Lot 66 : résumé technique envoyé par Loois (mis à jour automatiquement, au plus toutes les 30 minutes)
+  const lo = e.loois;
+  if (lo) {
+    lignes.push(["Processeur", [lo.processeur, lo.coeurs_logiques ? `${lo.coeurs_logiques} cœurs logiques` : ""].filter(Boolean).join(" · ")],
+      ["Mémoire vive", lo.ram_go ? `${lo.ram_go.toLocaleString("fr-FR")} Go` : ""],
+      ["Disques", (lo.disques || []).map((d) => `${d.lettre} ${d.libre_go ?? "?"} Go libres / ${d.total_go ?? "?"} Go`).join("\n")],
+      ["Cartes réseau (MAC)", (lo.macs || []).join("\n")],
+      ["Dernier inventaire Loois", lo.inventaire_le ? new Date(lo.inventaire_le).toLocaleString("fr-FR") : ""]);
+  }
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-2 sm:p-3">
       <div className="max-h-[94vh] w-full max-w-3xl space-y-3 overflow-y-auto rounded-xl bg-white p-4 sm:p-5" data-testid="parc-fiche">
@@ -212,6 +238,17 @@ export default function ParcInformatique() {
   const [edition, setEdition] = useState(null);             // null | "nouveau" | équipement
   const [fiche, setFiche] = useState(null);                 // id de l'équipement affiché
   const [importer, setImporter] = useState(false);
+  const [parametres, setParametres] = useSearchParams();
+
+  // Lot 66 : « ?equipement=<id> » (lien des détails d'un poste) → la fiche s'ouvre directement
+  useEffect(() => {
+    const id = parametres.get("equipement");
+    if (id) {
+      setFiche(id);
+      parametres.delete("equipement");
+      setParametres(parametres, { replace: true });
+    }
+  }, [parametres, setParametres]);
 
   useEffect(() => {
     apiClient.get("/me/parc-clients").then((r) => setClients(r.data)).catch((e) => setRefus(erreur(e, "Module indisponible")));
@@ -301,7 +338,7 @@ export default function ParcInformatique() {
                 {donnees && equipements.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-slate-400">Aucun équipement.{doitChoisir ? " Choisissez un client pour en ajouter ou en importer." : ""}</td></tr>}
                 {equipements.map((e) => (
                   <tr key={e.id} className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50" onClick={() => setFiche(e.id)}>
-                    <td className="p-2 font-mono text-xs">{e.numero_inventaire}{clients.admin && !compte && <span className="block font-sans text-[11px] text-slate-500">{e.client_nom}</span>}</td>
+                    <td className="p-2 font-mono text-xs">{e.numero_inventaire}{clients.admin && !compte && <span className="block font-sans text-[11px] text-slate-500">{e.tenant_id ? e.client_nom : <span className="text-amber-700">À affecter (Loois)</span>}</span>}</td>
                     <td className="p-2">{e.categorie}<span className="block text-[11px] text-slate-500">{[e.fabricant, e.modele].filter(Boolean).join(" ")}{e.nom_hote ? ` · ${e.nom_hote}` : ""}</span></td>
                     <td className="p-2 font-mono text-[11px]">{e.numero_serie || "—"}<span className="block">{e.adresse_mac || ""}</span><span className="block">{e.adresse_ip || ""}</span></td>
                     <td className="p-2 text-xs">{lieu(e) || "—"}<span className="block text-slate-500">{e.utilisateur_affecte || ""}</span></td>
@@ -320,7 +357,7 @@ export default function ParcInformatique() {
 
       {edition && (
         <FormulaireEquipement key={edition === "nouveau" ? "nouveau" : edition.id} equipement={edition === "nouveau" ? null : edition}
-          categories={categories} compteClientId={compte} onAjoutCategorie={ajouterCategorie} onClose={() => setEdition(null)}
+          categories={categories} compteClientId={compte} clients={clients} onAjoutCategorie={ajouterCategorie} onClose={() => setEdition(null)}
           onEnregistre={async (e) => {
             // e = null : photo ajoutée / supprimée -> équipement relu, formulaire gardé ouvert
             if (!e && edition?.id) { try { setEdition((await apiClient.get(`/me/parc/equipements/${edition.id}`)).data); } catch { /* supprimé */ } charger(); return; }

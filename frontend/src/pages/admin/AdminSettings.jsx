@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
+import WaLignesPanel from "../../components/WaLignesPanel";   // Lot 59
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
@@ -2245,6 +2246,8 @@ export default function AdminSettings() {
         </div>
         <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
+        {/* Lot 59 — plusieurs numéros WhatsApp (Liluvine Standard / VIP / Publicités…) */}
+        <WaLignesPanel s={s} upd={upd} />
         <WaTestPanel />
         <WaTokenHealthPanel />
         <WaWebhookSubscriptionPanel />

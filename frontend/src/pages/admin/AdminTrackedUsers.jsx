@@ -60,6 +60,8 @@ export default function AdminTrackedUsers() {
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
+  // Lot 59 — lignes WhatsApp de la plateforme (Liluvine Standard / VIP / Publicités…)
+  const [lignesWa, setLignesWa] = useState([]);
   const [pwdDialog, setPwdDialog] = useState(null); // tracked user being password-managed
   // Lot 20 — utilisateur suivi dont on règle le droit de dépôt R2 (Gestion de Stocks)
   const [r2Dialog, setR2Dialog] = useState(null);
@@ -98,6 +100,8 @@ export default function AdminTrackedUsers() {
   useEffect(() => {
     load().catch(() => {});
     apiClient.get("/admin/clients").then((r) => setClients(r.data));
+    // Lot 59 — liste des lignes WhatsApp pour les cases « Lignes visibles »
+    apiClient.get("/me/wa-lignes").then((r) => setLignesWa(r.data?.lignes || [])).catch(() => setLignesWa([]));
   }, []);
   const open = (it = null) => { setEditing(it); setForm(it ? { ...empty, ...it } : empty); setIsOpen(true); };
   const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
@@ -639,6 +643,37 @@ export default function AdminTrackedUsers() {
                   </div>
                 ))}
               </fieldset>
+              {/* Lot 59 — lignes WhatsApp visibles dans le Centre de messagerie (aucune case = toutes) */}
+              {lignesWa.length > 1 && (
+                <fieldset className="rounded-lg ring-1 ring-emerald-300 bg-emerald-50/50 p-3" data-testid="tu-wa-lignes">
+                  <legend className="text-xs font-semibold px-1 text-emerald-800">Lignes WhatsApp visibles (Centre de messagerie)</legend>
+                  <p className="text-[10px] text-slate-600 mb-2">
+                    Aucune case cochée = toutes les lignes. Les rôles Superviseur et Administrateur voient toujours tout.
+                  </p>
+                  {lignesWa.map((l) => {
+                    // Lignes cochées pour cet utilisateur (tableau de clés)
+                    const choisies = Array.isArray(form.wa_lignes_autorisees) ? form.wa_lignes_autorisees : [];
+                    const coche = choisies.includes(l.cle);
+                    return (
+                      <label key={l.cle} className="flex items-center gap-2 py-0.5 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={coche}
+                          onChange={(e) => {
+                            // Ajoute ou retire la ligne de la liste de l'utilisateur
+                            const suivantes = e.target.checked ? [...choisies, l.cle] : choisies.filter((c) => c !== l.cle);
+                            setForm({ ...form, wa_lignes_autorisees: suivantes });
+                          }}
+                        />
+                        <strong>{l.libelle}</strong>
+                        {l.telephone && <span className="text-slate-500">{l.telephone}</span>}
+                        {l.vip && <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800">VIP</span>}
+                        {l.prospects && <span className="rounded bg-sky-100 px-1 text-[10px] text-sky-800">Prospects</span>}
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              )}
               <div>
                 <label className="block text-xs font-semibold mb-1">Statut</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">

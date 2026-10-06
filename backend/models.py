@@ -531,6 +531,8 @@ class TrackedUserCreate(BaseModel):
     status: str = "active"
     # 2026-02 — Traducteur fields (only relevant when role == "Traducteur")
     translator_languages: Optional[List[str]] = None  # e.g. ["en", "ar", "lg1"]
+    # Lot 59 — lignes WhatsApp visibles dans le Centre de messagerie (vide = toutes)
+    wa_lignes_autorisees: Optional[List[str]] = None
     translator_rate_per_word: Optional[float] = None  # base in user currency
     # 2026-02 — Force logout toggle (#5)
     force_logout_on_idle: Optional[bool] = None
@@ -558,6 +560,7 @@ class TrackedUserUpdate(BaseModel):
     translator_languages: Optional[List[str]] = None
     translator_rate_per_word: Optional[float] = None
     force_logout_on_idle: Optional[bool] = None
+    wa_lignes_autorisees: Optional[List[str]] = None   # Lot 59 — lignes WhatsApp autorisées (vide = toutes)
     # 2026-02 fork (P4) — Overrides visibilité (voir TrackedUserCreate)
     show_dashboard: Optional[bool] = None
     show_welcome_modal: Optional[bool] = None
@@ -953,6 +956,11 @@ class SettingsUpdate(BaseModel):
     wa_app_id: Optional[str] = None                  # Meta App ID (webhook verification)
     wa_verify_token: Optional[str] = None            # Shared secret for webhook GET verification
     wa_default_language: Optional[str] = None        # Default template language code (e.g. 'fr')
+    # Lot 59 — plusieurs numéros WhatsApp SAWALI (lignes Liluvine), voir routes/numeros_wa.py
+    wa_principal_libelle: Optional[str] = None       # nom de la ligne principale (défaut « Liluvine Standard »)
+    wa_principal_telephone: Optional[str] = None     # numéro affiché de la ligne principale
+    wa_numeros: Optional[List[Dict[str, Any]]] = None  # lignes supplémentaires [{id, libelle, telephone, vip, prospects, complement_prompt}]
+    wa_seuil_vip: Optional[float] = None             # montant de contrat à partir duquel le client passe sur la ligne VIP
     # Iter35b — WhatsApp inbound-silence detector
     # When at least `wa_silence_alert_threshold` outbound messages were sent
     # in the trailing `wa_silence_alert_window_hours` window AND zero webhook

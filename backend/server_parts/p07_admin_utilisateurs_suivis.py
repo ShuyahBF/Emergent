@@ -138,6 +138,7 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
             "show_dashboard",
             "show_welcome_modal",
             "show_messaging_notifs",
+            "wa_lignes_autorisees",   # Lot 59 — lignes WhatsApp visibles dans le Centre de messagerie
         ):
             if f in update:
                 bridge_update[f] = update[f]
@@ -315,6 +316,7 @@ async def admin_set_tracked_password(
                 "show_dashboard": tu.get("show_dashboard"),
                 "show_welcome_modal": tu.get("show_welcome_modal"),
                 "show_messaging_notifs": tu.get("show_messaging_notifs"),
+                "wa_lignes_autorisees": tu.get("wa_lignes_autorisees"),   # Lot 59
                 "account_status": "active",
                 "updated_at": _now(),
             }},
@@ -341,6 +343,7 @@ async def admin_set_tracked_password(
             "show_dashboard": tu.get("show_dashboard"),
             "show_welcome_modal": tu.get("show_welcome_modal"),
             "show_messaging_notifs": tu.get("show_messaging_notifs"),
+            "wa_lignes_autorisees": tu.get("wa_lignes_autorisees"),   # Lot 59
             "created_at": _now(),
             "updated_at": _now(),
         })

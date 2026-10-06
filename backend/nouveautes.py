@@ -18,7 +18,7 @@ NOUVEAUTES = [
         "lot": "69.1", "date": "2026-10-06",
         "titre": "⚡ Qdrant ne bloque plus SAWALI",
         "description": "La page Qdrant s'ouvre vite et ne fige plus le serveur (lecture en parallèle, gardée 60 s).",
-        "rubrique": "RAG (Qdrant) — Base de connaissance vectorielle (S038)",
+        "rubrique": "RAG — Base de connaissance vectorielle (Qdrant) (S038)",
     },
     {
         "lot": "69", "date": "2026-10-06",

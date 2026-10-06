@@ -35,7 +35,8 @@ async def _compter(db, collection: str, filtre: Dict[str, Any]) -> int:
         return 0
 
 
-async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: bool = True) -> List[Dict[str, Any]]:
+async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: bool = True,
+                               cache_s: int = 600) -> List[Dict[str, Any]]:
     """Activité de chaque plateforme entre debut_iso (inclus) et fin_iso (exclu).
 
     Lot 62 : avec_interne → ajoute aussi les statistiques INTERNES fournies par la plateforme
@@ -86,7 +87,8 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
         try:
             from routes.stats_plateformes import stats_toutes
             complets = [x async for x in db.liluvine_emetteurs.find({}, {"_id": 0})]
-            internes = await stats_toutes(db, complets, debut_iso, fin_iso)
+            from datetime import timedelta as _td
+            internes = await stats_toutes(db, complets, debut_iso, fin_iso, duree_cache=_td(seconds=cache_s))
             for p in resultat:
                 p["interne"] = internes.get(p["code"])
         except Exception:  # noqa: BLE001 — les statistiques internes ne bloquent jamais le rapport
@@ -137,13 +139,20 @@ def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:
     from fastapi import Depends, HTTPException, Query
 
     @api.get("/admin/plateformes-activite", tags=["Admin — Synthèse"])
-    async def plateformes_activite(jours: int = Query(1, ge=1, le=90), user: dict = Depends(get_current_user)):
-        """Activité de chaque plateforme sur les `jours` derniers jours (+ texte de la synthèse)."""
+    async def plateformes_activite(jours: int = Query(1, ge=1, le=90), temps_reel: bool = False,
+                                   user: dict = Depends(get_current_user)):
+        """Activité de chaque plateforme sur les `jours` derniers jours (+ texte de la synthèse).
+
+        Lot 63 : temps_reel → statistiques internes rafraîchies chaque minute (page
+        « Plateformes en temps réel », réservée à l'administrateur)."""
         if user.get("role") not in ("admin", "superviseur"):
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+        if temps_reel and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Page réservée à l'administrateur")
         fin = datetime.now(timezone.utc)
         debut = fin - timedelta(days=jours)
-        items = await activite_plateformes(db, debut.isoformat(), fin.isoformat())
+        items = await activite_plateformes(db, debut.isoformat(), fin.isoformat(),
+                                           cache_s=60 if temps_reel else 600)
         return {"debut": debut.isoformat(), "fin": fin.isoformat(), "jours": jours,
                 "items": items, "texte": bloc_plateformes(items)}
 

@@ -77,6 +77,7 @@ import AdminInterventions from "@/pages/admin/AdminInterventions";
 import AdminDocuments from "@/pages/admin/AdminDocuments";
 import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
 import VidalApiLogs from "@/pages/admin/VidalApiLogs";
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
@@ -479,6 +480,8 @@ export default function App() {
             <Route path="i18n" element={<AdminI18n />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
+            {/* Lot 63 — suivi en temps réel des plateformes (administrateur) */}
+            <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites).

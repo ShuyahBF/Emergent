@@ -14,6 +14,7 @@ import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import ListeNoireCommandesSection from "@/pages/admin/sections/ListeNoireCommandesSection";   // Lot 61
+import BarriereWaSection from "@/pages/admin/sections/BarriereWaSection";   // Lot 63
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
@@ -845,6 +846,11 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">
         <LiluvineWaAutoreplySection />
+      </Filterable>
+
+      {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}
+      <Filterable title="🚧 Barrière anti-rafale WhatsApp (messages sans réponse)" anchorId="s-barriere-wa">
+        <BarriereWaSection />
       </Filterable>
 
       {/* Lot 61 — numéros interdits aux commandes « ! » et message de refus de Liluvine */}

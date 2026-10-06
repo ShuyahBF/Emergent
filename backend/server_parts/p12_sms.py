@@ -1916,8 +1916,46 @@ async def whatsapp_webhook_incoming(request: Request):
                                     doc["body"] = transcript if not media_caption else f"{media_caption}\n— {transcript}"
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("WA voice transcribe failed: %s", exc)
+                    # Lot 63 — barrière anti-rafale : trop de messages sans réponse de SAWALI →
+                    # au seuil, réponse automatique (texte + image) ; au-delà, message retenu.
+                    decision_barriere = "normal"
+                    try:
+                        from routes.barriere_wa import decision as _barriere_decision, reglages_barriere
+                        s_barriere = await db.settings.find_one({"_id": "global"}) or {}
+                        decision_barriere = await _barriere_decision(
+                            db, digits_only, mtype, text_body if mtype == "text" else None, s_barriere)
+                    except Exception:  # noqa: BLE001 — la barrière ne bloque jamais la réception
+                        logger.warning("[barriere_wa] décision impossible", exc_info=True)
+                    if decision_barriere == "retenir":
+                        # Message enregistré (traçabilité) mais NON transmis : pas de non-lu,
+                        # pas de notification, pas de réponse de Liluvine
+                        doc["barriere_retenu"] = True
+                        doc["read_by_us_at"] = _now()
+                        await db.whatsapp_messages.insert_one(doc)
+                        inserted_messages += 1
+                        continue
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
+                    if decision_barriere == "avertir":
+                        # Réponse automatique de la barrière (texte, puis image facultative)
+                        try:
+                            reg_b = reglages_barriere(s_barriere) or {}
+                            res_b = await _wa_send_text(from_num, reg_b.get("message") or "")
+                            image_b = reg_b.get("image_url") or ""
+                            if image_b:
+                                if image_b.startswith("/"):
+                                    image_b = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{image_b}"
+                                await _wa_send_media(from_num, "image", public_url=image_b)
+                            await db.whatsapp_messages.insert_one({
+                                "id": _uuid(), "client_id": scope_for_msg, "direction": "outbound",
+                                "to": from_num, "phone_digits": digits_only, "contact_id": (contact or {}).get("id"),
+                                "body": reg_b.get("message"), "message_type": "text",
+                                "ai_generated": True, "barriere_auto": True,
+                                "sender_label": "Barrière automatique",
+                                "wa_message_id": res_b.get("message_id"), "created_at": _now(), "sent_at": _now(),
+                            })
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[barriere_wa] réponse automatique impossible", exc_info=True)
                     # 2026-02 fork (P3b) — Emit `whatsapp.received` automation
                     # event. Create a short-lived reply-router token so an admin
                     # can respond via WhatsApp using `#R<code> <reply>` and

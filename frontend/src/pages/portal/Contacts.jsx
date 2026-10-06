@@ -3186,6 +3186,17 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
             ? <ArrowUpRight className="h-3 w-3" />
             : <ArrowDownLeft className="h-3 w-3" />}
           <span>{outbound ? "Envoyé" : "Reçu"}</span>
+          {/* Lot 63 — message retenu par la barrière anti-rafale / réponse automatique de la barrière */}
+          {!outbound && m.barriere_retenu && (
+            <span className="rounded-full bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-800" title="Message retenu par la barrière anti-rafale (non transmis)">
+              ⛔ Retenu
+            </span>
+          )}
+          {outbound && m.barriere_auto && (
+            <span className="rounded-full bg-white/20 px-1.5 py-0.5 font-semibold" title="Réponse automatique de la barrière anti-rafale">
+              🚧 Barrière
+            </span>
+          )}
           {/* Lot 59.1 — ligne WhatsApp qui a reçu ce message (nom + couleur choisie) */}
           {!outbound && m.wa_ligne && (
             <PastilleLigneWa

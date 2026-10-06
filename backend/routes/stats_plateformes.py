@@ -58,7 +58,10 @@ def _nettoyer(reponse: Any) -> Dict[str, Any]:
     faits = [str(f).strip()[:200] for f in (reponse.get("faits_marquants") or [])[:5] if str(f).strip()]
     if not indicateurs and not faits:
         raise ValueError("aucun indicateur dans la réponse")
-    return {"indicateurs": indicateurs, "faits_marquants": faits}
+    # Lot 63 — nombre d'utilisateurs actifs sur la plateforme ces 5 dernières minutes (facultatif)
+    connectes = reponse.get("utilisateurs_connectes")
+    connectes = int(connectes) if isinstance(connectes, (int, float)) and not isinstance(connectes, bool) else None
+    return {"indicateurs": indicateurs, "faits_marquants": faits, "utilisateurs_connectes": connectes}
 
 
 async def interroger(emetteur: Dict[str, Any], debut_iso: str, fin_iso: str) -> Dict[str, Any]:
@@ -88,15 +91,16 @@ async def interroger(emetteur: Dict[str, Any], debut_iso: str, fin_iso: str) -> 
 
 
 async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso: str,
-                           forcer: bool = False) -> Dict[str, Any]:
-    """Statistiques internes d'une plateforme pour la période (cache de 10 minutes)."""
+                           forcer: bool = False, duree_cache: timedelta = DUREE_CACHE) -> Dict[str, Any]:
+    """Statistiques internes d'une plateforme pour la période (cache de 10 minutes ;
+    lot 63 : 1 minute pour la page « temps réel »)."""
     code = emetteur.get("code")
     cle_cache = f"{code}|{debut_iso[:13]}|{fin_iso[:13]}"     # période arrondie à l'heure
     if not forcer:
         en_cache = await db.plateformes_stats.find_one({"_id": cle_cache})
         if en_cache:
             try:
-                if _maintenant() - datetime.fromisoformat(en_cache["recu_le"]) < DUREE_CACHE:
+                if _maintenant() - datetime.fromisoformat(en_cache["recu_le"]) < duree_cache:
                     return en_cache["resultat"]
             except (KeyError, ValueError):
                 pass
@@ -111,11 +115,12 @@ async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso
     return resultat
 
 
-async def stats_toutes(db, emetteurs: List[Dict[str, Any]], debut_iso: str, fin_iso: str) -> Dict[str, Dict[str, Any]]:
+async def stats_toutes(db, emetteurs: List[Dict[str, Any]], debut_iso: str, fin_iso: str,
+                       duree_cache: timedelta = DUREE_CACHE) -> Dict[str, Dict[str, Any]]:
     """Statistiques internes de toutes les plateformes actives qui ont une adresse (en parallèle)."""
     cibles = [e for e in emetteurs if e.get("actif", True) and adresse_stats(e) and e.get("secret")]
-    resultats = await asyncio.gather(*(stats_plateforme(db, e, debut_iso, fin_iso) for e in cibles),
-                                     return_exceptions=True)
+    resultats = await asyncio.gather(*(stats_plateforme(db, e, debut_iso, fin_iso, duree_cache=duree_cache)
+                                       for e in cibles), return_exceptions=True)
     sortie: Dict[str, Dict[str, Any]] = {}
     for e, res in zip(cibles, resultats):
         sortie[e["code"]] = res if isinstance(res, dict) else {"ok": False, "erreur": str(res)[:120]}

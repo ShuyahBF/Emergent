@@ -193,6 +193,9 @@ _setup_barriere_wa(db=db, api=api, get_current_user=get_current_user,
 # Lot 61.1 — écran « Activité des plateformes » (adLyn, beAuthentik…)
 from routes.rapport_plateformes import setup_rapport_plateformes_routes as _setup_rapport_plateformes  # noqa: E402
 _setup_rapport_plateformes(db=db, api=api, get_current_user=get_current_user)
+# Lot 65 — versions déployées (SAWALI, plateformes web, Loois et ses postes)
+from routes.versions_deployees import setup_versions_deployees_routes as _setup_versions_deployees  # noqa: E402
+_setup_versions_deployees(db=db, api=api, get_current_user=get_current_user, lire_version=version)
 
 # =====================================================================
 # Iter38k — Gemini Nano Banana image generation (icons + media generator).

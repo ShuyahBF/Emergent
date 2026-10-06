@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "69.1"
-LOT_LIBELLE = "Qdrant : la page ne bloque plus le serveur (lecture hors boucle principale, comptages en parallèle, cache 60 s)"
+LOT = "69.2"
+LOT_LIBELLE = "Son fluide pendant les appels de Liluvine (boucle média dédiée, file audio continue, pré-chargement, mesures de qualité) et voix à accent d'Afrique de l'Ouest (OpenAI gpt-4o-mini-tts, voix ElevenLabs, écouter un essai)"

@@ -15,6 +15,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "69.2", "date": "2026-10-06",
+        "titre": "🎧 Appels de Liluvine : son fluide et voix africaine",
+        "description": "Plus de silences hachés pendant les appels ; voix à accent d'Afrique de l'Ouest au choix, « Écouter un essai » et ligne « Qualité audio » au journal.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "69.1", "date": "2026-10-06",
         "titre": "⚡ Qdrant ne bloque plus SAWALI",
         "description": "La page Qdrant s'ouvre vite et ne fige plus le serveur (lecture en parallèle, gardée 60 s).",

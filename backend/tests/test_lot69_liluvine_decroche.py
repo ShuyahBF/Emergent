@@ -424,6 +424,10 @@ def test_appel_entrant_de_bout_en_bout(monkeypatch):
     assert j["transcription"][2]["texte"] == "Nous sommes ouverts de huit heures à dix-huit heures. Bonne journée !"
     assert j["fin"] == "au revoir" and j["resume"].startswith("Awa demande") and j["tours"] == 1
     assert j["cout"]["meta"] == 0.0 and j["cout"]["ia"] > 0 and j["transfert_humain"] is False
+    # Lot 69.2 — qualité audio journalisée (boucle média dédiée, aucun manque pendant les réponses)
+    q = j["qualite_audio"]
+    assert q["boucle_media"] is True and q["trames_son"] > 10 and q["sous_alimentations"] == 0
+    assert q["premier_son_moyen_s"] is not None and q["retard_media_max_ms"] >= 0
     # Résumé envoyé au propriétaire sur WhatsApp
     assert messages and "Liluvine a répondu à Awa Kaboré" in messages[0]["text"]["body"]
     assert not ld._actifs

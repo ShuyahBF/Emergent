@@ -8,7 +8,9 @@
 //   • « transmettre à un humain » : tâche de rappel + message au propriétaire.
 // Ce bloc permet : réglages, état du moteur et des clés, simulation écrite d'une conversation,
 // derniers appels pris par Liluvine.
-import React, { useCallback, useEffect, useState } from "react";
+// Lot 69.2 : « Voix et accent » — voix OpenAI + consigne d'accent (gpt-4o-mini-tts), choix d'une voix
+// ElevenLabs (compte ou bibliothèque de voix françaises à accent africain), « Écouter un essai ».
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import TranscriptionAppelLiluvine from "@/components/TranscriptionAppelLiluvine";
@@ -34,6 +36,11 @@ export default function LiluvineDecrocheSection() {
   const [occupe, setOccupe] = useState("");       // action en cours
   const [simu, setSimu] = useState({ texte: "", historique: [] });   // simulation écrite
   const [deplie, setDeplie] = useState(null);     // dernier appel dont la transcription est ouverte
+  // Lot 69.2 — choix d'une voix ElevenLabs (liste affichée) et lecteur de l'essai de voix
+  const [choixEl, setChoixEl] = useState(null);   // { source, voix: [...] } ou null (fermé)
+  const [accentEl, setAccentEl] = useState("african");
+  const [essaiUrl, setEssaiUrl] = useState("");   // adresse locale (blob) du dernier essai
+  const essaiRef = useRef(null);
 
   // Lecture des réglages et de l'état du moteur
   const charger = useCallback(async () => {
@@ -62,6 +69,11 @@ export default function LiluvineDecrocheSection() {
         liluvine_decroche_coupure_parole: e.coupure_parole !== false,
         liluvine_decroche_stt_modele: e.stt_modele || "gpt-4o-mini-transcribe",
         liluvine_decroche_exclus: s.liluvine_decroche_exclus || "",
+        // Lot 69.2 — profil de voix (aussi utilisé par « Liluvine appelle le propriétaire »)
+        liluvine_decroche_voix_openai: e.voix_openai || "nova",
+        liluvine_decroche_modele_openai: e.modele_openai || "gpt-4o-mini-tts",
+        liluvine_decroche_accent: s.liluvine_decroche_accent || e.accent || "",
+        liluvine_decroche_modele_elevenlabs: e.modele_elevenlabs || "eleven_flash_v2_5",
       });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Réglages indisponibles");
@@ -117,6 +129,46 @@ export default function LiluvineDecrocheSection() {
     }
   };
 
+  // Lot 69.2 — liste des voix ElevenLabs : compte, ou bibliothèque (voix françaises, accent choisi)
+  const listerVoixEl = async (source) => {
+    const r = await action("voix-el", () => apiClient.get("/admin/liluvine-decroche/voix-elevenlabs",
+      { params: { source, accent: accentEl } }), (x) => `${(x.data.voix || []).length} voix trouvée(s)`);
+    if (r) setChoixEl({ source, voix: r.data.voix || [] });
+  };
+
+  // Choisit une voix : celle du compte directement ; celle de la bibliothèque est d'abord ajoutée au compte
+  const choisirVoixEl = async (v) => {
+    let id = v.voice_id;
+    if (v.source === "bibliotheque") {
+      const r = await action("voix-el", () => apiClient.post("/admin/liluvine-decroche/voix-elevenlabs/ajouter",
+        { proprietaire_id: v.proprietaire_id, voice_id: v.voice_id, nom: `Liluvine — ${v.nom || "voix"}` }),
+        () => "Voix ajoutée à votre compte ElevenLabs");
+      if (!r) return;
+      id = r.data.voice_id || id;
+    }
+    setForm((f) => ({ ...f, liluvine_decroche_voix_elevenlabs: id, liluvine_decroche_voix: "elevenlabs" }));
+    toast.success(`Voix « ${v.nom} » choisie : cliquez sur « Écouter un essai » puis « Enregistrer »`);
+  };
+
+  // « Écouter un essai » : l'accueil prononcé avec la voix et l'accent du formulaire (même non enregistrés)
+  const ecouterEssai = async () => {
+    const r = await action("essai", () => apiClient.post("/admin/liluvine-decroche/essai-voix", {
+      liluvine_decroche_voix: form.liluvine_decroche_voix,
+      liluvine_decroche_voix_elevenlabs: form.liluvine_decroche_voix_elevenlabs,
+      liluvine_decroche_voix_openai: form.liluvine_decroche_voix_openai,
+      liluvine_decroche_modele_openai: form.liluvine_decroche_modele_openai,
+      liluvine_decroche_accent: form.liluvine_decroche_accent,
+      liluvine_decroche_modele_elevenlabs: form.liluvine_decroche_modele_elevenlabs,
+      texte: form.liluvine_decroche_accueil,
+    }, { responseType: "blob" }), () => "Essai prêt : écoute en cours");
+    if (!r) return;
+    if (essaiUrl) URL.revokeObjectURL(essaiUrl);
+    const url = URL.createObjectURL(r.data);
+    setEssaiUrl(url);
+    setTimeout(() => { try { essaiRef.current?.play(); } catch (_) { /* lecture manuelle */ } }, 50);
+  };
+
+  const choixVoix = donnees?.choix_voix || {};
   const moteur = donnees?.moteur || {};
   const effectif = donnees?.effectif || {};
   const champ = "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm";
@@ -235,7 +287,7 @@ export default function LiluvineDecrocheSection() {
             <span className="font-semibold text-slate-700">Voix de Liluvine</span>
             <select value={form.liluvine_decroche_voix} onChange={(e) => maj("liluvine_decroche_voix", e.target.value)} className={champ}>
               <option value="auto">Automatique (OpenAI → ElevenLabs → Google)</option>
-              <option value="openai">OpenAI (voix « nova »)</option>
+              <option value="openai">OpenAI (voix et accent ci-dessous)</option>
               <option value="elevenlabs">ElevenLabs (voix ci-contre)</option>
               <option value="google">Google (sans clé)</option>
             </select>
@@ -256,6 +308,87 @@ export default function LiluvineDecrocheSection() {
             <input value={form.liluvine_decroche_exclus} onChange={(e) => maj("liluvine_decroche_exclus", e.target.value)}
               placeholder="+226 70 00 00 00, …" className={champ} />
           </label>
+        </div>
+        {/* Lot 69.2 — Voix et accent (communs aux appels « Liluvine décroche » et « Liluvine appelle le propriétaire ») */}
+        <div className="mt-3 space-y-2 rounded-lg bg-violet-50/60 p-2 ring-1 ring-violet-100" data-testid="voix-accent">
+          <p className="font-semibold text-violet-900">🎙️ Voix et accent de Liluvine</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className="font-semibold text-slate-700">Voix OpenAI</span>
+              <select value={form.liluvine_decroche_voix_openai} onChange={(e) => maj("liluvine_decroche_voix_openai", e.target.value)} className={champ}>
+                {(choixVoix.openai || ["nova"]).map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="font-semibold text-slate-700">Modèle OpenAI</span>
+              <select value={form.liluvine_decroche_modele_openai} onChange={(e) => maj("liluvine_decroche_modele_openai", e.target.value)} className={champ}>
+                <option value="gpt-4o-mini-tts">gpt-4o-mini-tts (suit la consigne d'accent)</option>
+                <option value="tts-1">tts-1 (ancien, sans accent)</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="font-semibold text-slate-700">Modèle ElevenLabs</span>
+              <select value={form.liluvine_decroche_modele_elevenlabs} onChange={(e) => maj("liluvine_decroche_modele_elevenlabs", e.target.value)} className={champ}>
+                <option value="eleven_flash_v2_5">eleven_flash_v2_5 (rapide, conseillé au téléphone)</option>
+                <option value="eleven_multilingual_v2">eleven_multilingual_v2 (plus expressif, plus lent)</option>
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="font-semibold text-slate-700">Accent / style de voix (consigne donnée à gpt-4o-mini-tts)</span>
+            <input value={form.liluvine_decroche_accent} onChange={(e) => maj("liluvine_decroche_accent", e.target.value)}
+              placeholder={choixVoix.accent_defaut || "français d'Afrique de l'Ouest, chaleureux et posé"} className={champ} />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={ecouterEssai} disabled={!!occupe}
+              className="rounded-lg border border-violet-300 bg-white px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50">
+              {occupe === "essai" ? <Jauge /> : "🔊"} Écouter un essai
+            </button>
+            <button type="button" onClick={() => listerVoixEl("compte")} disabled={!!occupe || !choixVoix.elevenlabs_cle}
+              title={choixVoix.elevenlabs_cle ? "" : "ELEVENLABS_API_KEY manquante sur Render"}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50">
+              {occupe === "voix-el" ? <Jauge /> : "🗂️"} Choisir une voix ElevenLabs (mon compte)
+            </button>
+            <span className="inline-flex items-center gap-1">
+              <button type="button" onClick={() => listerVoixEl("bibliotheque")} disabled={!!occupe || !choixVoix.elevenlabs_cle}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50">
+                🌍 Bibliothèque : voix françaises, accent
+              </button>
+              <input value={accentEl} onChange={(e) => setAccentEl(e.target.value)} className="w-28 rounded border border-slate-300 px-1 py-0.5" />
+            </span>
+          </div>
+          {essaiUrl && <audio ref={essaiRef} src={essaiUrl} controls className="h-8 w-full max-w-md" />}
+          {choixEl && (
+            <div className="max-h-64 overflow-auto rounded bg-white p-1 ring-1 ring-slate-200">
+              {(choixEl.voix || []).length === 0 && (
+                <p className="p-1 text-slate-500">Aucune voix trouvée. Dans la « Voice Library » d'ElevenLabs, filtrez Langue = French,
+                  ajoutez une voix à « My Voices », puis cliquez sur « mon compte ».</p>
+              )}
+              <table className="w-full">
+                <tbody>
+                  {(choixEl.voix || []).map((v) => (
+                    <tr key={`${v.proprietaire_id || ""}-${v.voice_id}`} className="border-t border-slate-100"
+                      aria-selected={form.liluvine_decroche_voix_elevenlabs === v.voice_id ? "true" : undefined}>
+                      <td className="px-1 py-0.5 font-semibold">{v.nom}</td>
+                      <td className="px-1 py-0.5">{[v.accent, v.genre, v.locale || v.langue].filter(Boolean).join(" · ")}</td>
+                      <td className="px-1 py-0.5">{v.extrait ? <audio src={v.extrait} controls preload="none" className="h-7 w-44" /> : null}</td>
+                      <td className="px-1 py-0.5 text-right">
+                        <button type="button" onClick={() => choisirVoixEl(v)} disabled={!!occupe}
+                          className="rounded border border-violet-300 px-2 py-0.5 text-violet-800 hover:bg-violet-50 disabled:opacity-50">
+                          {v.source === "bibliotheque" ? "Ajouter et choisir" : "Choisir"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500">
+            Meilleur accent africain : une voix ElevenLabs de la bibliothèque enregistrée par un locuteur d'Afrique de l'Ouest
+            (accent naturel). Sinon, OpenAI gpt-4o-mini-tts suit la consigne d'accent (résultat plus approximatif).
+            Google (gratuit) reste le dernier recours.
+          </p>
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
           Langue : français. Sans clé OpenAI, Liluvine décroche, s'excuse de ne pas pouvoir écouter, crée une demande de rappel

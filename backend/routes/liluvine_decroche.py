@@ -164,6 +164,8 @@ def reglages_decroche(s: Dict[str, Any]) -> Dict[str, Any]:
         "stt_modele": stt if stt in MODELES_STT else MODELES_STT[0],
         "exclus": {ap._chiffres(x)[-8:] for x in re.split(r"[,;\n]+", exclus_brut) if len(ap._chiffres(x)) >= 8},
         "langue": "fr",
+        # Lot 69.2 — voix et modèle OpenAI, consigne d'accent, modèle ElevenLabs (communs avec le lot 67)
+        **ap.profil_voix(s),
     }
 
 
@@ -385,9 +387,11 @@ async def resumer(transcription: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 async def synthese_vocale(texte: str, s: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bytes, str]:
-    """Voix de Liluvine (chaîne du lot 67 : OpenAI → ElevenLabs → Google) décodée en PCM 48 kHz mono."""
+    """Voix de Liluvine (chaîne du lot 67 : OpenAI → ElevenLabs → Google) en PCM 48 kHz mono.
+    Lot 69.2 : décodage, passage en 48 kHz et raccourcissement des silences dans un fil séparé
+    (jamais dans la boucle) ; OpenAI et ElevenLabs livrent directement du PCM (pas de MP3)."""
     audio, fournisseur = await ap.synthetiser(texte, s, cfg)
-    pcm = await asyncio.to_thread(ap.decoder_pcm, audio)
+    pcm = await asyncio.to_thread(ap.preparer_pcm, audio)
     return pcm, fournisseur
 
 
@@ -533,60 +537,11 @@ def texte_resume_proprio(nom: str, telephone: str, resume: str, duree_s: int, tr
 # ---------------------------------------------------------------------------
 
 def creer_piste_conversation():
-    """Piste audio WebRTC envoyée à l'appelant : silence, sauf quand on lui donne du son à jouer.
-    jouer(pcm) ajoute du son (48 kHz mono 16 bits) ; arreter() coupe immédiatement ;
-    en_lecture indique s'il reste du son à jouer."""
-    import fractions
-
-    import av
-    from aiortc import MediaStreamTrack
-
-    octets_trame = ap.ECHANTILLONS_TRAME * 2
-    silence = b"\x00" * octets_trame
-
-    class PisteConversation(MediaStreamTrack):
-        """Une trame de 20 ms toutes les 20 ms, en temps réel."""
-        kind = "audio"
-
-        def __init__(self):
-            super().__init__()
-            self._tampon = bytearray()
-            self._debut: Optional[float] = None
-            self._horodatage = 0
-            self.trames_jouees = 0
-
-        @property
-        def en_lecture(self) -> bool:
-            return len(self._tampon) > 0
-
-        def jouer(self, pcm: bytes) -> None:
-            self._tampon.extend(pcm)
-
-        def arreter(self) -> None:
-            self._tampon.clear()
-
-        async def recv(self):
-            # Cadence temps réel
-            if self._debut is None:
-                self._debut = time.time()
-            else:
-                self._horodatage += ap.ECHANTILLONS_TRAME
-                attente = self._debut + self._horodatage / ap.FREQUENCE - time.time()
-                if attente > 0:
-                    await asyncio.sleep(attente)
-            morceau = silence
-            if self._tampon:
-                morceau = bytes(self._tampon[:octets_trame]).ljust(octets_trame, b"\x00")
-                del self._tampon[:octets_trame]
-                self.trames_jouees += 1
-            trame = av.AudioFrame(format="s16", layout="mono", samples=ap.ECHANTILLONS_TRAME)
-            trame.planes[0].update(morceau)
-            trame.pts = self._horodatage
-            trame.sample_rate = ap.FREQUENCE
-            trame.time_base = fractions.Fraction(1, ap.FREQUENCE)
-            return trame
-
-    return PisteConversation()
+    """Piste audio WebRTC envoyée à l'appelant (lot 69.2 : piste PERSISTANTE du module audio_appel) :
+    silence continu ; debut_reponse() / ajouter(pcm) / fin_reponse() pour parler sans trou entre les
+    phrases ; arreter() coupe immédiatement ; en_lecture indique s'il reste du son à jouer."""
+    from routes.audio_appel import creer_piste_voix
+    return creer_piste_voix()
 
 
 # ---------------------------------------------------------------------------
@@ -683,48 +638,73 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
         return {"resultat": "échec", "raison": "offre SDP ou numéro absent"}
 
     from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
-    pc = RTCPeerConnection(RTCConfiguration(iceServers=ap.serveurs_ice()))
-    piste = creer_piste_conversation()
+    from routes.audio_appel import SondeBoucle, lancer_sur_media, sur_media
+    ice = ap.serveurs_ice()
     detecteur = DetecteurParole()
     phrases: asyncio.Queue = asyncio.Queue()
     raccroche = asyncio.Event()
-    lecteurs: List[asyncio.Task] = []
+    principale = asyncio.get_running_loop()      # boucle de la conversation (API)
+    lecteurs: List[Any] = []
     mesures: Dict[str, Any] = {"stt_secondes": 0.0, "stt_modele": None, "tts_caracteres": {}, "llm_entree": 0,
-                               "llm_sortie": 0, "tours": 0, "latences_s": []}
+                               "llm_sortie": 0, "tours": 0, "latences_s": [], "premier_son_s": []}
     transcription: List[Dict[str, Any]] = []
     accepte = False
     debut = time.monotonic()            # remis à l'heure du décroché effectif (accept)
+    # Lot 69.2 — sondes de retard : boucle principale (API) et boucle média (son)
+    sonde_principale, sonde_media = SondeBoucle(), SondeBoucle()
+    sondes = [asyncio.ensure_future(sonde_principale.tourner()), lancer_sur_media(sonde_media.tourner)]  # références gardées
 
-    @pc.on("track")
-    def sur_piste(piste_appelant):
-        """Son de l'appelant : rééchantillonné en 16 kHz mono puis découpé en phrases."""
-        if piste_appelant.kind != "audio":
-            return
+    def signaler_raccroche() -> None:
+        """Pose « raccroché » dans la boucle principale (appelable depuis la boucle média)."""
+        principale.call_soon_threadsafe(raccroche.set)
 
-        async def lire():
-            import av
-            reech = av.AudioResampler(format="s16", layout="mono", rate=FREQ_ANALYSE)
-            while True:
-                try:
-                    trame = await piste_appelant.recv()
-                except Exception:  # noqa: BLE001 — fin du flux : l'appelant a raccroché
-                    raccroche.set()
-                    return
-                for t in reech.resample(trame):
-                    for phrase in detecteur.ajouter(bytes(t.planes[0])[: t.samples * 2]):
-                        phrases.put_nowait(phrase)
-        lecteurs.append(asyncio.ensure_future(lire()))
+    async def _preparer():
+        """(boucle média) Connexion WebRTC, piste persistante, écoute de l'appelant, réponse SDP.
+        Lot 69.2 : tout le son vit dans la boucle média, isolée des lenteurs de l'API."""
+        connexion = RTCPeerConnection(RTCConfiguration(iceServers=ice))
+        p = creer_piste_conversation()
 
-    @pc.on("connectionstatechange")
-    async def sur_etat():
-        if pc.connectionState in ("failed", "closed"):
-            raccroche.set()
+        @connexion.on("track")
+        def sur_piste(piste_appelant):
+            """Son de l'appelant : rééchantillonné en 16 kHz mono puis découpé en phrases (léger :
+            ~0,1 ms par trame) ; les phrases finies partent vers la boucle principale."""
+            if piste_appelant.kind != "audio":
+                return
 
+            async def lire():
+                import av
+                reech = av.AudioResampler(format="s16", layout="mono", rate=FREQ_ANALYSE)
+                while True:
+                    try:
+                        trame = await piste_appelant.recv()
+                    except Exception:  # noqa: BLE001 — fin du flux : l'appelant a raccroché
+                        signaler_raccroche()
+                        return
+                    for t in reech.resample(trame):
+                        for phrase in detecteur.ajouter(bytes(t.planes[0])[: t.samples * 2]):
+                            principale.call_soon_threadsafe(phrases.put_nowait, phrase)
+            lecteurs.append(asyncio.ensure_future(lire()))
+
+        @connexion.on("connectionstatechange")
+        async def sur_etat():
+            if connexion.connectionState in ("failed", "closed"):
+                signaler_raccroche()
+
+        await connexion.setRemoteDescription(RTCSessionDescription(sdp=offre, type="offer"))
+        connexion.addTrack(p)
+        await connexion.setLocalDescription(await connexion.createAnswer())
+        return connexion, p
+
+    async def _fermer():
+        """(boucle média) Arrête l'écoute et ferme la connexion."""
+        for t in lecteurs:
+            t.cancel()
+        await pc.close()
+
+    pc = None
     try:
         # 2. Réponse SDP du serveur à l'offre de Meta, puis pre_accept + accept
-        await pc.setRemoteDescription(RTCSessionDescription(sdp=offre, type="offer"))
-        pc.addTrack(piste)
-        await pc.setLocalDescription(await pc.createAnswer())
+        pc, piste = await sur_media(_preparer)
         session = {"sdp_type": "answer", "sdp": pc.localDescription.sdp}
         for action in ("pre_accept", "accept"):
             rep = await _graph_appel(s, numero_id, {"call_id": call_id, "action": action, "session": session})
@@ -748,37 +728,50 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
             raise RuntimeError("connexion audio impossible (ICE/DTLS) — vérifiez l'UDP sortant ou le TURN")
         prompt = await prompt_de_l_appel(db, s, appel)
 
-        async def dire(texte: str) -> bool:
-            """Dit un texte (phrase par phrase, la suivante est synthétisée pendant la lecture).
-            Renvoie False si l'appelant a coupé la parole à Liluvine."""
+        async def dire(texte: str, t_question: Optional[float] = None) -> bool:
+            """Dit un texte. Lot 69.2 : les phrases sont synthétisées l'une après l'autre et AJOUTÉES À LA
+            SUITE dans la file de la piste dès qu'elles sont prêtes (aucun trou entre deux phrases) ; la
+            lecture commence avec 400 ms d'avance. Renvoie False si l'appelant a coupé la parole."""
             texte = texte.strip()
             if not texte:
                 return True
             transcription.append(tour("liluvine", texte, debut, _maintenant()))
             morceaux = decouper_phrases(texte)
-            prochaine = asyncio.ensure_future(synthese_vocale(morceaux[0], s, cfg))
-            for i in range(len(morceaux)):
+            piste.debut_reponse()
+
+            async def producteur():
+                """Synthèse des phrases dans l'ordre ; chacune rejoint la file dès qu'elle est prête."""
                 try:
-                    pcm, fournisseur = await prochaine
-                except Exception:  # noqa: BLE001 — voix indisponible pour ce morceau
-                    logger.warning("[liluvine_decroche] voix impossible", exc_info=True)
-                    pcm, fournisseur = b"", None
-                if i + 1 < len(morceaux):
-                    prochaine = asyncio.ensure_future(synthese_vocale(morceaux[i + 1], s, cfg))
-                if fournisseur:
-                    mesures["tts_caracteres"][fournisseur] = mesures["tts_caracteres"].get(fournisseur, 0) + len(morceaux[i])
-                piste.jouer(pcm)
+                    for m in morceaux:
+                        try:
+                            pcm, fournisseur = await synthese_vocale(m, s, cfg)
+                        except Exception:  # noqa: BLE001 — voix indisponible pour ce morceau
+                            logger.warning("[liluvine_decroche] voix impossible", exc_info=True)
+                            continue
+                        if fournisseur:
+                            mesures["tts_caracteres"][fournisseur] = mesures["tts_caracteres"].get(fournisseur, 0) + len(m)
+                        piste.ajouter(pcm)
+                finally:
+                    piste.fin_reponse()
+            production = asyncio.ensure_future(producteur())
+            try:
                 # Attente de la fin de la lecture (ou coupure de parole par l'appelant)
                 while piste.en_lecture and not raccroche.is_set():
                     if (cfg["coupure_parole"] and detecteur.parle and detecteur.debut_parole
                             and time.monotonic() - detecteur.debut_parole > 0.4):
+                        production.cancel()
                         piste.arreter()
-                        if i + 1 < len(morceaux):
-                            prochaine.cancel()
                         transcription[-1]["interrompu"] = True
                         return False
-                    await asyncio.sleep(0.05)
-            return True
+                    await asyncio.sleep(0.03)
+                return True
+            finally:
+                if not production.done():
+                    production.cancel()
+                # Délai entre la fin de la phrase de l'appelant et le premier son de la réponse
+                premier = piste.lecteur.premier_son
+                if t_question is not None and premier is not None and premier >= t_question:
+                    mesures["premier_son_s"].append(round(premier - t_question, 2))
 
         # 4. Accueil puis conversation
         await asyncio.sleep(0.3)
@@ -833,7 +826,7 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
                 reponse, marque = TEXTE_ERREUR, "erreur"
             mesures["tours"] += 1
             mesures["latences_s"].append(round(time.monotonic() - t0, 2))
-            await dire(reponse or TEXTE_REPETER)
+            await dire(reponse or TEXTE_REPETER, t0)
             dernier = time.monotonic()
             if marque == "humain":
                 fin, transfert = "demande à parler à un humain", cfg["transfert_actif"]
@@ -843,6 +836,7 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
                 fin = "au revoir"
         # Laisse finir la dernière phrase avant de raccrocher
         await asyncio.sleep(0.6)
+        mesures["qualite_audio"] = qualite_audio(piste, sonde_principale, sonde_media, mesures)
         duree_s = int(round(time.monotonic() - debut))
         return await _cloturer(db, s, cfg, appel, transcription, mesures, fin or "fin", transfert, duree_s,
                                raccrocher=not (fin == "l'appelant a raccroché"))
@@ -851,15 +845,38 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
         if not accepte:
             await _rendre_appel(db, call_id)
             return {"resultat": "échec", "raison": str(exc)[:200]}
+        if pc is not None:
+            mesures["qualite_audio"] = qualite_audio(piste, sonde_principale, sonde_media, mesures)
         return await _cloturer(db, s, cfg, appel, transcription, mesures, f"erreur : {str(exc)[:150]}", True,
                                int(round(time.monotonic() - debut)), raccrocher=True)
     finally:
-        for t in lecteurs:
-            t.cancel()
+        sonde_principale.arreter()
+        sonde_media.arreter()
+        for f in sondes:
+            f.cancel()
         try:
-            await pc.close()
+            if pc is not None:
+                await sur_media(_fermer)
         except Exception:  # noqa: BLE001
             pass
+
+
+def qualite_audio(piste, sonde_principale, sonde_media, mesures: Dict[str, Any]) -> Dict[str, Any]:
+    """Lot 69.2 — mesures de qualité du son d'un appel (journal, ligne « Qualité audio ») :
+    manques de son pendant une réponse, recalages d'horloge, retards maximaux des boucles,
+    délai moyen avant le premier son d'une réponse."""
+    from routes.audio_appel import boucle_media_active
+    m = piste.mesures() if hasattr(piste, "mesures") else {}
+    premiers = mesures.get("premier_son_s") or []
+    return {
+        "sous_alimentations": int(m.get("sous_alimentations") or 0),
+        "recalages": int(m.get("recalages") or 0),
+        "trames_son": int(m.get("trames_son") or 0),
+        "retard_boucle_max_ms": int(round(sonde_principale.retard_max_ms)),
+        "retard_media_max_ms": int(round(sonde_media.retard_max_ms)),
+        "premier_son_moyen_s": round(sum(premiers) / len(premiers), 2) if premiers else None,
+        "boucle_media": boucle_media_active(),
+    }
 
 
 async def _termine_chez_meta(db, call_id: str) -> bool:
@@ -894,7 +911,9 @@ async def _cloturer(db, s: Dict[str, Any], cfg: Dict[str, Any], appel: Dict[str,
     journal = {"transcription": transcription, "resume": resume, "fin": fin, "transfert_humain": bool(transfert),
                "tache_rappel_id": tache_id, "duree_s": duree_s, "tours": mesures["tours"], "cout": cout,
                "latence_moyenne_s": round(sum(lat) / len(lat), 2) if lat else None,
-               "voix": sorted(mesures["tts_caracteres"]), "stt_modele": mesures.get("stt_modele")}
+               "voix": sorted(mesures["tts_caracteres"]), "stt_modele": mesures.get("stt_modele"),
+               # Lot 69.2 — qualité du son (diagnostic des coupures)
+               "qualite_audio": mesures.get("qualite_audio")}
     maj: Dict[str, Any] = {"liluvine": journal, "repondu_par": NOM_LILUVINE, "decroche_par_nom": NOM_LILUVINE,
                            "resultat": "répondu par Liluvine", "maj": _maintenant().isoformat()}
     doc = await db.wa_appels.find_one({"id": call_id}, {"_id": 0, "statut": 1, "duree_s": 1}) or {}
@@ -962,7 +981,59 @@ CHAMPS = {
     "liluvine_decroche_voix_elevenlabs": str, "liluvine_decroche_transfert_actif": bool,
     "liluvine_decroche_resume_proprio": bool, "liluvine_decroche_max_simultanes": int,
     "liluvine_decroche_coupure_parole": bool, "liluvine_decroche_stt_modele": str, "liluvine_decroche_exclus": str,
+    # Lot 69.2 — profil de voix (aussi utilisé par « Liluvine appelle le propriétaire », lot 67)
+    "liluvine_decroche_voix_openai": str, "liluvine_decroche_modele_openai": str, "liluvine_decroche_accent": str,
+    "liluvine_decroche_modele_elevenlabs": str,
 }
+
+# Lot 69.2 — Bibliothèque de voix ElevenLabs : accents proposés pour la recherche de voix françaises
+ACCENTS_BIBLIOTHEQUE = ("african", "west african", "ivorian", "senegalese", "cameroonian", "congolese", "")
+# Texte d'essai par défaut (« Écouter un essai ») quand aucun accueil n'est saisi
+TEXTE_ESSAI = ACCUEIL_DEFAUT
+
+
+async def _elevenlabs_get(chemin: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """GET sur l'API ElevenLabs avec la clé ELEVENLABS_API_KEY (côté serveur, jamais envoyée au navigateur)."""
+    cle = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not cle:
+        raise RuntimeError("ELEVENLABS_API_KEY absente (variable d'environnement Render)")
+    async with httpx.AsyncClient(timeout=15) as http:
+        r = await http.get(f"https://api.elevenlabs.io{chemin}", params=params, headers={"xi-api-key": cle})
+    if r.status_code >= 300:
+        raise RuntimeError(f"ElevenLabs HTTP {r.status_code}")
+    return r.json() or {}
+
+
+def voix_du_compte(donnees: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Réponse de GET /v1/voices → liste simple (nom, accent, genre, extrait sonore)."""
+    sortie = []
+    for v in donnees.get("voices") or []:
+        etiquettes = v.get("labels") or {}
+        sortie.append({"voice_id": v.get("voice_id"), "nom": v.get("name"), "accent": etiquettes.get("accent"),
+                       "genre": etiquettes.get("gender"), "langue": etiquettes.get("language"),
+                       "description": etiquettes.get("description") or v.get("description"),
+                       "extrait": v.get("preview_url"), "categorie": v.get("category"), "source": "compte"})
+    return sortie
+
+
+def voix_de_la_bibliotheque(donnees: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Réponse de GET /v1/shared-voices → liste simple (à ajouter au compte avant usage)."""
+    return [{"voice_id": v.get("voice_id"), "proprietaire_id": v.get("public_owner_id"), "nom": v.get("name"),
+             "accent": v.get("accent"), "genre": v.get("gender"), "langue": v.get("language"),
+             "locale": v.get("locale"), "description": (v.get("description") or "")[:200],
+             "extrait": v.get("preview_url"), "source": "bibliotheque"}
+            for v in donnees.get("voices") or []]
+
+
+def reglages_essai(s: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Réglages de voix pour « Écouter un essai » : ceux enregistrés, remplacés par ceux du formulaire
+    (non encore enregistrés) — seuls les champs de voix connus sont pris."""
+    brut = dict(s or {})
+    for cle in ("liluvine_decroche_voix", "liluvine_decroche_voix_elevenlabs", "liluvine_decroche_voix_openai",
+                "liluvine_decroche_modele_openai", "liluvine_decroche_accent", "liluvine_decroche_modele_elevenlabs"):
+        if cle in (payload or {}):
+            brut[cle] = str(payload.get(cle) or "").strip()[:500]
+    return reglages_decroche(brut)
 
 
 def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
@@ -996,6 +1067,11 @@ def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
                        "en_cours": len(_actifs)},
             "proprietaire": bool(ap.reglages(s)["numeros"]),
             "derniers": derniers,
+            # Lot 69.2 — choix proposés pour la voix (et présence de la clé ElevenLabs, jamais sa valeur)
+            "choix_voix": {"openai": list(ap.VOIX_OPENAI), "modeles_openai": list(ap.MODELES_OPENAI),
+                           "modeles_elevenlabs": list(ap.MODELES_ELEVENLABS), "accent_defaut": ap.ACCENT_DEFAUT,
+                           "elevenlabs_cle": bool(os.environ.get("ELEVENLABS_API_KEY", "").strip()),
+                           "openai_cle": bool(cle_openai(s))},
         }
 
     @api.put("/admin/liluvine-decroche", tags=["Admin — WhatsApp"])
@@ -1027,6 +1103,17 @@ def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=422, detail="Voix inconnue")
         if maj.get("liluvine_decroche_stt_modele") and maj["liluvine_decroche_stt_modele"] not in MODELES_STT:
             raise HTTPException(status_code=422, detail="Modèle de transcription inconnu")
+        # Lot 69.2 — profil de voix
+        if maj.get("liluvine_decroche_voix_openai") and maj["liluvine_decroche_voix_openai"] not in ap.VOIX_OPENAI:
+            raise HTTPException(status_code=422, detail="Voix OpenAI inconnue")
+        if maj.get("liluvine_decroche_modele_openai") and maj["liluvine_decroche_modele_openai"] not in ap.MODELES_OPENAI:
+            raise HTTPException(status_code=422, detail="Modèle de voix OpenAI inconnu")
+        if (maj.get("liluvine_decroche_modele_elevenlabs")
+                and maj["liluvine_decroche_modele_elevenlabs"] not in ap.MODELES_ELEVENLABS):
+            raise HTTPException(status_code=422, detail="Modèle ElevenLabs inconnu")
+        if maj.get("liluvine_decroche_voix_elevenlabs") and not re.fullmatch(r"[A-Za-z0-9]{8,64}",
+                                                                             maj["liluvine_decroche_voix_elevenlabs"]):
+            raise HTTPException(status_code=422, detail="Identifiant de voix ElevenLabs invalide")
         maj["liluvine_decroche_maj_par"] = user.get("full_name") or user.get("email")
         await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         return {"ok": True}
@@ -1057,3 +1144,69 @@ def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
                 "historique": transcription + [{"qui": "appelant", "texte": texte},
                                                {"qui": "liluvine", "texte": reponse}],
                 "jetons": {"entree": rep.get("entree"), "sortie": rep.get("sortie")}}
+
+    @api.get("/admin/liluvine-decroche/voix-elevenlabs", tags=["Admin — WhatsApp"])
+    async def voix_elevenlabs(source: str = "compte", accent: str = "african", recherche: str = "",
+                              user: dict = Depends(get_current_user)):
+        """Lot 69.2 — « Choisir une voix ElevenLabs » : voix du compte (GET /v1/voices) ou recherche de
+        voix FRANÇAISES dans la bibliothèque partagée (GET /v1/shared-voices, language=fr, accent).
+        Si aucun résultat avec l'accent demandé, nouvelle recherche par mots-clés (« afrique »)."""
+        _exiger_admin(user)
+        try:
+            if source == "bibliotheque":
+                params: Dict[str, Any] = {"language": "fr", "page_size": 30}
+                if accent.strip():
+                    params["accent"] = accent.strip()[:40]
+                if recherche.strip():
+                    params["search"] = recherche.strip()[:60]
+                voix = voix_de_la_bibliotheque(await _elevenlabs_get("/v1/shared-voices", params))
+                if not voix and accent.strip():
+                    voix = voix_de_la_bibliotheque(await _elevenlabs_get("/v1/shared-voices", {
+                        "language": "fr", "page_size": 30, "search": recherche.strip()[:60] or "africa"}))
+            else:
+                voix = voix_du_compte(await _elevenlabs_get("/v1/voices", {}))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=str(exc)[:200])
+        return {"source": source, "voix": voix}
+
+    @api.post("/admin/liluvine-decroche/voix-elevenlabs/ajouter", tags=["Admin — WhatsApp"])
+    async def ajouter_voix_elevenlabs(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Lot 69.2 — ajoute une voix de la bibliothèque partagée au compte ElevenLabs
+        (POST /v1/voices/add/{public_owner_id}/{voice_id}) ; renvoie l'identifiant à utiliser."""
+        _exiger_admin(user)
+        proprietaire = str(payload.get("proprietaire_id") or "").strip()
+        voix_id = str(payload.get("voice_id") or "").strip()
+        nom = (str(payload.get("nom") or "").strip() or "Liluvine")[:60]
+        if not re.fullmatch(r"[A-Za-z0-9]{4,128}", proprietaire) or not re.fullmatch(r"[A-Za-z0-9]{8,64}", voix_id):
+            raise HTTPException(status_code=422, detail="Voix de la bibliothèque invalide")
+        cle = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+        if not cle:
+            raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY absente (variable d'environnement Render)")
+        try:
+            async with httpx.AsyncClient(timeout=20) as http:
+                r = await http.post(f"https://api.elevenlabs.io/v1/voices/add/{proprietaire}/{voix_id}",
+                                    json={"new_name": nom}, headers={"xi-api-key": cle})
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"ElevenLabs injoignable : {str(exc)[:150]}")
+        if r.status_code >= 300:
+            raise HTTPException(status_code=502, detail=f"ElevenLabs HTTP {r.status_code} : ajout refusé "
+                                                         "(offre ElevenLabs ou voix non partageable)")
+        return {"ok": True, "voice_id": (r.json() or {}).get("voice_id") or voix_id}
+
+    @api.post("/admin/liluvine-decroche/essai-voix", tags=["Admin — WhatsApp"])
+    async def essai_voix(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
+        """Lot 69.2 — « Écouter un essai » : synthétise l'accueil (ou le texte donné) avec la voix, l'accent
+        et le moteur choisis (réglages du formulaire, même non enregistrés) et renvoie le son
+        (audio/wav pour OpenAI et ElevenLabs, audio/mpeg pour Google). Réservé aux administrateurs."""
+        from fastapi import Response
+        _exiger_admin(user)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        cfg = reglages_essai(s, payload or {})
+        texte = (str((payload or {}).get("texte") or "").strip() or cfg["accueil"] or TEXTE_ESSAI)[:400]
+        try:
+            audio, fournisseur = await ap.synthetiser(texte, s, cfg)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=str(exc)[:300])
+        type_mime = "audio/wav" if audio[:4] == b"RIFF" else "audio/mpeg"
+        return Response(content=audio, media_type=type_mime,
+                        headers={"X-Voix-Fournisseur": fournisseur, "Cache-Control": "no-store"})

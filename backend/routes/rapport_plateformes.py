@@ -50,7 +50,10 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
         pass
     resultat: List[Dict[str, Any]] = []
     try:
-        emetteurs = [e async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "secret": 0}).sort("nom", 1)]
+        emetteurs = [e async for e in db.liluvine_emetteurs.find({}, {"_id": 0}).sort("nom", 1)]
+        # La clé n'est jamais renvoyée : on garde seulement le fait qu'elle existe (lot 64.7)
+        for e in emetteurs:
+            e["a_une_cle"] = bool((e.pop("secret", None) or "").strip())
     except Exception:  # noqa: BLE001
         emetteurs = []
     for e in emetteurs:
@@ -81,6 +84,12 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             # Usage moyen du quota journalier sur la période (en %)
             "usage_quota_pct": round(100 * envois / (quota * nb_jours)) if quota else None,
             "stats_configurees": bool((e.get("url_stats") or e.get("url_retour") or "").strip()),
+            # Lot 64.7 — ce qui manque pour interroger la plateforme (affiché sur la page temps réel)
+            "stats_manque": [m for m, absent in (
+                ("l'URL de retour (ou l'URL des statistiques)", not (e.get("url_stats") or e.get("url_retour") or "").strip()),
+                ("la clé (secret) de l'émetteur", not e.get("a_une_cle")),
+                ("l'activation de l'émetteur", not e.get("actif", True)),
+            ) if absent],
         })
     # Lot 62 — statistiques internes de chaque plateforme (appels signés, en parallèle)
     if avec_interne and resultat:

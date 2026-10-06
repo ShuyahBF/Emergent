@@ -34,6 +34,11 @@
 # Clés (variables d'environnement Render, jamais dans le code) : les mêmes que le lot 69
 # (OPENAI_API_KEY, ANTHROPIC_API_KEY, ELEVENLABS_API_KEY facultative, APPEL_TURN_* facultatives).
 # Heures : Africa/Ouagadougou (= UTC toute l'année) ; dates stockées en ISO UTC.
+#
+# Lot 71 — « Mode de l'appel » : « prompt » (objectif + questions, comportement du lot 70 inchangé) ou
+# « formulaire » : les champs d'un formulaire SAWALI deviennent les questions (voir
+# liluvine_agenda_formulaire.py) ; à la fin, une vraie réponse au formulaire est créée (source « appel
+# Liluvine ») et le lien du formulaire peut être envoyé par WhatsApp (réglage lien_formulaire).
 from __future__ import annotations
 
 import asyncio
@@ -48,6 +53,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import routes.appel_proprietaire as ap
+import routes.liluvine_agenda_formulaire as fm   # lot 71 : appels basés sur un formulaire
 import routes.liluvine_decroche as ld
 
 logger = logging.getLogger("sawali.liluvine_agenda")
@@ -80,6 +86,8 @@ RECURRENCES = ("aucune", "quotidienne", "hebdomadaire", "mensuelle", "annuelle")
 TYPES_QUESTION = ("texte", "oui_non", "date", "montant", "choix")
 # Priorités (ordre de traitement : haute d'abord)
 PRIORITES = {"haute": 0, "normale": 1, "basse": 2}
+# Lot 71 — mode de l'appel : « prompt » (objectif + questions, lot 70) ou « formulaire » (champs d'un formulaire)
+MODES_APPEL = ("prompt", "formulaire")
 # Instance du serveur (inscrite dans le verrou d'un évènement réclamé)
 INSTANCE = uuid.uuid4().hex[:12]
 # Nombre maximal d'évènements lancés par passage du moteur (une minute)
@@ -381,6 +389,20 @@ def valider_evenement(payload: Dict[str, Any], cfga: Dict[str, Any]) -> Dict[str
     source = str(contact.get("source") or "libre")
     if source not in ("contact", "client", "suivi", "libre"):
         source = "libre"
+    # Lot 71 — mode de l'appel : prompt (lot 70, inchangé) ou formulaire (identifiant du formulaire choisi)
+    mode = str(p.get("mode") or "prompt").strip()
+    if mode not in MODES_APPEL:
+        raise ValueError("Mode de l'appel inconnu (prompt ou formulaire)")
+    formulaire = None
+    if mode == "formulaire":
+        fid = str((p.get("formulaire") or {}).get("id") if isinstance(p.get("formulaire"), dict)
+                  else (p.get("formulaire_id") or "")).strip()[:80]
+        if not fid:
+            raise ValueError("Choisissez le formulaire sur lequel Liluvine base l'appel")
+        formulaire = {"id": fid}
+    lien_formulaire = str(p.get("lien_formulaire") or "auto")
+    if lien_formulaire not in fm.REGLAGES_LIEN:
+        lien_formulaire = "auto"
     maintenance = p.get("maintenance") or None
     if maintenance and not (isinstance(maintenance, dict) and maintenance.get("id")
                             and maintenance.get("source") in ("maintenance", "intervention")):
@@ -392,7 +414,9 @@ def valider_evenement(payload: Dict[str, Any], cfga: Dict[str, Any]) -> Dict[str
                     "telephone": tel, "entreprise": str(contact.get("entreprise") or "").strip()[:160] or None},
         "telephone": tel,
         "objectif": str(p.get("objectif") or "").strip()[:3000],
-        "questions": nettoyer_questions(p.get("questions")),
+        # En mode formulaire, les questions viennent des champs du formulaire (questions libres ignorées)
+        "questions": nettoyer_questions(p.get("questions")) if mode == "prompt" else [],
+        "mode": mode, "formulaire": formulaire, "lien_formulaire": lien_formulaire,
         "texte_a_lire": str(p.get("texte_a_lire") or "").strip()[:3000],
         "contexte": str(p.get("contexte") or "").strip()[:4000],
         "maintenance": {"source": maintenance["source"], "id": str(maintenance["id"])[:80]} if maintenance else None,
@@ -605,7 +629,12 @@ def texte_ouverture(ev: Dict[str, Any]) -> str:
         morceaux.append(f"Je vous appelle {motif}.")
     if ev.get("texte_a_lire"):
         morceaux.append(rendre_modele(ev["texte_a_lire"], v))
-    morceaux.append("Avez-vous un petit moment ?" if (ev.get("questions") or ev.get("objectif")
+    plan = ev.get("formulaire_plan") if ev.get("mode") == "formulaire" else None
+    if plan:
+        # Lot 71 : appel basé sur un formulaire → annonce courte (le titre du formulaire)
+        morceaux.append(f"J'aimerais remplir avec vous le formulaire {fm.libelle_oral(plan.get('titre'))}, "
+                        "cela ne prendra que quelques minutes.")
+    morceaux.append("Avez-vous un petit moment ?" if (ev.get("questions") or ev.get("objectif") or plan
                                                       or ev.get("type") == "compte_rendu_maintenance")
                     else "Avez-vous des questions ?")
     return " ".join(m.strip() for m in morceaux if m.strip())
@@ -639,6 +668,11 @@ def assembler_prompt_sortant(base: str, ev: Dict[str, Any], ouverture: str, *, c
             bloc.append(f"{n}. {q['libelle']}" + (f" ({precision})" if precision else ""))
         bloc.append(f"Quand tu as toutes les réponses (ou si la personne ne veut pas répondre), remercie, "
                     f"dis au revoir et termine par {ld.MARQUEUR_FIN}.")
+    plan = ev.get("formulaire_plan") if ev.get("mode") == "formulaire" else None
+    if plan:
+        # Lot 71 : les champs du formulaire, dans l'ordre, avec les consignes de vérification
+        bloc.append(fm.bloc_prompt(plan, lien_prevu=fm.envoyer_lien_voulu(ev.get("lien_formulaire") or "auto",
+                                                                           plan, None)))
     bloc.append(f"Tu as déjà dit en ouverture : « {ouverture} »")
     morceaux.append("\n".join(bloc))
     return "".join(morceaux)
@@ -657,7 +691,11 @@ def texte_repli(ev: Dict[str, Any]) -> str:
         morceaux.append(rendre_modele(ev["texte_a_lire"], v))
     if (ev.get("maintenance") or {}).get("resume") and ev.get("type") == "compte_rendu_maintenance":
         morceaux.append(ev["maintenance"]["resume"])
-    if ev.get("questions"):
+    plan = ev.get("formulaire_plan") if ev.get("mode") == "formulaire" else None
+    if plan and plan.get("lien") and ev.get("lien_formulaire") != "jamais":
+        # Lot 71 : appel non abouti → le contact peut remplir le formulaire en ligne
+        morceaux.append(f"Vous pouvez remplir le formulaire « {plan.get('titre')} » ici : {plan['lien']}")
+    elif ev.get("questions"):
         morceaux.append("Pourriez-vous me répondre ici :\n" + "\n".join(f"• {q['libelle']}" for q in ev["questions"]))
     else:
         morceaux.append("N'hésitez pas à me répondre ici ou à nous rappeler.")
@@ -906,6 +944,10 @@ async def _executer(db, ev_id: str) -> Dict[str, Any]:
     numero_id, ligne_cle = ligne_de(s, ev.get("ligne_cle") or cfga["ligne"])
     ev = await preparer_contenu(db, s, cfga, ev)
     tel = ev["telephone"]
+    # Lot 71 — appel basé sur un formulaire supprimé entre-temps : pas d'appel
+    if ev.get("mode") == "formulaire" and not ev.get("formulaire_plan"):
+        return await _terminer_sans_appel(db, s, cfga, ev, numero_id, "echec",
+                                          "formulaire introuvable (supprimé ?) : appel annulé")
     # 1. Autorisation d'appel du contact (Meta) — un refus explicite (webhook) arrête l'évènement
     if ev.get("autorisation_refusee"):
         return await _terminer_sans_appel(db, s, cfga, ev, numero_id, "echec",
@@ -930,10 +972,24 @@ async def preparer_contenu(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict
         resume = await resume_maintenance(db, ev["maintenance"]["source"], ev["maintenance"]["id"])
         if resume:
             maj["maintenance"] = {**ev["maintenance"], "resume": resume}
+    if ev.get("mode") == "formulaire":
+        # Lot 71 : plan de l'appel relu juste avant l'appel (le formulaire a pu changer depuis la planification)
+        maj["formulaire_plan"] = await plan_de_l_evenement(db, s, ev)
     if maj:
         await db[COLLECTION].update_one({"id": ev["id"]}, {"$set": maj})
         ev = {**ev, **maj}
     return ev
+
+
+async def plan_de_l_evenement(db, s: Dict[str, Any], ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Lot 71 — formulaire de l'évènement → plan de l'appel (champs, questions, lien public) ; None si absent."""
+    fid = (ev.get("formulaire") or {}).get("id")
+    form = await db.forms.find_one({"id": fid}, {"_id": 0}) if fid else None
+    if not form:
+        return None
+    plan = fm.plan_formulaire(form)
+    plan["lien"] = fm.lien_public(form, fm.base_publique(s))
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -1331,17 +1387,28 @@ async def apres_appel(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict[str,
     mesures = res.get("mesures") or {}
     extraction = {"resume": "", "informations": [], "action_suivante": {"texte": "", "type": "aucune", "date": None},
                   "erreur": None}
+    # Lot 71 — appel basé sur un formulaire : extraction champ par champ, contrôlée contre le formulaire
+    plan = ev.get("formulaire_plan") if ev.get("mode") == "formulaire" else None
+    analyse = fm.analyser_reponses({}, plan) if plan else None
     if any(t.get("qui") == "appelant" for t in transcription):
         try:
-            r = await llm_texte(SYSTEME_EXTRACTION, texte_a_extraire(ev, transcription, maintenant), 900)
+            if plan:
+                r = await llm_texte(fm.SYSTEME_EXTRACTION_FORMULAIRE,
+                                    fm.texte_a_extraire(plan, transcription, formater(maintenant)), 1500)
+            else:
+                r = await llm_texte(SYSTEME_EXTRACTION, texte_a_extraire(ev, transcription, maintenant), 900)
             mesures["llm_entree"] = mesures.get("llm_entree", 0) + int(r.get("entree") or 0)
             mesures["llm_sortie"] = mesures.get("llm_sortie", 0) + int(r.get("sortie") or 0)
             extraction = analyser_extraction(r.get("texte") or "", ev.get("questions") or [])
+            if plan:
+                analyse = fm.analyser_reponses(_json_tolerant(r.get("texte") or "") or {}, plan)
         except Exception as exc:  # noqa: BLE001
             extraction["erreur"] = f"extraction impossible : {str(exc)[:150]}"
     else:
         extraction["informations"] = [{"id": q["id"], "libelle": q["libelle"], "type": q["type"], "valeur": None,
                                        "confiance": 0.0} for q in ev.get("questions") or []]
+    if plan:
+        extraction["informations"] = fm.informations_depuis(analyse)
     resume = extraction["resume"] or ("Message lu, aucune réponse du contact." if transcription
                                       else "Appel décroché sans échange.")
     duree_s = int(res.get("duree_s") or 0)
@@ -1359,6 +1426,11 @@ async def apres_appel(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict[str,
         "transfert_humain": bool(res.get("transfert")), "tache_rappel_id": tache_id, "tours": mesures.get("tours", 0),
         "ouverture": res.get("ouverture"), "termine_le": _iso(maintenant),
     }
+    if plan:
+        # Lot 71 : réponse au formulaire (soumission « appel Liluvine ») + lien WhatsApp si besoin
+        resultat["formulaire"] = await enregistrer_formulaire(db, s, cfga, ev, plan, analyse,
+                                                              call_id=res.get("call_id"), numero_id=numero_id,
+                                                              maintenant=maintenant)
     # Journal des appels (visible dans le fil de conversation du contact) : même forme que le lot 69
     lat = mesures.get("latences_s") or []
     journal = {"transcription": transcription, "resume": resume, "fin": res.get("fin"),
@@ -1388,6 +1460,41 @@ async def apres_appel(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict[str,
         relance = await creer_relance(db, ev_final, extraction["action_suivante"])
     return {"resultat": "termine", "resume": resume, "informations": extraction["informations"], "cout": cout,
             "relance_id": relance}
+
+
+async def enregistrer_formulaire(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict[str, Any],
+                                 plan: Dict[str, Any], analyse: Dict[str, Any], *, call_id: Optional[str],
+                                 numero_id: str, maintenant: datetime) -> Dict[str, Any]:
+    """Lot 71 — après un appel en mode formulaire :
+      1. crée une VRAIE réponse au formulaire (db.form_submissions, source « appel Liluvine ») dès qu'au
+         moins un champ a été rempli ; statut « incomplète » s'il manque un champ obligatoire ;
+      2. envoie le lien du formulaire par WhatsApp si le réglage de l'évènement le demande.
+    → résumé affiché dans le tiroir de l'agenda (réponses par champ, lien vers la soumission)."""
+    sortie: Dict[str, Any] = {
+        "id": plan.get("id"), "titre": plan.get("titre"), "soumission_id": None,
+        "statut": "complete" if analyse.get("complet") else "incomplete", "complet": bool(analyse.get("complet")),
+        "reponses": analyse.get("reponses") or [], "a_completer": analyse.get("a_completer") or [],
+        "lien_soumission": f"/admin/forms/{plan.get('id')}/analytics#submissions", "lien_envoye": None,
+    }
+    form = await db.forms.find_one({"id": plan.get("id")}, {"_id": 0, "id": 1, "client_id": 1})
+    if form and analyse.get("data"):
+        doc = fm.document_soumission(form, ev, analyse, call_id=call_id, le=_iso(maintenant))
+        try:
+            await db.form_submissions.insert_one(dict(doc))
+            await db.forms.update_one({"id": form["id"]}, {"$inc": {"uses_count": 1}})
+            sortie["soumission_id"] = doc["id"]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[liluvine_agenda] soumission du formulaire impossible", exc_info=True)
+            sortie["erreur"] = f"soumission impossible : {str(exc)[:150]}"
+    elif not form:
+        sortie["erreur"] = "formulaire supprimé : réponses gardées seulement dans l'agenda"
+    if fm.envoyer_lien_voulu(ev.get("lien_formulaire") or "auto", plan, analyse):
+        try:
+            sortie["lien_envoye"] = await envoyer_message(
+                db, s, cfga, numero_id, ev, fm.texte_lien(variables_contact(ev)["prenom"], plan, analyse))
+        except Exception as exc:  # noqa: BLE001
+            sortie["lien_envoye"] = {"ok": False, "erreur": str(exc)[:200]}
+    return sortie
 
 
 async def creer_occurrence_suivante(db, ev: Dict[str, Any]) -> Optional[str]:
@@ -1601,6 +1708,8 @@ def _valeur_lisible(v: Any) -> str:
         return "oui"
     if v is False:
         return "non"
+    if isinstance(v, list):                      # lot 71 : choix multiples d'un formulaire
+        return ", ".join(str(x) for x in v)
     return "" if v is None else str(v)
 
 
@@ -1679,12 +1788,27 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=404, detail="Évènement introuvable")
         return ev
 
-    async def _preparer(payload: Dict[str, Any], cfga: Dict[str, Any]) -> Dict[str, Any]:
-        """Validation + résumé de la maintenance choisie + ordre de priorité."""
+    def _filtre_formulaires(user: dict) -> Dict[str, Any]:
+        """Lot 71 — formulaires utilisables : tous pour l'administrateur ; sinon ceux du compte + les publics."""
+        if user.get("role") == "admin":
+            return {}
+        return {"$or": [{"client_id": user.get("client_id") or user.get("id")}, {"is_public": True}]}
+
+    async def _preparer(payload: Dict[str, Any], cfga: Dict[str, Any], user: dict) -> Dict[str, Any]:
+        """Validation + résumé de la maintenance choisie + formulaire choisi (lot 71) + ordre de priorité."""
         try:
             champs = valider_evenement(payload, cfga)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        if champs.get("formulaire"):
+            form = await db.forms.find_one({"id": champs["formulaire"]["id"], **_filtre_formulaires(user)}, {"_id": 0})
+            if not form:
+                raise HTTPException(status_code=422, detail="Formulaire introuvable ou non accessible")
+            resume = fm.resume_formulaire(form)
+            if not resume["nb_vocaux"]:
+                raise HTTPException(status_code=422, detail="Ce formulaire n'a aucun champ que Liluvine peut "
+                                                            "demander au téléphone (fichiers, signatures…)")
+            champs["formulaire"] = resume
         if champs["maintenance"]:
             resume = await resume_maintenance(db, champs["maintenance"]["source"], champs["maintenance"]["id"])
             if not resume:
@@ -1764,6 +1888,28 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
         _exiger_admin(user)
         return {"maintenances": await rechercher_maintenances(db, q)}
 
+    @api.get("/admin/liluvine-agenda/formulaires", tags=["Admin — Liluvine agenda"])
+    async def formulaires(q: str = Query("", max_length=80), user: dict = Depends(get_current_user)):
+        """Lot 71 — formulaires disponibles pour un appel « basé sur un formulaire » (nombre de champs,
+        champs demandés au téléphone, champs à compléter par écrit)."""
+        _exiger_admin(user)
+        filtre = _filtre_formulaires(user)
+        if q.strip():
+            filtre = {"$and": [filtre, {"title": {"$regex": re.escape(q.strip()), "$options": "i"}}]} if filtre \
+                else {"title": {"$regex": re.escape(q.strip()), "$options": "i"}}
+        docs = await db.forms.find(filtre, {"_id": 0, "id": 1, "title": 1, "number": 1, "pages": 1, "is_public": 1,
+                                            "client_id": 1}).sort("created_at", -1).to_list(300)
+        return {"formulaires": [fm.resume_formulaire(d) for d in docs if d.get("id")]}
+
+    @api.get("/admin/liluvine-agenda/formulaires/{fid}/apercu", tags=["Admin — Liluvine agenda"])
+    async def apercu_formulaire(fid: str, user: dict = Depends(get_current_user)):
+        """Lot 71 — questions que Liluvine posera (ordre, formulation orale) et champs à compléter."""
+        _exiger_admin(user)
+        form = await db.forms.find_one({"id": fid, **_filtre_formulaires(user)}, {"_id": 0})
+        if not form:
+            raise HTTPException(status_code=404, detail="Formulaire introuvable")
+        return fm.plan_formulaire(form)
+
     @api.post("/admin/liluvine-agenda/apercu-anniversaire", tags=["Admin — Liluvine agenda"])
     async def apercu_anniversaire(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
         """Aperçu du texte d'anniversaire (modèle du formulaire, même non enregistré) pour une personne fictive."""
@@ -1786,7 +1932,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
         """Nouvel évènement (statut « planifié »)."""
         _exiger_admin(user)
         _, cfga = await _reglages()
-        champs = await _preparer(payload, cfga)
+        champs = await _preparer(payload, cfga, user)
         champs["client_id"] = user.get("client_id") or user.get("id")
         doc = _nouvel_evenement(champs, par=user.get("full_name") or user.get("email") or "", maintenant=_maintenant())
         await db[COLLECTION].insert_one(dict(doc))
@@ -1807,7 +1953,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
         if ev.get("statut") == "en_cours":
             raise HTTPException(status_code=409, detail="Appel en cours : modification impossible")
         _, cfga = await _reglages()
-        champs = await _preparer(payload, cfga)
+        champs = await _preparer(payload, cfga, user)
         maj = {**champs, "statut": "planifie", "prochaine_tentative": champs["date_heure"], "tentatives": 0,
                "autorisation_refusee": False, "raison": None, "maj_le": _iso(_maintenant()),
                "maj_par": user.get("full_name") or user.get("email")}
@@ -1824,7 +1970,8 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
         champs = {k: ev.get(k) for k in ("type", "titre", "contact", "telephone", "objectif", "questions",
                                          "texte_a_lire", "contexte", "maintenance", "ligne_cle", "recurrence",
                                          "tentatives_max", "intervalle_min", "plage_debut", "plage_fin", "priorite",
-                                         "priorite_ordre", "creer_relance", "client_id")}
+                                         "priorite_ordre", "creer_relance", "client_id",
+                                         "mode", "formulaire", "lien_formulaire")}
         champs["date_heure"] = _iso(quand)
         doc = _nouvel_evenement(champs, par=user.get("full_name") or user.get("email") or "", maintenant=_maintenant())
         doc["copie_de"] = ev_id

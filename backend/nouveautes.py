@@ -15,6 +15,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "71", "date": "2026-10-06",
+        "titre": "📋📞 Appels de Liluvine basés sur un formulaire",
+        "description": "Dans l'agenda, « Mode de l'appel » : Liluvine pose les champs d'un formulaire et enregistre la réponse (badge « 📞 Appel »).",
+        "lien": "/admin/liluvine-agenda",
+    },
+    {
+        "lot": "71", "date": "2026-10-06",
+        "titre": "↪ Transférer des messages WhatsApp",
+        "description": "Dans une conversation, « Transférer » un message ou une image à 10 contacts ; fenêtre de 24 h vérifiée avant l'envoi.",
+        "lien": "/portal/contacts",
+    },
+    {
         "lot": "70", "date": "2026-10-06",
         "titre": "📅 Agenda d'appels de Liluvine",
         "description": "Liluvine appelle à la date prévue (relance, prospection, suivi, compte rendu de maintenance…), pose vos questions et note les réponses.",

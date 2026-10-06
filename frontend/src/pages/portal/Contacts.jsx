@@ -23,6 +23,7 @@ import CrossTenantSearch from "@/components/CrossTenantSearch";
 import { ContactGroupChips } from "@/components/ContactGroupChips";
 import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
+import TransfertMessagesWa from "@/components/TransfertMessagesWa";               // Lot 71 : transfert de messages
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -1790,6 +1791,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const recRef = React.useRef(null); // { mediaRecorder, chunks, stream, timerId }
   // Iter37h — Reply context (quoting a message)
   const [replyTo, setReplyTo] = useState(null); // { id, body, direction, from, message_id }
+  // Lot 71 — transfert de messages : messages à transférer (dialogue ouvert) et sélection multiple
+  const [aTransferer, setATransferer] = useState(null);     // tableau de messages, ou null (dialogue fermé)
+  const [selection, setSelection] = useState(null);         // null = pas de sélection ; sinon tableau d'ids
+  const basculerSelection = (m) => setSelection((s) => (s || []).includes(m.id) ? s.filter((x) => x !== m.id) : [...(s || []), m.id].slice(0, 20));
   const fileInputRef = React.useRef(null);
   // Iter34o — Auto-scroll to the latest message so the composer is always
   // anchored on the last exchange (matches WhatsApp/Messenger UX).
@@ -2386,6 +2391,16 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 Appels
               </button>
             )}
+            {/* Lot 71 — sélection de plusieurs messages pour les transférer ensemble */}
+            <button
+              type="button"
+              onClick={() => setSelection((s) => (s ? null : []))}
+              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs ${selection ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-300 bg-white hover:bg-slate-50"}`}
+              title="Sélectionner des messages à transférer"
+              data-testid="conversation-selection"
+            >
+              ↪ {selection ? "Annuler la sélection" : "Sélectionner"}
+            </button>
             <button
               onClick={load}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs"
@@ -2836,10 +2851,26 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           ) : (
             filAvecAppels.map((m) => (m.__appel
               ? <BulleAppelWa key={m.id} a={m} />
-              : <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo} />))
+              : <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo}
+                  onForward={(x) => setATransferer([x])}
+                  selection={selection} onToggleSelect={basculerSelection} />))
           )}
           <div ref={scrollEndRef} data-testid="conversation-scroll-end" />
         </div>
+        {/* Lot 71 — barre de la sélection multiple : transférer les messages cochés ensemble */}
+        {selection && (
+          <div className="flex items-center justify-between gap-2 border-t border-sky-200 bg-sky-50 px-5 py-2 text-sm" data-testid="barre-selection">
+            <span>{selection.length} message(s) sélectionné(s) (20 au plus)</span>
+            <button type="button" disabled={!selection.length}
+              onClick={() => setATransferer(messages.filter((x) => selection.includes(x.id)))}
+              className="rounded-lg bg-sky-700 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50">
+              ↪ Transférer
+            </button>
+          </div>
+        )}
+        {aTransferer && (
+          <TransfertMessagesWa messages={aTransferer} onClose={() => { setATransferer(null); setSelection(null); load(true); }} />
+        )}
         {/* Free-form text composer (only allowed within Meta 24h window) */}
         <div className="border-t border-slate-200 bg-white">
           {canSendText ? (
@@ -3227,8 +3258,17 @@ const SaveToLibraryButton = ({ messageId, testid }) => {
 };
 
 // --- Chat bubble ---
-const MessageBubble = ({ m, allMessages = [], onReply }) => {
+const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = null, onToggleSelect }) => {
   const outbound = m.direction === "outbound";
+  // Lot 71 — appui long (mobile) sur la bulle : ouvre le transfert ; en mode sélection : coche la bulle
+  const appuiLong = React.useRef(null);
+  const enSelection = Array.isArray(selection);
+  const selectionnee = enSelection && selection.includes(m.id);
+  const debutAppui = () => {
+    if (!onForward) return;
+    appuiLong.current = setTimeout(() => { if (enSelection) onToggleSelect && onToggleSelect(m); else onForward(m); }, 650);
+  };
+  const finAppui = () => { if (appuiLong.current) { clearTimeout(appuiLong.current); appuiLong.current = null; } };
   // Iter37h — Find the quoted message (if this is a reply)
   const quotedTarget = (() => {
     const mid = m.reply_to_message_id;
@@ -3274,7 +3314,13 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
   const body = placeholder ? "" : (m.body || (m.template_name ? `Template : ${m.template_name}` : ""));
 
   return (
-    <div className={`flex group ${outbound ? "justify-end" : "justify-start"} hover:bg-sky-50/40 -mx-3 px-3 py-1 rounded-md transition-colors`} data-testid={`msg-${m.id}`}>
+    <div className={`flex group items-center gap-2 ${outbound ? "justify-end" : "justify-start"} hover:bg-sky-50/40 -mx-3 px-3 py-1 rounded-md transition-colors ${selectionnee ? "bg-sky-100/70" : ""}`} data-testid={`msg-${m.id}`}
+      onTouchStart={debutAppui} onTouchEnd={finAppui} onTouchMove={finAppui}
+      onClick={enSelection ? () => onToggleSelect && onToggleSelect(m) : undefined}>
+      {/* Lot 71 — case de la sélection multiple */}
+      {enSelection && (
+        <input type="checkbox" checked={selectionnee} readOnly className={`h-4 w-4 shrink-0 ${outbound ? "order-last" : ""}`} aria-label="Sélectionner ce message" />
+      )}
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-shadow group-hover:shadow-md ${
           outbound ? "bg-sawali-blue text-white" : "bg-white ring-1 ring-slate-200 text-slate-900"
@@ -3294,6 +3340,13 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
           {outbound && m.barriere_auto && (
             <span className="rounded-full bg-white/20 px-1.5 py-0.5 font-semibold" title="Réponse automatique de la barrière anti-rafale">
               🚧 Barrière
+            </span>
+          )}
+          {/* Lot 71 — message transféré depuis une autre conversation */}
+          {m.transfere && (
+            <span className={`rounded-full px-1.5 py-0.5 font-semibold ${outbound ? "bg-white/20" : "bg-slate-100 text-slate-700"}`}
+              title={m.transfere_de?.nom ? `Transféré (origine : ${m.transfere_de.nom})` : "Message transféré"} data-testid={`msg-transfere-${m.id}`}>
+              ↪ Transféré
             </span>
           )}
           {/* Lot 59.1 — ligne WhatsApp qui a reçu ce message (nom + couleur choisie) */}
@@ -3419,6 +3472,18 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
                 data-testid={`msg-reply-${m.id}`}
               >
                 <CornerUpLeft className="h-3 w-3" /> Répondre
+              </button>
+            )}
+            {/* Lot 71 — transférer ce message à d'autres contacts (sur mobile : appui long sur la bulle) */}
+            {onForward && !enSelection && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onForward(m); }}
+                className={`inline-flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:underline ${outbound ? "text-white/80" : "text-sky-600"}`}
+                title="Transférer ce message à un autre contact"
+                data-testid={`msg-forward-${m.id}`}
+              >
+                ↪ Transférer
               </button>
             )}
             {statusIcon && (

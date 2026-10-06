@@ -696,6 +696,11 @@ async def me_form_submissions_table(
             "respondent_email": s.get("respondent_email") or "",
             "geo": s.get("geo") or {},
             "source_ip": s.get("source_ip") or "",
+            # Lot 71 — origine de la réponse (« appel_liluvine » : remplie au téléphone par Liluvine)
+            # et statut (« incomplete » : champ obligatoire manquant), affichés en badges dans le tableau
+            "via": s.get("via") or "",
+            "statut": s.get("statut") or "",
+            "appel_agenda_id": (s.get("appel") or {}).get("agenda_id"),
         }
         data = s.get("data") or {}
         for col in columns:

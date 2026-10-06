@@ -23,6 +23,7 @@ const STATUTS = {
   manque: ["Manqué", "bg-rose-50 text-rose-800 ring-rose-200"],
   refuse: ["Refusé", "bg-rose-50 text-rose-800 ring-rose-200"],
   sans_reponse: ["Sans réponse", "bg-amber-50 text-amber-800 ring-amber-200"],
+  echec: ["Échec", "bg-rose-50 text-rose-800 ring-rose-200"],   // Lot 67 — alerte non aboutie
 };
 
 // Lecture (et relecture périodique) des appels d'un numéro
@@ -78,6 +79,8 @@ export function BulleAppelWa({ a }) {
         <Icone className="h-3.5 w-3.5 shrink-0" />
         <span className="font-semibold">{sortant ? "Appel émis" : "Appel reçu"}</span>
         <span>· {libelle}</span>
+        {/* Lot 67 — motif de l'appel (alerte message de Liluvine au propriétaire) */}
+        {a.motif && <span className="opacity-80">· 🔔 {a.motif}</span>}
         {Number(a.duree_s) > 0 && <span>· {dureeLisible(a.duree_s)}</span>}
         {a.decroche_par_nom && <span className="opacity-80">· {sortant ? "par" : "décroché par"} {a.decroche_par_nom}</span>}
         {a.ligne?.libelle && <span className="opacity-70">· {a.ligne.libelle}</span>}

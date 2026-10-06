@@ -231,7 +231,9 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
         """Champs d'un appel renvoyés au portail (avec la pastille de sa ligne)."""
         sortie = {k: appel.get(k) for k in (
             "id", "direction", "statut", "telephone", "contact_id", "contact_nom", "sonne_le", "debut", "fin",
-            "duree_s", "decroche_par_nom", "created_at")}
+            "duree_s", "decroche_par_nom", "created_at",
+            # Lot 67 — alerte de Liluvine au propriétaire : motif, résultat, raison d'échec, client concerné
+            "motif", "resultat", "raison", "alerte_client_nom")}
         sortie["ligne"] = pastille(ligne_par_cle(s, appel.get("ligne_cle")) or lignes_configurees(s)[0])
         return sortie
 

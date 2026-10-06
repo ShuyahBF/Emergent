@@ -65,6 +65,7 @@ export function dureeLisible(secondes) {
 const LIBELLES_STATUT = {
   sonne: "Sonne", decroche: "Décroché", en_cours: "En cours", appel: "Appel en cours",
   termine: "Terminé", manque: "Manqué", refuse: "Refusé", sans_reponse: "Sans réponse",
+  echec: "Échec",   // Lot 67 — alerte de Liluvine au propriétaire qui n'a pas pu partir
 };
 
 export default function AppelsWhatsApp() {
@@ -377,9 +378,21 @@ export default function AppelsWhatsApp() {
                       <tr key={a.id} className="border-t border-slate-100">
                         <td className="px-3 py-2 whitespace-nowrap">{a.created_at ? new Date(a.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</td>
                         <td className="px-3 py-2">{a.direction === "sortant" ? "↗ Sortant" : "↙ Entrant"}</td>
-                        <td className="px-3 py-2">{a.contact_nom}</td>
+                        <td className="px-3 py-2">
+                          {a.contact_nom}
+                          {/* Lot 67 — motif de l'appel (alerte message de Liluvine) et client concerné */}
+                          {a.motif && (
+                            <span className="block text-[11px] text-violet-700">
+                              🔔 {a.motif}{a.alerte_client_nom ? ` · ${a.alerte_client_nom}` : ""}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2">{a.ligne && <PastilleLigneWa libelle={a.ligne.libelle} fond={a.ligne.fond} texte={a.ligne.texte} />}</td>
-                        <td className="px-3 py-2">{LIBELLES_STATUT[a.statut] || a.statut}</td>
+                        <td className="px-3 py-2">
+                          {LIBELLES_STATUT[a.statut] || a.statut}
+                          {/* Lot 67 — résultat de l'alerte (décroché, sans réponse, échec + raison) */}
+                          {a.resultat && <span className="block text-[11px] text-slate-500" title={a.raison || ""}>{a.resultat}{a.raison ? " — " + a.raison : ""}</span>}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{a.duree_s ? dureeLisible(a.duree_s) : "—"}</td>
                         <td className="px-3 py-2">{a.decroche_par_nom || "—"}</td>
                       </tr>

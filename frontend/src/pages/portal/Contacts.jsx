@@ -22,6 +22,7 @@ import { phonePlaceholder } from "@/lib/tenantMeta";
 import CrossTenantSearch from "@/components/CrossTenantSearch";
 import { ContactGroupChips } from "@/components/ContactGroupChips";
 import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
+import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -1272,6 +1273,22 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             (contrat invalide/expiré, accès restreint hors heures ouvrées).
           </p>
         </div>
+        {/* Lot 67 — alerte du propriétaire (relais WhatsApp + appel de Liluvine) : autorisée par défaut */}
+        <div className="p-2.5 rounded-lg bg-violet-50 ring-1 ring-violet-200" data-testid="contact-field-appel-proprietaire">
+          <label className="flex items-center gap-2 text-xs font-semibold text-violet-900 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.appel_proprietaire !== false}
+              onChange={(e) => setForm({ ...form, appel_proprietaire: e.target.checked })}
+              data-testid="contact-field-appel-proprietaire-checkbox"
+            />
+            🔔 Appeler le propriétaire à chaque message
+          </label>
+          <p className="text-[10px] text-violet-700 mt-1 leading-snug">
+            Activé (par défaut) : chaque message de ce client est relayé au propriétaire sur WhatsApp, puis Liluvine
+            l'appelle (au plus un appel toutes les 30 min). Désactivé : aucune alerte pour ce client.
+          </p>
+        </div>
         {/* Lot 59 — ligne WhatsApp dédiée (superviseurs / administrateurs, s'il existe plusieurs lignes) */}
         {lignesWa.peut_affecter && (lignesWa.lignes || []).length > 1 && (
           <div className="p-2.5 rounded-lg bg-emerald-50 ring-1 ring-emerald-200" data-testid="contact-field-wa-ligne">
@@ -2354,6 +2371,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 📞 Appeler
               </button>
             )}
+            {/* Lot 67 — alerte du propriétaire à chaque message de ce client (activée par défaut) */}
+            <ToggleAlerteProprietaire contact={contact} />
             {/* Lot 60 — journal des appels de ce contact (durées) */}
             {(contact.whatsapp || contact.phone) && (
               <button

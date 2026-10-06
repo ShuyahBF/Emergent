@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { dureeLisible } from "./AppelsWhatsApp";
+import TranscriptionAppelLiluvine from "./TranscriptionAppelLiluvine";   // Lot 69
 
 const RELECTURE_MS = 15000;
 
@@ -74,7 +75,7 @@ export function BulleAppelWa({ a }) {
   const quand = dateDe(a)
     ? new Date(dateDe(a)).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
   return (
-    <div className="flex justify-center" data-testid={`appel-dans-fil-${a.id}`}>
+    <div className="flex flex-col items-center" data-testid={`appel-dans-fil-${a.id}`}>
       <div className={`inline-flex max-w-[90%] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full px-3 py-1 text-xs ring-1 ${couleurs}`}>
         <Icone className="h-3.5 w-3.5 shrink-0" />
         <span className="font-semibold">{sortant ? "Appel émis" : "Appel reçu"}</span>
@@ -86,6 +87,15 @@ export function BulleAppelWa({ a }) {
         {a.ligne?.libelle && <span className="opacity-70">· {a.ligne.libelle}</span>}
         {quand && <span className="opacity-60">· {quand}</span>}
       </div>
+      {/* Lot 69 — appel pris par Liluvine : résumé et transcription (dépliables) sous la carte */}
+      {a.liluvine && (
+        <details className="mt-1 w-full max-w-[90%] rounded-lg bg-violet-50/60 px-2 py-1 ring-1 ring-violet-100">
+          <summary className="cursor-pointer text-xs font-semibold text-violet-800">
+            🤖 Liluvine a répondu — {a.liluvine.resume ? a.liluvine.resume.slice(0, 90) : "voir la transcription"}
+          </summary>
+          <div className="mt-1"><TranscriptionAppelLiluvine l={a.liluvine} /></div>
+        </details>
+      )}
     </div>
   );
 }

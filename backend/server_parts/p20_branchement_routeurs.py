@@ -186,6 +186,9 @@ _setup_appels_wa(
 # Lot 67 — Liluvine prévient le propriétaire (relais + appel vocal WhatsApp) à chaque message d'un client
 from routes.appel_proprietaire import setup_appel_proprietaire_routes as _setup_appel_proprio  # noqa: E402
 _setup_appel_proprio(db=db, api=api, get_current_user=get_current_user, graph_version=WA_GRAPH_VERSION)
+# Lot 69 — Liluvine décroche les appels WhatsApp entrants et converse avec son prompt système
+from routes.liluvine_decroche import setup_liluvine_decroche_routes as _setup_liluvine_decroche  # noqa: E402
+_setup_liluvine_decroche(db=db, api=api, get_current_user=get_current_user)
 
 # Lot 61 — liste noire des numéros interdits aux commandes « ! » (administration)
 from routes.liste_noire_commandes import setup_liste_noire_commandes_routes as _setup_liste_noire_cmd  # noqa: E402

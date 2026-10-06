@@ -15,6 +15,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "69", "date": "2026-10-06",
+        "titre": "🤖📞 Liluvine décroche les appels WhatsApp",
+        "description": "Réponse vocale automatique (toujours, après N s ou hors heures) avec son prompt système ; transcription et résumé au journal.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "68.3", "date": "2026-10-06",
         "titre": "🆕 Nouveautés automatiques à chaque lot",
         "description": "Chaque lot déployé a désormais sa carte ici (contrôle automatique) ; flèches haut/bas sur fond gris.",

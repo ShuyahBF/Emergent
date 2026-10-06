@@ -76,6 +76,8 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📞 Liluvine appelle le propriétaire à chaque message": "67",
+  "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "63",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
@@ -91,6 +93,9 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  // Lots 67 et 67.1 (06/10/2026) — Liluvine appelle le propriétaire, historique des appels (durée, coût)
+  "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
+  "📊 Historique des appels de Liluvine (durée et coût)": "2026-10-06",
   // Lots 59 à 63 (05-06/10/2026) — numéros WhatsApp multiples, appels, liste noire, barrière, plateformes
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-06",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
@@ -149,6 +154,8 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
+  "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "Numéros interdits aux commandes « ! » avec message de refus de Liluvine (lot 61).",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
@@ -156,10 +163,23 @@ const NEW_DESCRIPTIONS = {
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "Plusieurs numéros (Standard, VIP, Publicités), couleurs des pastilles, appels (lots 59-60).",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "QR de paiement instantané de la banque sur les factures (lot 57.8).",
 };
+// Lot 68.2 — nouveautés qui ne sont PAS des rubriques de cette page (autres écrans d'administration) :
+// elles ont aussi leur carte ; un clic ouvre directement l'écran concerné.
+const NEW_PAGES = [
+  { titre: "🔑 Clés clients Loois et structures chiffrées", lot: "68.1", date: "2026-10-06", lien: "/admin/loois-synchro",
+    description: "Une clé par client (montrée une seule fois), structure des tables téléchargée et gardée chiffrée sur le poste." },
+  { titre: "🔄 Plateformes → Loois → Synchro", lot: "68", date: "2026-10-06", lien: "/admin/loois-synchro",
+    description: "Tables HFSQL remontées vers MongoDB (e-Kol : Paiements, ElèveEdu), état, resynchronisation, visionneuse." },
+  { titre: "🖥️ Postes et serveurs — lien « Détails »", lot: "66", date: "2026-10-06", lien: "/admin/plateformes-temps-reel",
+    description: "Inventaire des postes Loois (système, mémoire, disques, réseau, tâches) et fiches du Parc créées automatiquement." },
+  { titre: "🖥️ Postes et serveurs — versions déployées", lot: "65", date: "2026-10-06", lien: "/admin/plateformes-temps-reel",
+    description: "Signal de présence de Loois et des serveurs (Ster, adLyn, beAuthentik, ALBARKA) : version, poste, dernier signal." },
+];
+
 // Lot 64 — une rubrique de moins de 7 jours porte TOUJOURS la pastille « NOUVEAU »
 // et apparaît dans les cartes de nouveautés (10 au plus)
 const NOUVEAUTE_JOURS = 7;
-const NOUVEAUTES_MAX = 10;
+const NOUVEAUTES_MAX = 12;   // lot 68.2 : 12 cartes (rubriques + autres écrans)
 function ageEnJours(title) {
   const addedAt = NEW_SECTIONS[title];
   const t = addedAt ? new Date(addedAt).getTime() : NaN;
@@ -346,7 +366,11 @@ const CartesNouveautes = () => {
     .filter((t) => ageEnJours(t) <= NOUVEAUTE_JOURS && ctx?.registry?.[t])
     .sort((a, b) => ageEnJours(a) - ageEnJours(b))
     .slice(0, NOUVEAUTES_MAX), [ctx?.registry]);
-  if (!ctx || titres.length === 0) return null;
+  // Lot 68.2 — nouveautés des autres écrans (moins d'une semaine), dans la limite des cartes restantes
+  const pages = useMemo(() => NEW_PAGES
+    .filter((p) => (Date.now() - new Date(p.date).getTime()) / 86400000 <= NOUVEAUTE_JOURS)
+    .slice(0, Math.max(0, NOUVEAUTES_MAX - titres.length)), [titres.length]);
+  if (!ctx || titres.length + pages.length === 0) return null;
   // Se positionner sur une rubrique (et la faire clignoter brièvement)
   const aller = (titre) => {
     const ancre = ctx.registry[titre]?.anchorId;
@@ -362,7 +386,7 @@ const CartesNouveautes = () => {
   };
   return (
     <div className="mt-3" data-testid="cartes-nouveautes">
-      <p className="mb-2 text-xs font-semibold text-sky-800">🆕 Nouveautés de la semaine ({titres.length})</p>
+      <p className="mb-2 text-xs font-semibold text-sky-800">🆕 Nouveautés de la semaine ({titres.length + pages.length})</p>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         {titres.map((t) => (
           <button key={t} type="button" onClick={() => aller(t)}
@@ -375,6 +399,19 @@ const CartesNouveautes = () => {
             {NEW_DESCRIPTIONS[t] && <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{NEW_DESCRIPTIONS[t]}</p>}
             <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(NEW_SECTIONS[t]).toLocaleDateString("fr-FR")}</p>
           </button>
+        ))}
+        {/* Lot 68.2 — cartes des nouveautés situées sur d'autres écrans : le clic ouvre l'écran */}
+        {pages.map((p) => (
+          <Link key={p.titre} to={p.lien}
+            className="relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md"
+            data-testid={`carte-nouveaute-page-${slugify(p.titre)}`}>
+            <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
+            <p className="line-clamp-2 text-xs font-semibold text-slate-900">
+              {p.titre}<span className="font-normal text-sky-700"> (Lot {p.lot})</span>
+            </p>
+            <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{p.description}</p>
+            <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(p.date).toLocaleDateString("fr-FR")} · ouvre l'écran ↗</p>
+          </Link>
         ))}
       </div>
     </div>

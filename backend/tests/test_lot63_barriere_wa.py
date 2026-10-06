@@ -138,3 +138,37 @@ def test_seuil_depasse_sans_avertissement(db):
                                             "barriere_auto": True, "ai_generated": True}))
     recu(db, 0.5)
     assert lancer(bw.decision(db, TEL, "text", "Toujours moi", REGLAGES)) == "retenir"
+
+
+def test_rattacher_a_ma_fiche(db):
+    """Lot 64.14 — messages rangés sur la fiche d'un autre compte : rattachés à la fiche de
+    l'administrateur, qui devient prioritaire pour ce numéro."""
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    async def utilisateur():
+        """Administrateur factice."""
+        return {"id": "adm", "role": "admin"}
+
+    async def perimetre(user):
+        return ["moi"]
+
+    api = APIRouter(prefix="/api")
+    bw.setup_barriere_wa_routes(db=db, api=api, get_current_user=utilisateur, resolve_visible_client_ids=perimetre)
+    app = FastAPI()
+    app.include_router(api)
+    c = TestClient(app)
+    lancer(db.directory_contacts.insert_many([
+        {"id": "f-autre", "client_id": "autre", "name": "Diane", "whatsapp": "+" + TEL, "created_at": il_y_a(500)},
+        {"id": "f-moi", "client_id": "moi", "name": "Diane K.", "phone": "70 11 22 33", "created_at": il_y_a(400)},
+    ]))
+    lancer(db.whatsapp_messages.insert_many([
+        {"direction": "inbound", "phone_digits": TEL, "client_id": "autre", "contact_id": "f-autre", "created_at": il_y_a(10)},
+        {"direction": "outbound", "to": "+" + TEL, "client_id": "autre", "created_at": il_y_a(9)},
+        {"direction": "inbound", "phone_digits": "22699999999", "client_id": "autre", "created_at": il_y_a(8)},
+    ]))
+    r = c.post("/api/admin/barriere-wa/rattacher", params={"numero": TEL}).json()
+    assert r["rattaches"] == 2 and r["fiche"] == "Diane K."
+    assert lancer(db.whatsapp_messages.count_documents({"client_id": "moi", "contact_id": "f-moi"})) == 2
+    assert lancer(db.whatsapp_messages.count_documents({"client_id": "autre"})) == 1      # autre numéro intact
+    assert lancer(db.directory_contacts.find_one({"id": "f-moi"}))["wa_prioritaire"] is True

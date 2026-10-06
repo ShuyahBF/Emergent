@@ -215,3 +215,46 @@ def setup_barriere_wa_routes(*, db, api, get_current_user, resolve_visible_clien
             "derniere_reponse_par": (derniere or {}).get("sender_label"),
             "explication": explication,
         }
+
+
+    # Lot 64.14 — « Rattacher à ma fiche » : les messages de ce numéro rangés sur la fiche d'un
+    # AUTRE compte (invisibles pour l'utilisateur) sont rattachés à SA fiche, qui devient la
+    # fiche prioritaire pour ce numéro (les prochains messages y arrivent directement).
+    @api.post("/admin/barriere-wa/rattacher", tags=["Admin — WhatsApp"])
+    async def rattacher(numero: str, user: dict = Depends(get_current_user)):
+        """Rattache à la fiche de l'utilisateur les messages de ce numéro rangés ailleurs."""
+        if user.get("role") not in ("admin", "superviseur") and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+        chiffres = _chiffres(numero)
+        if len(chiffres) < 8:
+            raise HTTPException(status_code=422, detail="Numéro trop court (8 chiffres au moins)")
+        if not resolve_visible_client_ids:
+            raise HTTPException(status_code=503, detail="Périmètre indisponible")
+        perimetre = list(await resolve_visible_client_ids(user))
+        fin = re.escape(chiffres[-8:]) + "$"
+        # Numéro de fiche saisi avec des espaces ou des tirets (« 70 11 22 33 ») : reconnu aussi
+        fin_souple = r"\D*".join(re.escape(ch) for ch in chiffres[-8:]) + r"\D*$"
+        par_numero = [{"whatsapp": {"$regex": fin_souple}}, {"phone": {"$regex": fin_souple}},
+                      {"phone_digits": {"$regex": fin_souple}}]
+        # Fiche de l'utilisateur pour ce numéro (la plus ancienne)
+        fiche = await db.directory_contacts.find_one(
+            {"client_id": {"$in": perimetre}, "$or": par_numero}, {"_id": 0}, sort=[("created_at", 1)])
+        if not fiche:
+            raise HTTPException(status_code=404, detail="Aucune fiche de votre carnet n'a ce numéro : créez d'abord le contact.")
+        # Cette fiche devient prioritaire pour ce numéro (une seule fiche prioritaire par numéro)
+        await db.directory_contacts.update_many({"$or": par_numero, "id": {"$ne": fiche["id"]}},
+                                                {"$unset": {"wa_prioritaire": ""}})
+        await db.directory_contacts.update_one({"id": fiche["id"]}, {"$set": {"wa_prioritaire": True}})
+        # Messages (reçus et envoyés) de ce numéro rangés hors du périmètre → rattachés à la fiche
+        res = await db.whatsapp_messages.update_many(
+            {"client_id": {"$nin": perimetre},
+             "$or": [{"phone_digits": {"$regex": fin}}, {"to": {"$regex": fin_souple}}, {"to_number": {"$regex": fin_souple}}]},
+            {"$set": {"client_id": fiche.get("client_id"), "contact_id": fiche["id"],
+                      "contact_name": fiche.get("name"),
+                      "rattache_le": datetime.now(timezone.utc).isoformat(),
+                      "rattache_par": user.get("full_name") or user.get("email")}},
+        )
+        logger.info("[barriere_wa] …%s : %s message(s) rattaché(s) à la fiche %s", chiffres[-4:],
+                    getattr(res, "modified_count", 0), fiche["id"])
+        return {"ok": True, "rattaches": int(getattr(res, "modified_count", 0) or 0),
+                "fiche": fiche.get("name") or fiche["id"]}

@@ -11,6 +11,9 @@
 //   • tiroir de détail : résumé, informations recueillies (par question), action suivante, coût,
 //     qualité audio, transcription, tentatives ;
 //   • réglages de l'agenda et des anniversaires des utilisateurs suivis.
+// Lot 71 : « Mode de l'appel » — objectif et questions (prompt, lot 70) OU formulaire SAWALI : les champs
+// du formulaire deviennent les questions ; la réponse est enregistrée dans les réponses du formulaire
+// (badge « 📞 Appel ») et le tiroir affiche les réponses champ par champ avec le lien vers la soumission.
 // Heures : Africa/Ouagadougou (= UTC) ; affichage JJ/MM/AAAA HH:MM.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -67,7 +70,15 @@ const formulaireVide = () => ({
   objectif: "", questions: [], texte_a_lire: "", contexte: "", maintenance: null, ligne_cle: "",
   recurrence: "aucune", tentatives_max: 3, intervalle_min: 30, plage_debut: "", plage_fin: "", priorite: "normale",
   creer_relance: false,
+  mode: "prompt", formulaire: null, lien_formulaire: "auto",   // lot 71 : appel basé sur un formulaire
 });
+// Lot 71 — statut d'un champ du formulaire après l'appel (tiroir de détail)
+const STATUTS_CHAMP = {
+  rempli: { libelle: "rempli", classe: "bg-emerald-100 text-emerald-800" },
+  vide: { libelle: "non renseigné", classe: "bg-slate-100 text-slate-600" },
+  invalide: { libelle: "invalide", classe: "bg-rose-100 text-rose-800" },
+  a_completer: { libelle: "à compléter", classe: "bg-amber-100 text-amber-800" },
+};
 
 export default function LiluvineAgenda() {
   const [vue, setVue] = useState("mois");                 // mois | semaine | liste
@@ -372,6 +383,11 @@ function TiroirDetail({ ev, types, statuts, occupe, fermer, modifier, appeler, d
 
         {/* Consignes données à Liluvine */}
         <div className="mt-4 space-y-1 text-sm">
+          {ev.mode === "formulaire" && ev.formulaire && (
+            <p><strong>Formulaire :</strong> 📋 {ev.formulaire.titre || ev.formulaire.id}
+              {ev.formulaire.nb_champs != null && <span className="text-xs text-slate-500"> · {ev.formulaire.nb_vocaux} champ(s) demandés au téléphone{ev.formulaire.nb_a_completer ? `, ${ev.formulaire.nb_a_completer} à compléter par écrit` : ""}</span>}
+            </p>
+          )}
           {ev.objectif && <p><strong>Objectif :</strong> {ev.objectif}</p>}
           {ev.texte_a_lire && <p><strong>Texte lu :</strong> {ev.texte_a_lire}</p>}
           {ev.contexte && <p><strong>Contexte :</strong> {ev.contexte}</p>}
@@ -387,7 +403,42 @@ function TiroirDetail({ ev, types, statuts, occupe, fermer, modifier, appeler, d
         {r && (
           <div className="mt-4 space-y-3">
             <h3 className="text-sm font-bold text-slate-700">Résultat de l'appel</h3>
-            {(r.informations || []).length > 0 && (
+            {/* Lot 71 — appel basé sur un formulaire : réponses champ par champ + lien vers la soumission */}
+            {r.formulaire && (
+              <div className="rounded-lg ring-1 ring-violet-200 bg-violet-50/40 p-2" data-testid="resultat-formulaire">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-violet-900">📋 {r.formulaire.titre}
+                    <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${r.formulaire.complet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {r.formulaire.complet ? "complète" : "incomplète"}
+                    </span>
+                  </p>
+                  {r.formulaire.soumission_id
+                    ? <a href={r.formulaire.lien_soumission} className="text-xs font-semibold text-violet-800 underline">Voir la réponse dans le formulaire →</a>
+                    : <span className="text-xs text-slate-500">Aucune réponse enregistrée{r.formulaire.erreur ? ` (${r.formulaire.erreur})` : " (aucun champ rempli)"}</span>}
+                </div>
+                <table className="mt-1 w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-600">
+                    <tr><th className="px-2 py-1">Champ</th><th className="px-2 py-1">Réponse</th><th className="px-2 py-1">État</th><th className="px-2 py-1">Confiance</th></tr>
+                  </thead>
+                  <tbody>
+                    {(r.formulaire.reponses || []).map((c) => (
+                      <tr key={c.id} className="border-t border-slate-100">
+                        <td className="px-2 py-1">{c.label}{c.required && <span className="text-rose-600"> *</span>}</td>
+                        <td className="px-2 py-1 font-semibold">{Array.isArray(c.valeur) ? c.valeur.join(", ") : valeurLisible(c.valeur)}</td>
+                        <td className="px-2 py-1">
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] ${(STATUTS_CHAMP[c.statut] || {}).classe || ""}`} title={c.motif || ""}>{(STATUTS_CHAMP[c.statut] || {}).libelle || c.statut}</span>
+                        </td>
+                        <td className="px-2 py-1">{c.valeur != null ? `${Math.round((c.confiance || 0) * 100)} %` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {r.formulaire.lien_envoye && (
+                  <p className="mt-1 text-xs text-slate-600">🔗 Lien du formulaire par WhatsApp : {r.formulaire.lien_envoye.ok ? `envoyé (${r.formulaire.lien_envoye.mode === "modele" ? "modèle Meta" : "texte"})` : `non envoyé — ${r.formulaire.lien_envoye.erreur || ""}`}</p>
+                )}
+              </div>
+            )}
+            {!r.formulaire && (r.informations || []).length > 0 && (
               <table className="w-full text-sm" data-testid="informations-recueillies">
                 <thead className="bg-slate-50 text-left text-xs uppercase text-slate-600">
                   <tr><th className="px-2 py-1">Information</th><th className="px-2 py-1">Réponse</th><th className="px-2 py-1">Confiance</th></tr>
@@ -445,6 +496,11 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
   const [rechercheMnt, setRechercheMnt] = useState("");
   const [maintenances, setMaintenances] = useState([]);
   const [enCours, setEnCours] = useState(false);
+  // Lot 71 — formulaires disponibles (mode « Formulaire ») et aperçu des questions du formulaire choisi
+  const [rechercheForm, setRechercheForm] = useState("");
+  const [formulaires, setFormulaires] = useState([]);
+  const [chargeForms, setChargeForms] = useState(false);
+  const [apercu, setApercu] = useState(null);
   const types = donnees?.types || {};
   const maj = (cle, valeur) => setF((x) => ({ ...x, [cle]: valeur }));
   const champ = "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm";
@@ -465,6 +521,23 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
     }, 300);
     return () => clearTimeout(t);
   }, [rechercheMnt, f.type]);
+
+  // Lot 71 — liste des formulaires (recherche par titre) quand le mode « Formulaire » est choisi
+  useEffect(() => {
+    if (f.mode !== "formulaire") return undefined;
+    const t = setTimeout(async () => {
+      setChargeForms(true);
+      try { const r = await apiClient.get("/admin/liluvine-agenda/formulaires", { params: { q: rechercheForm } }); setFormulaires(r.data.formulaires || []); } catch { setFormulaires([]); }
+      finally { setChargeForms(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [rechercheForm, f.mode]);
+  // Lot 71 — aperçu des questions que Liluvine posera pour le formulaire choisi
+  useEffect(() => {
+    const fid = f.mode === "formulaire" ? f.formulaire?.id : null;
+    if (!fid) { setApercu(null); return; }
+    apiClient.get(`/admin/liluvine-agenda/formulaires/${fid}/apercu`).then((r) => setApercu(r.data)).catch(() => setApercu(null));
+  }, [f.mode, f.formulaire?.id]);
 
   // Questions : ajout, modification, retrait
   const majQuestion = (i, cle, valeur) => maj("questions", f.questions.map((q, j) => (j === i ? { ...q, [cle]: valeur } : q)));
@@ -540,7 +613,64 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
           <textarea rows={2} value={f.objectif} onChange={(e) => maj("objectif", e.target.value)} placeholder="Ex. Savoir si la commande a été reçue et proposer le réassort." className={champ} />
         </label>
 
-        {/* Informations à recueillir */}
+        {/* Lot 71 — Mode de l'appel : objectif et questions (prompt) ou formulaire */}
+        <div className="rounded-lg bg-violet-50/60 p-2" data-testid="mode-appel">
+          <p className="text-xs font-semibold text-slate-700">Mode de l'appel</p>
+          <div className="mt-1 flex flex-wrap gap-4 text-sm">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="mode-appel" checked={f.mode !== "formulaire"} onChange={() => maj("mode", "prompt")} /> Objectif et questions (prompt)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="mode-appel" checked={f.mode === "formulaire"} onChange={() => maj("mode", "formulaire")} /> Formulaire
+            </label>
+          </div>
+          {f.mode === "formulaire" && (
+            <div className="mt-2 space-y-1">
+              {f.formulaire?.id && (
+                <p className="text-sm">✅ 📋 {f.formulaire.titre || f.formulaire.id}
+                  <button type="button" onClick={() => maj("formulaire", null)} className="ml-2 text-xs text-rose-700">changer</button></p>
+              )}
+              {!f.formulaire?.id && (
+                <>
+                  <input value={rechercheForm} onChange={(e) => setRechercheForm(e.target.value)} placeholder="Rechercher un formulaire (titre)" className={champ} />
+                  <div className="max-h-44 overflow-auto rounded border border-violet-200 bg-white">
+                    {chargeForms && <p className="px-2 py-1 text-xs text-slate-500"><Jauge /> Patientez…</p>}
+                    {!chargeForms && formulaires.length === 0 && <p className="px-2 py-1 text-xs text-slate-500">Aucun formulaire disponible.</p>}
+                    {formulaires.map((x) => (
+                      <button type="button" key={x.id} disabled={!x.nb_vocaux} className="block w-full px-2 py-1 text-left text-sm hover:bg-violet-50 disabled:opacity-50"
+                        onClick={() => maj("formulaire", { id: x.id, titre: x.titre })} title={!x.nb_vocaux ? "Aucun champ ne peut être demandé au téléphone" : ""}>
+                        📋 {x.titre}{x.number ? ` (n° ${x.number})` : ""}
+                        <span className="text-[11px] text-slate-500"> · {x.nb_champs} champ(s){x.nb_a_completer ? `, dont ${x.nb_a_completer} à compléter par écrit` : ""}{x.is_public ? " · public" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {apercu && (
+                <details className="rounded border border-violet-200 bg-white p-2 text-xs">
+                  <summary className="cursor-pointer font-semibold text-violet-900">Questions que Liluvine posera ({(apercu.champs || []).length})</summary>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {(apercu.champs || []).map((c) => <li key={c.id}>{c.question}{c.required ? " (obligatoire)" : ""}</li>)}
+                  </ul>
+                  {(apercu.a_completer || []).length > 0 && (
+                    <p className="mt-1 text-amber-800">À compléter par écrit (non demandés au téléphone) : {apercu.a_completer.map((c) => `${c.label} (${c.raison})`).join(", ")}</p>
+                  )}
+                  {!apercu.lien && <p className="mt-1 text-slate-500">Formulaire non public : aucun lien ne pourra être envoyé par WhatsApp.</p>}
+                </details>
+              )}
+              <label className="block text-xs font-semibold">Envoyer le lien du formulaire par WhatsApp à la fin
+                <select value={f.lien_formulaire || "auto"} onChange={(e) => maj("lien_formulaire", e.target.value)} className={champ}>
+                  <option value="auto">Automatique : s'il reste des champs à compléter ou si le formulaire est incomplet</option>
+                  <option value="toujours">Toujours</option>
+                  <option value="jamais">Jamais</option>
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Informations à recueillir (mode prompt seulement) */}
+        {f.mode !== "formulaire" && (
         <div className="rounded-lg bg-slate-50 p-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-700">Informations à recueillir (Liluvine pose les questions une par une)</p>
@@ -560,6 +690,7 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
             </div>
           ))}
         </div>
+        )}
 
         <label className="block text-xs font-semibold">Texte à lire (facultatif — variables {"{prenom}"} {"{nom}"} {"{entreprise}"})
           <textarea rows={2} value={f.texte_a_lire} onChange={(e) => maj("texte_a_lire", e.target.value)} className={champ} />

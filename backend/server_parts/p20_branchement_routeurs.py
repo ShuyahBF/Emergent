@@ -192,6 +192,16 @@ _setup_liluvine_decroche(db=db, api=api, get_current_user=get_current_user)
 # Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires des utilisateurs suivis)
 from routes.liluvine_agenda import setup_liluvine_agenda_routes as _setup_liluvine_agenda  # noqa: E402
 _setup_liluvine_agenda(db=db, api=api, get_current_user=get_current_user)
+# Lot 71 — transfert de messages WhatsApp (texte, médias stockés, position) vers d'autres contacts
+from routes.wa_transfert import setup_wa_transfert_routes as _setup_wa_transfert  # noqa: E402
+_setup_wa_transfert(
+    db=db, api=api, get_current_user=get_current_user,
+    visibles_fn=_resolve_visible_client_ids,          # comptes dont l'utilisateur voit les conversations
+    base_url_fn=lambda requete: _public_base_url(requete),   # adresse publique des médias (/api/files/…)
+    # mêmes rôles que l'envoi d'un message libre depuis la conversation (/me/whatsapp/send-text)
+    peut_envoyer_fn=lambda u: (u.get("role") in ("client", "admin", "demo") or _is_elevated_creator(u)
+                               or _is_tracked_user(u)),
+)
 
 # Lot 61 — liste noire des numéros interdits aux commandes « ! » (administration)
 from routes.liste_noire_commandes import setup_liste_noire_commandes_routes as _setup_liste_noire_cmd  # noqa: E402

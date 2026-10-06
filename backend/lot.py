@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "70"
-LOT_LIBELLE = "Agenda d'appels de Liluvine (relances, prospection, suivi client, compte rendu de maintenance, rappels de rendez-vous : appels sortants planifiés, informations recueillies, coûts), anniversaires des utilisateurs suivis, voix clonées Story Studio pour Liluvine et style oral corrigé au téléphone (pas de listes, pas de seconde salutation, une question à la fois, appelant reconnu par son nom)"
+LOT = "71"
+LOT_LIBELLE = "Appels de Liluvine basés sur un formulaire (champs du formulaire posés au téléphone, réponse enregistrée dans le formulaire avec la source « appel Liluvine », lien envoyé pour les champs à compléter) et transfert de messages WhatsApp (texte, images, documents, audio, vidéo, position) vers d'autres contacts, avec fenêtre de 24 h, modèle de repli, résultat par destinataire et journal"

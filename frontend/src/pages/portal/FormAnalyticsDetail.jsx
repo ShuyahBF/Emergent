@@ -412,6 +412,19 @@ function SubmissionsTable({ fid, dateFrom, dateTo }) {
                     {r.anonymous
                       ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px]">Anonyme</span>
                       : <span className="font-medium text-slate-700">{r.user_label}</span>}
+                    {/* Lot 71 — réponse remplie au téléphone par Liluvine (agenda d'appels) */}
+                    {r.via === "appel_liluvine" && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-violet-100 text-violet-800 px-1.5 py-0.5 text-[10px] font-semibold"
+                        title="Réponse recueillie par Liluvine pendant un appel (agenda d'appels)" data-testid={`submission-appel-${r.id}`}>
+                        📞 Appel
+                      </span>
+                    )}
+                    {/* Lot 71 — champ obligatoire manquant : réponse incomplète */}
+                    {r.statut === "incomplete" && (
+                      <span className="ml-1 inline-flex rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-semibold" title="Au moins un champ obligatoire n'a pas été renseigné">
+                        incomplète
+                      </span>
+                    )}
                   </td>
                   {columns.map((c) => {
                     const v = r[c.id];

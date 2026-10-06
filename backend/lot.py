@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.14"
-LOT_LIBELLE = "WhatsApp : « Rattacher à ma fiche » les messages rangés chez un autre compte ; fiche prioritaire par numéro pour les messages suivants"
+LOT = "64.15"
+LOT_LIBELLE = "Conversation WA : détection automatique des messages rangés chez un autre compte et bouton « Rattacher à cette fiche »"

@@ -1784,6 +1784,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // small screens (mobile/tablet). Default = discussion (everything except
   // groups). "Groupes (n)" = only the ContactGroupChips panel.
   const [convTab, setConvTab] = useState("discussion");
+  const [ailleurs, setAilleurs] = useState(null);   // Lot 64.15 — messages rangés chez un autre compte
+  const verifAilleursRef = useRef(0);              // heure de la dernière vérification
   const [groupCount, setGroupCount] = useState(0);
 
   // Lot 23 — `silent` : relecture périodique sans remplacer la conversation par
@@ -1791,8 +1793,13 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const r = await apiClient.get(`/me/contacts/${contact.id}/messages`);
+      // Lot 64.15 — à l'ouverture (pas aux relectures silencieuses) : vérifie aussi si des messages
+      // de ce numéro sont rangés sur la fiche d'un autre compte
+      // … et pendant la conversation, au plus une fois par minute
+      const verifier = !silent || Date.now() - verifAilleursRef.current > 60000;
+      const r = await apiClient.get(`/me/contacts/${contact.id}/messages`, { params: verifier ? { verifier_ailleurs: true } : {} });
       const next = r.data || { messages: [] };
+      if (verifier) { verifAilleursRef.current = Date.now(); setAilleurs(next.ailleurs || null); }
       if (silent) {
         // Nouveau message reçu pendant que la conversation est ouverte :
         // on le marque comme lu (il est sous les yeux de l'utilisateur).
@@ -2059,6 +2066,21 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const messagesFil = React.useMemo(() => messages.filter((m) => !m.barriere_retenu), [messages]);
   const filAvecAppels = React.useMemo(() => fusionnerAppels(messagesFil, appelsWa), [messagesFil, appelsWa]);
   const [insertionRetenus, setInsertionRetenus] = useState(false);
+  // Lot 64.15 — rattachement des messages rangés chez un autre compte
+  const [rattachementEnCours, setRattachementEnCours] = useState(false);
+  const rattacherIci = async () => {
+    setRattachementEnCours(true);
+    try {
+      const r = await apiClient.post(`/me/contacts/${contact.id}/rattacher-messages`);
+      toast.success(`${r.data?.rattaches || 0} message(s) rattaché(s) à cette fiche`);
+      setAilleurs(null);
+      await load(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Rattachement impossible");
+    } finally {
+      setRattachementEnCours(false);
+    }
+  };
   const insererRetenus = async () => {
     setInsertionRetenus(true);
     try {
@@ -2750,6 +2772,21 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             className="absolute left-1/2 -translate-x-1/2 bottom-40 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-600 text-white text-xs px-3 py-1.5 shadow-lg hover:bg-emerald-700">
             <ArrowDown className="h-3.5 w-3.5" /> Nouveau message
           </button>
+        )}
+        {/* Lot 64.15 — bandeau : messages de ce numéro rangés sur la fiche d'un autre compte */}
+        {ailleurs?.n > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-900"
+            data-testid="bandeau-messages-ailleurs">
+            <span>
+              ⚠️ <strong>{ailleurs.n}</strong> message(s) de ce numéro sont rangés sur la fiche d'un autre compte et n'apparaissent pas ici
+              {ailleurs.dernier && <> (dernier : {new Date(ailleurs.dernier).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })})</>}
+            </span>
+            <button type="button" onClick={rattacherIci} disabled={rattachementEnCours}
+              className="rounded-lg bg-rose-600 px-3 py-1 font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+              data-testid="rattacher-ici">
+              {rattachementEnCours ? "Patientez…" : "Rattacher à cette fiche"}
+            </button>
+          </div>
         )}
         {/* Lot 64.13 — bandeau : messages retenus par la barrière anti-rafale */}
         {retenus.length > 0 && (

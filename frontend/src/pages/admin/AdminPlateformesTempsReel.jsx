@@ -112,7 +112,12 @@ export default function AdminPlateformesTempsReel() {
                   </div>
                 ) : (
                   <p className="text-xs text-rose-700">
-                    {interne ? `Statistiques internes indisponibles : ${interne.erreur}` : "Statistiques internes non branchées"}
+                    {interne
+                      ? `Statistiques internes indisponibles : ${interne.erreur}`
+                      : (p.stats_manque || []).length
+                        // Lot 64.7 — ce qui manque dans Paramètres → Transmission WA Universelle Liluvine
+                        ? `Statistiques internes non branchées : renseignez ${p.stats_manque.join(", ")} de cet émetteur (Paramètres → Transmission WA Universelle Liluvine).`
+                        : "Statistiques internes non branchées"}
                   </p>
                 )}
                 {(interne?.faits_marquants || []).length > 0 && (

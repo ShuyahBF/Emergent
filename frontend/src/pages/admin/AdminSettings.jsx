@@ -358,19 +358,30 @@ const BullesDefilement = () => {
   );
 };
 
-// Lot 64 — cartes cliquables des nouveautés de moins d'une semaine (10 au plus) :
-// un clic vide la recherche, revient à l'onglet « Tous » et amène directement à la rubrique.
+// Lot 64 — cartes cliquables des nouveautés de moins d'une semaine.
+// Lot 68.3 — « Ça doit être systématique ! » : la liste vient du SERVEUR (backend/nouveautes.py, source unique
+// complétée à chaque lot et contrôlée par un test). Chaque carte mène soit à une rubrique de cette page
+// (« rubrique »), soit à un autre écran (« lien »). Sans réponse du serveur : anciennes cartes locales.
 const CartesNouveautes = () => {
   const ctx = useSettingsFilter();
-  const titres = useMemo(() => Object.keys(NEW_SECTIONS)
-    .filter((t) => ageEnJours(t) <= NOUVEAUTE_JOURS && ctx?.registry?.[t])
-    .sort((a, b) => ageEnJours(a) - ageEnJours(b))
-    .slice(0, NOUVEAUTES_MAX), [ctx?.registry]);
-  // Lot 68.2 — nouveautés des autres écrans (moins d'une semaine), dans la limite des cartes restantes
-  const pages = useMemo(() => NEW_PAGES
-    .filter((p) => (Date.now() - new Date(p.date).getTime()) / 86400000 <= NOUVEAUTE_JOURS)
-    .slice(0, Math.max(0, NOUVEAUTES_MAX - titres.length)), [titres.length]);
-  if (!ctx || titres.length + pages.length === 0) return null;
+  const [serveur, setServeur] = useState(null);
+  useEffect(() => {
+    // Lecture unique au chargement de la page ; erreur = repli sur les cartes locales
+    apiClient.get("/admin/nouveautes").then((r) => setServeur(r.data?.nouveautes || [])).catch(() => setServeur(null));
+  }, []);
+  const cartes = useMemo(() => {
+    const recentes = (d) => (Date.now() - new Date(d).getTime()) / 86400000 <= NOUVEAUTE_JOURS;
+    if (Array.isArray(serveur)) {
+      return serveur.filter((n) => recentes(n.date)).slice(0, NOUVEAUTES_MAX);
+    }
+    // Repli : rubriques locales récentes (ancien fonctionnement) + autres écrans
+    const locales = Object.keys(NEW_SECTIONS)
+      .filter((t) => ageEnJours(t) <= NOUVEAUTE_JOURS && ctx?.registry?.[t])
+      .map((t) => ({ titre: t, lot: NEW_LOTS[t], date: NEW_SECTIONS[t], description: NEW_DESCRIPTIONS[t], rubrique: t }));
+    const pages = NEW_PAGES.filter((p) => recentes(p.date));
+    return [...pages, ...locales].slice(0, NOUVEAUTES_MAX);
+  }, [serveur, ctx?.registry]);
+  if (!ctx || cartes.length === 0) return null;
   // Se positionner sur une rubrique (et la faire clignoter brièvement)
   const aller = (titre) => {
     const ancre = ctx.registry[titre]?.anchorId;
@@ -384,35 +395,38 @@ const CartesNouveautes = () => {
       setTimeout(() => el.classList.remove("ring-4", "ring-sky-300", "rounded-xl"), 2500);
     }, 80);
   };
+  const classeCarte = "relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md";
+  // Contenu commun d'une carte (titre + lot, description, date)
+  const contenu = (c, versEcran) => (
+    <>
+      <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
+      <p className="line-clamp-2 text-xs font-semibold text-slate-900">
+        {c.titre}{c.lot && <span className="font-normal text-sky-700"> (Lot {c.lot})</span>}
+      </p>
+      {c.description && <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{c.description}</p>}
+      <p className="mt-1 text-[10px] text-slate-400">
+        Ajouté le {new Date(c.date).toLocaleDateString("fr-FR")}{versEcran ? " · ouvre l'écran ↗" : ""}
+      </p>
+    </>
+  );
   return (
     <div className="mt-3" data-testid="cartes-nouveautes">
-      <p className="mb-2 text-xs font-semibold text-sky-800">🆕 Nouveautés de la semaine ({titres.length + pages.length})</p>
+      <p className="mb-2 text-xs font-semibold text-sky-800">🆕 Nouveautés de la semaine ({cartes.length})</p>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        {titres.map((t) => (
-          <button key={t} type="button" onClick={() => aller(t)}
-            className="relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md"
-            data-testid={`carte-nouveaute-${ctx.registry[t]?.anchorId}`}>
-            <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
-            <p className="line-clamp-2 text-xs font-semibold text-slate-900">
-              {t}{NEW_LOTS[t] && <span className="font-normal text-sky-700"> (Lot {NEW_LOTS[t]})</span>}
-            </p>
-            {NEW_DESCRIPTIONS[t] && <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{NEW_DESCRIPTIONS[t]}</p>}
-            <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(NEW_SECTIONS[t]).toLocaleDateString("fr-FR")}</p>
-          </button>
-        ))}
-        {/* Lot 68.2 — cartes des nouveautés situées sur d'autres écrans : le clic ouvre l'écran */}
-        {pages.map((p) => (
-          <Link key={p.titre} to={p.lien}
-            className="relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md"
-            data-testid={`carte-nouveaute-page-${slugify(p.titre)}`}>
-            <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
-            <p className="line-clamp-2 text-xs font-semibold text-slate-900">
-              {p.titre}<span className="font-normal text-sky-700"> (Lot {p.lot})</span>
-            </p>
-            <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{p.description}</p>
-            <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(p.date).toLocaleDateString("fr-FR")} · ouvre l'écran ↗</p>
-          </Link>
-        ))}
+        {cartes.map((c) => (c.rubrique && ctx.registry?.[c.rubrique]
+          ? (
+            // Rubrique de cette page : défilement jusqu'à elle
+            <button key={`${c.lot}-${c.titre}`} type="button" onClick={() => aller(c.rubrique)} className={classeCarte}
+              data-testid={`carte-nouveaute-${slugify(c.titre)}`}>
+              {contenu(c, false)}
+            </button>
+          ) : (
+            // Autre écran : ouverture directe
+            <Link key={`${c.lot}-${c.titre}`} to={c.lien || "/admin/settings"} className={classeCarte}
+              data-testid={`carte-nouveaute-${slugify(c.titre)}`}>
+              {contenu(c, Boolean(c.lien))}
+            </Link>
+          )))}
       </div>
     </div>
   );

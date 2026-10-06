@@ -206,6 +206,9 @@ _setup_loois_synchro(db=db, api=api, get_current_user=get_current_user)
 # Lot 68.1 — clés clients Loois (une clé par client ; page Plateformes → Loois → Synchro → onglet « Clés clients »)
 from routes.loois_cles_clients import setup_loois_cles_clients_routes as _setup_loois_cles_clients  # noqa: E402
 _setup_loois_cles_clients(db=db, api=api, get_current_user=get_current_user)
+# Lot 68.3 — cartes « Nouveautés » de la page Paramètres (source unique : backend/nouveautes.py)
+from routes.nouveautes_route import setup_nouveautes_routes as _setup_nouveautes  # noqa: E402
+_setup_nouveautes(api=api, get_current_user=get_current_user)
 
 # =====================================================================
 # Iter38k — Gemini Nano Banana image generation (icons + media generator).

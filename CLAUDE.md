@@ -42,6 +42,14 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
   - adLyn, beAuthentik : même principe (lot = numéro de la PR fusionnée).
 - Nouveau projet : prévoir dès le départ cette source unique et l'affichage.
 
+## Nouveautés à chaque lot (règle 5, 06/10/2026 : « Ça doit être systématique ! »)
+- À CHAQUE lot déployé, la page Paramètres (AdminSettings) présente sa carte « Nouveautés » :
+  - SAWALI : ajouter une entrée dans `backend/nouveautes.py` avec le MÊME numéro que `backend/lot.py`
+    (titre, description d'une ligne, date, `rubrique` = titre exact de la rubrique des Paramètres ou
+    `lien` = écran à ouvrir). Le test `tests/test_regle_nouveautes.py` échoue si le lot courant n'a pas sa carte.
+  - Une nouveauté située sur un autre écran a aussi sa carte (clic = ouverture de l'écran).
+- Même principe sur toute plateforme qui possède une page de paramètres / nouveautés.
+
 ## Tableaux (règle 3)
 - Sur TOUT tableau : ligne survolée = fond bleu clair transparent
   (`rgba(56, 189, 248, 0.16)`) ; ligne sélectionnée = fond orange clair

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Phone, PhoneIncoming, PhoneOff, PhoneOutgoing, Mic, MicOff, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import PastilleLigneWa from "./PastilleLigneWa";
+import TranscriptionAppelLiluvine from "./TranscriptionAppelLiluvine";   // Lot 69
 
 // Serveurs STUN publics : permettent au navigateur de découvrir son adresse publique (WebRTC)
 const ICE_SERVERS = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
@@ -75,6 +76,7 @@ export default function AppelsWhatsApp() {
   const [secondes, setSecondes] = useState(0);
   const [occupe, setOccupe] = useState(false);        // décroché / appel sortant en préparation
   const [journal, setJournal] = useState(null);       // {telephone, items, duree_totale_s} ou null
+  const [deplie, setDeplie] = useState(null);         // Lot 69 — appel de Liluvine dont la transcription est dépliée
   const pcRef = useRef(null);                          // connexion WebRTC
   const micRef = useRef(null);                         // flux du micro
   const audioRef = useRef(null);                       // lecteur du son du correspondant
@@ -375,7 +377,11 @@ export default function AppelsWhatsApp() {
                   </thead>
                   <tbody>
                     {journal.items.map((a) => (
-                      <tr key={a.id} className="border-t border-slate-100">
+                      <React.Fragment key={a.id}>
+                      {/* Lot 69 — un clic sur un appel pris par Liluvine déplie sa transcription */}
+                      <tr className={`border-t border-slate-100 ${a.liluvine ? "cursor-pointer" : ""}`}
+                        aria-selected={deplie === a.id ? "true" : undefined}
+                        onClick={() => a.liluvine && setDeplie(deplie === a.id ? null : a.id)}>
                         <td className="px-3 py-2 whitespace-nowrap">{a.created_at ? new Date(a.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</td>
                         <td className="px-3 py-2">{a.direction === "sortant" ? "↗ Sortant" : "↙ Entrant"}</td>
                         <td className="px-3 py-2">
@@ -394,8 +400,17 @@ export default function AppelsWhatsApp() {
                           {a.resultat && <span className="block text-[11px] text-slate-500" title={a.raison || ""}>{a.resultat}{a.raison ? " — " + a.raison : ""}</span>}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{a.duree_s ? dureeLisible(a.duree_s) : "—"}</td>
-                        <td className="px-3 py-2">{a.decroche_par_nom || "—"}</td>
+                        <td className="px-3 py-2">
+                          {a.decroche_par_nom || "—"}
+                          {a.liluvine && <span className="block text-[11px] text-violet-700">{deplie === a.id ? "▲ masquer" : "▼ transcription"}</span>}
+                        </td>
                       </tr>
+                      {deplie === a.id && a.liluvine && (
+                        <tr className="bg-violet-50/40">
+                          <td colSpan={7} className="px-3 py-2"><TranscriptionAppelLiluvine l={a.liluvine} /></td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

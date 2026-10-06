@@ -17,6 +17,7 @@ import ListeNoireCommandesSection from "@/pages/admin/sections/ListeNoireCommand
 import BarriereWaSection from "@/pages/admin/sections/BarriereWaSection";   // Lot 63
 import AppelProprietaireSection from "@/pages/admin/sections/AppelProprietaireSection";   // Lot 67
 import HistoriqueAppelsLiluvine from "@/pages/admin/sections/HistoriqueAppelsLiluvine";   // Lot 67.1
+import LiluvineDecrocheSection from "@/pages/admin/sections/LiluvineDecrocheSection";   // Lot 69
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
@@ -1065,6 +1066,11 @@ export default function AdminSettings() {
       {/* Lot 67.1 — historique des appels automatiques de Liluvine : durées, coûts, synthèse par période */}
       <Filterable title="📊 Historique des appels de Liluvine (durée et coût)" anchorId="s-historique-appels-liluvine">
         <HistoriqueAppelsLiluvine />
+      </Filterable>
+
+      {/* Lot 69 — Liluvine décroche les appels WhatsApp entrants et répond avec son prompt système */}
+      <Filterable title="🤖📞 Liluvine décroche les appels WhatsApp" anchorId="s-liluvine-decroche">
+        <LiluvineDecrocheSection />
       </Filterable>
 
       {/* Lot 61 — numéros interdits aux commandes « ! » et message de refus de Liluvine */}

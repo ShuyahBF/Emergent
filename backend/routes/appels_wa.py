@@ -123,6 +123,14 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
                 "sonne_le": _iso_depuis_unix(appel.get("timestamp")) or _maintenant(),
                 "created_at": _maintenant(),
             })
+            # Lot 69 — Liluvine décroche automatiquement si les réglages le prévoient (toujours, après
+            # N secondes sans réponse humaine, ou hors heures d'ouverture). Décision immédiate, appel
+            # traité en arrière-plan : le webhook n'attend jamais. Prise atomique (« premier qui décroche »).
+            try:
+                from routes.liluvine_decroche import planifier_decroche
+                await planifier_decroche(db, call_id, s)
+            except Exception:  # noqa: BLE001 — le décroché automatique ne bloque jamais le webhook
+                logger.warning("[appels_wa] décroché automatique de Liluvine non lancé", exc_info=True)
         elif evenement == "connect" and sortant:
             # Appel SORTANT : le client a décroché → réponse SDP à transmettre au navigateur
             await db.wa_appels.update_one({"id": call_id}, {"$set": {
@@ -242,7 +250,9 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
             "id", "direction", "statut", "telephone", "contact_id", "contact_nom", "sonne_le", "debut", "fin",
             "duree_s", "decroche_par_nom", "created_at",
             # Lot 67 — alerte de Liluvine au propriétaire : motif, résultat, raison d'échec, client concerné
-            "motif", "resultat", "raison", "alerte_client_nom")}
+            "motif", "resultat", "raison", "alerte_client_nom",
+            # Lot 69 — appel pris par Liluvine : transcription, résumé, coût estimé, demande de rappel
+            "repondu_par", "liluvine")}
         sortie["ligne"] = pastille(ligne_par_cle(s, appel.get("ligne_cle")) or lignes_configurees(s)[0])
         return sortie
 

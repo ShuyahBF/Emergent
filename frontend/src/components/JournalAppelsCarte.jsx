@@ -79,7 +79,9 @@ export default function JournalAppelsCarte({ limite = 6, testid = "journal-appel
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {a.contact_nom}
                   {/* Lot 67 — motif « alerte message » : client qui a écrit */}
-                  {a.motif && <span className="ml-1 font-normal text-violet-700">· 🔔 {a.alerte_client_nom || a.motif}</span>}
+                  {a.motif && !a.liluvine && <span className="ml-1 font-normal text-violet-700">· 🔔 {a.alerte_client_nom || a.motif}</span>}
+                  {/* Lot 69 — appel pris par Liluvine : résumé au survol */}
+                  {a.liluvine && <span className="ml-1 font-normal text-violet-700" title={a.liluvine.resume || ""}>· 🤖 Liluvine</span>}
                 </span>
                 {a.ligne && <PastilleLigneWa libelle={a.ligne.libelle} fond={a.ligne.fond} texte={a.ligne.texte} />}
                 <span className={`shrink-0 ${couleur}`}>{libelle}</span>

@@ -1583,6 +1583,16 @@ async def whatsapp_webhook_incoming(request: Request):
             # pendant ce traitement (Liluvine répond depuis le même numéro).
             numero_recu = str((val.get("metadata") or {}).get("phone_number_id") or "").strip() or None
             definir_numero_recu(numero_recu)
+            # Lot 60 — évènements d'appel WhatsApp (champ « calls ») : sonnerie, fin d'appel,
+            # statuts d'un appel sortant. Traités à part (ce ne sont pas des messages).
+            if change.get("field") == "calls":
+                try:
+                    from routes.appels_wa import traiter_webhook_appels
+                    extracted_statuses += await traiter_webhook_appels(db, val)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"appels:{str(exc)[:120]}")
+                    logger.warning("[appels_wa] évènement d'appel non traité", exc_info=True)
+                continue
             # Build a wa_id → profile.name map from the contacts array (Meta
             # always includes it alongside inbound messages). Used to:
             #  1. fill `from_profile_name` on inbound messages
@@ -1695,8 +1705,16 @@ async def whatsapp_webhook_incoming(request: Request):
                         # Lot 27 : formulaire WhatsApp (Flow) complété par le client.
                         # Avant, cette réponse était perdue (seuls les boutons et listes étaient lus).
                         flow_reply = _wa_parse_flow_reply(interactive)
+                        # Lot 60 — réponse du client à une demande d'autorisation d'appel
+                        if interactive.get("type") == "call_permission_reply":
+                            try:
+                                from routes.appels_wa import noter_reponse_permission
+                                text_body = await noter_reponse_permission(
+                                    db, digits_only, interactive.get("call_permission_reply") or {})
+                            except Exception:  # noqa: BLE001
+                                text_body = "📞 Réponse à la demande d'autorisation d'appel"
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
-                        text_body = (flow_reply or {}).get("summary") or reply.get("title") or reply.get("id")
+                        text_body = (flow_reply or {}).get("summary") or reply.get("title") or reply.get("id") or text_body
                         # VIDAL riche — clic sur le bouton "Équivalences" affiché
                         # après une réponse `!doc`/`!rech` (voir vidal_riche.py).
                         btn_id = reply.get("id") or ""

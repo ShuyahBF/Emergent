@@ -388,6 +388,14 @@ export default function Contacts() {
           </button>
           {/* Iter34w — Exports list */}
           <ContactsExportMenu />
+          {/* Lot 60 — journal de tous les appels WhatsApp (durées, agents) */}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("sawali:journal-appels", { detail: {} }))}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm"
+            data-testid="contacts-journal-appels"
+          >
+            📞 Journal des appels
+          </button>
           {/* Lot 24 — dédoublonnage (même numéro), réservé au superviseur */}
           {user?.role === "superviseur" && (
             <button
@@ -2290,6 +2298,32 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Lot 60 — appel WhatsApp vers ce contact (autorisation du client vérifiée avant l'appel) */}
+            {(contact.whatsapp || contact.phone) && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("sawali:appel-wa", {
+                  detail: { telephone: contact.whatsapp || contact.phone, contact_id: contact.id, nom: contact.name },
+                }))}
+                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 text-xs font-semibold"
+                title="Appeler ce contact sur WhatsApp (depuis le navigateur, avec le micro)"
+                data-testid="conversation-appeler"
+              >
+                📞 Appeler
+              </button>
+            )}
+            {/* Lot 60 — journal des appels de ce contact (durées) */}
+            {(contact.whatsapp || contact.phone) && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("sawali:journal-appels", {
+                  detail: { telephone: contact.whatsapp || contact.phone },
+                }))}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs"
+                title="Journal des appels WhatsApp de ce contact"
+                data-testid="conversation-journal-appels"
+              >
+                Appels
+              </button>
+            )}
             <button
               onClick={load}
               className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs"

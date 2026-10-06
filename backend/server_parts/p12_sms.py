@@ -1404,7 +1404,7 @@ async def _generate_reply_code() -> str:
     """2026-02 fork (P3b) — Short unique code for the admin WA reply router.
     Format: 4 uppercase alphanumerics (~1.6M combos, > enough for concurrent
     unresolved messages). Includes a collision check against active tokens
-    younger than 30 min.
+    (valid 24 h since lot 64.12).
     """
     import secrets
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # skip 0/O/1/I for readability
@@ -1442,7 +1442,9 @@ async def _try_handle_masked_reply(*, from_num: str, digits_only: str, text_body
     if not token:
         # Politely tell the admin the code is unknown/expired
         try:
-            await _wa_send_text(from_num, f"⚠️ Code #R{code} inconnu ou expiré — impossible de router votre réponse.")
+            # Lot 64.12 — message plus explicite : un code est valable 24 h (fenêtre de réponse WhatsApp)
+            await _wa_send_text(from_num, f"⚠️ Code #R{code} inconnu ou expiré (un code est valable 24 h) — "
+                                          "impossible de router votre réponse. Répondez depuis le portail SAWALI.")
         except Exception:  # noqa: BLE001
             pass
         return {"code": code, "routed_to": None, "ok": False, "error": "unknown_code"}

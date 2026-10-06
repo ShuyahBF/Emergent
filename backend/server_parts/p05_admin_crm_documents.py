@@ -331,15 +331,17 @@ async def _task_reminder_cron():
     """Hourly cron: tasks with remind_via_whatsapp=true + due in [now, now+1h] + not yet reminded.
     Emits a 'task.reminder' event so admins can hook a WhatsApp template via /admin/automations.
 
-    2026-02 fork (P3b) — Also prunes wa_reply_tokens older than 30 minutes
+    2026-02 fork (P3b) — Also prunes wa_reply_tokens older than 24 hours (lot 64.12 ; 30 minutes avant)
     (best-effort) so the collection stays small even without a TTL index (our
     docs store `created_at` as ISO strings, which TTL cannot use directly).
     """
     now_utc = datetime.now(timezone.utc)
     win_end = (now_utc + timedelta(hours=1)).isoformat()
-    # Prune expired reply-router tokens (older than 30 min, used OR not).
+    # Prune expired reply-router tokens (used OR not).
+    # Lot 64.12 — validité portée de 30 minutes à 24 heures (= fenêtre de réponse WhatsApp) :
+    # l'administrateur répondait souvent plus d'une demi-heure après et recevait « code inconnu ou expiré ».
     try:
-        cutoff = (now_utc - timedelta(minutes=30)).isoformat()
+        cutoff = (now_utc - timedelta(hours=24)).isoformat()
         res = await db.wa_reply_tokens.delete_many({"created_at": {"$lt": cutoff}})
         if res.deleted_count:
             logger.info("[wa_reply_tokens prune] removed %d expired tokens", res.deleted_count)

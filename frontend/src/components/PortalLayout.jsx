@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor, PhoneCall,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
@@ -55,6 +55,8 @@ const clientLinks = [
   { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"], featureGate: "forms_surveys", fsBadges: true },
   // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
+  // Lot 70 — agenda d'appels de Liluvine (superviseurs ; l'administrateur l'a dans son menu)
+  { to: "/portal/liluvine-agenda", label: "Agenda d'appels de Liluvine", icon: PhoneCall, adminOrSup: true },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
   // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
   { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
@@ -143,6 +145,8 @@ const adminLinks = [
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/whatsapp-carrousel", label: "Carrousel WhatsApp", icon: GalleryHorizontalEnd },   // lot 40
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
+  // Lot 70 — appels sortants planifiés de Liluvine (relances, prospection, anniversaires…)
+  { to: "/admin/liluvine-agenda", label: "Agenda d'appels de Liluvine", icon: PhoneCall },
   { to: "/admin/automations", label: "Automations", icon: Zap },
   { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
   { to: "/admin/suggestions", label: "Suggestions (registre S###)", icon: ScrollText },

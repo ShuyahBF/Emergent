@@ -15,6 +15,24 @@
 
 NOUVEAUTES = [
     {
+        "lot": "70", "date": "2026-10-06",
+        "titre": "📅 Agenda d'appels de Liluvine",
+        "description": "Liluvine appelle à la date prévue (relance, prospection, suivi, compte rendu de maintenance…), pose vos questions et note les réponses.",
+        "lien": "/admin/liluvine-agenda",
+    },
+    {
+        "lot": "70", "date": "2026-10-06",
+        "titre": "🎂 Anniversaires des utilisateurs suivis",
+        "description": "Date de naissance sur la fiche ; Liluvine appelle à l'heure réglée pour lire vos vœux (message WhatsApp si pas de réponse).",
+        "lien": "/admin/tracked-users",
+    },
+    {
+        "lot": "70", "date": "2026-10-06",
+        "titre": "🗣️ Liluvine au téléphone : voix clonée et style oral",
+        "description": "Voix clonée Story Studio utilisable ; plus de listes ni de « Bonjour » redit, une question à la fois, appelant reconnu par son nom.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "69.2", "date": "2026-10-06",
         "titre": "🎧 Appels de Liluvine : son fluide et voix africaine",
         "description": "Plus de silences hachés pendant les appels ; voix à accent d'Afrique de l'Ouest au choix, « Écouter un essai » et ligne « Qualité audio » au journal.",

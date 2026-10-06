@@ -61,15 +61,58 @@ def _iso_depuis_unix(valeur: Any) -> Optional[str]:
         return None
 
 
+def motif_numero(chiffres: str) -> str:
+    """Lot 70 — motif de recherche d'un numéro par ses 8 derniers chiffres, quel que soit son format
+    d'enregistrement (« +226 70 00 00 01 », « 70-00-00-01 », « 22670000001 ») : séparateurs tolérés."""
+    return r"\D*".join(re.escape(c) for c in chiffres[-8:]) + r"\D*$"
+
+
 async def _contact_du_numero(db, chiffres: str) -> Optional[Dict[str, Any]]:
-    """Fiche contact d'un correspondant (8 derniers chiffres du numéro)."""
+    """Fiche contact d'un correspondant (8 derniers chiffres du numéro, espaces et tirets tolérés — lot 70)."""
     if len(chiffres) < 6:
         return None
-    fin = re.escape(chiffres[-8:])
+    fin = motif_numero(chiffres)
     return await db.directory_contacts.find_one(
         {"$or": [{"whatsapp": {"$regex": fin}}, {"phone": {"$regex": fin}}]},
         {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_ligne": 1, "whatsapp": 1, "phone": 1},
     )
+
+
+async def identifier_appelant(db, chiffres: str, s: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Lot 70 — qui appelle ? Contact WhatsApp, sinon utilisateur suivi, sinon compte client, sinon
+    propriétaire (numéros du lot 67). → {contact_id, nom, client_id, source} (valeurs None si inconnu)."""
+    sortie: Dict[str, Any] = {"contact_id": None, "nom": None, "client_id": None, "source": None}
+    if len(chiffres) < 8:
+        return sortie
+    contact = await _contact_du_numero(db, chiffres)
+    if contact and contact.get("name"):
+        return {"contact_id": contact.get("id"), "nom": contact["name"], "client_id": contact.get("client_id"),
+                "source": "contact"}
+    fin = {"$regex": motif_numero(chiffres)}
+    suivi = await db.tracked_users.find_one({"$or": [{"whatsapp_number": fin}, {"phone": fin}]},
+                                            {"_id": 0, "id": 1, "name": 1, "client_id": 1})
+    if suivi and suivi.get("name"):
+        return {"contact_id": (contact or {}).get("id"), "nom": suivi["name"], "client_id": suivi.get("client_id"),
+                "source": "suivi"}
+    compte = await db.users.find_one({"$or": [{"whatsapp_number": fin}, {"phone": fin}, {"whatsapp": fin}]},
+                                     {"_id": 0, "id": 1, "full_name": 1, "company": 1, "role": 1, "client_id": 1})
+    if compte and (compte.get("full_name") or compte.get("company")):
+        nom = compte.get("full_name") or compte.get("company")
+        if compte.get("company") and compte.get("full_name") and compte["company"] != compte["full_name"]:
+            nom = f"{compte['full_name']} ({compte['company']})"
+        return {"contact_id": (contact or {}).get("id"), "nom": nom,
+                "client_id": compte.get("client_id") or (compte.get("id") if compte.get("role") == "client" else None),
+                "source": "compte"}
+    try:
+        from routes.appel_proprietaire import numeros_proprietaire
+        if chiffres[-8:] in {n[-8:] for n in numeros_proprietaire(s or {})}:
+            return {"contact_id": (contact or {}).get("id"), "nom": "le propriétaire de SAWALI", "client_id": None,
+                    "source": "proprietaire"}
+    except Exception:  # noqa: BLE001
+        pass
+    if contact:
+        sortie.update(contact_id=contact.get("id"), client_id=contact.get("client_id"), source="contact")
+    return sortie
 
 
 async def _perimetre_principal(db) -> Optional[str]:
@@ -105,7 +148,8 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
         if evenement == "connect" and not sortant:
             # Appel ENTRANT : le client appelle → sonnerie dans le portail
             tel = _chiffres(appel.get("from"))
-            contact = await _contact_du_numero(db, tel)
+            # Lot 70 — identification élargie : contact, utilisateur suivi, compte client, propriétaire
+            qui = await identifier_appelant(db, tel, s)
             existant = await db.wa_appels.find_one({"id": call_id}, {"_id": 1})
             if existant:
                 continue   # webhook répété par Meta : déjà enregistré
@@ -116,9 +160,10 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
                 "numero_id": numero_id,
                 "ligne_cle": cle_de_numero(s, numero_id),
                 "telephone": tel,
-                "contact_id": (contact or {}).get("id"),
-                "contact_nom": (contact or {}).get("name") or noms.get(appel.get("from")) or f"+{tel}",
-                "client_id": (contact or {}).get("client_id") or await _perimetre_principal(db),
+                "contact_id": qui["contact_id"],
+                "contact_nom": qui["nom"] or noms.get(appel.get("from")) or f"+{tel}",
+                "appelant_source": qui["source"],
+                "client_id": qui["client_id"] or await _perimetre_principal(db),
                 "sdp_offre": (appel.get("session") or {}).get("sdp"),
                 "sonne_le": _iso_depuis_unix(appel.get("timestamp")) or _maintenant(),
                 "created_at": _maintenant(),
@@ -139,7 +184,7 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
         elif evenement == "terminate":
             # Fin d'appel : durée et heures données par Meta
             doc = await db.wa_appels.find_one({"id": call_id}, {"_id": 0, "statut": 1, "direction": 1,
-                                                                "motif": 1}) or {}
+                                                                "motif": 1, "agenda_id": 1}) or {}
             statut_meta = str(appel.get("status") or "").upper()
             duree = int(appel.get("duration") or 0)
             if doc.get("statut") == "refuse":
@@ -163,6 +208,13 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
                     await noter_duree_meta(db, call_id, duree)
                 except Exception:  # noqa: BLE001 — l'historique ne bloque jamais le webhook
                     logger.warning("[appels_wa] historique Liluvine non mis à jour", exc_info=True)
+            # Lot 70 — appel de l'agenda de Liluvine : durée officielle de Meta et coût recalculé
+            if doc.get("agenda_id"):
+                try:
+                    from routes.liluvine_agenda import noter_duree_meta as _agenda_duree
+                    await _agenda_duree(db, call_id, duree)
+                except Exception:  # noqa: BLE001 — l'agenda ne bloque jamais le webhook
+                    logger.warning("[appels_wa] agenda Liluvine non mis à jour", exc_info=True)
 
     # 2. Statuts d'un appel SORTANT (sonnerie chez le client, accepté, refusé)
     for st in valeur.get("statuses") or []:
@@ -188,6 +240,12 @@ async def noter_reponse_permission(db, telephone: str, reponse: Dict[str, Any]) 
                   "maj": _maintenant()}},
         upsert=True,
     )
+    # Lot 70 — les évènements de l'agenda de Liluvine en attente de cette autorisation repartent
+    try:
+        from routes.liluvine_agenda import permission_recue
+        await permission_recue(db, telephone, accepte)
+    except Exception:  # noqa: BLE001 — l'agenda ne bloque jamais le webhook
+        logger.warning("[appels_wa] agenda Liluvine non prévenu de l'autorisation", exc_info=True)
     return "📞 Autorisation d'appel : " + ("acceptée" if accepte else "refusée")
 
 

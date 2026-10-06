@@ -518,6 +518,28 @@ class ContactCreate(BaseModel):
 TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"]
 
 
+def _valider_date_naissance(v):
+    """Lot 70 — date de naissance d'un utilisateur suivi : « AAAA-MM-JJ » (ou « JJ/MM/AAAA », convertie),
+    vide = effacée ; refusée si invalide ou dans le futur."""
+    if v is None:
+        return None
+    texte = str(v).strip()
+    if not texte:
+        return ""
+    import re as _re
+    from datetime import date as _date
+    m = _re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", texte)
+    if m:
+        texte = f"{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    try:
+        jour = _date.fromisoformat(texte[:10])
+    except ValueError:
+        raise ValueError("Date de naissance invalide (JJ/MM/AAAA)")
+    if jour > _date.today() or jour.year < 1900:
+        raise ValueError("Date de naissance hors limites")
+    return jour.isoformat()
+
+
 class TrackedUserCreate(BaseModel):
     client_id: str
     name: str
@@ -544,6 +566,13 @@ class TrackedUserCreate(BaseModel):
     show_dashboard: Optional[bool] = None
     show_welcome_modal: Optional[bool] = None
     show_messaging_notifs: Optional[bool] = None
+    # Lot 70 — date de naissance (AAAA-MM-JJ) : Liluvine appelle pour l'anniversaire (agenda d'appels)
+    date_naissance: Optional[str] = None
+
+    @field_validator("date_naissance", mode="before")
+    @classmethod
+    def _date_naissance_valide(cls, v):
+        return _valider_date_naissance(v)
 
 
 class TrackedUserUpdate(BaseModel):
@@ -565,6 +594,13 @@ class TrackedUserUpdate(BaseModel):
     show_dashboard: Optional[bool] = None
     show_welcome_modal: Optional[bool] = None
     show_messaging_notifs: Optional[bool] = None
+    # Lot 70 — date de naissance ("" = effacée)
+    date_naissance: Optional[str] = None
+
+    @field_validator("date_naissance", mode="before")
+    @classmethod
+    def _date_naissance_valide(cls, v):
+        return _valider_date_naissance(v)
 
 
 class SaveContactAsTrackedUser(BaseModel):

@@ -68,12 +68,21 @@ MODELES_STT = ("gpt-4o-mini-transcribe", "whisper-1")
 MARQUEUR_FIN = "[FIN]"
 MARQUEUR_HUMAIN = "[HUMAIN]"
 
+# Lot 70 — règles de style ORAL communes aux appels entrants et sortants (retour d'un vrai appel :
+# Liluvine avait répondu par une liste numérotée et redit « Bonjour » après l'accueil)
+STYLE_ORAL = (
+    "- JAMAIS de liste, de numérotation (« 1. », « 2) »), de tirets, de puces ni d'énumération entre "
+    "parenthèses : si tu proposes des choix, dis-les dans une phrase (« plutôt un rendez-vous ou le support ? »).\n"
+    "- Ne salue JAMAIS une seconde fois : l'accueil (« Bonjour ») a déjà été dit, va droit au but.\n"
+    "- Pose UNE seule question à la fois, en phrases courtes, puis attends la réponse.\n"
+)
 # Consigne ajoutée au prompt système de Liluvine pendant un appel
 CONSIGNE_TELEPHONE = (
     "\n\n[IMPORTANT — Tu es AU TÉLÉPHONE (appel WhatsApp entrant)]\n"
     "- Tu parles à voix haute : réponses courtes, 1 à 2 phrases, ton chaleureux et naturel.\n"
     "- Pas de listes, pas de puces, pas d'emojis, pas de liens, pas de markdown, pas d'abréviations "
     "difficiles à prononcer ; écris les nombres comme on les dit.\n"
+    + STYLE_ORAL +
     "- Si la transcription semble incomplète ou incompréhensible, demande poliment de répéter.\n"
     "- Quand la conversation est terminée (la personne dit au revoir, remercie sans autre question), "
     f"dis au revoir en une phrase et termine ta réponse par {MARQUEUR_FIN}.\n"
@@ -406,6 +415,8 @@ def assembler_prompt(base: str, *, contact_nom: Optional[str], telephone: str, p
     morceaux = [(base or "").strip(), CONSIGNE_TELEPHONE, CONSIGNE_HUMAIN if transfert else CONSIGNE_SANS_HUMAIN]
     if connaissances:
         morceaux.append("\n\n" + connaissances.strip())
+    if contact_nom and re.fullmatch(r"\+?[\d\s().-]+", contact_nom):
+        contact_nom = None                  # lot 70 : un numéro n'est pas un nom
     qui = f"\n\nAppelant : {contact_nom or 'inconnu'} (+{telephone})"
     if plateforme:
         qui += f" — plateforme / client : {plateforme}"
@@ -440,10 +451,70 @@ def analyser_reponse(texte: str) -> Tuple[str, Optional[str]]:
     elif MARQUEUR_FIN in texte:
         fin = "fin"
     propre = re.sub(r"\[(FIN|HUMAIN|ESCALATE[^\]]*|ESCALATION_HUMAINE)\]", "", texte, flags=re.I)
+    propre = nettoyer_pour_voix(propre)                        # lot 70 : listes, puces, numérotation
     propre = re.sub(r"[*_#`>|]+", "", propre)                 # markdown
     propre = re.sub(r"https?://\S+", "", propre)              # liens (illisibles au téléphone)
     propre = re.sub(r"[\U0001F300-\U0001FAFF☀-➿]", "", propre)   # emojis
     return re.sub(r"\s+", " ", propre).strip(), fin
+
+
+def nettoyer_pour_voix(texte: str) -> str:
+    """Lot 70 — texte prêt pour la synthèse vocale : retire la mise en forme ÉCRITE qu'une voix lirait mal
+    (« 1. », « 2) », « - », « • », énumérations entre parenthèses, titres et gras markdown) ; les lignes
+    sont réunies en phrases. Fonction pure, testée."""
+    lignes = []
+    for ligne in (texte or "").splitlines():
+        ligne = re.sub(r"^\s*(?:#{1,6}\s*)?(?:\d{1,2}\s*[.)]|[a-zA-Z]\)|[-•*–—▪●◦·])\s+", "", ligne)  # marque de liste
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        # Une ligne de liste sans ponctuation finale devient une phrase (« Support technique » → « … , »)
+        if lignes and not re.search(r"[.!?…:,;]$", lignes[-1]):
+            lignes[-1] += ","
+        lignes.append(ligne)
+    propre = " ".join(lignes)
+    # Numérotation EN LIGNE (« … : 1. Quel service ? 2. Votre nom ? ») : traitée seulement si « 1 » ET « 2 »
+    # sont présents (un « à 18. Nous… » isolé n'est pas une liste)
+    motif_num = r"(?<![\w,])\(?(\d{1,2})[.)]\s+(?=[A-ZÀ-ÖØ-Ý«\"])"
+    if {"1", "2"} <= set(re.findall(motif_num, propre)):
+        propre = re.sub(r"\s*" + motif_num, ", ", propre)
+    propre = re.sub(r"(^|[\s:;,])[•▪●◦]\s*", r"\1", propre)                  # puces en ligne
+    propre = re.sub(r"\s+[-–—]\s+(?=[A-ZÀ-Ý])", ", ", propre)                  # tiret d'énumération
+    # Énumération entre parenthèses (« (rendez-vous commercial, support technique…) ») : retirée
+    propre = re.sub(r"\s*\((?=[^()]*(?:,|…|\.\.\.|\betc\b))[^()]*\)", "", propre)
+    propre = re.sub(r"[*_`#]+", "", propre)                                     # gras, titres, code
+    # Ponctuation recollée : « ?, » → « ? », « :, » → « : », « , . » → « . », virgule de tête retirée
+    propre = re.sub(r"([.!?…:;])\s*,", r"\1", propre)
+    propre = re.sub(r",\s*([.!?])", r"\1", propre)
+    propre = re.sub(r",\s*,", ",", propre)
+    propre = re.sub(r"^\s*,\s*", "", propre)
+    return re.sub(r"\s+", " ", propre).strip()
+
+
+def retirer_salutation(texte: str) -> str:
+    """Lot 70 — « Bonjour Awa ! Bien sûr… » → « Bien sûr… » : Liluvine ne resalue pas après l'accueil."""
+    sortie = re.sub(r"^\s*(?:re)?(?:bonjour|bonsoir|salut|hello)(?:\s+(?:à vous|madame|monsieur))?"
+                    r"(?:\s+[A-ZÀ-Ý][\w'-]*){0,2}\s*[,!.]+\s*", "", texte or "", flags=re.I)
+    return (sortie[:1].upper() + sortie[1:]) if sortie else (texte or "")
+
+
+def une_seule_question(texte: str) -> str:
+    """Lot 70 — garde la réponse jusqu'à sa PREMIÈRE question (une question à la fois au téléphone)."""
+    morceaux = re.split(r"(?<=\?)\s+", (texte or "").strip())
+    sortie: List[str] = []
+    for m in morceaux:
+        sortie.append(m)
+        if m.endswith("?"):
+            break
+    return " ".join(sortie).strip()
+
+
+def style_telephone(texte: str, *, deja_salue: bool) -> str:
+    """Lot 70 — réponse de l'IA mise au style oral : nettoyage, pas de seconde salutation, une question."""
+    t = nettoyer_pour_voix(texte)
+    if deja_salue:
+        t = retirer_salutation(t) or t
+    return une_seule_question(t)
 
 
 def decouper_phrases(texte: str) -> List[str]:
@@ -728,112 +799,19 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
             raise RuntimeError("connexion audio impossible (ICE/DTLS) — vérifiez l'UDP sortant ou le TURN")
         prompt = await prompt_de_l_appel(db, s, appel)
 
-        async def dire(texte: str, t_question: Optional[float] = None) -> bool:
-            """Dit un texte. Lot 69.2 : les phrases sont synthétisées l'une après l'autre et AJOUTÉES À LA
-            SUITE dans la file de la piste dès qu'elles sont prêtes (aucun trou entre deux phrases) ; la
-            lecture commence avec 400 ms d'avance. Renvoie False si l'appelant a coupé la parole."""
-            texte = texte.strip()
-            if not texte:
-                return True
-            transcription.append(tour("liluvine", texte, debut, _maintenant()))
-            morceaux = decouper_phrases(texte)
-            piste.debut_reponse()
-
-            async def producteur():
-                """Synthèse des phrases dans l'ordre ; chacune rejoint la file dès qu'elle est prête."""
-                try:
-                    for m in morceaux:
-                        try:
-                            pcm, fournisseur = await synthese_vocale(m, s, cfg)
-                        except Exception:  # noqa: BLE001 — voix indisponible pour ce morceau
-                            logger.warning("[liluvine_decroche] voix impossible", exc_info=True)
-                            continue
-                        if fournisseur:
-                            mesures["tts_caracteres"][fournisseur] = mesures["tts_caracteres"].get(fournisseur, 0) + len(m)
-                        piste.ajouter(pcm)
-                finally:
-                    piste.fin_reponse()
-            production = asyncio.ensure_future(producteur())
-            try:
-                # Attente de la fin de la lecture (ou coupure de parole par l'appelant)
-                while piste.en_lecture and not raccroche.is_set():
-                    if (cfg["coupure_parole"] and detecteur.parle and detecteur.debut_parole
-                            and time.monotonic() - detecteur.debut_parole > 0.4):
-                        production.cancel()
-                        piste.arreter()
-                        transcription[-1]["interrompu"] = True
-                        return False
-                    await asyncio.sleep(0.03)
-                return True
-            finally:
-                if not production.done():
-                    production.cancel()
-                # Délai entre la fin de la phrase de l'appelant et le premier son de la réponse
-                premier = piste.lecteur.premier_son
-                if t_question is not None and premier is not None and premier >= t_question:
-                    mesures["premier_son_s"].append(round(premier - t_question, 2))
-
-        # 4. Accueil puis conversation
+        # 4. Accueil puis conversation (lot 70 : moteur commun aux appels entrants et sortants)
+        conv = Conversation(db=db, call_id=call_id, s=s, cfg=cfg, piste=piste, detecteur=detecteur,
+                            phrases=phrases, raccroche=raccroche, mesures=mesures, transcription=transcription,
+                            debut=debut)
         await asyncio.sleep(0.3)
-        await dire(cfg["accueil"])
+        await conv.dire(cfg["accueil"])
         fin, transfert = None, False
-        dernier = time.monotonic()
-        stt_ok = bool(cle_openai(s))
-        if not stt_ok:
+        if not cle_openai(s):
             # Pas de transcription possible : excuse, demande de rappel, fin
-            await dire(TEXTE_SANS_STT)
+            await conv.dire(TEXTE_SANS_STT)
             fin, transfert = "transcription indisponible (clé OpenAI absente)", True
-        while fin is None:
-            if raccroche.is_set() or await _termine_chez_meta(db, call_id):
-                fin = "l'appelant a raccroché"
-                break
-            if time.monotonic() - debut > cfg["duree_max_s"]:
-                await dire(TEXTE_DUREE_MAX)
-                fin, transfert = "durée maximale atteinte", cfg["transfert_actif"]
-                break
-            try:
-                phrase = await asyncio.wait_for(phrases.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                if detecteur.parle or piste.en_lecture:
-                    dernier = time.monotonic()
-                elif time.monotonic() - dernier > cfg["silence_s"]:
-                    await dire(TEXTE_SILENCE)
-                    fin = "silence prolongé"
-                continue
-            t0 = time.monotonic()
-            # 4a. Transcription de la phrase de l'appelant
-            try:
-                texte, modele = await transcrire(wav_16k(phrase), s, cfg)
-                mesures["stt_secondes"] += duree_pcm_s(phrase)
-                mesures["stt_modele"] = modele
-            except Exception:  # noqa: BLE001
-                logger.warning("[liluvine_decroche] transcription impossible", exc_info=True)
-                texte = ""
-            texte = transcription_utile(texte)
-            if not texte:
-                dernier = time.monotonic()
-                continue
-            transcription.append(tour("appelant", texte, debut, _maintenant()))
-            # 4b. Réponse de Liluvine (prompt système + consigne téléphone + historique)
-            try:
-                hist = historique_llm(transcription[:-1])
-                rep = await repondre_llm(prompt, hist, texte)
-                mesures["llm_entree"] += int(rep.get("entree") or 0)
-                mesures["llm_sortie"] += int(rep.get("sortie") or 0)
-                reponse, marque = analyser_reponse(rep.get("texte") or "")
-            except Exception:  # noqa: BLE001
-                logger.warning("[liluvine_decroche] réponse IA impossible", exc_info=True)
-                reponse, marque = TEXTE_ERREUR, "erreur"
-            mesures["tours"] += 1
-            mesures["latences_s"].append(round(time.monotonic() - t0, 2))
-            await dire(reponse or TEXTE_REPETER, t0)
-            dernier = time.monotonic()
-            if marque == "humain":
-                fin, transfert = "demande à parler à un humain", cfg["transfert_actif"]
-            elif marque == "erreur":
-                fin, transfert = "IA indisponible : rappel demandé", True
-            elif marque == "fin":
-                fin = "au revoir"
+        if fin is None:
+            fin, transfert = await conv.converser(prompt)
         # Laisse finir la dernière phrase avant de raccrocher
         await asyncio.sleep(0.6)
         mesures["qualite_audio"] = qualite_audio(piste, sonde_principale, sonde_media, mesures)
@@ -859,6 +837,136 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
                 await sur_media(_fermer)
         except Exception:  # noqa: BLE001
             pass
+
+
+class Conversation:
+    """Lot 70 — moteur de conversation COMMUN aux appels entrants (lot 69) et sortants (agenda, lot 70).
+
+    Reçoit les objets d'un appel déjà connecté (piste de Liluvine, détecteur de parole, file des
+    phrases de l'interlocuteur, évènement « raccroché ») et fournit :
+      - dire(texte)       : Liluvine parle (phrases synthétisées à la suite, coupure de parole possible) ;
+      - converser(prompt) : boucle écoute → transcription → réponse IA → voix, jusqu'à [FIN] / [HUMAIN],
+                            silence prolongé, durée maximale ou raccroché ; renvoie (raison de fin, transfert).
+    La transcription et les mesures (coût, latences) sont écrites dans les listes / dictionnaires fournis."""
+
+    def __init__(self, *, db, call_id: str, s: Dict[str, Any], cfg: Dict[str, Any], piste, detecteur,
+                 phrases: asyncio.Queue, raccroche: asyncio.Event, mesures: Dict[str, Any],
+                 transcription: List[Dict[str, Any]], debut: Optional[float] = None,
+                 texte_silence: str = TEXTE_SILENCE, texte_duree_max: str = TEXTE_DUREE_MAX):
+        self.db, self.call_id, self.s, self.cfg = db, call_id, s, cfg
+        self.piste, self.detecteur, self.phrases, self.raccroche = piste, detecteur, phrases, raccroche
+        self.mesures, self.transcription = mesures, transcription
+        # Instant du décroché effectif (horloge monotone) : base des « [m:ss] » de la transcription
+        self.debut = debut if debut is not None else time.monotonic()
+        # Phrases dites dans les cas particuliers (personnalisables pour les appels sortants)
+        self.texte_silence, self.texte_duree_max = texte_silence, texte_duree_max
+
+    async def dire(self, texte: str, t_question: Optional[float] = None) -> bool:
+        """Dit un texte. Lot 69.2 : les phrases sont synthétisées l'une après l'autre et AJOUTÉES À LA
+        SUITE dans la file de la piste dès qu'elles sont prêtes (aucun trou entre deux phrases) ; la
+        lecture commence avec 400 ms d'avance. Renvoie False si l'interlocuteur a coupé la parole."""
+        texte = nettoyer_pour_voix(texte)          # lot 70 : jamais de liste lue à voix haute
+        if not texte:
+            return True
+        piste, mesures = self.piste, self.mesures
+        self.transcription.append(tour("liluvine", texte, self.debut, _maintenant()))
+        morceaux = decouper_phrases(texte)
+        piste.debut_reponse()
+
+        async def producteur():
+            """Synthèse des phrases dans l'ordre ; chacune rejoint la file dès qu'elle est prête."""
+            try:
+                for m in morceaux:
+                    try:
+                        pcm, fournisseur = await synthese_vocale(m, self.s, self.cfg)
+                    except Exception:  # noqa: BLE001 — voix indisponible pour ce morceau
+                        logger.warning("[liluvine_decroche] voix impossible", exc_info=True)
+                        continue
+                    if fournisseur:
+                        mesures["tts_caracteres"][fournisseur] = mesures["tts_caracteres"].get(fournisseur, 0) + len(m)
+                    piste.ajouter(pcm)
+            finally:
+                piste.fin_reponse()
+        production = asyncio.ensure_future(producteur())
+        try:
+            # Attente de la fin de la lecture (ou coupure de parole par l'interlocuteur)
+            while piste.en_lecture and not self.raccroche.is_set():
+                if (self.cfg.get("coupure_parole", True) and self.detecteur.parle and self.detecteur.debut_parole
+                        and time.monotonic() - self.detecteur.debut_parole > 0.4):
+                    production.cancel()
+                    piste.arreter()
+                    self.transcription[-1]["interrompu"] = True
+                    return False
+                await asyncio.sleep(0.03)
+            return True
+        finally:
+            if not production.done():
+                production.cancel()
+            # Délai entre la fin de la phrase de l'interlocuteur et le premier son de la réponse
+            premier = piste.lecteur.premier_son
+            if t_question is not None and premier is not None and premier >= t_question:
+                mesures["premier_son_s"].append(round(premier - t_question, 2))
+
+    async def converser(self, prompt: str) -> Tuple[str, bool]:
+        """Boucle de conversation → (raison de fin, transmettre à un humain ?)."""
+        cfg, mesures, transcription = self.cfg, self.mesures, self.transcription
+        fin: Optional[str] = None
+        transfert = False
+        dernier = time.monotonic()
+        while fin is None:
+            if self.raccroche.is_set() or await _termine_chez_meta(self.db, self.call_id):
+                fin = "l'appelant a raccroché"
+                break
+            if time.monotonic() - self.debut > cfg["duree_max_s"]:
+                await self.dire(self.texte_duree_max)
+                fin, transfert = "durée maximale atteinte", cfg["transfert_actif"]
+                break
+            try:
+                phrase = await asyncio.wait_for(self.phrases.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                if self.detecteur.parle or self.piste.en_lecture:
+                    dernier = time.monotonic()
+                elif time.monotonic() - dernier > cfg["silence_s"]:
+                    await self.dire(self.texte_silence)
+                    fin = "silence prolongé"
+                continue
+            t0 = time.monotonic()
+            # a. Transcription de la phrase de l'interlocuteur
+            try:
+                texte, modele = await transcrire(wav_16k(phrase), self.s, cfg)
+                mesures["stt_secondes"] += duree_pcm_s(phrase)
+                mesures["stt_modele"] = modele
+            except Exception:  # noqa: BLE001
+                logger.warning("[liluvine_decroche] transcription impossible", exc_info=True)
+                texte = ""
+            texte = transcription_utile(texte)
+            if not texte:
+                dernier = time.monotonic()
+                continue
+            transcription.append(tour("appelant", texte, self.debut, _maintenant()))
+            # b. Réponse de Liluvine (prompt système + consigne téléphone + historique)
+            try:
+                hist = historique_llm(transcription[:-1])
+                rep = await repondre_llm(prompt, hist, texte)
+                mesures["llm_entree"] += int(rep.get("entree") or 0)
+                mesures["llm_sortie"] += int(rep.get("sortie") or 0)
+                reponse, marque = analyser_reponse(rep.get("texte") or "")
+                # Lot 70 — style oral : pas de seconde salutation, une seule question à la fois
+                reponse = style_telephone(reponse, deja_salue=any(x["qui"] == "liluvine" for x in transcription))
+            except Exception:  # noqa: BLE001
+                logger.warning("[liluvine_decroche] réponse IA impossible", exc_info=True)
+                reponse, marque = TEXTE_ERREUR, "erreur"
+            mesures["tours"] += 1
+            mesures["latences_s"].append(round(time.monotonic() - t0, 2))
+            await self.dire(reponse or TEXTE_REPETER, t0)
+            dernier = time.monotonic()
+            if marque == "humain":
+                fin, transfert = "demande à parler à un humain", cfg["transfert_actif"]
+            elif marque == "erreur":
+                fin, transfert = "IA indisponible : rappel demandé", True
+            elif marque == "fin":
+                fin = "au revoir"
+        return fin or "fin", transfert
 
 
 def qualite_audio(piste, sonde_principale, sonde_media, mesures: Dict[str, Any]) -> Dict[str, Any]:
@@ -1210,3 +1318,34 @@ def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
         type_mime = "audio/wav" if audio[:4] == b"RIFF" else "audio/mpeg"
         return Response(content=audio, media_type=type_mime,
                         headers={"X-Voix-Fournisseur": fournisseur, "Cache-Control": "no-store"})
+
+    @api.get("/admin/liluvine-decroche/voix-clonees", tags=["Admin — WhatsApp"])
+    async def voix_clonees(user: dict = Depends(get_current_user)):
+        """Lot 70 — « Voix clonées dans SAWALI (Story Studio) » : voix ElevenLabs créées par clonage
+        (db.eleven_voices, tous les utilisateurs, visibles par l'administrateur) ; « Utiliser pour Liluvine »
+        règle le moteur ElevenLabs avec l'identifiant choisi (même clé ELEVENLABS_API_KEY)."""
+        _exiger_admin(user)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {"voix": await voix_story_studio(db),
+                "voix_actuelle": (s.get("liluvine_decroche_voix_elevenlabs") or "").strip(),
+                "elevenlabs_cle": bool(os.environ.get("ELEVENLABS_API_KEY", "").strip())}
+
+
+async def voix_story_studio(db) -> List[Dict[str, Any]]:
+    """Lot 70 — voix clonées dans Story Studio (db.eleven_voices) avec le nom de leur auteur.
+    Une voix sans identifiant ElevenLabs valide est écartée (elle ne pourrait pas parler)."""
+    docs = await db.eleven_voices.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    ids = list({d.get("user_id") for d in docs if d.get("user_id")})
+    auteurs: Dict[str, str] = {}
+    if ids:
+        async for u in db.users.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "full_name": 1, "email": 1, "company": 1}):
+            auteurs[u["id"]] = u.get("full_name") or u.get("company") or u.get("email") or ""
+    sortie = []
+    for d in docs:
+        voix_id = str(d.get("voice_id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9]{8,64}", voix_id):
+            continue
+        sortie.append({"voice_id": voix_id, "nom": d.get("name") or "Voix clonée",
+                       "description": (d.get("description") or "")[:200], "auteur": auteurs.get(d.get("user_id"), ""),
+                       "cree_le": d.get("created_at"), "source": "story_studio"})
+    return sortie

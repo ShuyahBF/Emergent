@@ -41,6 +41,8 @@ export default function LiluvineDecrocheSection() {
   const [accentEl, setAccentEl] = useState("african");
   const [essaiUrl, setEssaiUrl] = useState("");   // adresse locale (blob) du dernier essai
   const essaiRef = useRef(null);
+  // Lot 70 — voix clonées dans SAWALI (Story Studio) : liste affichée (null = fermée)
+  const [clonees, setClonees] = useState(null);
 
   // Lecture des réglages et de l'état du moteur
   const charger = useCallback(async () => {
@@ -150,11 +152,25 @@ export default function LiluvineDecrocheSection() {
     toast.success(`Voix « ${v.nom} » choisie : cliquez sur « Écouter un essai » puis « Enregistrer »`);
   };
 
-  // « Écouter un essai » : l'accueil prononcé avec la voix et l'accent du formulaire (même non enregistrés)
-  const ecouterEssai = async () => {
+  // Lot 70 — voix clonées dans Story Studio (db.eleven_voices, tous les utilisateurs)
+  const listerClonees = async () => {
+    const r = await action("clonees", () => apiClient.get("/admin/liluvine-decroche/voix-clonees"),
+      (x) => `${(x.data.voix || []).length} voix clonée(s) trouvée(s)`);
+    if (r) setClonees(r.data.voix || []);
+  };
+  // « Utiliser pour Liluvine » : moteur ElevenLabs + identifiant de la voix clonée (à enregistrer ensuite)
+  const utiliserClonee = (v) => {
+    setForm((f) => ({ ...f, liluvine_decroche_voix: "elevenlabs", liluvine_decroche_voix_elevenlabs: v.voice_id }));
+    toast.success(`Voix « ${v.nom} » choisie : « Écouter un essai » puis « Enregistrer »`);
+  };
+
+  // « Écouter un essai » : l'accueil prononcé avec la voix et l'accent du formulaire (même non enregistrés).
+  // Lot 70 : `voixForcee` permet d'écouter directement une voix clonée de la liste Story Studio.
+  const ecouterEssai = async (voixForcee) => {
+    const forcee = typeof voixForcee === "string" ? voixForcee : "";
     const r = await action("essai", () => apiClient.post("/admin/liluvine-decroche/essai-voix", {
-      liluvine_decroche_voix: form.liluvine_decroche_voix,
-      liluvine_decroche_voix_elevenlabs: form.liluvine_decroche_voix_elevenlabs,
+      liluvine_decroche_voix: forcee ? "elevenlabs" : form.liluvine_decroche_voix,
+      liluvine_decroche_voix_elevenlabs: forcee || form.liluvine_decroche_voix_elevenlabs,
       liluvine_decroche_voix_openai: form.liluvine_decroche_voix_openai,
       liluvine_decroche_modele_openai: form.liluvine_decroche_modele_openai,
       liluvine_decroche_accent: form.liluvine_decroche_accent,
@@ -340,7 +356,7 @@ export default function LiluvineDecrocheSection() {
               placeholder={choixVoix.accent_defaut || "français d'Afrique de l'Ouest, chaleureux et posé"} className={champ} />
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={ecouterEssai} disabled={!!occupe}
+            <button type="button" onClick={() => ecouterEssai()} disabled={!!occupe}
               className="rounded-lg border border-violet-300 bg-white px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50">
               {occupe === "essai" ? <Jauge /> : "🔊"} Écouter un essai
             </button>
@@ -384,6 +400,40 @@ export default function LiluvineDecrocheSection() {
               </table>
             </div>
           )}
+          {/* Lot 70 — Voix clonées dans SAWALI (Story Studio) */}
+          <div className="space-y-1 rounded-lg bg-white/80 p-2 ring-1 ring-violet-100" data-testid="voix-clonees">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold text-violet-900">🗣️ Voix clonées dans SAWALI (Story Studio)</p>
+              <button type="button" onClick={listerClonees} disabled={!!occupe}
+                className="rounded border border-violet-300 px-2 py-0.5 text-violet-800 hover:bg-violet-50 disabled:opacity-50">
+                {occupe === "clonees" ? <Jauge /> : "📋"} Afficher
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-700">
+              ⚠️ Une voix clonée reproduit la voix d'une personne réelle : ne l'utilisez pour Liluvine qu'avec le consentement
+              écrit de cette personne, et prévenez vos interlocuteurs qu'ils parlent à une assistante virtuelle.
+            </p>
+            {clonees && clonees.length === 0 && <p className="text-slate-500">Aucune voix clonée : créez-en une dans Story Studio (Génération vocale).</p>}
+            {clonees && clonees.length > 0 && (
+              <table className="w-full">
+                <tbody>
+                  {clonees.map((v) => (
+                    <tr key={v.voice_id} className="border-t border-slate-100"
+                      aria-selected={form.liluvine_decroche_voix_elevenlabs === v.voice_id ? "true" : undefined}>
+                      <td className="px-1 py-0.5 font-semibold">{v.nom}</td>
+                      <td className="px-1 py-0.5">{v.auteur ? `par ${v.auteur}` : ""}{v.cree_le ? ` · ${new Date(v.cree_le).toLocaleDateString("fr-FR")}` : ""}</td>
+                      <td className="px-1 py-0.5 text-right whitespace-nowrap">
+                        <button type="button" onClick={() => ecouterEssai(v.voice_id)} disabled={!!occupe || !choixVoix.elevenlabs_cle}
+                          className="mr-1 rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50 disabled:opacity-50">🔊 Écouter un essai</button>
+                        <button type="button" onClick={() => utiliserClonee(v)} disabled={!!occupe}
+                          className="rounded border border-violet-300 px-2 py-0.5 text-violet-800 hover:bg-violet-50 disabled:opacity-50">Utiliser pour Liluvine</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
           <p className="text-[11px] text-slate-500">
             Meilleur accent africain : une voix ElevenLabs de la bibliothèque enregistrée par un locuteur d'Afrique de l'Ouest
             (accent naturel). Sinon, OpenAI gpt-4o-mini-tts suit la consigne d'accent (résultat plus approximatif).

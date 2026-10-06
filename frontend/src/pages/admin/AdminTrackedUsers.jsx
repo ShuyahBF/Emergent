@@ -36,7 +36,19 @@ const TRANSLATOR_LANGS = [
   { code: "lg1", label: "LG1 — Gulmancema" },
   { code: "lg2", label: "LG2 — Mooré" },
 ];
-const empty = { client_id: "", name: "", email: "", phone: "", whatsapp_number: "", role: "Consultation", department: "", company: "", status: "active" };
+const empty = { client_id: "", name: "", email: "", phone: "", whatsapp_number: "", role: "Consultation", department: "", company: "", status: "active", date_naissance: "" };
+
+// Lot 70 — âge à partir de la date de naissance « AAAA-MM-JJ » (null si absente)
+const ageDe = (iso) => {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return null;
+  const [a, m, j] = iso.slice(0, 10).split("-").map(Number);
+  const n = new Date();
+  let age = n.getFullYear() - a;
+  if (n.getMonth() + 1 < m || (n.getMonth() + 1 === m && n.getDate() < j)) age -= 1;
+  return age >= 0 ? age : null;
+};
+// Lot 70 — « AAAA-MM-JJ » → « JJ/MM »
+const jourMois = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
 
 export default function AdminTrackedUsers() {
   const { user: moi } = useAuth();
@@ -395,6 +407,12 @@ export default function AdminTrackedUsers() {
                     {u.name}
                     {/* Lot 44 — compte de test */}
                     {u.est_test && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${u.id}`}>TEST</span>}
+                    {/* Lot 70 — anniversaire (jour/mois) et âge */}
+                    {ageDe(u.date_naissance) != null && (
+                      <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-pink-50 text-pink-800 border border-pink-200" title="Liluvine appelle le jour de l'anniversaire">
+                        🎂 {jourMois(u.date_naissance)} · {ageDe(u.date_naissance)} ans
+                      </span>
+                    )}
                   </td>
                   {/* Mode « connexion » : client de l'utilisateur, puisque la liste n'est plus regroupée */}
                   {parConnexion && (
@@ -528,6 +546,8 @@ export default function AdminTrackedUsers() {
                   ["whatsapp_number", whatsappRequired ? "N° WhatsApp (E.164) * — obligatoire pour Médecin/Pharmacien" : "N° WhatsApp (E.164)", "tel", whatsappRequired],
                   ["company", "Société", "text", false],
                   ["department", "Service", "text", false],
+                  // Lot 70 — date de naissance : Liluvine appelle pour l'anniversaire (agenda d'appels)
+                  ["date_naissance", `Date de naissance${ageDe(form.date_naissance) != null ? ` — ${ageDe(form.date_naissance)} ans` : ""} (appel d'anniversaire de Liluvine)`, "date", false],
                 ];
               })().map(([k, l, t, req]) => (
                 <div key={k}>

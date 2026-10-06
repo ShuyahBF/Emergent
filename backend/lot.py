@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "69.2"
-LOT_LIBELLE = "Son fluide pendant les appels de Liluvine (boucle média dédiée, file audio continue, pré-chargement, mesures de qualité) et voix à accent d'Afrique de l'Ouest (OpenAI gpt-4o-mini-tts, voix ElevenLabs, écouter un essai)"
+LOT = "70"
+LOT_LIBELLE = "Agenda d'appels de Liluvine (relances, prospection, suivi client, compte rendu de maintenance, rappels de rendez-vous : appels sortants planifiés, informations recueillies, coûts), anniversaires des utilisateurs suivis, voix clonées Story Studio pour Liluvine et style oral corrigé au téléphone (pas de listes, pas de seconde salutation, une question à la fois, appelant reconnu par son nom)"

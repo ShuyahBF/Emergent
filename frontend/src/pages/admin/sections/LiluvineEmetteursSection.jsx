@@ -79,6 +79,8 @@ export default function LiluvineEmetteursSection() {
   const modifier = async (code, changements) => {
     try {
       await apiClient.patch(`/admin/liluvine-emetteurs/${code}`, changements);
+      // Lot 64.8 — confirmation visible : la saisie est enregistrée dès la sortie du champ
+      toast.success(`« ${code} » enregistré`);
       charger();
     } catch (e) {
       toast.error(erreur(e));

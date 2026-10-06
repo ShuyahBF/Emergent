@@ -1314,7 +1314,7 @@ async def me_list_wa_templates(user: dict = Depends(get_current_user)):
 
 
 @api.get("/me/contacts/{cid}/messages", tags=["Portail Client"])
-async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
+async def me_contact_messages(cid: str, verifier_ailleurs: bool = False, user: dict = Depends(get_current_user)):
     """Renvoie la conversation WhatsApp complète pour un contact de l'annuaire.
     Includes outbound messages (sent via /me/whatsapp/send), inbound messages
     captured by the Meta webhook, and the status-update timeline
@@ -1370,13 +1370,58 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
             window_expires_at = (ts + timedelta(seconds=WA_24H_WINDOW_SECONDS)).isoformat()
         except Exception:
             window_expires_at = None
+    # Lot 64.15 — messages de CE numéro rangés sur la fiche d'un AUTRE compte (invisibles ici) :
+    # signalés à l'ouverture de la conversation (administrateur / superviseur), pour proposer
+    # de les rattacher à cette fiche sans avoir à les soupçonner.
+    ailleurs = None
+    if verifier_ailleurs and (user.get("role") in ("admin", "superviseur")
+                              or user.get("tracked_role") in ("Administrateur", "Superviseur")):
+        try:
+            clauses_numero = [c for c in _contact_phone_clauses(contact) if "contact_id" not in c]
+            if clauses_numero:
+                filtre_ailleurs = {"client_id": {"$nin": visible_scope}, "direction": "inbound",
+                                   "$or": clauses_numero}
+                n_ailleurs = await db.whatsapp_messages.count_documents(filtre_ailleurs)
+                if n_ailleurs:
+                    dernier = await db.whatsapp_messages.find_one(
+                        filtre_ailleurs, {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
+                    ailleurs = {"n": n_ailleurs, "dernier": (dernier or {}).get("created_at")}
+        except Exception:  # noqa: BLE001 — la vérification ne bloque jamais la conversation
+            logger.warning("[wa] vérification des messages rangés ailleurs impossible", exc_info=True)
     return {
+        "ailleurs": ailleurs,
         "contact": contact,
         "messages": items,
         "can_send_text": can_send_text,
         "last_inbound_at": last_inbound_at,
         "window_expires_at": window_expires_at,
     }
+
+
+@api.post("/me/contacts/{cid}/rattacher-messages", tags=["Portail Client"])
+async def me_contact_rattacher_messages(cid: str, user: dict = Depends(get_current_user)):
+    """Lot 64.15 — rattache à CETTE fiche les messages de son numéro rangés sur la fiche d'un
+    autre compte ; la fiche devient prioritaire pour ce numéro (messages suivants rangés ici)."""
+    if user.get("role") not in ("admin", "superviseur") and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
+        raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+    visible_scope = await _resolve_visible_client_ids(user)
+    contact = await db.directory_contacts.find_one({"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    rx = _phone_suffix_regex(contact.get("whatsapp") or contact.get("phone"))
+    if not rx:
+        raise HTTPException(status_code=422, detail="Cette fiche n'a pas de numéro exploitable")
+    par_numero = [{"whatsapp": {"$regex": rx}}, {"phone": {"$regex": rx}}, {"phone_digits": {"$regex": rx}}]
+    # Une seule fiche prioritaire par numéro : celle-ci
+    await db.directory_contacts.update_many({"$or": par_numero, "id": {"$ne": cid}}, {"$unset": {"wa_prioritaire": ""}})
+    await db.directory_contacts.update_one({"id": cid}, {"$set": {"wa_prioritaire": True}})
+    res = await db.whatsapp_messages.update_many(
+        {"client_id": {"$nin": visible_scope},
+         "$or": [{"phone_digits": {"$regex": rx}}, {"to": {"$regex": rx}}, {"to_number": {"$regex": rx}}]},
+        {"$set": {"client_id": contact.get("client_id"), "contact_id": cid, "contact_name": contact.get("name"),
+                  "rattache_le": _now(), "rattache_par": user.get("full_name") or user.get("email")}},
+    )
+    return {"ok": True, "rattaches": int(getattr(res, "modified_count", 0) or 0)}
 
 
 @api.post("/me/contacts/{cid}/barriere/liberer", tags=["Portail Client"])

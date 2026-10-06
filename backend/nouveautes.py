@@ -17,7 +17,7 @@ NOUVEAUTES = [
     {
         "lot": "68.3", "date": "2026-10-06",
         "titre": "🆕 Nouveautés automatiques à chaque lot",
-        "description": "Chaque lot déployé a désormais sa carte ici, sans oubli possible (contrôle automatique).",
+        "description": "Chaque lot déployé a désormais sa carte ici (contrôle automatique) ; flèches haut/bas sur fond gris.",
         "lien": "/admin/settings",
     },
     {

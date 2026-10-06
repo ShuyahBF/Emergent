@@ -336,7 +336,8 @@ const BullesDefilement = () => {
     cible.scrollTo({ top: versLeHaut ? 0 : cible.scrollHeight, behavior: "smooth" });
   };
 
-  const style = "flex h-11 w-11 items-center justify-center rounded-full bg-sawali-blue text-white shadow-xl ring-2 ring-white transition hover:scale-110 hover:bg-sawali-blue-light";
+  // Lot 68.3 — demande du propriétaire : fond GRIS et flèches de couleur adaptée (gris foncé, bleu SAWALI au survol)
+  const style = "flex h-11 w-11 items-center justify-center rounded-full bg-slate-200/95 text-slate-700 shadow-xl ring-1 ring-slate-300 transition hover:scale-110 hover:bg-slate-300 hover:text-sawali-blue";
   return (
     <>
       <span ref={repereRef} className="hidden" aria-hidden="true" />
@@ -344,13 +345,13 @@ const BullesDefilement = () => {
         {visibles.haut && (
           <button type="button" onClick={() => aller(true)} className={style}
             title="Revenir en haut de la page" aria-label="Revenir en haut de la page" data-testid="bulle-haut">
-            <ArrowUp className="h-5 w-5" />
+            <ArrowUp className="h-5 w-5" strokeWidth={2.5} />
           </button>
         )}
         {visibles.bas && (
           <button type="button" onClick={() => aller(false)} className={style}
             title="Aller en bas de la page" aria-label="Aller en bas de la page" data-testid="bulle-bas">
-            <ArrowDown className="h-5 w-5" />
+            <ArrowDown className="h-5 w-5" strokeWidth={2.5} />
           </button>
         )}
       </div>

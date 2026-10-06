@@ -154,7 +154,7 @@ async def decision(db, chiffres: str, mtype: str, texte: Optional[str], s: Dict[
     return resultat
 
 
-def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
+def setup_barriere_wa_routes(*, db, api, get_current_user, resolve_visible_client_ids=None) -> None:
     """Lot 64.2 — diagnostic de la barrière pour un numéro (administrateurs et superviseurs)."""
     from fastapi import Depends, HTTPException
 
@@ -183,6 +183,8 @@ def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
             "avertir": f"Prochain message : n° {rang} (seuil {reglages['seuil']} atteint) — transmis, puis réponse automatique de la barrière.",
             "retenir": f"Prochain message : n° {rang} au-delà du seuil, avertissement déjà envoyé — retenu jusqu'à votre réponse.",
         }[decision_suivante]
+        # Lot 64.11 — périmètre visible par l'utilisateur (pour signaler un message rangé ailleurs)
+        perimetre = set(await resolve_visible_client_ids(user)) if resolve_visible_client_ids else None
         # Lot 64.4 — 10 derniers échanges avec ce numéro, et leur effet sur la barrière
         fin = re.escape(chiffres[-8:])
         filtre_rep = _filtre_reponse(fin, reglages)
@@ -192,7 +194,7 @@ def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
                          {"to_number": {"$regex": fin + "$"}}]},
                 {"_id": 0, "id": 1, "direction": 1, "created_at": 1, "body": 1, "text": 1, "sender_label": 1,
                  "sender_id": 1, "ai_generated": 1, "auto_reply": 1, "barriere_auto": 1, "barriere_retenu": 1,
-                 "source": 1, "message_type": 1}).sort("created_at", -1).limit(10):
+                 "source": 1, "message_type": 1, "client_id": 1, "contact_name": 1}).sort("created_at", -1).limit(10):
             leve = False
             if m.get("direction") == "outbound":
                 leve = bool(await db.whatsapp_messages.count_documents({**filtre_rep, "id": m.get("id")})) if m.get("id") else False
@@ -201,6 +203,9 @@ def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
                 "texte": (m.get("body") or m.get("text") or "")[:80],
                 "par": m.get("sender_label") or ("Liluvine" if m.get("ai_generated") or m.get("auto_reply") else ""),
                 "retenu": bool(m.get("barriere_retenu")), "leve_la_barriere": leve,
+                # Lot 64.11 — fiche contact rattachée et visibilité dans VOTRE Centre de messagerie
+                "contact": m.get("contact_name") or "",
+                "visible": None if perimetre is None else (m.get("client_id") in perimetre),
             })
         return {
             "echanges": echanges,

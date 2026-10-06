@@ -190,7 +190,7 @@ export default function BarriereWaSection() {
             {(diag.echanges || []).length > 0 && (
               <table className="mt-2 w-full text-[11px]">
                 <thead>
-                  <tr className="text-left text-slate-500"><th className="pr-2">Date</th><th className="pr-2">Sens</th><th className="pr-2">Texte</th><th className="pr-2">Par</th><th>Effet</th></tr>
+                  <tr className="text-left text-slate-500"><th className="pr-2">Date</th><th className="pr-2">Sens</th><th className="pr-2">Texte</th><th className="pr-2">Par</th><th className="pr-2">Fiche</th><th>Effet</th></tr>
                 </thead>
                 <tbody>
                   {diag.echanges.map((e, k) => (
@@ -199,6 +199,10 @@ export default function BarriereWaSection() {
                       <td className="pr-2">{e.sens}</td>
                       <td className="pr-2 max-w-[260px] truncate">{e.texte}</td>
                       <td className="pr-2">{e.par || "—"}</td>
+                      {/* Lot 64.11 — message rattaché à une fiche hors de votre périmètre : invisible chez vous */}
+                      <td className={`pr-2 ${e.visible === false ? "font-semibold text-rose-700" : ""}`}>
+                        {e.contact || "—"}{e.visible === false ? " (autre compte : invisible chez vous)" : ""}
+                      </td>
                       <td>{e.retenu ? "Retenu" : e.leve_la_barriere ? "Lève la barrière" : ""}</td>
                     </tr>
                   ))}

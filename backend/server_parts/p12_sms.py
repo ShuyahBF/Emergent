@@ -1936,6 +1936,10 @@ async def whatsapp_webhook_incoming(request: Request):
                         continue
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
+                    # Lot 64.11 — trace du rattachement (fiche contact + périmètre) pour diagnostiquer
+                    # un message « invisible » dans la conversation d'un contact
+                    logger.info("[wa_inbound] …%s rattaché : contact=%s (%s) périmètre=%s", digits_only[-4:],
+                                (contact or {}).get("id"), (contact or {}).get("name") or "sans fiche", scope_for_msg)
                     if decision_barriere == "avertir":
                         # Réponse automatique de la barrière (texte, puis image facultative)
                         try:

@@ -188,7 +188,8 @@ from routes.liste_noire_commandes import setup_liste_noire_commandes_routes as _
 _setup_liste_noire_cmd(db=db, api=api, get_current_user=get_current_user)
 # Lot 64.2 — diagnostic de la barrière anti-rafale WhatsApp pour un numéro
 from routes.barriere_wa import setup_barriere_wa_routes as _setup_barriere_wa  # noqa: E402
-_setup_barriere_wa(db=db, api=api, get_current_user=get_current_user)
+_setup_barriere_wa(db=db, api=api, get_current_user=get_current_user,
+                   resolve_visible_client_ids=_resolve_visible_client_ids)
 # Lot 61.1 — écran « Activité des plateformes » (adLyn, beAuthentik…)
 from routes.rapport_plateformes import setup_rapport_plateformes_routes as _setup_rapport_plateformes  # noqa: E402
 _setup_rapport_plateformes(db=db, api=api, get_current_user=get_current_user)

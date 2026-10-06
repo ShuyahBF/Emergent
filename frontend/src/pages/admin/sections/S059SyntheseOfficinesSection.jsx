@@ -2,6 +2,7 @@
 // + Image de fond de sidebar (upload OU couleur dans S057).
 import React, { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
+import ActivitePlateformesPanel from "@/components/ActivitePlateformesPanel";   // Lot 61.1
 import { toast } from "sonner";
 import {
   Loader2, Save, Eye, EyeOff, Sparkles, Upload, Image as ImageIcon, X, Plug
@@ -219,6 +220,8 @@ export default function S059SyntheseOfficinesSection() {
             </span>
           )}
         </div>
+        {/* Lot 61.1 — activité de chaque plateforme (mêmes chiffres que dans la synthèse) */}
+        <ActivitePlateformesPanel />
         {synthResult && (synthResult.preview || synthResult.errors?.length) && (
           <details className="text-xs ring-1 ring-slate-300 rounded bg-slate-50" data-testid="synthese-test-debug">
             <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100">
@@ -235,7 +238,7 @@ export default function S059SyntheseOfficinesSection() {
               )}
               {synthResult.preview && (
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Aperçu (500 premiers caractères)</p>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Aperçu de la synthèse envoyée</p>
                   <pre className="bg-white ring-1 ring-slate-200 rounded p-2 text-[11px] whitespace-pre-wrap break-words max-h-60 overflow-auto">{synthResult.preview}</pre>
                 </div>
               )}

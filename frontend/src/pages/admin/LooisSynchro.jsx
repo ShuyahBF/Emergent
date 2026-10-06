@@ -12,10 +12,12 @@
 //   2. CLIENTS : pour chaque client vu par Loois, poste désigné, et pour chaque table : documents dans MongoDB,
 //      dernière synchro, lignes en attente sur le poste, dernière erreur ; boutons « Voir » et « Resynchroniser tout » ;
 //   3. DONNÉES (lecture seule) : grille paginée des documents d'une table, recherche et export CSV.
+// Lot 68.1 : onglet « Clés clients » (une clé par client, voir LooisClesClients.jsx) à côté de l'onglet des tables.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import LooisClesClients from "./LooisClesClients";
 
 const BASE = "/admin/loois-synchro";
 const APPLICATIONS = [["eKol", "e-Kol"], ["Aizenta", "Aizenta"], ["Biolog", "Biolog"]];
@@ -45,6 +47,7 @@ const cellule = (v) => {
 const versListe = (texte) => (texte || "").split(",").map((s) => s.trim()).filter(Boolean);
 
 export default function LooisSynchro() {
+  const [onglet, setOnglet] = useState("tables");       // lot 68.1 : « tables » (synchro) ou « cles » (clés clients)
   const [application, setApplication] = useState("eKol");
   const [catalogue, setCatalogue] = useState(null);     // schéma de référence (tables, clé détectée)
   const [vue, setVue] = useState(null);                 // configuration commune + clients
@@ -166,20 +169,35 @@ export default function LooisSynchro() {
             Schéma de référence : {catalogue ? `${catalogue.source || "—"}${catalogue.genere_le ? ` · généré le ${catalogue.genere_le}` : ""}` : "…"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {APPLICATIONS.map(([code, libelle]) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Lot 68.1 : onglets de la page (tables / clés clients) */}
+          {[["tables", "📋 Tables et données"], ["cles", "🔑 Clés clients"]].map(([code, libelle]) => (
+            <button key={code} type="button" onClick={() => setOnglet(code)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${onglet === code ? "bg-slate-800 text-white" : "border border-slate-300 bg-white hover:bg-slate-50"}`}
+              data-testid={`onglet-page-${code}`}>
+              {libelle}
+            </button>
+          ))}
+          {onglet === "tables" && <span className="mx-1 h-6 w-px bg-slate-300" />}
+          {onglet === "tables" && APPLICATIONS.map(([code, libelle]) => (
             <button key={code} type="button" onClick={() => setApplication(code)}
               className={`rounded-lg px-3 py-1.5 text-sm ${application === code ? "bg-sky-600 text-white" : "border border-slate-300 bg-white hover:bg-slate-50"}`}
               data-testid={`onglet-${code}`}>
               {libelle}
             </button>
           ))}
-          <button type="button" onClick={() => charger(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
-            <RefreshCw className={`h-4 w-4 ${occupe ? "animate-spin" : ""}`} /> Actualiser
-          </button>
+          {onglet === "tables" && (
+            <button type="button" onClick={() => charger(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
+              <RefreshCw className={`h-4 w-4 ${occupe ? "animate-spin" : ""}`} /> Actualiser
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Lot 68.1 : onglet « Clés clients » */}
+      {onglet === "cles" && <LooisClesClients />}
+
+      {onglet === "tables" && <>
       {!vue && <p className="text-sm text-slate-500"><Jauge /> Patientez…</p>}
 
       {/* 1. Liste des tables à remonter */}
@@ -274,7 +292,7 @@ export default function LooisSynchro() {
         <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200" data-testid="clients-synchro">
           <h2 className="text-lg font-semibold">2. Clients {vue.libelle}</h2>
           <p className="text-xs text-slate-500">
-            Un client apparaît dès que Loois (icône de la zone de notification, clé du support saisie) a demandé sa liste.
+            Un client apparaît dès que Loois (icône de la zone de notification, clé client Loois saisie — onglet « Clés clients ») a demandé sa liste.
             Un seul poste synchronise un client ; un autre prend le relais après {vue.poste_bail_minutes} min de silence.
           </p>
           {clients.length === 0 ? (
@@ -332,6 +350,7 @@ export default function LooisSynchro() {
 
       {/* 3. Données d'une table (lecture seule) */}
       {selection && <GrilleDonnees application={application} site={selection.site} table={selection.table} onFermer={() => setSelection(null)} />}
+      </>}
     </div>
   );
 }

@@ -5,8 +5,11 @@ par Loois dans son dépôt GitHub (dossier « schemas/ », voir PublicateurSchem
   schemas/e-kol/structure.json   → e-Kol
   schemas/biolog/structure.json  → Biolog
   schemas/Aizenta/<Table>.json   → Aizenta (table par table) + aizenta_tables_completes.txt (noms seuls)
-Le dépôt étant privé, SAWALI embarque une copie compacte (aucun jeton dans le code). À relancer après
-chaque nouvelle publication d'un schéma :
+Le dépôt étant privé, SAWALI embarque une copie compacte (aucun jeton dans le code).
+Lot 68.1 : « la structure ne changera JAMAIS » (propriétaire) — cette copie est LA référence de tous les postes ;
+Loois la télécharge (GET /api/loois/synchro/structure) et la garde chiffrée. Si elle devait malgré tout être
+régénérée, l'empreinte annoncée (« structure_hash ») change et chaque poste retélécharge la nouvelle d'elle-même.
+À relancer seulement après une nouvelle publication d'un schéma :
     python backend/outils/maj_schemas_loois.py /chemin/vers/loois
 """
 from __future__ import annotations

@@ -17,11 +17,23 @@
 #     document = une ligne HFSQL, avec les NOMS DE COLONNES EXACTS, les valeurs converties d'après le schéma de
 #     référence (entiers, nombres, booléens, dates), plus « _hf_cle » (clé unique), « _hf_maj » (dernière mise à jour)
 #     et « _hf_lot ». Catalogue : collection « loois_synchro_tables » (nombre de documents, dernière synchro, erreurs…) ;
-#   - SÉCURITÉ : TOUTES les routes Loois exigent l'en-tête X-Cle-Loois = LOOIS_SUPPORT_CLE (données d'élèves et de
-#     patients) ; seules les tables de la configuration du client sont acceptées ; tailles bornées.
+#   - SÉCURITÉ (lot 68.1) : TOUTES les routes Loois exigent l'en-tête X-Cle-Loois = CLÉ CLIENT du client (une clé
+#     différente par client, créée sur la page Synchro → onglet « Clés clients », voir loois_cles_clients.py). Le
+#     client (code du site) est pris DANS LA CLÉ : un « site » envoyé qui ne correspond pas à la clé est refusé (403).
+#     La clé commune LOOIS_SUPPORT_CLE n'est acceptée ici que si le réglage de transition « Accepter encore la clé
+#     commune pour la synchro » est coché (NON par défaut). Les refus liés à la clé portent l'en-tête
+#     « X-Cle-Loois-Refus: 1 » (Loois affiche alors une seule fois « Clé client Loois manquante ou invalide »).
+#     Seules les tables de la configuration du client sont acceptées ; tailles bornées.
+#   - STRUCTURES (lot 68.1) : « la structure ne changera JAMAIS. Considère celles sur le repo » (propriétaire). La copie
+#     embarquée est LA référence, identique pour tous les postes (aucun poste ne peut la modifier). Loois la télécharge
+#     (GET /api/loois/synchro/structure) quand il ne l'a pas encore, ou quand l'empreinte annoncée par /config
+#     (« structure_hash ») diffère de celle qu'il a gardée, et la stocke CHIFFRÉE sur le poste (DPAPI) : clé, types des
+#     colonnes et colonnes binaires sont alors lus dans la structure au lieu d'être devinés.
 #
-# Routes Loois (clé obligatoire) :
+# Routes Loois (clé client obligatoire) :
 #   GET  /api/loois/synchro/config?application=eKol&site=ECOLE-X&machine=PC-1   → tables à synchroniser + poste désigné
+#                                                                                  + empreinte de la structure
+#   GET  /api/loois/synchro/structure?application=eKol  → structure de référence des tables configurées du client
 #   POST /api/loois/synchro/lot      (corps JSON, éventuellement « Content-Encoding: gzip »)  → accusé de réception
 #   POST /api/loois/synchro/etat     → état des tables vu par le poste (lignes en attente, erreur, mode de détection)
 # Routes d'administration (rôle admin) : /api/admin/loois-synchro/… (vue, catalogue, config, resynchroniser, données, CSV)
@@ -29,6 +41,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import io
 import json
 import math
@@ -43,7 +56,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
 
-from routes.versions_deployees import cle_valide
+from routes import loois_cles_clients as cles   # lot 68.1 : clés clients (une par client)
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -134,6 +147,8 @@ def cle_mongo(nom: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Schémas de référence (copie embarquée des structures publiées sur GitHub)
+# Lot 68.1 : « la structure ne changera JAMAIS » — cette copie est LA référence de tous les postes (lue une fois,
+# gardée en mémoire) ; aucun poste n'envoie sa propre structure, aucune structure n'est stockée par client.
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=8)
 def charger_schema(application: str) -> Dict[str, Any]:
@@ -175,6 +190,29 @@ def detecter_cle(table: str, colonnes: List[Dict[str, Any]]) -> List[str]:
 def colonnes_binaires(colonnes: List[Dict[str, Any]]) -> List[str]:
     """Colonnes binaires (photos, images, PDF) : jamais remontées."""
     return [c["nom"] for c in colonnes if (c.get("type") or "").lower() in TYPES_BINAIRES]
+
+
+def structure_client(application: str, noms_tables: List[str]) -> Dict[str, Any]:
+    """Lot 68.1 — structure de référence envoyée à Loois pour les tables configurées d'un client (ordre de la
+    configuration) : nom exact, colonnes (nom, type, taille, échelle), clé détectée et colonnes binaires.
+    « hash » = empreinte SHA-256 (32 caractères) du contenu des tables : elle ne change que si la liste des tables
+    du client change (les structures, elles, ne changent jamais). Logique pure (testée)."""
+    schema = charger_schema(application)
+    tables = []
+    vues = set()
+    for nom in noms_tables:
+        ref = table_reference(application, nom)
+        if not ref or normaliser(ref["nom"]) in vues:
+            continue
+        vues.add(normaliser(ref["nom"]))
+        colonnes = [{"nom": c["nom"], "type": c.get("type") or "", "taille": c.get("taille"), "echelle": c.get("echelle")}
+                    for c in ref.get("colonnes", [])]
+        tables.append({"nom": ref["nom"], "colonnes": colonnes, "cle_detectee": detecter_cle(ref["nom"], colonnes),
+                       "binaires": colonnes_binaires(colonnes)})
+    canonique = json.dumps({"application": application, "tables": tables}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {"application": application, "base": schema.get("base"), "genere_le": schema.get("genere_le"),
+            "source": schema.get("source"), "hash": hashlib.sha256(canonique.encode("utf-8")).hexdigest()[:32],
+            "tables": tables}
 
 
 # ---------------------------------------------------------------------------
@@ -412,10 +450,32 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
 
     index_crees: set = set()   # collections dont l'index « _hf_cle » est déjà créé (dans ce processus)
 
-    def verifier_cle(request: Request) -> None:
-        """Clé du support OBLIGATOIRE (données d'élèves / patients)."""
-        if not cle_valide(request.headers.get("X-Cle-Loois")):
-            raise HTTPException(status_code=401, detail="clé du support Loois absente ou refusée")
+    async def verifier_cle(request: Request, machine: str = "") -> Dict[str, Any]:
+        """Lot 68.1 — CLÉ CLIENT obligatoire (données d'élèves / patients). Renvoie l'identité (client ou commune).
+        La clé commune n'est acceptée que si le réglage de transition est coché. Refus → en-tête X-Cle-Loois-Refus."""
+        identite = await cles.identifier_cle(db, request.headers.get("X-Cle-Loois"), machine=machine)
+        if not identite:
+            raise HTTPException(status_code=401, detail="clé client Loois absente ou refusée", headers=cles.EN_TETE_REFUS)
+        if identite["type"] == "commune" and not await cles.accepter_commune_pour_synchro(db):
+            raise HTTPException(status_code=403, headers=cles.EN_TETE_REFUS,
+                                detail="clé commune refusée pour la synchro : saisir la clé client Loois fournie par le support")
+        return identite
+
+    def site_de_la_cle(identite: Dict[str, Any], application: str, site_recu: Any) -> str:
+        """Lot 68.1 — client (code du site) pris DANS LA CLÉ. Un site envoyé différent → 403 ; application non
+        autorisée pour cette clé → 403. Clé commune (transition) : site envoyé par le poste, comme avant."""
+        recu = code_site(site_recu)
+        if identite["type"] != "client":
+            if not recu:
+                raise HTTPException(status_code=422, detail="site manquant")
+            return recu
+        if not cles.application_autorisee(identite, application):
+            raise HTTPException(status_code=403, headers=cles.EN_TETE_REFUS,
+                                detail=f"clé client {identite['code']} non autorisée pour {LIBELLES.get(application, application)}")
+        if recu and recu != identite["code"]:
+            raise HTTPException(status_code=403, headers=cles.EN_TETE_REFUS,
+                                detail=f"site « {recu} » différent du client de la clé ({identite['code']})")
+        return identite["code"]
 
     def admin(user: dict) -> None:
         if user.get("role") != "admin":
@@ -446,13 +506,11 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
 
     # ------------------------------------------------------------------ Loois
     @api.get("/loois/synchro/config", tags=["Loois synchro"])
-    async def config_loois(request: Request, application: str, site: str, machine: str = ""):
+    async def config_loois(request: Request, application: str, site: str = "", machine: str = ""):
         """Tables à synchroniser pour ce client + poste désigné (un seul poste synchronise un site à la fois)."""
-        verifier_cle(request)
+        identite = await verifier_cle(request, machine)
         app = application_ou_422(application)
-        code = code_site(site)
-        if not code:
-            raise HTTPException(status_code=422, detail="site manquant")
+        code = site_de_la_cle(identite, app, site)
         poste = machine.strip()[:80]
         if poste and not _MACHINE.match(poste):
             raise HTTPException(status_code=422, detail="nom de machine invalide")
@@ -476,22 +534,36 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
                 await db.loois_synchro_postes.update_one(cle_poste, {"$set": {**cle_poste, "machine": poste, "vu_le": maintenant.isoformat()},
                                                                      "$setOnInsert": {"premiere_fois": maintenant.isoformat()}}, upsert=True)
         schema = charger_schema(app)
+        # Lot 68.1 : empreinte de la structure des tables configurées (Loois la retélécharge seulement si elle change)
+        structure = structure_client(app, [t["nom"] for t in config.get("tables") or []])
         return {"application": app, "site": code, "actif": bool(config.get("actif")) and bool(config.get("tables")),
                 "poste_actif": poste_actif, "poste_designe": designe,
                 "intervalle_sondage_minutes": config.get("intervalle_sondage_minutes") or INTERVALLE_SONDAGE_DEFAUT,
                 "origine": config.get("origine"), "schema_genere_le": schema.get("genere_le"),
+                "structure_hash": structure["hash"], "client": cles.libelle_identite(identite),
                 "tables": tables_pour_loois(app, config, await jetons_resynchro(app, code))}
+
+    @api.get("/loois/synchro/structure", tags=["Loois synchro"])
+    async def structure_loois(request: Request, application: str, site: str = ""):
+        """Lot 68.1 — structure de référence (copie embarquée, identique pour tous) des tables configurées du client
+        de la clé, avec son empreinte « hash ». Loois la garde CHIFFRÉE sur le poste."""
+        identite = await verifier_cle(request)
+        app = application_ou_422(application)
+        code = site_de_la_cle(identite, app, site)
+        config = await lire_config(app, code)
+        return structure_client(app, [t["nom"] for t in config.get("tables") or []])
 
     @api.post("/loois/synchro/lot", tags=["Loois synchro"])
     async def recevoir_lot(request: Request):
         """Un morceau de différences (ajouts / modifications / suppressions). Idempotent : (lot, séquence) déjà reçu →
         même réponse, rien n'est rejoué."""
-        verifier_cle(request)
+        identite = await verifier_cle(request)
         try:
             lot = valider_lot(lire_corps(await request.body(), request.headers.get("Content-Encoding")))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        app, site = lot["application"], lot["site"]
+        app = lot["application"]
+        site = site_de_la_cle(identite, app, lot["site"])   # lot 68.1 : client de la clé (site différent → 403)
         config = await lire_config(app, site)
         if not config.get("actif"):
             raise HTTPException(status_code=403, detail="synchro désactivée pour ce client")
@@ -563,15 +635,13 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
     @api.post("/loois/synchro/etat", tags=["Loois synchro"])
     async def etat_loois(request: Request):
         """État vu par le poste (lignes en attente, erreur, mode de détection) — affiché sur la page Synchro."""
-        verifier_cle(request)
+        identite = await verifier_cle(request)
         try:
             corps = await request.json()
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         app = application_ou_422((corps or {}).get("application"))
-        site = code_site((corps or {}).get("site"))
-        if not site:
-            raise HTTPException(status_code=422, detail="site manquant")
+        site = site_de_la_cle(identite, app, (corps or {}).get("site"))   # lot 68.1 : client de la clé
         config = await lire_config(app, site)
         configurees = {normaliser(t["nom"]): t["nom"] for t in config.get("tables") or []}
         maj = 0

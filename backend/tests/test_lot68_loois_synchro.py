@@ -37,9 +37,13 @@ def env(monkeypatch):
     monkeypatch.setenv("LOOIS_SUPPORT_CLE", "cle-test")
 
 
-def client(db):
-    """Application FastAPI minimale avec les routes du lot 68 ; utilisateur choisi par en-tête X-User."""
+def client(db, transition=True):
+    """Application FastAPI minimale avec les routes du lot 68 ; utilisateur choisi par en-tête X-User.
+    Lot 68.1 : ces tests utilisent la clé COMMUNE ; le réglage de transition « Accepter encore la clé commune pour
+    la synchro » est donc coché (les clés clients sont testées dans test_lot68_1_cles_clients.py)."""
     from fastapi import APIRouter, FastAPI, HTTPException
+    if transition:
+        lancer(db.loois_reglages.insert_one({"id": "cles_clients", "accepter_cle_commune_synchro": True}))
     from fastapi.testclient import TestClient
 
     async def utilisateur(request: Request):

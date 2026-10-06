@@ -20,6 +20,7 @@ const STATUTS = {
   manque: ["Manqué", "text-rose-700"],
   refuse: ["Refusé", "text-rose-700"],
   sans_reponse: ["Sans réponse", "text-amber-700"],
+  echec: ["Échec", "text-rose-700"],   // Lot 67 — alerte du propriétaire non aboutie
 };
 
 export default function JournalAppelsCarte({ limite = 6, testid = "journal-appels-carte" }) {
@@ -75,7 +76,11 @@ export default function JournalAppelsCarte({ limite = 6, testid = "journal-appel
             return (
               <li key={a.id} className="flex items-center gap-2 px-2 py-1.5 text-xs">
                 <Icone className={`h-3.5 w-3.5 shrink-0 ${couleur}`} />
-                <span className="min-w-0 flex-1 truncate font-medium">{a.contact_nom}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {a.contact_nom}
+                  {/* Lot 67 — motif « alerte message » : client qui a écrit */}
+                  {a.motif && <span className="ml-1 font-normal text-violet-700">· 🔔 {a.alerte_client_nom || a.motif}</span>}
+                </span>
                 {a.ligne && <PastilleLigneWa libelle={a.ligne.libelle} fond={a.ligne.fond} texte={a.ligne.texte} />}
                 <span className={`shrink-0 ${couleur}`}>{libelle}</span>
                 <span className="w-16 shrink-0 text-right tabular-nums text-slate-600">{a.duree_s ? dureeLisible(a.duree_s) : "—"}</span>

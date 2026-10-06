@@ -208,6 +208,8 @@ class DirectoryContactCreate(BaseModel):
     client_id: Optional[str] = None
     # Lot 59 — ligne WhatsApp dédiée (« principal » ou Phone Number ID ; vide = automatique)
     wa_ligne: Optional[str] = None
+    # Lot 67 — « Appeler le propriétaire à chaque message » (absent = oui, voir routes/appel_proprietaire.py)
+    appel_proprietaire: Optional[bool] = None
 
 
 class DirectoryContactUpdate(BaseModel):
@@ -223,6 +225,7 @@ class DirectoryContactUpdate(BaseModel):
     vidal_riche: Optional[bool] = None
     is_decision_maker: Optional[bool] = None
     wa_ligne: Optional[str] = None   # Lot 59 — ligne WhatsApp dédiée ("" = automatique)
+    appel_proprietaire: Optional[bool] = None   # Lot 67 — alerte du propriétaire à chaque message (défaut oui)
 
 
 @api.get("/me/wa-lignes", tags=["Portail Client"])

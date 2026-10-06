@@ -150,3 +150,13 @@ watchfiles==1.1.1
 websockets==16.0
 yarl==1.23.0
 zipp==3.23.0
+# Lot 67 — appel vocal WhatsApp du propriétaire : le serveur est l'interlocuteur WebRTC (aiortc),
+# av embarque FFmpeg (décodage de la voix) ; voix de secours Google sans clé (appel HTTP direct)
+aiortc==1.15.0
+aioice==0.10.2
+av==17.1.0
+pyOpenSSL==25.3.0
+pylibsrtp==1.0.0
+pyee==13.0.1
+google-crc32c==1.9.0
+ifaddr==0.2.0

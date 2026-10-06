@@ -2086,6 +2086,18 @@ async def whatsapp_webhook_incoming(request: Request):
                         }))
                     except Exception as _exc:  # noqa: BLE001
                         logger.warning("[whatsapp.received automation] emit failed: %s", _exc)
+                    # Lot 67 — Liluvine prévient le propriétaire : message relayé sur son WhatsApp puis
+                    # appel vocal (au plus un par client toutes les 30 min). Tâche d'arrière-plan :
+                    # la réponse à Meta n'attend jamais ; toutes les exclusions (personnel, liste noire,
+                    # fiche client « ne pas appeler », commandes…) sont vérifiées dans le module.
+                    try:
+                        from routes.appel_proprietaire import planifier as _alerte_proprietaire
+                        _alerte_proprietaire(
+                            db, chiffres=digits_only, mtype=mtype,
+                            texte=text_body if mtype == "text" else (media_caption or text_body),
+                            contact=contact, profil=profile_name, recu_le=ts_iso, client_id=scope_for_msg)
+                    except Exception:  # noqa: BLE001 — l'alerte ne bloque jamais la réception
+                        logger.warning("[appel_proprietaire] alerte non lancée", exc_info=True)
                     # Lot 27 : réponse d'un formulaire WhatsApp (Flow) -> enregistrée et
                     # événement d'automation « whatsapp.flow_completed ».
                     if flow_reply:

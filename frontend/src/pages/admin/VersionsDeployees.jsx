@@ -61,9 +61,9 @@ export default function VersionsDeployees() {
 
   return (
     <section className="space-y-3" data-testid="versions-deployees">
-      <h2 className="text-xl font-display font-bold">🖥️ Postes Windows — versions déployées</h2>
+      <h2 className="text-xl font-display font-bold">🖥️ Postes et serveurs — versions déployées</h2>
       <p className="text-xs text-slate-500">
-        Chaque poste client qui exécute Loois (ou le service de synchronisation) envoie un signal toutes les 5 minutes :
+        Chaque poste client (Loois, service de synchronisation, applications WinDev) et chaque serveur de plateforme (Ster, adLyn, beAuthentik, ALBARKA) envoie un signal toutes les 5 minutes (règle 4) :
         pastille verte = en cours d'exécution, badge orange = version à mettre à jour.
       </p>
       {erreur && <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{erreur}</p>}

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "69"
-LOT_LIBELLE = "Liluvine décroche les appels WhatsApp (toujours, après N secondes ou hors heures) et converse avec son prompt système : transcription, résumé, coût, rappel"
+LOT = "69.1"
+LOT_LIBELLE = "Qdrant : la page ne bloque plus le serveur (lecture hors boucle principale, comptages en parallèle, cache 60 s)"

@@ -87,6 +87,10 @@ export default function AdminPlateformesTempsReel() {
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50" data-testid="tester-bulle-stats">
             🔔 Tester la bulle
           </button>
+          {/* Lot 68 — accès direct à la synchro des tables Loois */}
+          <a href="/admin/loois-synchro" className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50" data-testid="lien-loois-synchro">
+            🔄 Loois → Synchro
+          </a>
           <button type="button" onClick={lire} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
             <RefreshCw className={`h-4 w-4 ${chargement ? "animate-spin" : ""}`} /> Actualiser
           </button>

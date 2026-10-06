@@ -195,6 +195,8 @@ const adminLinks = [
   { to: "/admin/vidal-logs", label: "Suivi des logs VIDAL", icon: History, adminOrSup: true },
   // Lot 63 — activité des plateformes (adLyn, Ster, beAuthentik…) en temps réel
   { to: "/admin/plateformes-temps-reel", label: "Plateformes (temps réel)", icon: Activity, adminOnly: true },
+  // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
+  { to: "/admin/loois-synchro", label: "Plateformes → Loois → Synchro", icon: Database, adminOnly: true },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

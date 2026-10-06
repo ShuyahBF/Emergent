@@ -200,6 +200,9 @@ _setup_rapport_plateformes(db=db, api=api, get_current_user=get_current_user)
 # Lot 65 — versions déployées (SAWALI, plateformes web, Loois et ses postes)
 from routes.versions_deployees import setup_versions_deployees_routes as _setup_versions_deployees  # noqa: E402
 _setup_versions_deployees(db=db, api=api, get_current_user=get_current_user, lire_version=version)
+# Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (page Plateformes → Loois → Synchro)
+from routes.loois_synchro import setup_loois_synchro_routes as _setup_loois_synchro  # noqa: E402
+_setup_loois_synchro(db=db, api=api, get_current_user=get_current_user)
 
 # =====================================================================
 # Iter38k — Gemini Nano Banana image generation (icons + media generator).

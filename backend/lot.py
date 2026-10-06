@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "67.1"
-LOT_LIBELLE = "Historique des appels automatiques de Liluvine : date/heure, destinataire, durée, coût et synthèse par période"
+LOT = "68"
+LOT_LIBELLE = "Synchro des tables HFSQL des clients Loois (e-Kol : Paiements, ElèveEdu) vers MongoDB — page Plateformes → Loois → Synchro"

@@ -173,6 +173,17 @@ _setup_inbox_routes(
 )
 
 # =====================================================================
+# Lot 60 — Appels WhatsApp (API Calling de Meta) : sonnerie dans le portail,
+# décroché depuis le navigateur, rappel avec autorisation du client, journal.
+# =====================================================================
+from routes.appels_wa import setup_appels_wa_routes as _setup_appels_wa  # noqa: E402
+_setup_appels_wa(
+    db=db, api=api, get_current_user=get_current_user,
+    resolve_visible_client_ids=_resolve_visible_client_ids,
+    graph_version=WA_GRAPH_VERSION,
+)
+
+# =====================================================================
 # Iter38k — Gemini Nano Banana image generation (icons + media generator).
 # =====================================================================
 from routes.ai_media import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402

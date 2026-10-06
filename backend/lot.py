@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.12"
-LOT_LIBELLE = "Relais WhatsApp #R : code valable 24 h au lieu de 30 minutes"
+LOT = "64.13"
+LOT_LIBELLE = "Paramètres : bouton d'enregistrement fixé en bas ; conversation WA : bandeau des messages retenus par la barrière et insertion dans la conversation"

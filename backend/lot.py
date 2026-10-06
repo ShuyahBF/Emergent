@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "68.1"
-LOT_LIBELLE = "Clés clients Loois (une clé par client, empreinte seule stockée) + structure de référence téléchargée et chiffrée par Loois — Plateformes → Loois → Synchro"
+LOT = "68.2"
+LOT_LIBELLE = "Paramètres : cartes « Nouveautés » mises à jour (lots 65 à 68.1, y compris les écrans Plateformes et Loois → Synchro)"

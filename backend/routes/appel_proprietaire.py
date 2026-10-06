@@ -201,10 +201,28 @@ def reglages(s: Dict[str, Any]) -> Dict[str, Any]:
         "modele": (s.get("appel_proprio_modele") or "").strip(),
         "modele_langue": (s.get("appel_proprio_modele_langue") or "fr").strip() or "fr",
         "voix": (s.get("appel_proprio_voix") or "auto").strip() or "auto",
-        "voix_elevenlabs": (s.get("appel_proprio_voix_elevenlabs") or "").strip(),
+        "voix_elevenlabs": (s.get("appel_proprio_voix_elevenlabs") or s.get("liluvine_decroche_voix_elevenlabs")
+                            or "").strip(),
+        # Lot 69.2 — profil de voix commun avec « Liluvine décroche » (accent, voix et modèles)
+        **profil_voix(s),
         "repetitions": _entier(s.get("appel_proprio_repetitions"), 2, 1, 3),
         "sonnerie_s": _entier(s.get("appel_proprio_sonnerie_s"), 30, 10, 60),
         "exclus": {_chiffres(x)[-8:] for x in re.split(r"[,;\n]+", exclus_brut) if len(_chiffres(x)) >= 8},
+    }
+
+
+def profil_voix(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Lot 69.2 — réglages de voix communs aux appels de Liluvine (lots 67 et 69), saisis dans le bloc
+    « Liluvine décroche les appels WhatsApp » : voix et modèle OpenAI, consigne d'accent, modèle ElevenLabs."""
+    s = s or {}
+    voix = str(s.get("liluvine_decroche_voix_openai") or "nova").strip()
+    m_oa = str(s.get("liluvine_decroche_modele_openai") or MODELES_OPENAI[0]).strip()
+    m_el = str(s.get("liluvine_decroche_modele_elevenlabs") or MODELES_ELEVENLABS[0]).strip()
+    return {
+        "voix_openai": voix if voix in VOIX_OPENAI else "nova",
+        "modele_openai": m_oa if m_oa in MODELES_OPENAI else MODELES_OPENAI[0],
+        "accent": (s.get("liluvine_decroche_accent") or "").strip() or ACCENT_DEFAUT,
+        "modele_elevenlabs": m_el if m_el in MODELES_ELEVENLABS else MODELES_ELEVENLABS[0],
     }
 
 
@@ -488,32 +506,76 @@ async def demander_permission(db, s: Dict[str, Any], numero_id: str, proprio: st
 # Voix de Liluvine (synthèse vocale) et décodage en trames audio 48 kHz
 # ---------------------------------------------------------------------------
 
-async def _voix_openai(texte: str, s: Dict[str, Any]) -> bytes:
-    """Synthèse OpenAI (voix féminine « nova ») — clé lue dans les réglages ou l'environnement."""
+# Lot 69.2 — Voix OpenAI proposées (gpt-4o-mini-tts les accepte toutes ; tts-1 seulement les 9 premières)
+VOIX_OPENAI_TTS1 = ("alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
+VOIX_OPENAI = VOIX_OPENAI_TTS1 + ("ballad", "verse", "cedar", "marin")
+# Modèles de voix : OpenAI (gpt-4o-mini-tts suit une consigne d'accent / de ton) et ElevenLabs
+MODELES_OPENAI = ("gpt-4o-mini-tts", "tts-1")
+MODELES_ELEVENLABS = ("eleven_flash_v2_5", "eleven_multilingual_v2")
+# Consigne d'accent par défaut (gpt-4o-mini-tts)
+ACCENT_DEFAUT = "français d'Afrique de l'Ouest, chaleureux et posé"
+# Les voix OpenAI et ElevenLabs sont demandées en PCM brut 24 kHz (aucun MP3 à décoder)
+FREQUENCE_VOIX = 24000
+
+
+def consigne_accent(accent: str) -> str:
+    """Consigne donnée à gpt-4o-mini-tts : accent, ton et débit (paramètre « instructions »)."""
+    accent = (accent or "").strip() or ACCENT_DEFAUT
+    return (f"Parle en français avec cet accent et ce style : {accent}. Par exemple un accent d'Afrique de "
+            "l'Ouest (Burkina Faso). Ton chaleureux et professionnel, débit posé, articulation claire, "
+            "comme une hôtesse d'accueil au téléphone.")
+
+
+def _wav(pcm: bytes, frequence: int) -> bytes:
+    """PCM brut → WAV (simple en-tête, aucun calcul) pour garder une seule interface « fichier audio »."""
+    from routes.audio_appel import wav_depuis_pcm
+    return wav_depuis_pcm(pcm, frequence)
+
+
+async def _voix_openai(texte: str, s: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None) -> bytes:
+    """Synthèse OpenAI en PCM 24 kHz (rendu en WAV). Lot 69.2 : modèle gpt-4o-mini-tts avec consigne
+    d'accent (« instructions »), voix au choix ; repli automatique sur tts-1 si le modèle est refusé.
+    Clé lue dans les réglages (ancien) ou la variable d'environnement OPENAI_API_KEY."""
+    cfg = cfg or {}
     cle = (s.get("openai_api_key") or "").strip() or os.environ.get("OPENAI_API_KEY", "").strip()
     if not cle:
         raise RuntimeError("clé OpenAI absente")
+    voix = cfg.get("voix_openai") if cfg.get("voix_openai") in VOIX_OPENAI else "nova"
+    modele = cfg.get("modele_openai") if cfg.get("modele_openai") in MODELES_OPENAI else MODELES_OPENAI[0]
+    essais = [modele] + (["tts-1"] if modele != "tts-1" else [])
+    erreur = ""
     async with httpx.AsyncClient(timeout=30) as http:
-        r = await http.post("https://api.openai.com/v1/audio/speech",
-                            json={"model": "tts-1", "voice": "nova", "input": texte, "response_format": "mp3"},
-                            headers={"Authorization": f"Bearer {cle}"})
-    if r.status_code >= 300:
-        raise RuntimeError(f"OpenAI HTTP {r.status_code}")
-    return r.content
+        for m in essais:
+            corps: Dict[str, Any] = {"model": m, "input": texte, "response_format": "pcm",
+                                     "voice": voix if (m != "tts-1" or voix in VOIX_OPENAI_TTS1) else "nova"}
+            if m == "gpt-4o-mini-tts":
+                corps["instructions"] = consigne_accent(cfg.get("accent") or "")
+            r = await http.post("https://api.openai.com/v1/audio/speech", json=corps,
+                                headers={"Authorization": f"Bearer {cle}"})
+            if r.status_code < 300 and r.content:
+                return _wav(r.content, FREQUENCE_VOIX)
+            erreur = f"OpenAI HTTP {r.status_code} ({m})"
+    raise RuntimeError(erreur)
 
 
 async def _voix_elevenlabs(texte: str, cfg: Dict[str, Any]) -> bytes:
-    """Synthèse ElevenLabs (voix choisie dans les réglages) — clé ELEVENLABS_API_KEY."""
+    """Synthèse ElevenLabs (voix choisie dans les réglages) en PCM 24 kHz (rendu en WAV).
+    Lot 69.2 : modèle au choix, eleven_flash_v2_5 par défaut (le plus rapide pour le téléphone).
+    Clé ELEVENLABS_API_KEY (variable d'environnement)."""
     cle = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if not cle or not cfg.get("voix_elevenlabs"):
         raise RuntimeError("clé ou voix ElevenLabs absente")
+    modele = cfg.get("modele_elevenlabs") if cfg.get("modele_elevenlabs") in MODELES_ELEVENLABS else MODELES_ELEVENLABS[0]
+    corps: Dict[str, Any] = {"text": texte, "model_id": modele}
+    if "flash" in modele or "turbo" in modele:
+        corps["language_code"] = "fr"          # langue imposée (accepté par les modèles flash / turbo)
     async with httpx.AsyncClient(timeout=30) as http:
         r = await http.post(f"https://api.elevenlabs.io/v1/text-to-speech/{cfg['voix_elevenlabs']}",
-                            json={"text": texte, "model_id": "eleven_multilingual_v2"},
-                            headers={"xi-api-key": cle, "Accept": "audio/mpeg"})
-    if r.status_code >= 300:
+                            params={"output_format": f"pcm_{FREQUENCE_VOIX}"}, json=corps,
+                            headers={"xi-api-key": cle})
+    if r.status_code >= 300 or not r.content:
         raise RuntimeError(f"ElevenLabs HTTP {r.status_code}")
-    return r.content
+    return _wav(r.content, FREQUENCE_VOIX)
 
 
 def decouper_texte(texte: str, maxi: int = 180) -> List[str]:
@@ -563,12 +625,12 @@ def fournisseurs_voix(s: Dict[str, Any], cfg: Dict[str, Any]) -> List[str]:
 
 
 async def synthetiser(texte: str, s: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bytes, str]:
-    """Fabrique l'audio (MP3) du message ; renvoie (octets, fournisseur). Lève RuntimeError si tout échoue."""
+    """Fabrique l'audio (WAV pour OpenAI / ElevenLabs, MP3 pour Google) du message ; renvoie (octets, fournisseur). Lève RuntimeError si tout échoue."""
     erreurs = []
     for f in fournisseurs_voix(s, cfg):
         try:
             if f == "openai":
-                return await _voix_openai(texte, s), f
+                return await _voix_openai(texte, s, cfg), f
             if f == "elevenlabs":
                 return await _voix_elevenlabs(texte, cfg), f
             return await _voix_google(texte), f
@@ -578,70 +640,43 @@ async def synthetiser(texte: str, s: Dict[str, Any], cfg: Dict[str, Any]) -> Tup
 
 
 def decoder_pcm(audio: bytes) -> bytes:
-    """Décode un fichier audio (MP3, WAV…) en PCM 16 bits mono 48 kHz (bibliothèque av / FFmpeg)."""
-    import av
-    sortie = bytearray()
-    with av.open(io.BytesIO(audio)) as conteneur:
-        reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=FREQUENCE)
-        for trame in conteneur.decode(audio=0):
-            for t in reechantillonneur.resample(trame):
-                sortie += bytes(t.planes[0])[: t.samples * 2]
-        for t in reechantillonneur.resample(None):
-            sortie += bytes(t.planes[0])[: t.samples * 2]
-    return bytes(sortie)
+    """Décode un fichier audio (MP3, WAV…) en PCM 16 bits mono 48 kHz (lot 69.2 : module audio_appel)."""
+    from routes.audio_appel import decoder_pcm as _decoder
+    return _decoder(audio)
+
+
+def preparer_pcm(audio: bytes) -> bytes:
+    """Lot 69.2 — décodage 48 kHz + silences de début/fin raccourcis (à appeler hors de la boucle)."""
+    from routes.audio_appel import preparer_pcm as _preparer
+    return _preparer(audio)
 
 
 def creer_piste(pcm: bytes, repetitions: int = 2, pause_s: float = 1.2):
-    """Piste audio WebRTC : silence tant que lecture() n'est pas appelée, puis le message
-    (répété), puis silence ; l'évènement `fini` est posé à la fin de la lecture."""
-    import fractions
-
-    import av
-    from aiortc import MediaStreamTrack
-
-    octets_trame = ECHANTILLONS_TRAME * 2          # 20 ms de son 16 bits mono
-    silence = b"\x00" * octets_trame
+    """Piste audio « message répété » (compatibilité, utilisée par les tests comme voix d'un appelant) :
+    silence tant que lecture() n'est pas appelée, puis le message (répété), puis silence ;
+    l'évènement `fini` est posé à la fin de la lecture. Repose sur la piste persistante du lot 69.2
+    (horloge monotone, pré-chargement nul : le message est entièrement prêt)."""
+    from routes.audio_appel import creer_piste_voix
     programme = (pcm + b"\x00" * int(FREQUENCE * pause_s) * 2) * max(1, repetitions)
+    piste = creer_piste_voix(prechargement_ms=0)
+    piste.fini = asyncio.Event()
+    recv_origine = piste.recv
 
-    class PisteLiluvine(MediaStreamTrack):
-        """Piste audio envoyée à Meta (une trame de 20 ms toutes les 20 ms, en temps réel)."""
-        kind = "audio"
+    def lecture() -> None:
+        """Démarre la lecture du message."""
+        piste.ajouter(programme)
+        piste.fin_reponse()
 
-        def __init__(self):
-            super().__init__()
-            self.fini = asyncio.Event()
-            self._position: Optional[int] = None    # None = pas encore en lecture
-            self._debut: Optional[float] = None
-            self._horodatage = 0
+    async def recv():
+        """Trame suivante ; `fini` est posé quand tout le message a été joué."""
+        trame = await recv_origine()
+        if piste.lecteur.trames_son and not piste.en_lecture and not piste.fini.is_set():
+            piste.fini.set()
+        return trame
 
-        def lecture(self) -> None:
-            """Démarre la lecture du message."""
-            self._position = 0
-
-        async def recv(self):
-            # Cadence temps réel : une trame toutes les 20 ms
-            if self._debut is None:
-                self._debut = time.time()
-            else:
-                self._horodatage += ECHANTILLONS_TRAME
-                attente = self._debut + self._horodatage / FREQUENCE - time.time()
-                if attente > 0:
-                    await asyncio.sleep(attente)
-            # Morceau à jouer : message en cours, sinon silence
-            morceau = silence
-            if self._position is not None and self._position < len(programme):
-                morceau = programme[self._position:self._position + octets_trame].ljust(octets_trame, b"\x00")
-                self._position += octets_trame
-                if self._position >= len(programme):
-                    self.fini.set()
-            trame = av.AudioFrame(format="s16", layout="mono", samples=ECHANTILLONS_TRAME)
-            trame.planes[0].update(morceau)
-            trame.pts = self._horodatage
-            trame.sample_rate = FREQUENCE
-            trame.time_base = fractions.Fraction(1, FREQUENCE)
-            return trame
-
-    return PisteLiluvine()
+    piste.lecture = lecture
+    piste.recv = recv
+    return piste
 
 
 def serveurs_ice() -> list:
@@ -729,7 +764,8 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
     # 1. Voix de Liluvine
     try:
         audio, fournisseur = await synthetiser(texte_voix, s, cfg)
-        pcm = await asyncio.to_thread(decoder_pcm, audio)
+        # Lot 69.2 : décodage + silences raccourcis hors de la boucle (fil séparé)
+        pcm = await asyncio.to_thread(preparer_pcm, audio)
         if len(pcm) < FREQUENCE:                  # moins d'une demi-seconde : audio inutilisable
             raise RuntimeError("audio vide")
         # Voix fabriquée : fournisseur et nombre de caractères synthétisés (coût de la synthèse)
@@ -738,14 +774,23 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         return await echec_avant_meta(f"voix : {str(exc)[:200]}")
 
     from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
-    pc = RTCPeerConnection(RTCConfiguration(iceServers=serveurs_ice()))
+    from routes.audio_appel import creer_piste_voix, sur_media
+    ice = serveurs_ice()
+
+    # Lot 69.2 : la connexion WebRTC et la piste vivent dans la BOUCLE MÉDIA dédiée (son régulier
+    # même si l'API est chargée). On les crée là-bas, et on y exécute chaque opération WebRTC.
+    async def _creer():
+        """(boucle média) Connexion + piste persistante + offre SDP."""
+        connexion = RTCPeerConnection(RTCConfiguration(iceServers=ice))
+        p = creer_piste_voix()
+        connexion.addTrack(p)
+        await connexion.setLocalDescription(await connexion.createOffer())
+        return connexion, p
+    pc = None
     call_id: Optional[str] = None
     try:
         # 2. Offre SDP avec la piste audio (aiortc rassemble les candidats ICE avant de rendre la main)
-        piste = creer_piste(pcm, cfg["repetitions"])
-        pc.addTrack(piste)
-        offre = await pc.createOffer()
-        await pc.setLocalDescription(offre)
+        pc, piste = await sur_media(_creer)
         rep = await _graph_post(s, numero_id, "calls", {
             "messaging_product": "whatsapp", "to": proprio, "action": "connect",
             "session": {"sdp_type": "offer", "sdp": pc.localDescription.sdp},
@@ -775,7 +820,7 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
 
         # 4. Décroché : réponse SDP appliquée, attente de la connexion audio (ICE + DTLS)
         instants["decroche"] = time.monotonic()   # fin de la sonnerie, début de la conversation
-        await pc.setRemoteDescription(RTCSessionDescription(sdp=etat["sdp"], type="answer"))
+        await sur_media(lambda: pc.setRemoteDescription(RTCSessionDescription(sdp=etat["sdp"], type="answer")))
 
         async def connecte():
             if pc.connectionState == "failed":
@@ -792,12 +837,14 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
 
         # 5. Liluvine parle (le message est répété), puis raccroche
         await asyncio.sleep(1.0)
-        piste.lecture()
+        # Message répété (avec une pause) ajouté d'un bloc à la file de la piste persistante
+        piste.debut_reponse()
+        piste.ajouter((pcm + b"\x00" * int(FREQUENCE * 1.2) * 2) * max(1, cfg["repetitions"]))
+        piste.fin_reponse()
         duree_max = len(pcm) / (FREQUENCE * 2) * cfg["repetitions"] + 2 * cfg["repetitions"] + 5
-        try:
-            await asyncio.wait_for(piste.fini.wait(), timeout=duree_max)
-        except asyncio.TimeoutError:
-            pass
+        limite = time.monotonic() + duree_max
+        while piste.en_lecture and time.monotonic() < limite:
+            await asyncio.sleep(0.05)
         await asyncio.sleep(0.8)
         _mesurer_fin()
         await _raccrocher(s, numero_id, call_id)
@@ -813,7 +860,8 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         return await echec_avant_meta(raison)
     finally:
         try:
-            await pc.close()
+            if pc is not None:
+                await sur_media(pc.close)
         except Exception:  # noqa: BLE001
             pass
 

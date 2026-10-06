@@ -15,6 +15,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "69.2", "date": "2026-10-06",
+        "titre": "🎧 Appels de Liluvine : son fluide et voix africaine",
+        "description": "Plus de silences hachés pendant les appels ; voix à accent d'Afrique de l'Ouest au choix, « Écouter un essai » et ligne « Qualité audio » au journal.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "69", "date": "2026-10-06",
         "titre": "🤖📞 Liluvine décroche les appels WhatsApp",
         "description": "Réponse vocale automatique (toujours, après N s ou hors heures) avec son prompt système ; transcription et résumé au journal.",

@@ -3,7 +3,8 @@
 // Affiché sous la ligne du journal des appels et dans la carte d'appel du fil de conversation :
 //   • résumé (1 à 3 lignes rédigé par Liluvine à la fin de l'appel) ;
 //   • transcription complète (tours appelant / Liluvine, minute:seconde depuis le décroché) ;
-//   • raison de fin, demande de rappel éventuelle et coût estimé (USD, appel entrant gratuit chez Meta).
+//   • raison de fin, demande de rappel éventuelle et coût estimé (USD, appel entrant gratuit chez Meta) ;
+//   • lot 69.2 : ligne « Qualité audio » (manques de son, recalages, retard des boucles, 1er son).
 // Le composant ne lit rien sur le serveur : il reçoit le champ « liluvine » de l'appel (/me/wa-appels).
 import React from "react";
 
@@ -13,9 +14,24 @@ const mmss = (s) => {
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 };
 
+// Lot 69.2 — résumé lisible des mesures de qualité du son d'un appel
+const texteQualite = (q) => {
+  if (!q) return "";
+  const morceaux = [
+    `${q.sous_alimentations || 0} manque(s) de son`,
+    `${q.recalages || 0} recalage(s)`,
+    `retard max. boucle API ${q.retard_boucle_max_ms ?? "?"} ms / son ${q.retard_media_max_ms ?? "?"} ms`,
+  ];
+  if (q.premier_son_moyen_s != null) morceaux.push(`1er son ${String(q.premier_son_moyen_s).replace(".", ",")} s après la question`);
+  return morceaux.join(" · ");
+};
+
 export default function TranscriptionAppelLiluvine({ l }) {
   if (!l) return null;
   const tours = l.transcription || [];
+  const q = l.qualite_audio;
+  // Son jugé fluide : aucun manque et boucle média jamais bloquée plus de 60 ms
+  const qualiteOk = q && !q.sous_alimentations && (q.retard_media_max_ms || 0) < 60;
   return (
     <div className="space-y-1.5 text-left text-xs text-slate-700" data-testid="transcription-liluvine">
       {/* Résumé et circonstances de fin */}
@@ -27,6 +43,11 @@ export default function TranscriptionAppelLiluvine({ l }) {
         {l.latence_moyenne_s ? ` · délai de réponse moyen ${String(l.latence_moyenne_s).replace(".", ",")} s` : ""}
         {l.erreur ? ` · ${l.erreur}` : ""}
       </p>
+      {q && (
+        <p className={`text-[11px] ${qualiteOk ? "text-emerald-700" : "text-amber-700"}`} data-testid="qualite-audio">
+          🎧 Qualité audio : {texteQualite(q)}
+        </p>
+      )}
       {/* Transcription horodatée */}
       {tours.length > 0 && (
         <ol className="max-h-64 space-y-1 overflow-auto rounded bg-white/80 p-2 ring-1 ring-slate-100">

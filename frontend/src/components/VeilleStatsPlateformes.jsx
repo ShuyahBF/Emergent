@@ -112,6 +112,11 @@ export default function VeilleStatsPlateformes() {
             }
           }
         }
+        // Lot 64.10 — heure de la dernière vérification, affichée sur la page « Plateformes (temps réel) »
+        const nbChangements = ancienne ? Object.entries(nouvelle)
+          .reduce((n, [code, apres]) => n + (ancienne[code] ? changements(ancienne[code], apres).length : 0), 0) : 0;
+        window.dispatchEvent(new CustomEvent("sawali:veille-stats", { detail: {
+          le: new Date().toISOString(), plateformes: Object.keys(nouvelle).length, changements: nbChangements } }));
         // La nouvelle lecture devient la référence (on garde l'ancienne pour une plateforme muette)
         photoRef.current = { ...(ancienne || {}), ...nouvelle };
         try { localStorage.setItem(CLE_STOCKAGE, JSON.stringify(photoRef.current)); } catch { /* stockage indisponible */ }
@@ -120,11 +125,28 @@ export default function VeilleStatsPlateformes() {
       }
     };
 
+    // Lot 64.10 — bouton « Tester la bulle » : bulle d'exemple construite sur les valeurs actuelles (+1)
+    const surTest = () => {
+      const photo = photoRef.current || {};
+      const [code, p] = Object.entries(photo)[0] || [];
+      if (!code) { toast.error("Aucune statistique reçue pour l'instant"); return; }
+      const liste = Object.values(p.valeurs).slice(0, 3).map((v) => {
+        const n = nombre(v.valeur);
+        return { libelle: v.libelle, de: v.valeur, a: n === null ? v.valeur : n + 1, ecart: n === null ? null : 1 };
+      });
+      toast(<Bulle nom={`${p.nom} (exemple)`} liste={liste} />, { duration: 10000 });
+    };
+    window.addEventListener("sawali:test-bulle-stats", surTest);
+
     lire();
     const t = setInterval(lire, INTERVALLE_MS);
     const surRetour = () => { if (!document.hidden) lire(); };
     document.addEventListener("visibilitychange", surRetour);
-    return () => { annule = true; clearInterval(t); document.removeEventListener("visibilitychange", surRetour); };
+    return () => {
+      annule = true; clearInterval(t);
+      document.removeEventListener("visibilitychange", surRetour);
+      window.removeEventListener("sawali:test-bulle-stats", surTest);
+    };
   }, [actif]);
 
   return null;

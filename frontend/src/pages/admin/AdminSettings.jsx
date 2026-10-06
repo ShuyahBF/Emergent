@@ -73,6 +73,12 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Lots 59 à 63 (05-06/10/2026) — numéros WhatsApp multiples, appels, liste noire, barrière, plateformes
+  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-06",
+  "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
+  "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
+  "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-06",
+  "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "2026-10-06",
   // Lot 57.8 — encaissement PI-SPI (QR de la banque sur les factures émises par SAWALI)
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "2026-10-04",
   // Lot 52 — choix du service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)
@@ -123,6 +129,24 @@ const NEW_SECTIONS = {
   "Santé applicative — Alertes & rapports": "2026-04-30",
   "Authentification — OTP par domaine": "2026-04-26",
 };
+// Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
+const NEW_DESCRIPTIONS = {
+  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",
+  "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "Numéros interdits aux commandes « ! » avec message de refus de Liluvine (lot 61).",
+  "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
+  "Transmission WA Universelle Liluvine (webhook entrant)": "URL des statistiques internes de chaque plateforme (lot 62).",
+  "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "Plusieurs numéros (Standard, VIP, Publicités), couleurs des pastilles, appels (lots 59-60).",
+  "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "QR de paiement instantané de la banque sur les factures (lot 57.8).",
+};
+// Lot 64 — une rubrique de moins de 7 jours porte TOUJOURS la pastille « NOUVEAU »
+// et apparaît dans les cartes de nouveautés (10 au plus)
+const NOUVEAUTE_JOURS = 7;
+const NOUVEAUTES_MAX = 10;
+function ageEnJours(title) {
+  const addedAt = NEW_SECTIONS[title];
+  const t = addedAt ? new Date(addedAt).getTime() : NaN;
+  return isNaN(t) ? Infinity : (Date.now() - t) / 86400000;
+}
 // Iter37h.A — Bump the visibility window so newly-added sections actually show.
 const NEW_WINDOW_DAYS = 21;  // was 3 (caused badges to vanish before users even saw them)
 const STORAGE_KEY_SEEN = "sawali_settings_first_seen_v1";
@@ -173,6 +197,8 @@ function categoryOf(title = "") {
 function isStillNew(title, seenMap) {
   const addedAt = NEW_SECTIONS[title];
   if (!addedAt) return false;
+  // Lot 64 — moins d'une semaine : toujours « NOUVEAU », même déjà consultée
+  if (ageEnJours(title) <= NOUVEAUTE_JOURS) return true;
   const now = Date.now();
   const added = new Date(addedAt).getTime();
   if (isNaN(added) || (now - added) / 86400000 > NEW_WINDOW_DAYS) return false;
@@ -229,6 +255,47 @@ const Filterable = ({ title, anchorId, category, children }) => {
         </span>
       )}
       {children}
+    </div>
+  );
+};
+
+// Lot 64 — cartes cliquables des nouveautés de moins d'une semaine (10 au plus) :
+// un clic vide la recherche, revient à l'onglet « Tous » et amène directement à la rubrique.
+const CartesNouveautes = () => {
+  const ctx = useSettingsFilter();
+  const titres = useMemo(() => Object.keys(NEW_SECTIONS)
+    .filter((t) => ageEnJours(t) <= NOUVEAUTE_JOURS && ctx?.registry?.[t])
+    .sort((a, b) => ageEnJours(a) - ageEnJours(b))
+    .slice(0, NOUVEAUTES_MAX), [ctx?.registry]);
+  if (!ctx || titres.length === 0) return null;
+  // Se positionner sur une rubrique (et la faire clignoter brièvement)
+  const aller = (titre) => {
+    const ancre = ctx.registry[titre]?.anchorId;
+    ctx.setSearch("");
+    ctx.setActiveTab("all");
+    setTimeout(() => {
+      const el = ancre && document.getElementById(ancre);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("ring-4", "ring-sky-300", "rounded-xl");
+      setTimeout(() => el.classList.remove("ring-4", "ring-sky-300", "rounded-xl"), 2500);
+    }, 80);
+  };
+  return (
+    <div className="mt-3" data-testid="cartes-nouveautes">
+      <p className="mb-2 text-xs font-semibold text-sky-800">🆕 Nouveautés de la semaine ({titres.length})</p>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        {titres.map((t) => (
+          <button key={t} type="button" onClick={() => aller(t)}
+            className="relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md"
+            data-testid={`carte-nouveaute-${ctx.registry[t]?.anchorId}`}>
+            <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
+            <p className="line-clamp-2 text-xs font-semibold text-slate-900">{t}</p>
+            {NEW_DESCRIPTIONS[t] && <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{NEW_DESCRIPTIONS[t]}</p>}
+            <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(NEW_SECTIONS[t]).toLocaleDateString("fr-FR")}</p>
+          </button>
+        ))}
+      </div>
     </div>
   );
 };
@@ -555,6 +622,8 @@ export default function AdminSettings() {
         <BandeauVersion className="mt-1" />
       </div>
       <SettingsToolbar />
+      {/* Lot 64 — nouveautés de la semaine : cartes cliquables */}
+      <CartesNouveautes />
       {/* Lot 49 — alerte si la sauvegarde automatique hors serveur est désactivée ou trop ancienne */}
       <AlerteSauvegardeAuto />
 
@@ -2244,6 +2313,8 @@ export default function AdminSettings() {
         )}
       </Section>
 
+      {/* Lot 64 — rubrique repérable (ancre + pastille NOUVEAU) : lignes, couleurs, appels */}
+      <Filterable title="WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels" anchorId="s-wa-business-api">
       <Section icon={MessageCircle} title="WhatsApp Business API (Meta Cloud)">
         <p className="text-xs text-slate-500">
           Configuration globale. Tous les clients utilisent ce compte WhatsApp Business (Meta Business Portfolio).
@@ -2347,6 +2418,7 @@ export default function AdminSettings() {
           <WaOtpTester />
         </div>
       </Section>
+      </Filterable>
 
       <Section icon={Ticket} title="Tickets d'intervention — notifications WhatsApp">
         <p className="text-xs text-slate-500">

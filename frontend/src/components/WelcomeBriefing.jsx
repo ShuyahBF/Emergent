@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import JournalAppelsCarte from "@/components/JournalAppelsCarte";   // Lot 64
 import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock, Banknote, Bot } from "lucide-react";
 
 /*
@@ -23,6 +25,10 @@ const SS_KEY = "sawali_welcome_briefing_seen";
 const LS_LAST_SEEN = "sawali_portal_last_seen_at";
 
 export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
+  // Lot 64 — le superviseur (ou l'administrateur) voit aussi le journal des appels
+  const { user } = useAuth() || {};
+  const estSuperviseur = ["superviseur", "admin"].includes(user?.role)
+    || ["Superviseur", "Administrateur"].includes(user?.tracked_role || "");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   // Iter43-fix — Le bouton "J'ai lu" n'est actif qu'une fois le contenu lu
@@ -151,6 +157,9 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
             className="p-6 space-y-4 max-h-[60vh] overflow-y-auto"
             data-testid="welcome-briefing-scroll"
           >
+            {/* Lot 64 — journal des appels WhatsApp (superviseur et administrateur) */}
+            {estSuperviseur && <JournalAppelsCarte limite={5} testid="welcome-journal-appels" />}
+
             {/* Iter38r-fix8b — Synthèse Rapports / Suivis / Notes / Tâches */}
             {hasKpis && (
               <section className="rounded-lg ring-1 ring-indigo-200 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40 p-3" data-testid="welcome-notes-kpis">

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare, CreditCard, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import JournalAppelsCarte from "@/components/JournalAppelsCarte";   // Lot 64
 import BrochuresWidget from "@/components/BrochuresWidget";
 import WeatherWidget from "@/components/WeatherWidget";
 import R2StorageGauge from "@/components/R2StorageGauge";
@@ -48,6 +49,9 @@ export default function ClientDashboard() {
   // Lot 20 — jauge d'espace Gestion de Stocks pour le Pharmacien suivi.
   const { user } = useAuth();
   const isPharmacienTracked = (user?.tracked_role || "") === "Pharmacien";
+  // Lot 64 — superviseur (ou administrateur) : affichage du journal des appels WhatsApp
+  const estSuperviseur = ["superviseur", "admin"].includes(user?.role)
+    || ["Superviseur", "Administrateur"].includes(user?.tracked_role || "");
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({
     reports: { count: 0, last_updated: null },
@@ -97,6 +101,9 @@ export default function ClientDashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Lot 64 — journal des appels WhatsApp pour le superviseur (et l'administrateur) */}
+      {estSuperviseur && <JournalAppelsCarte testid="dashboard-journal-appels" />}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Calendar} label="Rendez-vous" value={s.appointments} hint={`${s.appointments_pending} en attente`} testid="stat-appointments" />

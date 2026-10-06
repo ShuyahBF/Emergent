@@ -167,6 +167,7 @@ export default function AppelsWhatsApp() {
       await apiClient.post(`/me/wa-appels/${encodeURIComponent(a.id)}/decrocher`, { sdp: pc.localDescription.sdp });
       setSonnent((l) => l.filter((x) => x.id !== a.id));
       setAppel({ ...a, statut: "en_cours", debut: new Date().toISOString() });
+      window.dispatchEvent(new Event("sawali:appels-maj"));   // Lot 64.3 — fils de conversation à jour
     } catch (err) {
       fermerMedia();
       const msg = err?.name === "NotAllowedError"
@@ -184,6 +185,7 @@ export default function AppelsWhatsApp() {
     setSonnent((l) => l.filter((x) => x.id !== a.id));
     try { await apiClient.post(`/me/wa-appels/${encodeURIComponent(a.id)}/refuser`); }
     catch (err) { toast.error(err?.response?.data?.detail || "Refus impossible"); }
+    window.dispatchEvent(new Event("sawali:appels-maj"));     // Lot 64.3 — fils de conversation à jour
   };
 
   // Ignorer (laisser sonner chez les collègues, sans refuser)
@@ -200,6 +202,7 @@ export default function AppelsWhatsApp() {
     if (id) {
       try { await apiClient.post(`/me/wa-appels/${encodeURIComponent(id)}/raccrocher`); }
       catch { /* l'appel est peut-être déjà terminé */ }
+      window.dispatchEvent(new Event("sawali:appels-maj"));   // Lot 64.3 — fils de conversation à jour
     }
   };
 

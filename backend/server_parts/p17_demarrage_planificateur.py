@@ -1192,6 +1192,24 @@ async def _start_scheduler():
                 max_instances=1,
             )
 
+            # Lot 70 — Agenda d'appels de Liluvine : chaque minute, anniversaires (toutes les 10 min) puis
+            # évènements échus RÉCLAMÉS de façon atomique (un seul serveur les prend), lancés en arrière-plan.
+            async def _scheduled_liluvine_agenda():
+                try:
+                    from routes.liluvine_agenda import executer_echeances as _agenda_executer
+                    await _agenda_executer(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Agenda d'appels de Liluvine en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_liluvine_agenda,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="liluvine_agenda_minute",
+                replace_existing=True,
+                misfire_grace_time=120,
+                coalesce=True,
+                max_instances=1,
+            )
+
             # Lot 54 — Tickets : rappels T-10 / T-5 de la session WhatsApp, fermeture automatique en
             # fin de session, clôture à la fin de validité (clients non contractuels). Chaque minute ;
             # les envois passent par _wa_send_text (fenêtre de 24 h vérifiée, refus journalisés).

@@ -79,6 +79,7 @@ import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
+import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
 import VidalApiLogs from "@/pages/admin/VidalApiLogs";
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
@@ -358,6 +359,8 @@ export default function App() {
             <Route path="surveys/:sid/edit" element={<SurveyEditor />} />
             <Route path="surveys/:sid/results" element={<SurveyResults />} />
             <Route path="portfolio-invoices" element={<PortfolioInvoices />} />
+            {/* Lot 70 — agenda d'appels de Liluvine (superviseurs : même écran que l'administration) */}
+            <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             <Route path="contacts" element={<Contacts />} />
             <Route path="contact-groups" element={<ContactGroups />} />
             <Route path="error-registry" element={<ErrorRegistry />} />
@@ -485,6 +488,8 @@ export default function App() {
             <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
+            {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}
+            <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites).

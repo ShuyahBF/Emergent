@@ -189,6 +189,9 @@ _setup_appel_proprio(db=db, api=api, get_current_user=get_current_user, graph_ve
 # Lot 69 — Liluvine décroche les appels WhatsApp entrants et converse avec son prompt système
 from routes.liluvine_decroche import setup_liluvine_decroche_routes as _setup_liluvine_decroche  # noqa: E402
 _setup_liluvine_decroche(db=db, api=api, get_current_user=get_current_user)
+# Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires des utilisateurs suivis)
+from routes.liluvine_agenda import setup_liluvine_agenda_routes as _setup_liluvine_agenda  # noqa: E402
+_setup_liluvine_agenda(db=db, api=api, get_current_user=get_current_user)
 
 # Lot 61 — liste noire des numéros interdits aux commandes « ! » (administration)
 from routes.liste_noire_commandes import setup_liste_noire_commandes_routes as _setup_liste_noire_cmd  # noqa: E402

@@ -43,6 +43,16 @@ export default function TranscriptionAppelLiluvine({ l }) {
         {l.latence_moyenne_s ? ` · délai de réponse moyen ${String(l.latence_moyenne_s).replace(".", ",")} s` : ""}
         {l.erreur ? ` · ${l.erreur}` : ""}
       </p>
+      {/* Lot 70 — appel de l'agenda : informations recueillies par Liluvine et action suivante */}
+      {l.agenda && (
+        <div className="rounded bg-sky-50 px-2 py-1 text-sky-900 ring-1 ring-sky-100" data-testid="agenda-dans-appel">
+          <p className="font-semibold">📅 Agenda — {l.agenda.type_libelle || l.agenda.type}{l.agenda.titre ? ` : ${l.agenda.titre}` : ""}</p>
+          {(l.agenda.informations || []).map((i) => (
+            <p key={i.id}>• {i.libelle} : <strong>{i.valeur === true ? "Oui" : i.valeur === false ? "Non" : i.valeur ?? "—"}</strong></p>
+          ))}
+          {l.agenda.action_suivante?.texte && <p>➡️ {l.agenda.action_suivante.texte}</p>}
+        </div>
+      )}
       {q && (
         <p className={`text-[11px] ${qualiteOk ? "text-emerald-700" : "text-amber-700"}`} data-testid="qualite-audio">
           🎧 Qualité audio : {texteQualite(q)}

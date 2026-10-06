@@ -17,6 +17,7 @@ import EtatConnexion from "@/components/EtatConnexion";
 import InternalChatPanel from "@/components/InternalChatPanel";
 import TicketsBubble from "@/components/TicketsBubble";
 import AppelsWhatsApp from "@/components/AppelsWhatsApp";   // Lot 60
+import VeilleStatsPlateformes from "@/components/VeilleStatsPlateformes";   // Lot 64.9
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
@@ -1019,6 +1020,8 @@ function PortalLayoutInner({ admin = false }) {
       <TicketsBubble />
       {/* Lot 60 — appels WhatsApp : sonnerie, décroché dans le navigateur, journal */}
       {!isComptaStrict && <AppelsWhatsApp />}
+      {/* Lot 64.9 — bulle à chaque statistique de plateforme qui change (administrateur) */}
+      <VeilleStatsPlateformes />
       {/* Iter38r-fix9e — Live toast for Liluvine WhatsApp auto-replies (admins + superviseurs only). */}
       {isAdminOrSup && <LiluvineLiveToast />}
       <BrowserNotifications />

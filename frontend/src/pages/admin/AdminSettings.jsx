@@ -3,7 +3,7 @@ import WaLignesPanel from "../../components/WaLignesPanel";   // Lot 59
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -256,6 +256,67 @@ const Filterable = ({ title, anchorId, category, children }) => {
       )}
       {children}
     </div>
+  );
+};
+
+// Lot 64.1 — deux bulles flottantes (à droite, à mi-hauteur de l'écran) pour remonter
+// tout en haut ou descendre tout en bas de la page des Paramètres, qui est très longue.
+// La page défile dans le conteneur du portail (et non dans la fenêtre) : on cherche donc
+// le premier parent capable de défiler ; à défaut, on fait défiler la fenêtre.
+const BullesDefilement = () => {
+  const repereRef = useRef(null);
+  const [visibles, setVisibles] = useState({ haut: false, bas: true });
+
+  // Recherche du conteneur qui défile (parent avec overflow-y auto ou scroll)
+  const conteneur = useCallback(() => {
+    let el = repereRef.current?.parentElement;
+    while (el && el !== document.body) {
+      const oy = window.getComputedStyle(el).overflowY;
+      if (oy === "auto" || oy === "scroll") return el;
+      el = el.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }, []);
+
+  // Mise à jour de l'affichage : bulle « haut » cachée tout en haut, bulle « bas » cachée tout en bas
+  useEffect(() => {
+    const cible = conteneur();
+    const source = cible === document.scrollingElement || cible === document.documentElement ? window : cible;
+    const maj = () => setVisibles({
+      haut: cible.scrollTop > 200,
+      bas: cible.scrollTop + cible.clientHeight < cible.scrollHeight - 200,
+    });
+    maj();
+    source.addEventListener("scroll", maj, { passive: true });
+    window.addEventListener("resize", maj);
+    return () => { source.removeEventListener("scroll", maj); window.removeEventListener("resize", maj); };
+  }, [conteneur]);
+
+  // Défilement fluide vers le haut ou vers le bas
+  const aller = (versLeHaut) => {
+    const cible = conteneur();
+    cible.scrollTo({ top: versLeHaut ? 0 : cible.scrollHeight, behavior: "smooth" });
+  };
+
+  const style = "flex h-11 w-11 items-center justify-center rounded-full bg-sawali-blue text-white shadow-xl ring-2 ring-white transition hover:scale-110 hover:bg-sawali-blue-light";
+  return (
+    <>
+      <span ref={repereRef} className="hidden" aria-hidden="true" />
+      <div className="fixed right-3 top-1/2 z-[50] flex -translate-y-1/2 flex-col gap-2 print:hidden" data-testid="bulles-defilement">
+        {visibles.haut && (
+          <button type="button" onClick={() => aller(true)} className={style}
+            title="Revenir en haut de la page" aria-label="Revenir en haut de la page" data-testid="bulle-haut">
+            <ArrowUp className="h-5 w-5" />
+          </button>
+        )}
+        {visibles.bas && (
+          <button type="button" onClick={() => aller(false)} className={style}
+            title="Aller en bas de la page" aria-label="Aller en bas de la page" data-testid="bulle-bas">
+            <ArrowDown className="h-5 w-5" />
+          </button>
+        )}
+      </div>
+    </>
   );
 };
 
@@ -624,6 +685,8 @@ export default function AdminSettings() {
       <SettingsToolbar />
       {/* Lot 64 — nouveautés de la semaine : cartes cliquables */}
       <CartesNouveautes />
+      {/* Lot 64.1 — bulles flottantes : haut / bas de la page */}
+      <BullesDefilement />
       {/* Lot 49 — alerte si la sauvegarde automatique hors serveur est désactivée ou trop ancienne */}
       <AlerteSauvegardeAuto />
 

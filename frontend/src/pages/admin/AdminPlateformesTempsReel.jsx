@@ -33,6 +33,13 @@ export default function AdminPlateformesTempsReel() {
   const [erreur, setErreur] = useState("");
   const [maj, setMaj] = useState(null);
   const [chargement, setChargement] = useState(false);
+  // Lot 64.10 — état de la surveillance des statistiques (bulles de notification)
+  const [veille, setVeille] = useState(null);
+  useEffect(() => {
+    const surVeille = (e) => setVeille(e.detail);
+    window.addEventListener("sawali:veille-stats", surVeille);
+    return () => window.removeEventListener("sawali:veille-stats", surVeille);
+  }, []);
 
   // Lecture de l'activité (24 dernières heures, mode temps réel)
   const lire = useCallback(async () => {
@@ -66,9 +73,19 @@ export default function AdminPlateformesTempsReel() {
             Activité des 24 dernières heures · actualisation automatique toutes les 30 s
             {maj && ` · dernière mise à jour ${maj.toLocaleTimeString("fr-FR")}`}
           </p>
+          <p className="text-xs text-slate-500" data-testid="etat-veille-stats">
+            🔔 Bulles de notification : {veille
+              ? `dernière vérification ${new Date(veille.le).toLocaleTimeString("fr-FR")} · ${veille.changements} changement(s) détecté(s)`
+              : "vérification toutes les 60 s (première lecture = référence, sans bulle)"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-slate-700"><strong>{enLigne}</strong> / {items.length} plateforme(s) avec des utilisateurs connectés</span>
+          {/* Lot 64.10 — bulle d'exemple, pour vérifier l'affichage des notifications */}
+          <button type="button" onClick={() => window.dispatchEvent(new Event("sawali:test-bulle-stats"))}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50" data-testid="tester-bulle-stats">
+            🔔 Tester la bulle
+          </button>
           <button type="button" onClick={lire} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
             <RefreshCw className={`h-4 w-4 ${chargement ? "animate-spin" : ""}`} /> Actualiser
           </button>

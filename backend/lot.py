@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.9"
-LOT_LIBELLE = "Bulle de notification (administrateur) à chaque statistique de plateforme qui change, en hausse ou en baisse"
+LOT = "64.10"
+LOT_LIBELLE = "Plateformes en temps réel : bouton « Tester la bulle » et heure de la dernière vérification des statistiques"

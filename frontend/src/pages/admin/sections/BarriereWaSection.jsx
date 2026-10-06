@@ -18,6 +18,10 @@ export default function BarriereWaSection() {
   const [form, setForm] = useState(null);
   const [envoiImage, setEnvoiImage] = useState(false);
   const [enregistrement, setEnregistrement] = useState(false);
+  // Lot 64.2 — diagnostic pour un numéro
+  const [numeroTest, setNumeroTest] = useState("");
+  const [diag, setDiag] = useState(null);
+  const [diagEnCours, setDiagEnCours] = useState(false);
   const fichierRef = useRef(null);
 
   // Lecture des réglages actuels
@@ -72,6 +76,21 @@ export default function BarriereWaSection() {
       toast.error(err?.response?.data?.detail || "Enregistrement impossible");
     } finally {
       setEnregistrement(false);
+    }
+  };
+
+  // Lot 64.2 — que ferait la barrière au prochain message de ce numéro, et pourquoi ?
+  const verifierNumero = async () => {
+    if (!numeroTest.trim()) { toast.error("Saisissez un numéro"); return; }
+    setDiagEnCours(true);
+    try {
+      const r = await apiClient.get("/admin/barriere-wa/diagnostic", { params: { numero: numeroTest } });
+      setDiag(r.data);
+    } catch (err) {
+      setDiag(null);
+      toast.error(err?.response?.data?.detail || "Diagnostic impossible");
+    } finally {
+      setDiagEnCours(false);
     }
   };
 
@@ -141,6 +160,35 @@ export default function BarriereWaSection() {
         <input value={form.wa_barriere_exemptes} onChange={(e) => maj("wa_barriere_exemptes", e.target.value)}
           placeholder="+226 70 00 00 00, +226 76 00 00 00" className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
       </label>
+
+      {/* Lot 64.2 — diagnostic : état de la barrière pour un numéro (réglages ENREGISTRÉS) */}
+      <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
+        <p className="mb-2 text-xs font-semibold text-slate-700">Vérifier un numéro (selon les réglages enregistrés)</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={numeroTest} onChange={(e) => setNumeroTest(e.target.value)} placeholder="+226 70 00 00 00"
+            onKeyDown={(e) => { if (e.key === "Enter") verifierNumero(); }}
+            className="w-56 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="barriere-numero-test" />
+          <button type="button" onClick={verifierNumero} disabled={diagEnCours}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50">
+            {diagEnCours ? "Patientez…" : "Vérifier"}
+          </button>
+        </div>
+        {diag && (
+          <div className="mt-2 text-xs text-slate-700" data-testid="barriere-diagnostic">
+            <p className={`font-semibold ${diag.decision === "normal" ? "text-emerald-700" : diag.decision === "avertir" ? "text-amber-700" : "text-rose-700"}`}>
+              {diag.explication}
+            </p>
+            {diag.active && (
+              <p className="mt-1 text-slate-500">
+                Messages reçus sans réponse : <strong>{diag.messages_sans_reponse}</strong> (seuil {diag.seuil}, fenêtre {diag.fenetre_heures} h)
+                {" · "}Dernière réponse prise en compte : {diag.derniere_reponse_le
+                  ? `${new Date(diag.derniere_reponse_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}${diag.derniere_reponse_par ? ` par ${diag.derniere_reponse_par}` : ""}`
+                  : "aucune"}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex justify-end">
         <button type="button" onClick={enregistrer} disabled={enregistrement}

@@ -257,6 +257,32 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
             {"agent_id": user["id"], "statut": {"$in": list(STATUTS_ACTIFS)}}, {"_id": 0}, sort=[("created_at", -1)])
         return {"sonnent": sonnent, "mon_appel": _public(mien, s) if mien else None}
 
+    @api.get("/me/wa-appels/non-repondus", tags=["Portail Client — Appels WhatsApp"])
+    async def appels_non_repondus(jours: int = Query(7, ge=1, le=30), user: dict = Depends(get_current_user)):
+        """Lot 64.2 — appels entrants manqués (visibles par l'utilisateur) des N derniers jours
+        qui n'ont pas encore été « rattrapés » : aucun appel ABOUTI ensuite avec ce même numéro
+        (rappel du client ou rappel par SAWALI). Sert au titre de l'onglet du navigateur."""
+        s = await _reglages()
+        depuis = (datetime.now(timezone.utc) - timedelta(days=jours)).isoformat()
+        perimetre = await resolve_visible_client_ids(user)
+        vis = await VisibiliteLignes.charger(db, user, s)
+        # Dernier appel abouti par numéro (8 derniers chiffres) sur la période
+        aboutis: Dict[str, str] = {}
+        async for a in db.wa_appels.find({"created_at": {"$gte": depuis}, "statut": {"$in": ["termine", "en_cours"]}},
+                                         {"_id": 0, "telephone": 1, "created_at": 1}):
+            cle = _chiffres(a.get("telephone"))[-8:]
+            aboutis[cle] = max(aboutis.get(cle, ""), a.get("created_at") or "")
+        # Manqués postérieurs au dernier appel abouti : un seul par numéro
+        numeros = set()
+        async for a in db.wa_appels.find({"direction": "entrant", "statut": "manque", "created_at": {"$gte": depuis}},
+                                         {"_id": 0}).sort("created_at", -1).limit(500):
+            cle = _chiffres(a.get("telephone"))[-8:]
+            if cle in numeros or (a.get("created_at") or "") <= aboutis.get(cle, ""):
+                continue
+            if await _visible(user, a, vis, perimetre):
+                numeros.add(cle)
+        return {"total": len(numeros)}
+
     @api.get("/me/wa-appels/{call_id}/offre", tags=["Portail Client — Appels WhatsApp"])
     async def offre_appel(call_id: str, user: dict = Depends(get_current_user)):
         """Offre SDP d'un appel entrant qui sonne (pour préparer la réponse du navigateur)."""

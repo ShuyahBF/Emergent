@@ -131,9 +131,56 @@ async def _resolve_credentials(db) -> tuple[str, str]:
     return url, api_key
 
 
+# Lot 69.1 — un seul client Qdrant par (adresse, clé) : le recréer à chaque appel coûtait une connexion HTTPS neuve
+_CLIENTS: dict = {}
+
+
 def _make_client(url: str, api_key: str):
     from qdrant_client import QdrantClient
-    return QdrantClient(url=url, api_key=api_key, timeout=30)
+    cle = (url, api_key)
+    if cle not in _CLIENTS:
+        _CLIENTS[cle] = QdrantClient(url=url, api_key=api_key, timeout=20)
+    return _CLIENTS[cle]
+
+
+# Lot 69.1 — liste des collections gardée 60 s : la page Qdrant appelle « collections », « storage » et
+# « test-connection » en même temps ; un seul passage chez Qdrant suffit pour les trois.
+_CACHE_LISTE: dict = {"cle": None, "le": 0.0, "donnees": None}
+_DUREE_CACHE_LISTE = 60.0
+
+
+def _vider_cache_liste() -> None:
+    """À appeler après création / suppression / ajout de points : la prochaine lecture repart de Qdrant."""
+    _CACHE_LISTE.update({"cle": None, "le": 0.0, "donnees": None})
+
+
+def _lire_collections_sync(client) -> list[tuple[str, int]]:
+    """Noms et nombres de points de toutes les collections (appel BLOQUANT : toujours lancé hors de la boucle
+    principale). Les comptages sont faits en parallèle (8 à la fois) au lieu d'un par un."""
+    from concurrent.futures import ThreadPoolExecutor
+    noms = [c.name for c in client.get_collections().collections]
+
+    def compter(nom: str) -> int:
+        try:
+            return client.count(nom, exact=False).count or 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        comptes = list(pool.map(compter, noms))
+    return list(zip(noms, comptes))
+
+
+async def _collections_et_comptes(url: str, key: str) -> list[tuple[str, int]]:
+    """Liste (nom, nombre de points), avec cache de 60 s ; jamais exécutée dans la boucle principale."""
+    import time as _t
+    maintenant = _t.monotonic()
+    if _CACHE_LISTE["cle"] == (url, key) and maintenant - _CACHE_LISTE["le"] < _DUREE_CACHE_LISTE:
+        return _CACHE_LISTE["donnees"]
+    client = _make_client(url, key)
+    donnees = await asyncio.wait_for(asyncio.to_thread(_lire_collections_sync, client), timeout=25)
+    _CACHE_LISTE.update({"cle": (url, key), "le": _t.monotonic(), "donnees": donnees})
+    return donnees
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +286,6 @@ def fetch_url_text(url: str) -> dict:
 
 async def list_collections(db) -> list[dict]:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
     settings = await db.settings.find_one({"_id": "global"}) or {}
     coll_meta = settings.get("qdrant_collection_settings") or {}
     # S041 — Estimate storage. Each vector is 384 dim × 4 bytes = 1536 B,
@@ -247,20 +293,17 @@ async def list_collections(db) -> list[dict]:
     # image_url…), plus Qdrant indexing overhead (~30%). Numbers tuned
     # empirically against the Qdrant Cloud dashboard.
     BYTES_PER_VECTOR = int(_EMBED_VECTOR_SIZE * 4 * 1.30) + 512
+    # Lot 69.1 — lecture hors de la boucle principale (avant : 6 à 10 s de blocage de TOUT le serveur)
+    try:
+        lignes = await _collections_et_comptes(url, key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Qdrant injoignable : {exc}") from exc
     out = []
-    total_points = 0
-    for c in client.get_collections().collections:
-        try:
-            info = client.get_collection(c.name)
-            count = client.count(c.name, exact=False).count
-        except Exception:  # noqa: BLE001
-            info = None
-            count = 0
-        cfg = coll_meta.get(c.name) or {}
+    for nom, count in lignes:
+        cfg = coll_meta.get(nom) or {}
         size_bytes = (count or 0) * BYTES_PER_VECTOR
-        total_points += count or 0
         out.append({
-            "name": c.name,
+            "name": nom,
             "vectors_count": count,
             "enabled_for_liluvine": bool(cfg.get("enabled_for_liluvine", False)),
             "description": cfg.get("description") or "",
@@ -268,7 +311,7 @@ async def list_collections(db) -> list[dict]:
             "distance": "Cosine",
             "estimated_size_bytes": size_bytes,
             "estimated_size_mb": round(size_bytes / (1024 * 1024), 3),
-            "raw": str(info) if info else None,
+            "raw": None,   # lot 69.1 : détail brut retiré (une requête de plus par collection, jamais affiché)
         })
     return out
 
@@ -280,16 +323,13 @@ async def get_storage_info(db) -> dict:
     quota_mb = int(settings.get("qdrant_quota_mb") or 1024)  # 1 GB free tier
     BYTES_PER_VECTOR = int(_EMBED_VECTOR_SIZE * 4 * 1.30) + 512
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
     total_points = 0
     coll_count = 0
     try:
-        for c in client.get_collections().collections:
-            coll_count += 1
-            try:
-                total_points += client.count(c.name, exact=False).count or 0
-            except Exception:  # noqa: BLE001
-                pass
+        # Lot 69.1 — même lecture (en cache 60 s, hors de la boucle principale) que la liste des collections
+        lignes = await _collections_et_comptes(url, key)
+        coll_count = len(lignes)
+        total_points = sum(c or 0 for _, c in lignes)
     except Exception:  # noqa: BLE001
         pass
     bytes_total = total_points * BYTES_PER_VECTOR
@@ -312,10 +352,12 @@ async def create_collection(db, *, name: str, description: str = "") -> dict:
         raise HTTPException(status_code=400, detail="Nom de collection invalide (a-z, 0-9, _, -, 1-64 car.)")
     from qdrant_client.models import VectorParams, Distance
     try:
-        client.create_collection(
+        # Lot 69.1 — appel bloquant lancé hors de la boucle principale
+        await asyncio.to_thread(lambda: client.create_collection(
             collection_name=name,
             vectors_config=VectorParams(size=_EMBED_VECTOR_SIZE, distance=Distance.COSINE),
-        )
+        ))
+        _vider_cache_liste()
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
         if "already exists" in msg.lower() or "409" in msg:
@@ -340,7 +382,8 @@ async def delete_collection(db, *, name: str) -> dict:
     url, key = await _resolve_credentials(db)
     client = _make_client(url, key)
     try:
-        client.delete_collection(name)
+        await asyncio.to_thread(client.delete_collection, name)   # lot 69.1 : hors de la boucle principale
+        _vider_cache_liste()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Suppression échouée : {exc}") from exc
     await db.settings.update_one(
@@ -385,6 +428,7 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
         raise HTTPException(status_code=400, detail="Tous les documents sont vides.")
     try:
         await asyncio.to_thread(lambda: client.upsert(collection_name=collection, points=points))
+        _vider_cache_liste()   # lot 69.1 : nombre de points changé
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Upsert échoué : {exc}") from exc
     return {"ok": True, "inserted_chunks": inserted_chunks, "documents": len(docs)}
@@ -514,6 +558,7 @@ async def upsert_image(
             },
         )],
     ))
+    _vider_cache_liste()   # lot 69.1 : nombre de points changé
     return {
         "ok": True,
         "id": point_id,
@@ -528,12 +573,13 @@ async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50
     client = _make_client(url, key)
     limit = min(max(1, limit), 200)
     try:
-        scroll, next_offset = client.scroll(
+        # Lot 69.1 — lecture bloquante lancée hors de la boucle principale
+        scroll, next_offset = await asyncio.to_thread(lambda: client.scroll(
             collection_name=collection,
             limit=limit,
             with_payload=True,
             with_vectors=False,
-        )
+        ))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Scroll échoué : {exc}") from exc
     items = []
@@ -549,7 +595,10 @@ async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50
             "tags": payload.get("tags") or [],
             "created_at": payload.get("created_at"),
         })
-    total = client.count(collection, exact=False).count
+    try:
+        total = (await asyncio.to_thread(lambda: client.count(collection, exact=False))).count
+    except Exception:  # noqa: BLE001
+        total = len(items)
     return {"items": items, "total": total, "next_offset": str(next_offset) if next_offset is not None else None}
 
 
@@ -558,7 +607,8 @@ async def delete_point(db, *, collection: str, point_id: str) -> dict:
     client = _make_client(url, key)
     try:
         from qdrant_client.models import PointIdsList
-        client.delete(collection_name=collection, points_selector=PointIdsList(points=[point_id]))
+        await asyncio.to_thread(lambda: client.delete(collection_name=collection, points_selector=PointIdsList(points=[point_id])))
+        _vider_cache_liste()   # lot 69.1 : le nombre de points a changé
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Suppression échouée : {exc}") from exc
     return {"ok": True, "id": point_id}
@@ -593,10 +643,10 @@ async def search_points(db, *, collection: str, query: str, top_k: int = 5) -> d
 
 async def test_connection(db) -> dict:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
     try:
-        cols = client.get_collections().collections
-        return {"ok": True, "url": url, "collections": len(cols)}
+        # Lot 69.1 — hors de la boucle principale, et réutilise la lecture en cache de la page
+        lignes = await _collections_et_comptes(url, key)
+        return {"ok": True, "url": url, "collections": len(lignes)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Connexion échouée : {exc}") from exc
 

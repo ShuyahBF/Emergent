@@ -14,6 +14,19 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
+def fenetre_plateformes(debut, fin) -> tuple:
+    """Période d'analyse des plateformes pour une synthèse du `debut` au `fin` (dates).
+
+    Synthèse « du jour » (envoyée le matin, par exemple à 08:00) : les 24 dernières heures,
+    sinon elle ne montrerait que l'activité de la nuit. Autre période : du début à la fin inclus.
+    """
+    from datetime import date, datetime, timedelta, timezone
+    if debut == fin == date.today():
+        maintenant = datetime.now(timezone.utc)
+        return (maintenant - timedelta(hours=24)).isoformat(), maintenant.isoformat()
+    return debut.isoformat(), (fin + timedelta(days=1)).isoformat()
+
+
 async def _compter(db, collection: str, filtre: Dict[str, Any]) -> int:
     """Nombre de documents (0 si la collection est absente ou en erreur)."""
     try:
@@ -87,3 +100,21 @@ def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
             ligne += f" — quota utilisé : {p['usage_quota_pct']} %"
         lignes.append(ligne)
     return "\n".join(lignes)
+
+
+def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:
+    """Lot 61.1 — écran « Activité des plateformes » (administration → Synthèse Liluvine)."""
+    from datetime import datetime, timedelta, timezone
+
+    from fastapi import Depends, HTTPException, Query
+
+    @api.get("/admin/plateformes-activite", tags=["Admin — Synthèse"])
+    async def plateformes_activite(jours: int = Query(1, ge=1, le=90), user: dict = Depends(get_current_user)):
+        """Activité de chaque plateforme sur les `jours` derniers jours (+ texte de la synthèse)."""
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+        fin = datetime.now(timezone.utc)
+        debut = fin - timedelta(days=jours)
+        items = await activite_plateformes(db, debut.isoformat(), fin.isoformat())
+        return {"debut": debut.isoformat(), "fin": fin.isoformat(), "jours": jours,
+                "items": items, "texte": bloc_plateformes(items)}

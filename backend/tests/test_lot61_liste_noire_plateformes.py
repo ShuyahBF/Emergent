@@ -122,3 +122,30 @@ def test_activite_par_plateforme_dans_la_synthese(db):
     assert len(kpis["plateformes"]) == 2
     prompt = sy._build_prompt("", kpis, date(2026, 10, 5), date(2026, 10, 5))
     assert "🌐 Activité des plateformes" in prompt and "une puce par plateforme" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Lot 61.1 — fenêtre de 24 h pour la synthèse du jour, écran d'administration
+# ---------------------------------------------------------------------------
+
+def test_fenetre_24h_et_ecran_administration(db):
+    debut, fin = rp.fenetre_plateformes(date.today(), date.today())
+    ecart = datetime.fromisoformat(fin) - datetime.fromisoformat(debut)
+    assert ecart == timedelta(hours=24)
+    assert rp.fenetre_plateformes(date(2026, 10, 1), date(2026, 10, 3)) == ("2026-10-01", "2026-10-04")
+
+    lancer(db.liluvine_emetteurs.insert_one({"code": "adlyn", "nom": "adLyn", "actif": True}))
+    recent = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    lancer(db.liluvine_transmissions.insert_one({"date": recent, "emetteur": "adlyn", "ok": True}))
+
+    async def utilisateur(request: Request):
+        return {"id": "adm", "role": request.headers.get("X-Role", "admin")}
+
+    api = APIRouter(prefix="/api")
+    rp.setup_rapport_plateformes_routes(db=db, api=api, get_current_user=utilisateur)
+    app = FastAPI()
+    app.include_router(api)
+    c = TestClient(app)
+    r = c.get("/api/admin/plateformes-activite", params={"jours": 1}).json()
+    assert r["items"][0]["envois"] == 1 and "adLyn : 1 envoi(s)" in r["texte"]
+    assert c.get("/api/admin/plateformes-activite", headers={"X-Role": "client"}).status_code == 403

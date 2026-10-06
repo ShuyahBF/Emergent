@@ -132,8 +132,9 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
     kpi["formulaires_sondages"] = await _formulaires_sondages(db, scope_uid, start_iso, end_iso)
     # Lot 61 — activité et usage de chaque plateforme (adLyn, beAuthentik, Ster, ALBARKA…)
     try:
-        from routes.rapport_plateformes import activite_plateformes
-        kpi["plateformes"] = await activite_plateformes(db, start_iso, end_iso)
+        from routes.rapport_plateformes import activite_plateformes, fenetre_plateformes
+        debut_p, fin_p = fenetre_plateformes(start, end)
+        kpi["plateformes"] = await activite_plateformes(db, debut_p, fin_p)
     except Exception:  # noqa: BLE001
         logger.warning("[synthese] activité des plateformes indisponible", exc_info=True)
         kpi["plateformes"] = []
@@ -410,6 +411,10 @@ async def run_synthese_test(db) -> Dict[str, Any]:
     bloc = bloc_formulaires_sondages(kpis)                  # lot 41
     if bloc:
         body = f"{body}\n\n{bloc}"
+    # Lot 61.1 — le test affiche aussi l'activité des plateformes (comme l'envoi planifié)
+    bloc_p = _bloc_plateformes(kpis)
+    if bloc_p:
+        body = f"{body}\n\n{bloc_p}"
     sent_email = False
     sent_wa = False
     errors: list = []
@@ -440,5 +445,5 @@ async def run_synthese_test(db) -> Dict[str, Any]:
             "hour": s.get("synthese_hour"),
         },
         "kpis": kpis,
-        "preview": body[:500],
+        "preview": body[:4000],   # Lot 61.1 — synthèse complète (avec le bloc des plateformes)
     }

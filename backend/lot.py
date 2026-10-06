@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "61"
-LOT_LIBELLE = "Liste noire des commandes « ! » avec message de Liluvine, activité de chaque plateforme dans la synthèse quotidienne, participants des RDV choisis par leur nom"
+LOT = "61.1"
+LOT_LIBELLE = "Activité des plateformes visible dans l'administration (Synthèse Liluvine), ajoutée au test de la synthèse, calculée sur les 24 dernières heures"

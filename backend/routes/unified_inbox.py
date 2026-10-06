@@ -305,6 +305,22 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     slot["unread_count"] += 1
             threads.extend(mg_by_peer.values())
 
+        # Lot 59.1 — lignes WhatsApp (Standard / VIP / Publicités…) : l'utilisateur ne voit
+        # que les conversations (WhatsApp et SMS) de ses lignes ; chaque fil WhatsApp
+        # porte la pastille de sa ligne (nom + couleurs).
+        try:
+            from routes.numeros_wa import VisibiliteLignes, ligne_par_cle, pastille
+            vis = await VisibiliteLignes.charger(db, user, complet=True)
+            if vis.restreint:
+                threads = [t for t in threads if t.get("channel") not in ("whatsapp", "sms")
+                           or vis.telephone_visible(t.get("peer_phone") or t.get("peer_id"))]
+            if vis.derniere_ligne or vis.categories:
+                for t in threads:
+                    if t.get("channel") == "whatsapp":
+                        t["wa_ligne"] = pastille(ligne_par_cle(vis.settings, vis.cle_telephone(t.get("peer_phone") or t.get("peer_id"))))
+        except Exception:  # noqa: BLE001
+            logger.warning("[inbox] filtre par ligne WhatsApp impossible", exc_info=True)
+
         # Sort by last_at desc, truncate
         threads.sort(key=lambda x: x.get("last_at") or "", reverse=True)
         threads = threads[:limit]
@@ -334,6 +350,10 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
     ):
         """Return ordered messages of a single thread."""
         tid = await _tenant_id(user)
+        # Lot 59.1 — conversation d'une ligne WhatsApp non attribuée à l'utilisateur : refusée
+        if channel in ("whatsapp", "sms"):
+            from routes.numeros_wa import exiger_telephone_visible
+            await exiger_telephone_visible(db, user, thread_id)
         if channel == "whatsapp":
             # Iter38r-fix9i — Match peer by raw OR by digits-only form so it
             # works for both formats (+22890XXXX vs 22890XXXX).
@@ -361,8 +381,12 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                  "media_filename": 1, "media_content_type": 1,
                  # 2026-02 fork (Delete WA) — surface recall + timing metadata
                  "is_recalled": 1, "recalled_at": 1, "sent_at": 1,
-                 "delivered_at": 1, "read_at": 1},
+                 "delivered_at": 1, "read_at": 1,
+                 "wa_numero_id": 1},   # Lot 59.1 — numéro SAWALI qui a reçu le message
             ).sort("created_at", -1).limit(limit).to_list(limit)))
+            # Lot 59.1 — pastille de la ligne WhatsApp sur chaque message reçu
+            from routes.numeros_wa import annoter_messages
+            annoter_messages(await db.settings.find_one({"_id": "global"}) or {}, msgs)
             return {"channel": "whatsapp", "thread_id": thread_id, "messages": [
                 {
                     "id": m.get("id", ""),
@@ -376,6 +400,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "status": m.get("wa_status"),
                     "ai_generated": bool(m.get("ai_generated")),
                     "ai_source": m.get("ai_source"),
+                    "wa_ligne": m.get("wa_ligne"),   # Lot 59.1 — pastille de la ligne (messages reçus)
                     # 2026-02 fork (Delete WA)
                     "is_recalled": bool(m.get("is_recalled")),
                     "recalled_at": m.get("recalled_at"),
@@ -477,6 +502,10 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
         feats = await _tenant_features(tid)
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        # Lot 59.1 — correspondant d'une ligne non attribuée à l'utilisateur : envoi refusé
+        if payload.channel in ("whatsapp", "sms"):
+            from routes.numeros_wa import exiger_telephone_visible
+            await exiger_telephone_visible(db, user, payload.thread_id)
         if payload.channel == "whatsapp":
             if wa_send_text is None:
                 raise HTTPException(status_code=503, detail="WhatsApp sender non configuré.")

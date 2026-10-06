@@ -154,3 +154,48 @@ def test_ligne_prospects_detectee():
     finally:
         nw.retablir_numero_recu(jeton)
     assert not nw.ligne_recue_prospects(REGLAGES)
+
+
+# ---------------------------------------------------------------------------
+# Lot 59.1 — couleurs des pastilles, pastille sur les messages reçus, Inbox unifiée
+# ---------------------------------------------------------------------------
+
+def test_couleurs_par_defaut_et_personnalisees():
+    lignes = nw.lignes_configurees(REGLAGES)
+    # Ligne principale : texte noir sur fond blanc par défaut
+    assert (lignes[0]["couleur_fond"], lignes[0]["couleur_texte"]) == ("#ffffff", "#000000")
+    # Lignes supplémentaires : couleurs proposées selon leur rang (or puis bleu)
+    assert lignes[1]["couleur_fond"] == "#f59e0b" and lignes[2]["couleur_fond"] == "#2563eb"
+    # Couleur choisie par l'administrateur ; valeur invalide ignorée
+    perso = dict(REGLAGES, wa_principal_couleur_fond="#123456", wa_principal_couleur_texte="rouge")
+    principal = nw.lignes_configurees(perso)[0]
+    assert (principal["couleur_fond"], principal["couleur_texte"]) == ("#123456", "#000000")
+
+
+def test_pastille_sur_chaque_message_recu():
+    messages = [
+        {"direction": "inbound", "wa_numero_id": "PN-VIP"},
+        {"direction": "inbound"},                     # reçu avant le lot 59 : ligne principale
+        {"direction": "outbound", "wa_numero_id": "PN-VIP"},   # envoyé : pas de pastille
+    ]
+    nw.annoter_messages(REGLAGES, messages)
+    assert messages[0]["wa_ligne"]["libelle"] == "Liluvine VIP"
+    assert messages[1]["wa_ligne"] == {"cle": "principal", "libelle": "Liluvine Standard",
+                                       "fond": "#ffffff", "texte": "#000000"}
+    assert "wa_ligne" not in messages[2]
+    # Une seule ligne configurée : aucune pastille
+    seul = [{"direction": "inbound"}]
+    nw.annoter_messages({"wa_phone_number_id": "PN-STANDARD"}, seul)
+    assert "wa_ligne" not in seul[0]
+
+
+def test_inbox_unifiee_visibilite_par_numero(db):
+    b = {"id": "u-b", "role": "client", "wa_lignes_autorisees": ["principal"]}
+    lancer(db.whatsapp_messages.insert_one({"direction": "inbound", "phone_digits": "22677777777",
+                                            "wa_numero_id": "PN-PUB", "created_at": IL_Y_A(1)}))
+    vis = lancer(nw.VisibiliteLignes.charger(db, b))
+    assert not vis.telephone_visible("+22670000001")   # client VIP (contrat)
+    assert not vis.telephone_visible("22670000003")    # affecté à la main
+    assert not vis.telephone_visible("+22677777777")   # prospect des publicités
+    assert vis.telephone_visible("+22670000002")       # client standard
+    assert vis.telephone_visible("+22699999999")       # inconnu : ligne principale

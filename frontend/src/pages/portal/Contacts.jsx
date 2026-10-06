@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
 import EmojiPicker from "@/components/EmojiPicker";
 import ImageAnnotator from "@/components/ImageAnnotator";
 import { Link, useSearchParams } from "react-router-dom";
@@ -740,15 +741,12 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             >
               <span className="truncate">{c.name}</span>
               {/* Lot 59 — ligne WhatsApp du contact (affichée seulement s'il en existe plusieurs) */}
-              {c.wa_ligne_libelle && (
-                <span
-                  className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800"
-                  title="Ligne WhatsApp de Liluvine qui sert ce contact"
-                  data-testid={`contact-ligne-${c.id}`}
-                >
-                  {c.wa_ligne_libelle}
-                </span>
-              )}
+              <PastilleLigneWa
+                libelle={c.wa_ligne_libelle}
+                fond={c.wa_ligne_fond}
+                texte={c.wa_ligne_texte}
+                testid={`contact-ligne-${c.id}`}
+              />
               {unreadCount > 0 && (
                 <span
                   className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-white shadow-sm animate-pulse"
@@ -3154,6 +3152,16 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
             ? <ArrowUpRight className="h-3 w-3" />
             : <ArrowDownLeft className="h-3 w-3" />}
           <span>{outbound ? "Envoyé" : "Reçu"}</span>
+          {/* Lot 59.1 — ligne WhatsApp qui a reçu ce message (nom + couleur choisie) */}
+          {!outbound && m.wa_ligne && (
+            <PastilleLigneWa
+              libelle={m.wa_ligne.libelle}
+              fond={m.wa_ligne.fond}
+              texte={m.wa_ligne.texte}
+              className="opacity-100"
+              testid={`msg-ligne-${m.id}`}
+            />
+          )}
           {outbound && m.template_name && (
             <code className={`px-1 rounded ${outbound ? "bg-white/20" : "bg-slate-100"}`}>
               {m.template_name}

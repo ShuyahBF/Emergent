@@ -7,10 +7,34 @@
 //   Phone Number ID, son nom, son numéro affiché et ses options :
 //     • VIP : servie aux clients dont le montant du contrat atteint le seuil VIP ;
 //     • Prospects : Liluvine y répond avec le prompt prospects (ex. numéro des publicités) ;
-//     • Consignes : texte ajouté au prompt de Liluvine pour cette ligne.
+//     • Consignes : texte ajouté au prompt de Liluvine pour cette ligne ;
+//     • Couleurs (lot 59.1) : fond et texte de la pastille affichée sur les messages reçus.
 // Les valeurs sont enregistrées avec le bouton « Enregistrer » général de la page.
 import React from "react";
 import { Plus, Trash2 } from "lucide-react";
+import PastilleLigneWa from "./PastilleLigneWa";   // Lot 59.1
+
+// Lot 59.1 — couleurs proposées par défaut aux lignes supplémentaires (même ordre que le serveur)
+const COULEURS_DEFAUT = [["#f59e0b", "#000000"], ["#2563eb", "#ffffff"], ["#7c3aed", "#ffffff"], ["#059669", "#ffffff"]];
+
+// Lot 59.1 — choix des couleurs d'une pastille (fond + texte) avec aperçu
+function ChoixCouleurs({ libelle, fond, texte, onFond, onTexte, testid }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid={testid}>
+      <label className="inline-flex items-center gap-1.5">
+        Fond
+        <input type="color" value={fond} onChange={(e) => onFond(e.target.value)} className="h-6 w-8 cursor-pointer rounded border border-slate-300" />
+      </label>
+      <label className="inline-flex items-center gap-1.5">
+        Texte
+        <input type="color" value={texte} onChange={(e) => onTexte(e.target.value)} className="h-6 w-8 cursor-pointer rounded border border-slate-300" />
+      </label>
+      {/* Aperçu de la pastille telle qu'elle apparaîtra sur les messages reçus */}
+      <span className="text-slate-500">Aperçu :</span>
+      <PastilleLigneWa libelle={libelle || "Ligne"} fond={fond} texte={texte} />
+    </div>
+  );
+}
 
 export default function WaLignesPanel({ s, upd }) {
   // Liste des lignes supplémentaires (tableau d'objets dans les paramètres globaux)
@@ -25,7 +49,12 @@ export default function WaLignesPanel({ s, upd }) {
 
   // Ajoute une ligne vide
   const ajouter = () =>
-    majLignes([...lignes, { id: "", libelle: "", telephone: "", vip: false, prospects: false, complement_prompt: "" }]);
+    majLignes([...lignes, {
+      id: "", libelle: "", telephone: "", vip: false, prospects: false, complement_prompt: "",
+      // Lot 59.1 — couleurs proposées selon le rang de la ligne
+      couleur_fond: COULEURS_DEFAUT[lignes.length % COULEURS_DEFAUT.length][0],
+      couleur_texte: COULEURS_DEFAUT[lignes.length % COULEURS_DEFAUT.length][1],
+    }]);
 
   // Supprime une ligne (après confirmation)
   const supprimer = (index) => {
@@ -78,6 +107,15 @@ export default function WaLignesPanel({ s, upd }) {
           />
         </label>
       </div>
+      {/* Lot 59.1 — couleurs de la pastille de la ligne principale (défaut : texte noir sur fond blanc) */}
+      <ChoixCouleurs
+        libelle={s.wa_principal_libelle || "Liluvine Standard"}
+        fond={s.wa_principal_couleur_fond || "#ffffff"}
+        texte={s.wa_principal_couleur_texte || "#000000"}
+        onFond={(v) => upd("wa_principal_couleur_fond", v)}
+        onTexte={(v) => upd("wa_principal_couleur_texte", v)}
+        testid="wa-principal-couleurs"
+      />
 
       {/* Lignes supplémentaires */}
       {lignes.map((l, i) => (
@@ -128,6 +166,15 @@ export default function WaLignesPanel({ s, upd }) {
               <Trash2 className="w-3.5 h-3.5" /> Supprimer
             </button>
           </div>
+          {/* Lot 59.1 — couleurs de la pastille de cette ligne */}
+          <ChoixCouleurs
+            libelle={l.libelle}
+            fond={l.couleur_fond || COULEURS_DEFAUT[i % COULEURS_DEFAUT.length][0]}
+            texte={l.couleur_texte || COULEURS_DEFAUT[i % COULEURS_DEFAUT.length][1]}
+            onFond={(v) => majChamp(i, "couleur_fond", v)}
+            onTexte={(v) => majChamp(i, "couleur_texte", v)}
+            testid={`wa-ligne-couleurs-${i}`}
+          />
           <label className="block text-xs">
             <span className="font-medium text-slate-700">Consignes de Liluvine pour cette ligne (facultatif)</span>
             <textarea

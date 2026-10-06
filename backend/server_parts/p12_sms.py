@@ -1343,6 +1343,12 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
         {"_id": 0},
     ).sort("created_at", -1).limit(1000).to_list(1000)
     items.reverse()
+    # Lot 59.1 — pastille de la ligne WhatsApp (nom + couleurs) sur chaque message reçu
+    try:
+        from routes.numeros_wa import annoter_messages
+        annoter_messages(await db.settings.find_one({"_id": "global"}) or {}, items)
+    except Exception:  # noqa: BLE001
+        pass
     # Iter34u — When anon_communications is ON, restrict to messages
     # exchanged by the current user only (sender_id or owner_id match).
     restrictions = await _resolve_content_restrictions(user)

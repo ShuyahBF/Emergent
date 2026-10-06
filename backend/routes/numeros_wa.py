@@ -66,6 +66,41 @@ def _chiffres(valeur: Any) -> str:
     return re.sub(r"\D", "", str(valeur or ""))
 
 
+# Lot 59.1 — couleurs proposées par défaut aux lignes supplémentaires (fond, texte),
+# dans l'ordre : 1re ligne ajoutée = or (VIP), 2e = bleu, 3e = violet, 4e = vert.
+COULEURS_DEFAUT = [("#f59e0b", "#000000"), ("#2563eb", "#ffffff"), ("#7c3aed", "#ffffff"), ("#059669", "#ffffff")]
+
+
+def _couleur(valeur: Any, defaut: str) -> str:
+    """Couleur CSS au format #rrggbb (ou #rgb) ; sinon la couleur par défaut."""
+    texte = str(valeur or "").strip()
+    return texte if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", texte) else defaut
+
+
+def pastille(ligne: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+    """Pastille d'affichage d'une ligne : {cle, libelle, fond, texte} (None si pas de ligne)."""
+    if not ligne:
+        return None
+    return {"cle": ligne["cle"], "libelle": ligne["libelle"],
+            "fond": ligne["couleur_fond"], "texte": ligne["couleur_texte"]}
+
+
+def annoter_messages(settings_doc: Dict[str, Any], messages: List[Dict[str, Any]]) -> None:
+    """Ajoute la pastille de ligne (champ wa_ligne) à chaque message REÇU.
+
+    Uniquement s'il existe plusieurs lignes. Un message reçu avant le lot 59
+    (sans numéro mémorisé) est rattaché à la ligne principale, seule existante alors.
+    """
+    lignes = lignes_configurees(settings_doc)
+    if len(lignes) < 2:
+        return
+    par_numero = {l["phone_number_id"]: l for l in lignes if l["phone_number_id"]}
+    for m in messages:
+        if (m.get("direction") or "") != "inbound":
+            continue
+        m["wa_ligne"] = pastille(par_numero.get((m.get("wa_numero_id") or "").strip()) or lignes[0])
+
+
 def lignes_configurees(settings_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Toutes les lignes WhatsApp de la plateforme, la principale en premier.
 
@@ -83,6 +118,9 @@ def lignes_configurees(settings_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         "prospects": False,
         "complement_prompt": "",
         "principale": True,
+        # Lot 59.1 — couleurs de la pastille (par défaut : texte noir sur fond blanc)
+        "couleur_fond": _couleur(s.get("wa_principal_couleur_fond"), "#ffffff"),
+        "couleur_texte": _couleur(s.get("wa_principal_couleur_texte"), "#000000"),
     }]
     vus = {lignes[0]["phone_number_id"]} if lignes[0]["phone_number_id"] else set()
     for brut in s.get("wa_numeros") or []:
@@ -103,6 +141,9 @@ def lignes_configurees(settings_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
             "prospects": bool(brut.get("prospects")),
             "complement_prompt": str(brut.get("complement_prompt") or "").strip(),
             "principale": False,
+            # Lot 59.1 — couleurs de la pastille de cette ligne
+            "couleur_fond": _couleur(brut.get("couleur_fond"), COULEURS_DEFAUT[(len(lignes) - 1) % len(COULEURS_DEFAUT)][0]),
+            "couleur_texte": _couleur(brut.get("couleur_texte"), COULEURS_DEFAUT[(len(lignes) - 1) % len(COULEURS_DEFAUT)][1]),
         })
     return lignes
 
@@ -272,6 +313,9 @@ class VisibiliteLignes:
         self.derniere_ligne: Dict[str, str] = {}   # 8 derniers chiffres → clé de ligne
         self.tenants_vip: Set[str] = set()
         self.cle_vip: Optional[str] = None
+        # Lot 59.1 — 8 derniers chiffres → ligne des contacts affectés à la main ou VIP
+        # (pour les écrans qui ne connaissent que le numéro, ex. l'Inbox unifiée)
+        self.categories: Dict[str, str] = {}
 
     @property
     def restreint(self) -> bool:
@@ -311,7 +355,31 @@ class VisibiliteLignes:
             async for t in db.users.find({"contract_amount": {"$gte": seuil}}, {"_id": 0, "id": 1}):
                 if t.get("id"):
                     vis.tenants_vip.add(t["id"])
+        # Contacts affectés à une ligne ou rattachés à une entreprise VIP, indexés par numéro
+        filtre_cat: List[Dict[str, Any]] = [{"wa_ligne": {"$nin": [None, ""]}}]
+        if vis.tenants_vip:
+            filtre_cat.append({"client_id": {"$in": list(vis.tenants_vip)}})
+        async for c in db.directory_contacts.find(
+                {"$or": filtre_cat}, {"_id": 0, "client_id": 1, "wa_ligne": 1, "whatsapp": 1, "phone": 1}):
+            cle = vis.cle_contact(c)
+            for tel in (c.get("whatsapp"), c.get("phone")):
+                fin = _chiffres(tel)[-8:]
+                if len(fin) >= 6:
+                    vis.categories.setdefault(fin, cle)
         return vis
+
+    def cle_telephone(self, telephone: Any) -> str:
+        """Ligne d'une conversation connue seulement par son numéro."""
+        fin = _chiffres(telephone)[-8:]
+        if fin in self.categories:
+            return self.categories[fin]
+        return self.derniere_ligne.get(fin) or LIGNE_PRINCIPALE
+
+    def telephone_visible(self, telephone: Any) -> bool:
+        """Vrai si l'utilisateur peut voir la conversation avec ce numéro."""
+        if not self.restreint:
+            return True
+        return self.cle_telephone(telephone) in self.autorisees
 
     def cle_contact(self, contact: Optional[Dict[str, Any]], telephone: Any = None) -> str:
         """Ligne de la conversation avec ce contact (ou ce numéro sans fiche)."""

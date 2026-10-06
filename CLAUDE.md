@@ -53,3 +53,21 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
 ## Attentes et chargements
 - Toute attente longue (connexion, recherche…) affiche un toast « Patientez… »
   et une jauge circulaire transparente (arc qui tourne), comme sur SAWALI.
+
+## Présence auprès de SAWALI (règle 4)
+- Toute plateforme ou application que nous créons et déployons (application
+  Windows / WinDev, service Windows, serveur web…) a l'OBLIGATION de déclarer
+  sa présence à SAWALI, dès sa première version :
+  - `POST https://api.sawalismartsystems.com/api/presence-logiciel` au
+    démarrage puis toutes les 5 minutes ;
+  - corps JSON : `application`, `version`, `deploye_le`, `machine`,
+    `utilisateur`, `site`, `systeme`, `demarre_le` (seuls `application`,
+    `version` et `machine` sont obligatoires) ;
+  - en-tête facultatif `X-Cle-Loois` (clé du support, `LOOIS_SUPPORT_CLE`)
+    pour un poste « vérifié » ;
+  - envoi en arrière-plan, JAMAIS bloquant ; aucun secret ni donnée
+    patient / élève dans le signal.
+- Suivi : SAWALI → Plateformes en temps réel → « Postes Windows — versions
+  déployées » (poste en ligne si signal < 12 min, version à mettre à jour).
+- Modèles : Loois `Loois/Services/PresenceLoois.cs` (C#) ; WinDev : procédure
+  `SignalPresenceSawali` + `TimerSys` (envoyée par e-mail le 06/10/2026).

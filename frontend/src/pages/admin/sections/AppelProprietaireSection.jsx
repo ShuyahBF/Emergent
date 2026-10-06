@@ -7,6 +7,8 @@
 //      toutes les 30 minutes (réglable), jamais pendant les heures calmes (facultatives).
 // Ce bloc permet : réglages, état de l'autorisation d'appel du propriétaire (exigée par Meta),
 // envoi de la demande d'autorisation, essai réel, diagnostic réseau (UDP / TURN) et dernières alertes.
+// Lot 67.1 : tarifs (minute d'appel, relais par modèle, voix) dans les réglages avancés ; l'historique
+// complet (durées, coûts, synthèse) est dans HistoriqueAppelsLiluvine.jsx.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -55,6 +57,12 @@ export default function AppelProprietaireSection() {
         appel_proprio_repetitions: e.repetitions || 2,
         appel_proprio_sonnerie_s: e.sonnerie_s || 30,
         appel_proprio_exclus: s.appel_proprio_exclus || "",
+        // Lot 67.1 — tarifs de l'historique des appels (valeurs en vigueur renvoyées par le serveur)
+        appel_proprio_tarif_appel_minute: String(d.tarif?.minute ?? 0),
+        appel_proprio_tarif_devise: d.tarif?.devise || "FCFA",
+        appel_proprio_tarif_arrondi: d.tarif?.arrondi || "pulse6",
+        appel_proprio_tarif_relais_modele: String(d.tarif?.relais_modele ?? 0),
+        appel_proprio_tarif_tts_1000: String(d.tarif?.tts_1000 ?? 0),
       });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Réglages indisponibles");
@@ -204,7 +212,7 @@ export default function AppelProprietaireSection() {
       </div>
 
       <details className="text-xs">
-        <summary className="cursor-pointer font-semibold text-slate-700">Réglages avancés (modèle Meta, voix, sonnerie, exclusions)</summary>
+        <summary className="cursor-pointer font-semibold text-slate-700">Réglages avancés (modèle Meta, voix, sonnerie, exclusions, tarifs)</summary>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="font-semibold text-slate-700">Modèle Meta du relais (hors fenêtre de 24 h)</span>
@@ -239,6 +247,46 @@ export default function AppelProprietaireSection() {
           <label className="block sm:col-span-2">
             <span className="font-semibold text-slate-700">Numéros jamais relayés (personnel, tests… ; administrateurs et superviseurs déjà exclus)</span>
             <input value={form.appel_proprio_exclus} onChange={(e) => maj("appel_proprio_exclus", e.target.value)} className={champ} />
+          </label>
+        </div>
+
+        {/* Lot 67.1 — tarifs : coût de chaque appel calculé et FIGÉ au moment de l'appel (historique) */}
+        <p className="mt-3 font-semibold text-slate-700">Tarifs (coût affiché dans l'historique des appels de Liluvine)</p>
+        <p className="text-[11px] text-slate-500">
+          Meta facture les appels émis par l'entreprise à la durée, par tranches de 6 secondes (une tranche entamée est due),
+          au tarif à la minute du pays appelé (Burkina Faso). Les appels non décrochés ne sont pas facturés. Un changement de
+          tarif ne modifie pas les appels déjà enregistrés.
+        </p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="font-semibold text-slate-700">Prix d'une minute d'appel</span>
+            <input inputMode="decimal" value={form.appel_proprio_tarif_appel_minute}
+              onChange={(e) => maj("appel_proprio_tarif_appel_minute", e.target.value)} className={champ} />
+          </label>
+          <label className="block">
+            <span className="font-semibold text-slate-700">Devise</span>
+            <select value={form.appel_proprio_tarif_devise} onChange={(e) => maj("appel_proprio_tarif_devise", e.target.value)} className={champ}>
+              <option value="FCFA">FCFA</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="font-semibold text-slate-700">Arrondi de la durée facturée</span>
+            <select value={form.appel_proprio_tarif_arrondi} onChange={(e) => maj("appel_proprio_tarif_arrondi", e.target.value)} className={champ}>
+              <option value="pulse6">Tranches de 6 s (règle Meta)</option>
+              <option value="minute">Minute entamée</option>
+              <option value="seconde">À la seconde</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="font-semibold text-slate-700">Prix d'un relais par modèle Meta (hors 24 h)</span>
+            <input inputMode="decimal" value={form.appel_proprio_tarif_relais_modele}
+              onChange={(e) => maj("appel_proprio_tarif_relais_modele", e.target.value)} className={champ} />
+          </label>
+          <label className="block">
+            <span className="font-semibold text-slate-700">Prix de 1000 caractères de voix (OpenAI / ElevenLabs)</span>
+            <input inputMode="decimal" value={form.appel_proprio_tarif_tts_1000}
+              onChange={(e) => maj("appel_proprio_tarif_tts_1000", e.target.value)} className={champ} />
           </label>
         </div>
       </details>

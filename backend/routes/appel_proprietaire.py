@@ -35,6 +35,11 @@
 #   appel_proprio_voix_elevenlabs (identifiant de voix ElevenLabs), appel_proprio_repetitions
 #   (défaut 2), appel_proprio_sonnerie_s (défaut 30), appel_proprio_exclus (numéros jamais
 #   relayés : personnel, tests…).
+#   Lot 67.1 — tarifs de l'historique : appel_proprio_tarif_appel_minute (défaut 0),
+#   appel_proprio_tarif_devise (FCFA | USD, défaut FCFA), appel_proprio_tarif_arrondi (pulse6 = tranches
+#   de 6 s comme Meta | minute | seconde), appel_proprio_tarif_relais_modele (prix d'un message modèle,
+#   défaut 0), appel_proprio_tarif_tts_1000 (prix de 1000 caractères de voix, défaut 0).
+#   Historique : db.appel_proprio_historique (voir la section « Lot 67.1 » plus bas).
 # Variables d'environnement facultatives (saisies par le propriétaire sur Render) :
 #   NUMERO_APPEL_PROPRIETAIRE, APPEL_TURN_URL / APPEL_TURN_UTILISATEUR / APPEL_TURN_MOT_DE_PASSE
 #   (serveur TURN si l'UDP sortant est bloqué), OPENAI_API_KEY, ELEVENLABS_API_KEY.
@@ -689,8 +694,23 @@ async def _journal(db, call_id: str, **champs) -> None:
 async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numero_id: str, ligne_cle: Optional[str],
                             proprio: str, texte_voix: str, alerte: Dict[str, Any]) -> Dict[str, Any]:
     """Appelle le propriétaire et lui fait entendre le message de Liluvine. Renvoie {resultat, raison}.
-    Chaque tentative (même échouée avant Meta) est inscrite au journal des appels."""
+    Chaque tentative (même échouée avant Meta) est inscrite au journal des appels.
+    Lot 67.1 : la réponse contient aussi les mesures de l'appel (clé « mesures ») utilisées par
+    l'historique : voix utilisée, caractères synthétisés, durée de sonnerie et de conversation."""
     maintenant = _maintenant()
+    # Mesures de l'appel (lot 67.1) : remplies au fil des étapes, renvoyées dans tous les cas
+    mesures: Dict[str, Any] = {"voix": None, "tts_caracteres": 0, "sonnerie_s": 0, "conversation_s": 0}
+    # Instants (horloge monotone) : appel lancé, décroché, raccroché
+    instants: Dict[str, Optional[float]] = {"appel": None, "decroche": None}
+
+    def _mesurer_fin() -> None:
+        """Calcule la durée de sonnerie et de conversation au moment de raccrocher."""
+        fin = time.monotonic()
+        if instants["appel"] is not None:
+            fin_sonnerie = instants["decroche"] if instants["decroche"] is not None else fin
+            mesures["sonnerie_s"] = max(0, int(round(fin_sonnerie - instants["appel"])))
+        if instants["decroche"] is not None:
+            mesures["conversation_s"] = max(0, int(round(fin - instants["decroche"])))
     base = {"direction": "sortant", "motif": MOTIF, "numero_id": numero_id, "ligne_cle": ligne_cle,
             "telephone": proprio, "contact_nom": "Propriétaire (alerte Liluvine)", "auto": True,
             "agent_id": None, "decroche_par_nom": "Liluvine", "texte_parle": texte_voix,
@@ -701,7 +721,7 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         await db.wa_appels.insert_one({**base, "id": f"alerte-{uuid.uuid4()}", "statut": "echec",
                                        "resultat": "échec", "raison": raison})
         logger.warning("[appel_proprietaire] appel impossible : %s", raison)
-        return {"resultat": "échec", "raison": raison}
+        return {"resultat": "échec", "raison": raison, "mesures": mesures}
 
     ok, raison = moteur_disponible()
     if not ok:
@@ -712,6 +732,8 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         pcm = await asyncio.to_thread(decoder_pcm, audio)
         if len(pcm) < FREQUENCE:                  # moins d'une demi-seconde : audio inutilisable
             raise RuntimeError("audio vide")
+        # Voix fabriquée : fournisseur et nombre de caractères synthétisés (coût de la synthèse)
+        mesures["voix"], mesures["tts_caracteres"] = fournisseur, len(texte_voix)
     except Exception as exc:  # noqa: BLE001
         return await echec_avant_meta(f"voix : {str(exc)[:200]}")
 
@@ -729,6 +751,7 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
             "session": {"sdp_type": "offer", "sdp": pc.localDescription.sdp},
             "biz_opaque_callback_data": "alerte-message"})
         call_id = ((rep.get("donnees") or {}).get("calls") or [{}])[0].get("id") if rep["ok"] else None
+        instants["appel"] = time.monotonic()      # début de la sonnerie
         if not call_id:
             return await echec_avant_meta(rep.get("erreur") or "Meta n'a pas renvoyé d'identifiant d'appel")
         await db.wa_appels.insert_one({**base, "id": call_id, "statut": "appel", "resultat": "sonné",
@@ -745,11 +768,13 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         etat = await _attendre(reponse, cfg["sonnerie_s"])
         if not etat or etat.get("fin"):
             resultat = "refusé" if (etat or {}).get("fin") == "refuse" else "sans réponse"
+            _mesurer_fin()
             await _raccrocher(s, numero_id, call_id)
             await _journal(db, call_id, resultat=resultat, statut="refuse" if resultat == "refusé" else "sans_reponse")
-            return {"resultat": resultat, "raison": None, "call_id": call_id}
+            return {"resultat": resultat, "raison": None, "call_id": call_id, "mesures": mesures}
 
         # 4. Décroché : réponse SDP appliquée, attente de la connexion audio (ICE + DTLS)
+        instants["decroche"] = time.monotonic()   # fin de la sonnerie, début de la conversation
         await pc.setRemoteDescription(RTCSessionDescription(sdp=etat["sdp"], type="answer"))
 
         async def connecte():
@@ -760,9 +785,10 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         if cnx != "ok":
             raison = ("connexion audio impossible (ICE/DTLS) — l'UDP sortant est peut-être bloqué "
                       "par l'hébergeur : configurez un serveur TURN (APPEL_TURN_URL)")
+            _mesurer_fin()
             await _raccrocher(s, numero_id, call_id)
             await _journal(db, call_id, resultat="échec", raison=raison)
-            return {"resultat": "échec", "raison": raison, "call_id": call_id}
+            return {"resultat": "échec", "raison": raison, "call_id": call_id, "mesures": mesures}
 
         # 5. Liluvine parle (le message est répété), puis raccroche
         await asyncio.sleep(1.0)
@@ -773,21 +799,286 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
         except asyncio.TimeoutError:
             pass
         await asyncio.sleep(0.8)
+        _mesurer_fin()
         await _raccrocher(s, numero_id, call_id)
         await _journal(db, call_id, resultat="décroché", raison=None, message_lu=True)
-        return {"resultat": "décroché", "raison": None, "call_id": call_id}
+        return {"resultat": "décroché", "raison": None, "call_id": call_id, "mesures": mesures}
     except Exception as exc:  # noqa: BLE001 — jamais d'exception vers l'appelant
         raison = f"erreur : {str(exc)[:200]}"
         if call_id:
+            _mesurer_fin()
             await _raccrocher(s, numero_id, call_id)
             await _journal(db, call_id, resultat="échec", raison=raison)
-            return {"resultat": "échec", "raison": raison, "call_id": call_id}
+            return {"resultat": "échec", "raison": raison, "call_id": call_id, "mesures": mesures}
         return await echec_avant_meta(raison)
     finally:
         try:
             await pc.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+# ---------------------------------------------------------------------------
+# Lot 67.1 — Historique des appels automatiques de Liluvine : durées et coûts
+# ---------------------------------------------------------------------------
+#
+# Une ligne par alerte et par numéro du propriétaire dans db.appel_proprio_historique :
+#   date/heure de début, client (qui a écrit), destinataire (numéro du propriétaire appelé),
+#   ligne SAWALI (Standard / VIP), durée de sonnerie, durée de conversation (secondes),
+#   résultat, relais envoyé (texte libre ou modèle Meta), voix utilisée et caractères synthétisés,
+#   coût calculé AU MOMENT DE L'APPEL avec le tarif de ce moment (le tarif est recopié dans la
+#   ligne : un changement de tarif ultérieur ne réécrit jamais l'historique).
+#
+# Règle de facturation de Meta (Calling API, page « Pricing ») : seuls les appels émis par
+# l'entreprise sont facturés, à la durée, « calculée en tranches (pulses) de 6 secondes » ;
+# une tranche entamée est due (ex. 56 s = 9,33 tranches → 10 tranches). Le tarif est publié
+# à la minute, par pays appelé et par palier de volume mensuel. Arrondi par défaut : « pulse6 ».
+
+# Collection de l'historique
+COLLECTION_HISTORIQUE = "appel_proprio_historique"
+# Devises proposées et modes d'arrondi de la durée facturée
+DEVISES = ("FCFA", "USD")
+ARRONDIS = {"pulse6": 6, "minute": 60, "seconde": 1}
+# Catégories de résultat (filtres, badges, synthèse)
+CATEGORIES = ("decroche", "sans_reponse", "echec", "relais_seul")
+# Périodes de la synthèse et étendue par défaut (en jours) quand aucune date n'est donnée
+PERIODES = {"jour": 30, "semaine": 7 * 12, "mois": 365, "annee": 365 * 5}
+
+
+def _decimal(valeur: Any, defaut: float = 0.0) -> float:
+    """Nombre décimal positif (accepte la virgule : « 12,5 ») ; valeur par défaut si illisible."""
+    try:
+        return max(0.0, float(str(valeur).replace(",", ".").replace(" ", "")))
+    except (TypeError, ValueError):
+        return defaut
+
+
+def tarif_actuel(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Tarif en vigueur (réglages), complété par les valeurs par défaut (tout à 0, FCFA, tranches de 6 s)."""
+    s = s or {}
+    devise = str(s.get("appel_proprio_tarif_devise") or "FCFA").upper()
+    arrondi = str(s.get("appel_proprio_tarif_arrondi") or "pulse6")
+    return {
+        "minute": _decimal(s.get("appel_proprio_tarif_appel_minute")),          # prix d'une minute d'appel
+        "devise": devise if devise in DEVISES else "FCFA",
+        "arrondi": arrondi if arrondi in ARRONDIS else "pulse6",
+        "relais_modele": _decimal(s.get("appel_proprio_tarif_relais_modele")),  # prix d'un message modèle
+        "tts_1000": _decimal(s.get("appel_proprio_tarif_tts_1000")),            # prix de 1000 caractères de voix
+    }
+
+
+def secondes_facturees(duree_s: Any, arrondi: str = "pulse6") -> int:
+    """Durée facturée : arrondie à la tranche supérieure (6 s chez Meta, ou minute entamée, ou seconde)."""
+    try:
+        duree = max(0, int(duree_s or 0))
+    except (TypeError, ValueError):
+        return 0
+    pas = ARRONDIS.get(arrondi, 6)
+    return -(-duree // pas) * pas             # division arrondie vers le haut
+
+
+def calculer_cout(tarif: Dict[str, Any], *, conversation_s: Any, relais_modele: bool,
+                  tts_caracteres: int, voix: Optional[str]) -> Dict[str, Any]:
+    """Coût d'une alerte = appel (durée facturée × tarif minute) + relais par modèle Meta
+    + voix de synthèse (la voix Google, gratuite, n'est pas comptée)."""
+    facture = secondes_facturees(conversation_s, tarif.get("arrondi", "pulse6"))
+    cout_appel = facture / 60 * float(tarif.get("minute") or 0)
+    cout_relais = float(tarif.get("relais_modele") or 0) if relais_modele else 0.0
+    cout_tts = 0.0
+    if voix and voix != "google" and tts_caracteres:
+        cout_tts = tts_caracteres / 1000 * float(tarif.get("tts_1000") or 0)
+    return {"secondes_facturees": facture, "cout_appel": round(cout_appel, 2), "cout_relais": round(cout_relais, 2),
+            "cout_tts": round(cout_tts, 2), "cout_total": round(cout_appel + cout_relais + cout_tts, 2)}
+
+
+def categorie_resultat(resultat: Optional[str]) -> str:
+    """Résultat d'appel → catégorie : décroché, sans réponse (dont refusé), échec, relais seul."""
+    if not resultat:
+        return "relais_seul"
+    return {"décroché": "decroche", "sans réponse": "sans_reponse", "refusé": "sans_reponse"}.get(resultat, "echec")
+
+
+def _libelle_ligne(s: Dict[str, Any], cle: Optional[str]) -> str:
+    """Libellé de la ligne SAWALI (« Liluvine Standard », « Liluvine VIP »…) d'après sa clé."""
+    try:
+        from routes.numeros_wa import lignes_configurees
+        for li in lignes_configurees(s):
+            if li.get("cle") == cle:
+                return li.get("libelle") or cle or ""
+    except Exception:  # noqa: BLE001 — libellé facultatif
+        pass
+    return cle or ""
+
+
+async def noter_historique(db, *, s: Dict[str, Any], cfg: Dict[str, Any], maintenant: datetime, numero_id: str,
+                           ligne_cle: Optional[str], client_telephone: str, client_nom: str, destinataire: str,
+                           relais: Optional[Dict[str, Any]], appel: Optional[Dict[str, Any]], raison: Optional[str],
+                           test: bool = False, client_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Inscrit une ligne dans l'historique des appels de Liluvine (ne lève jamais d'exception)."""
+    try:
+        mesures = (appel or {}).get("mesures") or {}
+        call_id = (appel or {}).get("call_id")
+        conversation = int(mesures.get("conversation_s") or 0)
+        source = "serveur"
+        # Durée donnée par Meta (webhook « terminate ») si elle est déjà arrivée : elle est préférée
+        if call_id:
+            j = await db.wa_appels.find_one({"id": call_id}, {"_id": 0, "duree_s": 1, "statut_meta": 1}) or {}
+            if "statut_meta" in j:
+                conversation, source = int(j.get("duree_s") or 0), "meta"
+        tarif = tarif_actuel(s)                   # tarif FIGÉ dans la ligne
+        relais_ok = bool((relais or {}).get("ok"))
+        relais_mode = (relais or {}).get("mode") if relais else None
+        doc = {
+            "id": str(uuid.uuid4()), "created_at": maintenant.isoformat(), "test": bool(test),
+            "client_id": client_id,
+            "client_nom": client_nom, "client_telephone": client_telephone, "destinataire": destinataire,
+            "numero_id": numero_id, "ligne_cle": ligne_cle, "ligne_libelle": _libelle_ligne(s, ligne_cle),
+            "call_id": call_id, "resultat": (appel or {}).get("resultat") or "relais seul",
+            "categorie": categorie_resultat((appel or {}).get("resultat")), "raison": raison,
+            "relais_envoye": relais_ok, "relais_mode": relais_mode if relais else None,
+            "relais_modele": cfg.get("modele") if relais_mode == "modele" else None,
+            "relais_erreur": (relais or {}).get("erreur"),
+            "voix": mesures.get("voix"), "tts_caracteres": int(mesures.get("tts_caracteres") or 0),
+            "sonnerie_s": int(mesures.get("sonnerie_s") or 0), "conversation_s": conversation,
+            "duree_source": source, "tarif": tarif, "devise": tarif["devise"],
+        }
+        doc.update(calculer_cout(tarif, conversation_s=conversation, relais_modele=relais_ok and relais_mode == "modele",
+                                 tts_caracteres=doc["tts_caracteres"], voix=doc["voix"]))
+        await db[COLLECTION_HISTORIQUE].insert_one(dict(doc))
+        return doc
+    except Exception:  # noqa: BLE001 — l'historique ne doit jamais empêcher l'alerte
+        logger.warning("[appel_proprietaire] historique non inscrit", exc_info=True)
+        return None
+
+
+async def noter_duree_meta(db, call_id: str, duree_s: Any) -> bool:
+    """Webhook « terminate » de Meta : la durée officielle remplace la durée mesurée par le serveur,
+    et le coût est recalculé avec le tarif FIGÉ de la ligne (jamais avec le tarif actuel)."""
+    doc = await db[COLLECTION_HISTORIQUE].find_one({"call_id": call_id}, {"_id": 0})
+    if not doc:
+        return False                              # ligne pas encore écrite : elle lira la durée Meta
+    try:
+        duree = max(0, int(duree_s or 0))
+    except (TypeError, ValueError):
+        return False
+    cout = calculer_cout(doc.get("tarif") or {}, conversation_s=duree,
+                         relais_modele=bool(doc.get("relais_envoye")) and doc.get("relais_mode") == "modele",
+                         tts_caracteres=int(doc.get("tts_caracteres") or 0), voix=doc.get("voix"))
+    await db[COLLECTION_HISTORIQUE].update_one({"call_id": call_id}, {"$set": {
+        "conversation_s": duree, "duree_source": "meta", **cout}})
+    return True
+
+
+def lire_jour(texte: Optional[str]) -> Optional[datetime]:
+    """« AAAA-MM-JJ » → minuit UTC de ce jour (None si vide) ; ValueError si illisible."""
+    if not texte:
+        return None
+    return datetime.strptime(str(texte)[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
+def filtre_historique(du: Optional[str], au: Optional[str], client: Optional[str] = None,
+                      resultat: Optional[str] = None) -> Dict[str, Any]:
+    """Filtre MongoDB de l'historique : dates (incluses, heure de Ouagadougou = UTC), client, résultat."""
+    filtre: Dict[str, Any] = {}
+    debut, fin = lire_jour(du), lire_jour(au)
+    if debut or fin:
+        filtre["created_at"] = {}
+        if debut:
+            filtre["created_at"]["$gte"] = debut.isoformat()
+        if fin:
+            filtre["created_at"]["$lt"] = (fin + timedelta(days=1)).isoformat()   # jour de fin inclus
+    if client and client.strip():
+        motif = re.escape(client.strip())
+        ou = [{"client_nom": {"$regex": motif, "$options": "i"}}]
+        if _chiffres(client):
+            ou.append({"client_telephone": {"$regex": re.escape(_chiffres(client))}})
+        filtre["$or"] = ou
+    if resultat:
+        if resultat not in CATEGORIES:
+            raise ValueError("résultat inconnu")
+        filtre["categorie"] = resultat
+    return filtre
+
+
+def totaliser(docs: List[Dict[str, Any]], devise_defaut: str = "FCFA") -> Dict[str, Any]:
+    """Cumuls d'un ensemble de lignes : nombres par résultat, durées, coûts (par devise)."""
+    t: Dict[str, Any] = {"alertes": len(docs), "appels": 0, "decroches": 0, "sans_reponse": 0, "echecs": 0,
+                         "relais_seuls": 0, "duree_totale_s": 0, "sonnerie_totale_s": 0, "couts": {}}
+    for d in docs:
+        cat = d.get("categorie") or "relais_seul"
+        if cat == "relais_seul":
+            t["relais_seuls"] += 1
+        else:
+            t["appels"] += 1
+            t[{"decroche": "decroches", "sans_reponse": "sans_reponse"}.get(cat, "echecs")] += 1
+        t["duree_totale_s"] += int(d.get("conversation_s") or 0)
+        t["sonnerie_totale_s"] += int(d.get("sonnerie_s") or 0)
+        devise = d.get("devise") or devise_defaut
+        t["couts"][devise] = round(t["couts"].get(devise, 0.0) + float(d.get("cout_total") or 0), 2)
+    t["duree_moyenne_s"] = int(round(t["duree_totale_s"] / t["decroches"])) if t["decroches"] else 0
+    # Coût total : une seule devise dans l'immense majorité des cas
+    devises = list(t["couts"]) or [devise_defaut]
+    t["devise"] = devises[0] if len(devises) == 1 else "mixte"
+    t["cout_total"] = round(sum(t["couts"].values()), 2) if len(devises) == 1 else None
+    return t
+
+
+def cle_periode(dt: datetime, periode: str) -> Tuple[str, str]:
+    """(clé de tri, libellé) de la période d'une date : jour, semaine (du lundi), mois ou année."""
+    d = _local(dt)
+    if periode == "jour":
+        return d.strftime("%Y-%m-%d"), d.strftime("%d/%m/%Y")
+    if periode == "semaine":
+        lundi = (d - timedelta(days=d.weekday())).date()
+        return lundi.isoformat(), f"Semaine du {lundi.strftime('%d/%m/%Y')}"
+    if periode == "mois":
+        return d.strftime("%Y-%m"), f"{MOIS[d.month - 1].capitalize()} {d.year}"
+    return d.strftime("%Y"), d.strftime("%Y")
+
+
+def synthese_par_periode(docs: List[Dict[str, Any]], periode: str, devise_defaut: str = "FCFA") -> Dict[str, Any]:
+    """Regroupe les lignes par période (jour / semaine / mois / année) avec les cumuls de chacune."""
+    groupes: Dict[str, Dict[str, Any]] = {}
+    for d in docs:
+        dt = lire_date(d.get("created_at"))
+        if not dt:
+            continue
+        cle, libelle = cle_periode(dt, periode)
+        groupes.setdefault(cle, {"cle": cle, "libelle": libelle, "docs": []})["docs"].append(d)
+    lignes = [{"cle": g["cle"], "libelle": g["libelle"], **totaliser(g["docs"], devise_defaut)}
+              for g in sorted(groupes.values(), key=lambda g: g["cle"], reverse=True)]
+    return {"periode": periode, "lignes": lignes, "totaux": totaliser(docs, devise_defaut)}
+
+
+def _hms(secondes: Any) -> str:
+    """Durée en secondes → « hh:mm:ss »."""
+    sec = max(0, int(secondes or 0))
+    return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
+
+
+def csv_historique(docs: List[Dict[str, Any]]) -> str:
+    """Export CSV (séparateur « ; », lisible par Excel en français) de l'historique."""
+    import csv
+    sortie = io.StringIO()
+    w = csv.writer(sortie, delimiter=";")
+    w.writerow(["Date/Heure", "Client", "Téléphone client", "Destinataire", "Ligne", "Sonnerie (s)",
+                "Conversation (s)", "Conversation (hh:mm:ss)", "Source durée", "Résultat", "Raison", "Relais",
+                "Modèle", "Voix", "Caractères synthétisés", "Secondes facturées", "Coût appel", "Coût relais",
+                "Coût voix", "Coût total", "Devise", "Essai"])
+    nombre = lambda v: str(v if v is not None else 0).replace(".", ",")  # noqa: E731 — virgule décimale
+    for d in docs:
+        dt = lire_date(d.get("created_at"))
+        relais = ("modèle" if d.get("relais_mode") == "modele" else "écrit") if d.get("relais_envoye") else "non"
+        w.writerow([_local(dt).strftime("%d/%m/%Y %H:%M:%S") if dt else "", d.get("client_nom") or "",
+                    f"+{d.get('client_telephone')}" if d.get("client_telephone") else "",
+                    f"+{d.get('destinataire')}" if d.get("destinataire") else "", d.get("ligne_libelle") or "",
+                    d.get("sonnerie_s") or 0, d.get("conversation_s") or 0, _hms(d.get("conversation_s")),
+                    d.get("duree_source") or "", d.get("resultat") or "", d.get("raison") or "", relais,
+                    d.get("relais_modele") or "", d.get("voix") or "", d.get("tts_caracteres") or 0,
+                    d.get("secondes_facturees") or 0, nombre(d.get("cout_appel")), nombre(d.get("cout_relais")),
+                    nombre(d.get("cout_tts")), nombre(d.get("cout_total")), d.get("devise") or "",
+                    "oui" if d.get("test") else ""])
+    return sortie.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -838,29 +1129,41 @@ async def traiter_message(db, *, chiffres: str, mtype: str, texte: Optional[str]
     resume: Dict[str, Any] = {"relais": [], "appel": None, "raison": None}
 
     # 1. Relais écrit à chaque numéro du propriétaire
+    relais_par_tel: Dict[str, Dict[str, Any]] = {}
     if cfg["relais_actif"]:
         for proprio in cfg["numeros"]:
             r = await envoyer_relais(db, s, cfg, numero_id, proprio, texte_relais(qui_ecrit, message, date_msg),
                                      [qui_ecrit, extrait(message), formater_date(date_msg)], maintenant)
             resume["relais"].append({"telephone": proprio, **r})
+            relais_par_tel[proprio] = r
             if not r["ok"]:
                 logger.warning("[appel_proprietaire] relais …%s : %s", proprio[-4:], r.get("erreur"))
 
+    # Lot 67.1 — éléments communs aux lignes de l'historique des appels de Liluvine
+    contexte = {"s": s, "cfg": cfg, "maintenant": maintenant, "numero_id": numero_id, "ligne_cle": ligne_cle,
+                "client_telephone": chiffres, "client_nom": qui_ecrit, "test": test,
+                "client_id": client_id}
+
+    async def relais_seul(raison: str, numeros: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Pas d'appel : une ligne « relais seul » par numéro du propriétaire ayant reçu un relais."""
+        resume["raison"] = raison
+        for proprio in (numeros if numeros is not None else cfg["numeros"]):
+            if proprio in relais_par_tel:
+                await noter_historique(db, **contexte, destinataire=proprio, relais=relais_par_tel[proprio],
+                                       appel=None, raison=raison)
+        return resume
+
     # 2. Appel vocal (contrôles : activé, heures calmes, anti-répétition)
     if not cfg["appel_actif"]:
-        resume["raison"] = "appel vocal désactivé (relais seul)"
-        return resume
+        return await relais_seul("appel vocal désactivé (relais seul)")
     if not test and en_heures_calmes(cfg, maintenant):
-        resume["raison"] = "heures calmes : relais seul"
-        return resume
+        return await relais_seul("heures calmes : relais seul")
     async with _verrou_client(chiffres):
         if not test and await appel_recent(db, chiffres, cfg["fenetre_min"], maintenant):
-            resume["raison"] = f"déjà appelé pour ce client il y a moins de {cfg['fenetre_min']} min"
-            return resume
+            return await relais_seul(f"déjà appelé pour ce client il y a moins de {cfg['fenetre_min']} min")
         verrou = _verrou_global()
         if verrou.locked():
-            resume["raison"] = "un autre appel au propriétaire est en cours"
-            return resume
+            return await relais_seul("un autre appel au propriétaire est en cours")
         async with verrou:
             alerte = {"alerte_client_telephone": chiffres, "alerte_client_nom": qui_ecrit,
                       "alerte_contact_id": (contact or {}).get("id"), "alerte_message": extrait(message, 300),
@@ -872,11 +1175,14 @@ async def traiter_message(db, *, chiffres: str, mtype: str, texte: Optional[str]
                     # Pas encore autorisé : demande envoyée (une fois), pas d'appel
                     if perm.get("peut_demander") is not False:
                         await demander_permission(db, s, numero_id, proprio, maintenant)
-                    resume["raison"] = "autorisation d'appel du propriétaire en attente"
+                    await relais_seul("autorisation d'appel du propriétaire en attente", [proprio])
                     continue
                 res = await appeler_et_parler(db, s, cfg, numero_id=numero_id, ligne_cle=ligne_cle, proprio=proprio,
                                               texte_voix=texte_voix, alerte=alerte)
                 resume["appel"] = res
+                # Lot 67.1 — ligne de l'historique (durées, coût calculé avec le tarif du moment)
+                await noter_historique(db, **contexte, destinataire=proprio, relais=relais_par_tel.get(proprio),
+                                       appel=res, raison=res.get("raison"))
                 if res.get("resultat") == "décroché":
                     break                         # un seul propriétaire suffit
     return resume
@@ -943,12 +1249,16 @@ CHAMPS = {
     "appel_proprio_modele": str, "appel_proprio_modele_langue": str, "appel_proprio_voix": str,
     "appel_proprio_voix_elevenlabs": str, "appel_proprio_repetitions": int, "appel_proprio_sonnerie_s": int,
     "appel_proprio_exclus": str,
+    # Lot 67.1 — tarifs (coût des appels de Liluvine), devise et arrondi de la durée facturée
+    "appel_proprio_tarif_appel_minute": float, "appel_proprio_tarif_devise": str,
+    "appel_proprio_tarif_arrondi": str, "appel_proprio_tarif_relais_modele": float,
+    "appel_proprio_tarif_tts_1000": float,
 }
 
 
 def setup_appel_proprietaire_routes(*, db, api, get_current_user, graph_version: str = "v21.0") -> None:
     """Déclare les routes /admin/appel-proprietaire (administrateurs et superviseurs)."""
-    from fastapi import Body, Depends, HTTPException
+    from fastapi import Body, Depends, HTTPException, Query, Response
 
     global GRAPH_VERSION
     GRAPH_VERSION = graph_version
@@ -978,6 +1288,7 @@ def setup_appel_proprietaire_routes(*, db, api, get_current_user, graph_version:
             "permissions": permissions,
             "moteur": {"disponible": moteur, "raison": raison, "voix": fournisseurs_voix(s, cfg)},
             "derniers": derniers,
+            "tarif": tarif_actuel(s),             # lot 67.1 — tarif en vigueur
         }
 
     @api.put("/admin/appel-proprietaire", tags=["Admin — WhatsApp"])
@@ -991,6 +1302,12 @@ def setup_appel_proprietaire_routes(*, db, api, get_current_user, graph_version:
             valeur = payload[cle]
             if genre is bool:
                 maj[cle] = bool(valeur)
+            elif genre is float:
+                # Tarif : nombre décimal positif (virgule acceptée)
+                try:
+                    maj[cle] = max(0.0, float(str(valeur).replace(",", ".").replace(" ", "") or 0))
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=422, detail=f"Montant attendu pour {cle}")
             elif genre is int:
                 try:
                     maj[cle] = int(valeur)
@@ -1001,6 +1318,12 @@ def setup_appel_proprietaire_routes(*, db, api, get_current_user, graph_version:
         for cle in ("appel_proprio_calme_debut", "appel_proprio_calme_fin"):
             if maj.get(cle) and not re.fullmatch(r"\d{1,2}[:hH]\d{2}", maj[cle]):
                 raise HTTPException(status_code=422, detail="Heure attendue au format HH:MM")
+        if maj.get("appel_proprio_tarif_devise") and maj["appel_proprio_tarif_devise"].upper() not in DEVISES:
+            raise HTTPException(status_code=422, detail="Devise inconnue (FCFA ou USD)")
+        if maj.get("appel_proprio_tarif_devise"):
+            maj["appel_proprio_tarif_devise"] = maj["appel_proprio_tarif_devise"].upper()
+        if maj.get("appel_proprio_tarif_arrondi") and maj["appel_proprio_tarif_arrondi"] not in ARRONDIS:
+            raise HTTPException(status_code=422, detail="Arrondi inconnu (pulse6, minute ou seconde)")
         if maj.get("appel_proprio_voix") and maj["appel_proprio_voix"] not in ("auto", "openai", "elevenlabs", "google"):
             raise HTTPException(status_code=422, detail="Voix inconnue")
         maj["appel_proprio_maj_par"] = user.get("full_name") or user.get("email")
@@ -1029,6 +1352,58 @@ def setup_appel_proprietaire_routes(*, db, api, get_current_user, graph_version:
         planifier(db, chiffres="22600000000", mtype="text", texte="Message d'essai de l'alerte Liluvine",
                   contact={"name": "Client d'essai"}, recu_le=_maintenant().isoformat(), test=True)
         return {"ok": True, "message": "Essai lancé : relais puis appel dans quelques secondes (voir le journal)."}
+
+    # --- Lot 67.1 : historique des appels automatiques de Liluvine (durées, coûts, synthèse) ---
+
+    def _filtre(du, au, client=None, resultat=None) -> Dict[str, Any]:
+        """Filtre de l'historique ; dates ou résultat illisibles → erreur 422."""
+        try:
+            return filtre_historique(du, au, client, resultat)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Date (AAAA-MM-JJ) ou résultat invalide")
+
+    @api.get("/admin/appel-proprietaire/historique", tags=["Admin — WhatsApp"])
+    async def historique(du: Optional[str] = None, au: Optional[str] = None, client: Optional[str] = None,
+                         resultat: Optional[str] = None, page: int = Query(1, ge=1),
+                         par_page: int = Query(25, ge=1, le=200), user: dict = Depends(get_current_user)):
+        """Historique paginé (du plus récent au plus ancien) + cumuls de tout le filtre."""
+        _exiger_admin(user)
+        filtre = _filtre(du, au, client, resultat)
+        col = db[COLLECTION_HISTORIQUE]
+        total = await col.count_documents(filtre)
+        lignes = await col.find(filtre, {"_id": 0}).sort("created_at", -1).skip((page - 1) * par_page) \
+            .limit(par_page).to_list(par_page)
+        tous = await col.find(filtre, {"_id": 0}).to_list(None)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {"items": lignes, "total": total, "page": page, "par_page": par_page,
+                "pages": max(1, -(-total // par_page)), "totaux": totaliser(tous, tarif_actuel(s)["devise"])}
+
+    @api.get("/admin/appel-proprietaire/historique.csv", tags=["Admin — WhatsApp"])
+    async def historique_csv(du: Optional[str] = None, au: Optional[str] = None, client: Optional[str] = None,
+                             resultat: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Export CSV de l'historique filtré (toutes les lignes, BOM UTF-8 pour Excel)."""
+        _exiger_admin(user)
+        docs = await db[COLLECTION_HISTORIQUE].find(_filtre(du, au, client, resultat), {"_id": 0}) \
+            .sort("created_at", -1).to_list(None)
+        nom = f"historique_appels_liluvine_{_maintenant().strftime('%Y%m%d_%H%M')}.csv"
+        return Response(content="\ufeff" + csv_historique(docs), media_type="text/csv; charset=utf-8",
+                         headers={"Content-Disposition": f'attachment; filename="{nom}"'})
+
+    @api.get("/admin/appel-proprietaire/synthese", tags=["Admin — WhatsApp"])
+    async def synthese(periode: str = "jour", du: Optional[str] = None, au: Optional[str] = None,
+                       user: dict = Depends(get_current_user)):
+        """Cumuls par période (jour, semaine, mois, année — heure de Ouagadougou = UTC)."""
+        _exiger_admin(user)
+        if periode not in PERIODES:
+            raise HTTPException(status_code=422, detail="Période inconnue (jour, semaine, mois, annee)")
+        # Sans dates : étendue par défaut selon la période (30 jours, 12 semaines, 12 mois, 5 ans)
+        if not du and not au:
+            aujourd_hui = _local(_maintenant()).date()
+            du = (aujourd_hui - timedelta(days=PERIODES[periode])).isoformat()
+            au = aujourd_hui.isoformat()
+        docs = await db[COLLECTION_HISTORIQUE].find(_filtre(du, au), {"_id": 0}).to_list(None)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {"du": du, "au": au, **synthese_par_periode(docs, periode, tarif_actuel(s)["devise"])}
 
     @api.post("/admin/appel-proprietaire/diagnostic-reseau", tags=["Admin — WhatsApp"])
     async def diagnostic(user: dict = Depends(get_current_user)):

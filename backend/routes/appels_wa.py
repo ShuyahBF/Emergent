@@ -130,7 +130,8 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
                 "statut": "en_cours", "debut": _maintenant(), "maj": _maintenant()}})
         elif evenement == "terminate":
             # Fin d'appel : durée et heures données par Meta
-            doc = await db.wa_appels.find_one({"id": call_id}, {"_id": 0, "statut": 1, "direction": 1}) or {}
+            doc = await db.wa_appels.find_one({"id": call_id}, {"_id": 0, "statut": 1, "direction": 1,
+                                                                "motif": 1}) or {}
             statut_meta = str(appel.get("status") or "").upper()
             duree = int(appel.get("duration") or 0)
             if doc.get("statut") == "refuse":
@@ -146,6 +147,14 @@ async def traiter_webhook_appels(db, valeur: Dict[str, Any]) -> int:
                 "debut": _iso_depuis_unix(appel.get("start_time")),
                 "fin": _iso_depuis_unix(appel.get("end_time")) or _maintenant(),
                 "statut_meta": statut_meta, "sdp_offre": None, "maj": _maintenant()}})
+            # Lot 67.1 — appel automatique de Liluvine : la durée de Meta (facturée) remplace la durée
+            # mesurée dans l'historique des appels, coût recalculé avec le tarif figé de l'appel
+            if doc.get("motif") == "alerte message":
+                try:
+                    from routes.appel_proprietaire import noter_duree_meta
+                    await noter_duree_meta(db, call_id, duree)
+                except Exception:  # noqa: BLE001 — l'historique ne bloque jamais le webhook
+                    logger.warning("[appels_wa] historique Liluvine non mis à jour", exc_info=True)
 
     # 2. Statuts d'un appel SORTANT (sonnerie chez le client, accepté, refusé)
     for st in valeur.get("statuses") or []:

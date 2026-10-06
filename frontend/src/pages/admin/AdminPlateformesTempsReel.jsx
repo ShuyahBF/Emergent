@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import VersionsDeployees from "./VersionsDeployees";
 
 const INTERVALLE_MS = 30000;
 
@@ -115,6 +116,12 @@ export default function AdminPlateformesTempsReel() {
                   {connectes === null || connectes === undefined ? "présence inconnue" : `${connectes} connecté(s)`}
                 </span>
               </div>
+              {/* Lot 65 — version déployée, si la plateforme la joint à ses statistiques */}
+              {interne?.version && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Version {interne.version}{interne.deploye_le && ` · déployée le ${new Date(interne.deploye_le).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "")}`}
+                </p>
+              )}
 
               {/* Indicateurs internes fournis par la plateforme */}
               <div className="mt-3">
@@ -157,6 +164,9 @@ export default function AdminPlateformesTempsReel() {
           );
         })}
       </div>
+
+      {/* Lot 65 — versions déployées (SAWALI, plateformes, postes Loois) */}
+      <VersionsDeployees />
     </div>
   );
 }

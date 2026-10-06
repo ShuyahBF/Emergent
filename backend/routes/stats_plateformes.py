@@ -9,7 +9,8 @@
 #     corps    : {"type": "stats_du_jour", "debut": "<ISO>", "fin": "<ISO>"}
 #   Plateforme → réponse JSON :
 #     {"indicateurs": [{"cle": "connexions", "libelle": "Connexions", "valeur": 42}, …],
-#      "faits_marquants": ["3 nouvelles boutiques", …]}          (faits_marquants facultatif)
+#      "faits_marquants": ["3 nouvelles boutiques", …],          (faits_marquants facultatif)
+#      "version": "1.84", "deploye_le": "2026-10-04T01:35:00Z"}  (lot 65, facultatifs)
 #   Chaque plateforme choisit ses indicateurs ; SAWALI les affiche tels quels.
 #
 # Résultat gardé 10 minutes (collection plateformes_stats) : l'écran d'administration ne
@@ -61,7 +62,11 @@ def _nettoyer(reponse: Any) -> Dict[str, Any]:
     # Lot 63 — nombre d'utilisateurs actifs sur la plateforme ces 5 dernières minutes (facultatif)
     connectes = reponse.get("utilisateurs_connectes")
     connectes = int(connectes) if isinstance(connectes, (int, float)) and not isinstance(connectes, bool) else None
-    return {"indicateurs": indicateurs, "faits_marquants": faits, "utilisateurs_connectes": connectes}
+    # Lot 65 — version déployée de la plateforme et date de déploiement (facultatives, texte court)
+    version = str(reponse.get("version") or "").strip()[:40] or None
+    deploye_le = str(reponse.get("deploye_le") or "").strip()[:40] or None
+    return {"indicateurs": indicateurs, "faits_marquants": faits, "utilisateurs_connectes": connectes,
+            "version": version, "deploye_le": deploye_le}
 
 
 async def interroger(emetteur: Dict[str, Any], debut_iso: str, fin_iso: str) -> Dict[str, Any]:

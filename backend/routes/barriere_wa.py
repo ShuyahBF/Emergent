@@ -109,7 +109,12 @@ async def etat_correspondant(db, chiffres: str, reglages: Dict[str, Any]) -> Dic
         "direction": "inbound", "phone_digits": {"$regex": fin + "$"},
         "created_at": {"$gt": borne}, "barriere_exclu": {"$ne": True},
     })
-    return {"sans_reponse": n, "derniere_reponse": derniere, "compte_depuis": borne}
+    # Lot 64.5 — l'avertissement a-t-il déjà été envoyé depuis la dernière réponse ?
+    deja_averti = bool(await db.whatsapp_messages.count_documents({
+        "direction": "outbound", "barriere_auto": True, "created_at": {"$gt": borne},
+        "$or": [{"phone_digits": {"$regex": fin + "$"}}, {"to": {"$regex": fin + "$"}}],
+    }))
+    return {"sans_reponse": n, "derniere_reponse": derniere, "compte_depuis": borne, "deja_averti": deja_averti}
 
 
 async def messages_sans_reponse(db, chiffres: str, reglages: Dict[str, Any]) -> int:
@@ -134,10 +139,14 @@ async def decision(db, chiffres: str, mtype: str, texte: Optional[str], s: Dict[
         return "normal"
     etat = await etat_correspondant(db, chiffres, reglages)
     rang = etat["sans_reponse"] + 1                     # rang du message en cours
+    # Lot 64.5 — correction : avant, l'avertissement ne partait qu'au message PILE au seuil ;
+    # si le compteur avait déjà dépassé le seuil (messages antérieurs), il ne partait jamais.
+    # Désormais : seuil atteint ou dépassé → avertissement s'il n'a pas encore été envoyé
+    # depuis la dernière réponse, sinon message retenu.
     if rang < reglages["seuil"]:
         resultat = "normal"
     else:
-        resultat = "avertir" if rang == reglages["seuil"] else "retenir"
+        resultat = "retenir" if etat.get("deja_averti") else "avertir"
     derniere = etat.get("derniere_reponse") or {}
     logger.info("[barriere_wa] …%s : message n° %s sans réponse (seuil %s) → %s ; dernière réponse : %s (%s)",
                 fin4, rang, reglages["seuil"], resultat, derniere.get("created_at") or "aucune",
@@ -167,12 +176,12 @@ def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
                     "explication": "Ce numéro fait partie des numéros jamais bloqués."}
         etat = await etat_correspondant(db, chiffres, reglages)
         rang = etat["sans_reponse"] + 1
-        decision_suivante = "normal" if rang < reglages["seuil"] else ("avertir" if rang == reglages["seuil"] else "retenir")
+        decision_suivante = "normal" if rang < reglages["seuil"] else ("retenir" if etat.get("deja_averti") else "avertir")
         derniere = etat["derniere_reponse"]
         explication = {
             "normal": f"Prochain message : n° {rang} sans réponse, sous le seuil ({reglages['seuil']}) — transmis normalement.",
-            "avertir": f"Prochain message : n° {rang} = seuil — transmis, puis réponse automatique de la barrière.",
-            "retenir": f"Prochain message : n° {rang} au-delà du seuil — retenu jusqu'à votre réponse.",
+            "avertir": f"Prochain message : n° {rang} (seuil {reglages['seuil']} atteint) — transmis, puis réponse automatique de la barrière.",
+            "retenir": f"Prochain message : n° {rang} au-delà du seuil, avertissement déjà envoyé — retenu jusqu'à votre réponse.",
         }[decision_suivante]
         # Lot 64.4 — 10 derniers échanges avec ce numéro, et leur effet sur la barrière
         fin = re.escape(chiffres[-8:])

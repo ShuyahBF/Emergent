@@ -49,10 +49,13 @@ def test_seuil_avertissement_puis_retenue_puis_levee(db):
     recu(db, 10)
     assert lancer(bw.decision(db, TEL, "text", "Vous êtes là ?", REGLAGES)) == "avertir"
     recu(db, 9)
+    # Lot 64.5 — tant que l'avertissement n'est pas parti, il est retenté au message suivant
+    assert lancer(bw.decision(db, TEL, "image", None, REGLAGES)) == "avertir"
+    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to": "+" + TEL, "created_at": il_y_a(8.5),
+                                            "barriere_auto": True, "ai_generated": True}))
     assert lancer(bw.decision(db, TEL, "image", None, REGLAGES)) == "retenir"
     # La réponse automatique de la barrière et celles de Liluvine ne lèvent PAS la barrière
     lancer(db.whatsapp_messages.insert_many([
-        {"direction": "outbound", "to": "+" + TEL, "created_at": il_y_a(8), "barriere_auto": True, "ai_generated": True},
         {"direction": "outbound", "phone_digits": TEL, "created_at": il_y_a(7), "ai_generated": True},
     ]))
     assert lancer(bw.decision(db, TEL, "text", "Allô", REGLAGES)) == "retenir"
@@ -76,7 +79,8 @@ def test_exceptions_et_desactivation(db):
     assert lancer(bw.decision(db, TEL, "text", "x", {"wa_barriere_active": False})) == "normal"
     # Messages hors de la fenêtre de temps : ignorés
     assert lancer(bw.decision(db, TEL, "text", "x", {**REGLAGES, "wa_barriere_seuil": 3})) == "avertir"
-    assert lancer(bw.decision(db, TEL, "text", "x", {**REGLAGES, "wa_barriere_fenetre_heures": 1})) == "retenir"
+    # Seuil dépassé sans avertissement encore envoyé : avertissement (lot 64.5)
+    assert lancer(bw.decision(db, TEL, "text", "x", {**REGLAGES, "wa_barriere_fenetre_heures": 1})) == "avertir"
     vieux = mongomock_motor.AsyncMongoMockClient()["sawali_lot63b"]
     lancer(vieux.whatsapp_messages.insert_many([
         {"direction": "inbound", "phone_digits": TEL, "created_at": il_y_a(60 * 30)},
@@ -122,3 +126,15 @@ def test_diagnostic_barriere(db):
                                             "sender_id": "u1", "sender_label": "Agent"}))
     r = c.get("/api/admin/barriere-wa/diagnostic", params={"numero": TEL}).json()
     assert r["decision"] == "normal" and r["derniere_reponse_par"] == "Agent"
+
+
+def test_seuil_depasse_sans_avertissement(db):
+    """Lot 64.5 — compteur déjà au-delà du seuil (messages antérieurs) : l'avertissement part
+    quand même une fois, puis les messages suivants sont retenus."""
+    for m in (30, 29, 28, 27, 26):
+        recu(db, m)
+    assert lancer(bw.decision(db, TEL, "text", "Encore moi", REGLAGES)) == "avertir"
+    lancer(db.whatsapp_messages.insert_one({"direction": "outbound", "to": "+" + TEL, "created_at": il_y_a(1),
+                                            "barriere_auto": True, "ai_generated": True}))
+    recu(db, 0.5)
+    assert lancer(bw.decision(db, TEL, "text", "Toujours moi", REGLAGES)) == "retenir"

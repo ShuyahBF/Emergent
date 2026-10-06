@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.4"
-LOT_LIBELLE = "Barrière anti-rafale : trace de chaque décision dans les journaux et diagnostic détaillé (10 derniers échanges)"
+LOT = "64.5"
+LOT_LIBELLE = "Barrière anti-rafale : l'avertissement (texte + image) part dès que le seuil est atteint ou dépassé, une fois par série"

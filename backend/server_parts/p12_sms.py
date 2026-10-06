@@ -1941,19 +1941,27 @@ async def whatsapp_webhook_incoming(request: Request):
                         try:
                             reg_b = reglages_barriere(s_barriere) or {}
                             res_b = await _wa_send_text(from_num, reg_b.get("message") or "")
+                            # Lot 64.5 — résultat de l'envoi tracé (erreur Meta visible dans les journaux)
+                            logger.info("[barriere_wa] …%s : avertissement texte %s %s", digits_only[-4:],
+                                        "envoyé" if (res_b or {}).get("ok") else "ÉCHEC", (res_b or {}).get("error") or "")
                             image_b = reg_b.get("image_url") or ""
                             if image_b:
                                 if image_b.startswith("/"):
                                     image_b = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{image_b}"
-                                await _wa_send_media(from_num, "image", public_url=image_b)
-                            await db.whatsapp_messages.insert_one({
-                                "id": _uuid(), "client_id": scope_for_msg, "direction": "outbound",
-                                "to": from_num, "phone_digits": digits_only, "contact_id": (contact or {}).get("id"),
-                                "body": reg_b.get("message"), "message_type": "text",
-                                "ai_generated": True, "barriere_auto": True,
-                                "sender_label": "Barrière automatique",
-                                "wa_message_id": res_b.get("message_id"), "created_at": _now(), "sent_at": _now(),
-                            })
+                                res_img = await _wa_send_media(from_num, "image", public_url=image_b)
+                                logger.info("[barriere_wa] …%s : image %s %s (%s)", digits_only[-4:],
+                                            "envoyée" if (res_img or {}).get("ok") else "ÉCHEC",
+                                            (res_img or {}).get("error") or "", image_b)
+                            # Avertissement enregistré seulement s'il est parti (sinon nouvel essai au message suivant)
+                            if (res_b or {}).get("ok"):
+                                await db.whatsapp_messages.insert_one({
+                                    "id": _uuid(), "client_id": scope_for_msg, "direction": "outbound",
+                                    "to": from_num, "phone_digits": digits_only, "contact_id": (contact or {}).get("id"),
+                                    "body": reg_b.get("message"), "message_type": "text",
+                                    "ai_generated": True, "barriere_auto": True,
+                                    "sender_label": "Barrière automatique",
+                                    "wa_message_id": res_b.get("message_id"), "created_at": _now(), "sent_at": _now(),
+                                })
                         except Exception:  # noqa: BLE001
                             logger.warning("[barriere_wa] réponse automatique impossible", exc_info=True)
                     # 2026-02 fork (P3b) — Emit `whatsapp.received` automation

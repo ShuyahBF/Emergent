@@ -72,6 +72,22 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // The toolbar at the top of the page provides the search input and a
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
+// Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
+const NEW_LOTS = {
+  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "63",
+  "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
+  "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
+  "Transmission WA Universelle Liluvine (webhook entrant)": "62",
+  "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "59",
+  "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "57.8",
+  "Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)": "52",
+  "Cycle de vie des abonnements (suspension J+110, archivage J+113)": "51",
+  "Maintenance — Déconnexion de tous les utilisateurs": "50",
+  "Abonnements (grâce et coupure) et sessions des comptes": "50",
+  "Sauvegarde / transfert des données": "49",
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "42",
+};
+
 const NEW_SECTIONS = {
   // Lots 59 à 63 (05-06/10/2026) — numéros WhatsApp multiples, appels, liste noire, barrière, plateformes
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-06",
@@ -351,7 +367,9 @@ const CartesNouveautes = () => {
             className="relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md"
             data-testid={`carte-nouveaute-${ctx.registry[t]?.anchorId}`}>
             <span className="absolute -top-2 right-2 rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-bold text-white">NOUVEAU</span>
-            <p className="line-clamp-2 text-xs font-semibold text-slate-900">{t}</p>
+            <p className="line-clamp-2 text-xs font-semibold text-slate-900">
+              {t}{NEW_LOTS[t] && <span className="font-normal text-sky-700"> (Lot {NEW_LOTS[t]})</span>}
+            </p>
             {NEW_DESCRIPTIONS[t] && <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{NEW_DESCRIPTIONS[t]}</p>}
             <p className="mt-1 text-[10px] text-slate-400">Ajouté le {new Date(NEW_SECTIONS[t]).toLocaleDateString("fr-FR")}</p>
           </button>

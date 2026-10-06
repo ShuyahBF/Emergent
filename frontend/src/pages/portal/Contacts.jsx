@@ -2790,14 +2790,19 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         )}
         {/* Lot 64.13 — bandeau : messages retenus par la barrière anti-rafale */}
         {retenus.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900"
+          // Lot 64.16 — couleurs paramétrables (Paramètres → Barrière anti-rafale), bleu / blanc par défaut,
+          // pour ne pas confondre ce bandeau avec celui des tickets (orange)
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs"
+            style={{ background: data.bandeau_barriere?.fond || "#1d4ed8", color: data.bandeau_barriere?.texte || "#ffffff" }}
             data-testid="bandeau-barriere-retenus">
             <span>
               🚧 <strong>{retenus.length}</strong> message(s) de ce contact retenu(s) par la barrière anti-rafale
               {" "}(dernier : {new Date(retenus[retenus.length - 1].created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })})
             </span>
             <button type="button" onClick={insererRetenus} disabled={insertionRetenus}
-              className="rounded-lg bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              className="rounded-lg border px-3 py-1 font-semibold hover:opacity-90 disabled:opacity-50"
+              style={{ background: data.bandeau_barriere?.texte || "#ffffff", color: data.bandeau_barriere?.fond || "#1d4ed8",
+                       borderColor: data.bandeau_barriere?.texte || "#ffffff" }}
               data-testid="inserer-retenus">
               {insertionRetenus ? "Patientez…" : "Insérer dans la conversation"}
             </button>

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.15"
-LOT_LIBELLE = "Conversation WA : détection automatique des messages rangés chez un autre compte et bouton « Rattacher à cette fiche »"
+LOT = "64.16"
+LOT_LIBELLE = "Bandeau des messages retenus par la barrière : bleu / blanc par défaut, couleurs réglables dans les Paramètres"

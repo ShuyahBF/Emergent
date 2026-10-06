@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.3"
-LOT_LIBELLE = "Appels WhatsApp (reçus et émis) affichés dans le fil de conversation du contact et dans l'Inbox unifiée"
+LOT = "64.4"
+LOT_LIBELLE = "Barrière anti-rafale : trace de chaque décision dans les journaux et diagnostic détaillé (10 derniers échanges)"

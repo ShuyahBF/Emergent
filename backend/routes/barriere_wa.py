@@ -19,6 +19,7 @@
 # formulaires ou autorisations d'appel.
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -26,6 +27,7 @@ from typing import Any, Dict, Optional
 MESSAGE_DEFAUT = ("Sans réponse de votre correspondant, tout autre message de votre part ne sera pas "
                   "transmis. Instructions de l'Administrateur. Attendez une réponse avant de poursuivre SVP.")
 # Types de messages concernés (les réponses à des boutons / formulaires restent libres)
+logger = logging.getLogger("sawali.barriere_wa")
 TYPES_CONCERNES = {"text", "image", "audio", "video", "document", "sticker", "location", "contacts"}
 
 
@@ -118,14 +120,29 @@ async def messages_sans_reponse(db, chiffres: str, reglages: Dict[str, Any]) -> 
 
 async def decision(db, chiffres: str, mtype: str, texte: Optional[str], s: Dict[str, Any]) -> str:
     """« normal » (laisser passer), « avertir » (laisser passer + réponse barrière)
-    ou « retenir » (ne pas transmettre)."""
+    ou « retenir » (ne pas transmettre).
+
+    Lot 64.4 — chaque décision est tracée dans les journaux du serveur (4 derniers chiffres
+    du numéro seulement) pour pouvoir expliquer un comportement inattendu."""
     reglages = reglages_barriere(s)
-    if not reglages or not est_concerne(reglages, chiffres, mtype, texte):
+    fin4 = _chiffres(chiffres)[-4:]
+    if not reglages:
+        logger.info("[barriere_wa] …%s : barrière désactivée", fin4)
         return "normal"
-    rang = await messages_sans_reponse(db, chiffres, reglages) + 1      # rang du message en cours
+    if not est_concerne(reglages, chiffres, mtype, texte):
+        logger.info("[barriere_wa] …%s : message non concerné (type=%s)", fin4, mtype)
+        return "normal"
+    etat = await etat_correspondant(db, chiffres, reglages)
+    rang = etat["sans_reponse"] + 1                     # rang du message en cours
     if rang < reglages["seuil"]:
-        return "normal"
-    return "avertir" if rang == reglages["seuil"] else "retenir"
+        resultat = "normal"
+    else:
+        resultat = "avertir" if rang == reglages["seuil"] else "retenir"
+    derniere = etat.get("derniere_reponse") or {}
+    logger.info("[barriere_wa] …%s : message n° %s sans réponse (seuil %s) → %s ; dernière réponse : %s (%s)",
+                fin4, rang, reglages["seuil"], resultat, derniere.get("created_at") or "aucune",
+                derniere.get("sender_label") or "—")
+    return resultat
 
 
 def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
@@ -157,7 +174,27 @@ def setup_barriere_wa_routes(*, db, api, get_current_user) -> None:
             "avertir": f"Prochain message : n° {rang} = seuil — transmis, puis réponse automatique de la barrière.",
             "retenir": f"Prochain message : n° {rang} au-delà du seuil — retenu jusqu'à votre réponse.",
         }[decision_suivante]
+        # Lot 64.4 — 10 derniers échanges avec ce numéro, et leur effet sur la barrière
+        fin = re.escape(chiffres[-8:])
+        filtre_rep = _filtre_reponse(fin, reglages)
+        echanges = []
+        async for m in db.whatsapp_messages.find(
+                {"$or": [{"phone_digits": {"$regex": fin + "$"}}, {"to": {"$regex": fin + "$"}},
+                         {"to_number": {"$regex": fin + "$"}}]},
+                {"_id": 0, "id": 1, "direction": 1, "created_at": 1, "body": 1, "text": 1, "sender_label": 1,
+                 "sender_id": 1, "ai_generated": 1, "auto_reply": 1, "barriere_auto": 1, "barriere_retenu": 1,
+                 "source": 1, "message_type": 1}).sort("created_at", -1).limit(10):
+            leve = False
+            if m.get("direction") == "outbound":
+                leve = bool(await db.whatsapp_messages.count_documents({**filtre_rep, "id": m.get("id")})) if m.get("id") else False
+            echanges.append({
+                "le": m.get("created_at"), "sens": "reçu" if m.get("direction") == "inbound" else "envoyé",
+                "texte": (m.get("body") or m.get("text") or "")[:80],
+                "par": m.get("sender_label") or ("Liluvine" if m.get("ai_generated") or m.get("auto_reply") else ""),
+                "retenu": bool(m.get("barriere_retenu")), "leve_la_barriere": leve,
+            })
         return {
+            "echanges": echanges,
             "active": True, "seuil": reglages["seuil"], "fenetre_heures": reglages["fenetre_heures"],
             "messages_sans_reponse": etat["sans_reponse"], "decision": decision_suivante,
             "derniere_reponse_le": (derniere or {}).get("created_at"),

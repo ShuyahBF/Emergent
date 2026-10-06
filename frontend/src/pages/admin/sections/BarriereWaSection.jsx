@@ -186,6 +186,25 @@ export default function BarriereWaSection() {
                   : "aucune"}
               </p>
             )}
+            {/* Lot 64.4 — 10 derniers échanges avec ce numéro et leur effet sur la barrière */}
+            {(diag.echanges || []).length > 0 && (
+              <table className="mt-2 w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-slate-500"><th className="pr-2">Date</th><th className="pr-2">Sens</th><th className="pr-2">Texte</th><th className="pr-2">Par</th><th>Effet</th></tr>
+                </thead>
+                <tbody>
+                  {diag.echanges.map((e, k) => (
+                    <tr key={k} className="border-t border-slate-200">
+                      <td className="pr-2 whitespace-nowrap">{e.le ? new Date(e.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</td>
+                      <td className="pr-2">{e.sens}</td>
+                      <td className="pr-2 max-w-[260px] truncate">{e.texte}</td>
+                      <td className="pr-2">{e.par || "—"}</td>
+                      <td>{e.retenu ? "Retenu" : e.leve_la_barriere ? "Lève la barrière" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>

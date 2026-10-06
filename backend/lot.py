@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "64.7"
-LOT_LIBELLE = "Plateformes en temps réel : indique ce qui manque pour brancher les statistiques d'une plateforme (URL de retour, clé, activation)"
+LOT = "64.8"
+LOT_LIBELLE = "Transmission WA Universelle : confirmation « enregistré » après chaque modification d'un émetteur"

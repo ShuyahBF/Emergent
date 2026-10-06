@@ -381,6 +381,9 @@ def test_appel_de_bout_en_bout_local(monkeypatch):
     assert res["resultat"] == "décroché", res
     assert actions == ["connect", "terminate"]
     assert recu["trames"] > 20 and recu["son"] > 5            # la voix a bien été reçue par « Meta »
+    # Lot 67.1 — mesures pour l'historique : voix, caractères, conversation mesurée par le serveur
+    m = res["mesures"]
+    assert m["voix"] == "test" and m["tts_caracteres"] == len("Bonjour") and m["conversation_s"] >= 1
     doc = lancer(db.wa_appels.find_one({"id": "wacid.LOCAL"}))
     assert doc["motif"] == ap.MOTIF and doc["resultat"] == "décroché" and doc["direction"] == "sortant"
 

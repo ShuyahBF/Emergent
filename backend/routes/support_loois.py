@@ -8,9 +8,11 @@ Principe (pour un développeur WinDev)
   1-à-1 (« École des Métiers — PC-SECRETARIAT (marie) »). L'administrateur répond depuis le portail,
   comme à n'importe quel membre.
 - Côté Loois, aucune connexion SAWALI (ni identifiant ni mot de passe) : le poste ouvre le
-  WebSocket ``/api/ws/support-loois?cle=…&ecole=…&poste=…&utilisateur=…``. La clé partagée est
-  la variable d'environnement ``LOOIS_SUPPORT_CLE`` (saisie par le propriétaire sur Render ET une
-  fois dans Loois) : sans elle, le support est fermé.
+  WebSocket ``/api/ws/support-loois?cle=…&ecole=…&poste=…&utilisateur=…``. Lot 68.1 : la clé est la
+  CLÉ CLIENT Loois du client (une par client, voir loois_cles_clients.py) ; la clé commune
+  ``LOOIS_SUPPORT_CLE`` (Render) reste acceptée pour les postes qui ne l'ont pas encore remplacée.
+  Sans clé valable, le support est fermé. Un poste signé par une clé client est rattaché à ce client
+  (champs ``cle_client_code`` / ``cle_client_libelle`` de la fiche du poste).
 - Un poste n'est PAS un utilisateur SAWALI : il n'a pas de jeton, ne voit que SES messages et ne peut
   rien faire d'autre qu'écrire au support.
 
@@ -123,8 +125,16 @@ def cle_configuree() -> str:
 
 
 def actif() -> bool:
-    """Le support n'existe que si le propriétaire a saisi LOOIS_SUPPORT_CLE sur Render."""
-    return bool(cle_configuree())
+    """Le support existe si la clé commune LOOIS_SUPPORT_CLE est saisie sur Render, ou (lot 68.1) si au moins une
+    clé client active a été vue par ce serveur."""
+    from routes import loois_cles_clients as cles   # import tardif (évite une boucle d'imports)
+    return bool(cle_configuree()) or bool(cles.ETAT.get("clients_actifs"))
+
+
+async def identifier_poste(db, cle_recue: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lot 68.1 — clé d'un poste : clé client (→ client identifié) ou clé commune ; None si refusée."""
+    from routes import loois_cles_clients as cles   # import tardif (évite une boucle d'imports)
+    return await cles.identifier_cle(db, cle_recue)
 
 
 def cle_valide(cle_recue: Optional[str]) -> bool:
@@ -351,7 +361,8 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         q = websocket.query_params
         # Lot 57.13 — clé lue de préférence dans l'en-tête X-Loois-Cle (jamais journalisée dans l'adresse)
         cle = websocket.headers.get("x-loois-cle") or q.get("cle")
-        if not actif() or not cle_valide(cle):
+        identite = await identifier_poste(db, cle)   # lot 68.1 : clé client ou clé commune
+        if not identite:
             await websocket.send_json({"type": "erreur", "detail": "Support fermé ou clé du support incorrecte."})
             await websocket.close(code=4401)
             return
@@ -367,7 +378,9 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         await db.support_loois_postes.update_one(
             {"id": pid},
             {"$set": {"nom": nom, "ecole": ecole, "poste": poste, "utilisateur": utilisateur,
-                      "version_loois": version, "dernier_contact": now_iso()},
+                      "version_loois": version, "dernier_contact": now_iso(),
+                      # Lot 68.1 : client identifié par sa clé (None avec la clé commune)
+                      "cle_client_code": identite.get("code"), "cle_client_libelle": identite.get("libelle")},
              "$setOnInsert": {"id": pid, "premier_contact": now_iso()}},
             upsert=True,
         )
@@ -486,10 +499,11 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
     # ------------------------------------------------------------------
     # Lot 57.13 — IMAGES échangées avec les postes Loois
     # ------------------------------------------------------------------
-    def _poste_de_la_requete(request: Request) -> Dict[str, str]:
-        """Identité du poste dans les en-têtes X-Loois-* (valeurs encodées en %XX par Loois) ; 401 si clé refusée."""
+    async def _poste_de_la_requete(request: Request) -> Dict[str, str]:
+        """Identité du poste dans les en-têtes X-Loois-* (valeurs encodées en %XX par Loois) ; 401 si clé refusée
+        (lot 68.1 : clé client ou clé commune)."""
         h = request.headers
-        if not actif() or not cle_valide(h.get("x-loois-cle")):
+        if not await identifier_poste(db, h.get("x-loois-cle")):
             raise HTTPException(status_code=401, detail="Support fermé ou clé du support incorrecte.")
         ecole = nettoyer(unquote(h.get("x-loois-ecole") or ""), 80)
         poste = nettoyer(unquote(h.get("x-loois-poste") or ""), 60)
@@ -501,7 +515,7 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
     async def support_loois_photo(request: Request, photo: UploadFile = File(...), caption: Optional[str] = Form(None)):
         """Un poste Loois envoie une image (capture d'écran, photo) au support : rangée dans le chat interne
         comme une photo ordinaire, visible et annotable par les administrateurs."""
-        ident = _poste_de_la_requete(request)
+        ident = await _poste_de_la_requete(request)
         pid = ident["pid"]
         mime = (photo.content_type or "").lower()
         if mime not in TYPES_IMAGES:
@@ -551,7 +565,7 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
     async def support_loois_media(msg_id: str, request: Request):
         """Image d'un message du fil de CE poste (envoyée par lui ou par un administrateur) ; jamais celle
         d'un autre poste ni d'un autre espace."""
-        pid = _poste_de_la_requete(request)["pid"]
+        pid = (await _poste_de_la_requete(request))["pid"]
         m = await db.internal_chat_messages.find_one({"id": msg_id, "client_id": ESPACE_ID}, {"_id": 0})
         if not m or pid not in (m.get("sender_id"), m.get("recipient_id")) or not m.get("storage_path"):
             raise HTTPException(status_code=404, detail="Image introuvable.")
@@ -600,7 +614,7 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
     async def support_loois_fichier(request: Request, fichier: UploadFile = File(...),
                                     caption: Optional[str] = Form(None)):
         """Un poste Loois envoie un document ou une vidéo de son écran (session en attente ou active)."""
-        ident = _poste_de_la_requete(request)
+        ident = await _poste_de_la_requete(request)
         pid = ident["pid"]
         if not await sessions.session_en_cours(db, pid):
             raise HTTPException(status_code=409, detail="Aucune session d'assistance en cours.")

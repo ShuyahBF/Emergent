@@ -109,6 +109,8 @@ export default function VersionsDeployees() {
                               title={p.en_ligne ? "En cours d'exécution" : "Aucun signal récent"} />
                             {p.machine}
                             {!p.verifie && <span className="ml-1 text-[10px] text-slate-400" title="Signal envoyé sans la clé du support">(non vérifié)</span>}
+                            {/* Lot 68.1 : signal signé par une clé client → client identifié */}
+                            {p.verifie && p.verifie_client && <span className="ml-1 text-[10px] text-emerald-700" title="Signal signé par la clé client Loois">(vérifié · {p.verifie_client})</span>}
                           </td>
                           <td className="px-2 py-1.5">{p.composant}</td>
                           <td className="px-2 py-1.5">

@@ -8,7 +8,9 @@
 #      corps : {"application": "Loois", "version": "1.2610.610.44", "deploye_le": "<ISO>",
 #               "machine": "POSTE-ACCUEIL", "utilisateur": "secretariat", "site": "Clinique X",
 #               "systeme": "Windows 10.0.19045", "demarre_le": "<ISO>"}
-#      en-tête facultatif : X-Cle-Loois = LOOIS_SUPPORT_CLE (variable d'environnement Render)
+#      en-tête facultatif : X-Cle-Loois = CLÉ CLIENT Loois (lot 68.1, une par client) ou, à défaut, la clé
+#      commune LOOIS_SUPPORT_CLE (variable d'environnement Render, toujours acceptée ici pour les anciens postes).
+#      Un signal signé par une clé client est affiché « vérifié · <client> » (champ « verifie_client »).
 #    La clé est FACULTATIVE (le service Windows tourne sous le compte Système, qui n'a pas la clé
 #    enregistrée par l'utilisateur) : un signal sans clé est accepté mais marqué « non vérifié ».
 #    Une seule fiche par (application, machine, composant) : la collection ne grossit pas avec le
@@ -236,7 +238,8 @@ def fusion_parc(existant: Dict[str, Any], champs: Dict[str, Any]) -> Dict[str, A
 
 
 def cle_valide(cle_recue: Optional[str]) -> bool:
-    """Vrai si la clé reçue est LOOIS_SUPPORT_CLE (comparaison à temps constant)."""
+    """Vrai si la clé reçue est la clé COMMUNE LOOIS_SUPPORT_CLE (comparaison à temps constant). Lot 68.1 : la
+    présence utilise désormais loois_cles_clients.identifier_cle (clé client OU clé commune)."""
     attendue = (os.environ.get("LOOIS_SUPPORT_CLE") or "").strip()
     recue = (cle_recue or "").strip()
     return bool(attendue and recue) and hmac.compare_digest(attendue, recue)
@@ -253,7 +256,8 @@ def regrouper_logiciels(fiches: List[Dict[str, Any]], maintenant: datetime) -> L
         except ValueError:
             continue
         poste = {k: f.get(k) for k in ("machine", "composant", "version", "deploye_le", "utilisateur",
-                                       "site", "systeme", "demarre_le", "vu_le", "premiere_fois", "verifie")}
+                                       "site", "systeme", "demarre_le", "vu_le", "premiere_fois", "verifie",
+                                       "verifie_client")}
         poste["en_ligne"] = vu >= limite
         app = par_application.setdefault(f["application"], {"application": f["application"], "postes": []})
         app["postes"].append(poste)
@@ -355,12 +359,16 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
         if not existe and await db.presences_logiciels.count_documents({}) >= MAX_POSTES:
             raise HTTPException(status_code=429, detail="trop de postes enregistrés")
         maintenant = _maintenant().isoformat()
-        verifie = cle_valide(request.headers.get("X-Cle-Loois"))
+        # Lot 68.1 : clé client (→ client identifié) ou clé commune ; sans clé valable le signal reste accepté (« non vérifié »)
+        from routes import loois_cles_clients as cles   # import tardif (évite une boucle d'imports)
+        identite = await cles.identifier_cle(db, request.headers.get("X-Cle-Loois"), machine=fiche["machine"])
+        verifie = bool(identite)
+        verifie_client = cles.libelle_identite(identite)
         # Lot 66 : inventaire facultatif (ignoré s'il est trop gros ou illisible ; le signal reste accepté)
         inventaire = nettoyer_inventaire(corps.get("inventaire"))
         en_plus: Dict[str, Any] = {"inventaire_le": maintenant} if inventaire else {}
         await db.presences_logiciels.update_one(cle, {
-            "$set": {**fiche, "vu_le": maintenant, "verifie": verifie,
+            "$set": {**fiche, "vu_le": maintenant, "verifie": verifie, "verifie_client": verifie_client,
                      "adresse_ip": (request.client.host if request.client else None), **en_plus},
             "$setOnInsert": {"premiere_fois": maintenant},
         }, upsert=True)

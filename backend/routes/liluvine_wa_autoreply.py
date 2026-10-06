@@ -502,6 +502,14 @@ async def autoreply_to_inbound(
         deny_list_cmd = _norm_phones(settings_doc.get("liluvine_wa_autoreply_deny_phones"))
         if phone_digits in deny_list_cmd:
             return {"ok": False, "reason": "denylisted"}
+        # Lot 61 — liste noire des commandes « ! » (commande éventuellement issue de la
+        # correction automatique d'un texte libre) : refus, avec le message de refus
+        try:
+            from routes.liste_noire_commandes import refuser_si_bloque
+            if await refuser_si_bloque(db, phone_digits, text, envoyer=wa_send_text):
+                return {"ok": False, "reason": "liste_noire_commandes"}
+        except Exception:  # noqa: BLE001
+            logger.warning("[wa_autoreply] contrôle de la liste noire des commandes impossible", exc_info=True)
 
         # Iter43-fix24ac (2026-06-16) — Configurable VIDAL `!commands`.
         # On essaie d'abord de matcher avec une action VIDAL configurée

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "60"
-LOT_LIBELLE = "Appels WhatsApp dans le portail : sonnerie, décroché dans le navigateur, rappel avec autorisation du client, journal des appels avec durées"
+LOT = "61"
+LOT_LIBELLE = "Liste noire des commandes « ! » avec message de Liluvine, activité de chaque plateforme dans la synthèse quotidienne, participants des RDV choisis par leur nom"

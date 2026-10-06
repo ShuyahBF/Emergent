@@ -13,6 +13,7 @@ import LiluvineReactionsSection from "@/pages/admin/sections/LiluvineReactionsSe
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
+import ListeNoireCommandesSection from "@/pages/admin/sections/ListeNoireCommandesSection";   // Lot 61
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
@@ -844,6 +845,11 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">
         <LiluvineWaAutoreplySection />
+      </Filterable>
+
+      {/* Lot 61 — numéros interdits aux commandes « ! » et message de refus de Liluvine */}
+      <Filterable title="⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)" anchorId="s-liste-noire-commandes">
+        <ListeNoireCommandesSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Bypass (emails autorisés malgré feature OFF)" anchorId="s-liluvine-bypass">

@@ -2053,7 +2053,24 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const messages = data.messages || [];
   // Lot 64.3 — appels WhatsApp (reçus et émis) de ce contact, intercalés dans le fil
   const appelsWa = useAppelsWa(contact.whatsapp || contact.phone);
-  const filAvecAppels = React.useMemo(() => fusionnerAppels(messages, appelsWa), [messages, appelsWa]);
+  // Lot 64.13 — messages RETENUS par la barrière anti-rafale : signalés par un bandeau (nombre)
+  // et retirés du fil tant qu'on ne les a pas insérés dans la conversation
+  const retenus = React.useMemo(() => messages.filter((m) => m.barriere_retenu), [messages]);
+  const messagesFil = React.useMemo(() => messages.filter((m) => !m.barriere_retenu), [messages]);
+  const filAvecAppels = React.useMemo(() => fusionnerAppels(messagesFil, appelsWa), [messagesFil, appelsWa]);
+  const [insertionRetenus, setInsertionRetenus] = useState(false);
+  const insererRetenus = async () => {
+    setInsertionRetenus(true);
+    try {
+      const r = await apiClient.post(`/me/contacts/${contact.id}/barriere/liberer`);
+      toast.success(`${r.data?.liberes || 0} message(s) inséré(s) dans la conversation`);
+      await load(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Insertion impossible");
+    } finally {
+      setInsertionRetenus(false);
+    }
+  };
   const canSendText = !!data.can_send_text;
   const windowExpires = data.window_expires_at;
 
@@ -2733,6 +2750,21 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             className="absolute left-1/2 -translate-x-1/2 bottom-40 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-600 text-white text-xs px-3 py-1.5 shadow-lg hover:bg-emerald-700">
             <ArrowDown className="h-3.5 w-3.5" /> Nouveau message
           </button>
+        )}
+        {/* Lot 64.13 — bandeau : messages retenus par la barrière anti-rafale */}
+        {retenus.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900"
+            data-testid="bandeau-barriere-retenus">
+            <span>
+              🚧 <strong>{retenus.length}</strong> message(s) de ce contact retenu(s) par la barrière anti-rafale
+              {" "}(dernier : {new Date(retenus[retenus.length - 1].created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })})
+            </span>
+            <button type="button" onClick={insererRetenus} disabled={insertionRetenus}
+              className="rounded-lg bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              data-testid="inserer-retenus">
+              {insertionRetenus ? "Patientez…" : "Insérer dans la conversation"}
+            </button>
+          </div>
         )}
         <div ref={scrollContainerRef} onScroll={() => { if (newBelow && nearBottom()) setNewBelow(false); }}
           className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">

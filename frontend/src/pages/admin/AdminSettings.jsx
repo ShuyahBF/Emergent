@@ -3472,9 +3472,14 @@ export default function AdminSettings() {
         💡 <strong>Astuce</strong> : les sections <strong>S057 (Habillage)</strong>, <strong>S058 (VIDAL)</strong> et <strong>S059 (Synthèse / Officines / Image sidebar)</strong> ont chacune leur propre bouton « Enregistrer » de couleur (fuchsia / rose / violet). Le bouton bleu ci-dessous ne sauvegarde QUE les paramètres généraux.
       </div>
 
-      <button onClick={save} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-settings-btn">
-        <Save className="h-4 w-4" /> {loading ? "Enregistrement..." : "Enregistrer les paramètres généraux"}
-      </button>
+      {/* Lot 64.13 — barre fixée en bas de l'écran : le bouton reste accessible quel que soit
+          le défilement (inutile de descendre toute la page pour enregistrer) */}
+      <div className="sticky bottom-0 z-40 -mx-3 sm:-mx-6 lg:-mx-10 border-t border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-4px_12px_rgba(15,23,42,0.06)] backdrop-blur sm:px-6 lg:px-10"
+        data-testid="barre-enregistrer-parametres">
+        <button onClick={save} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-settings-btn">
+          <Save className="h-4 w-4" /> {loading ? "Enregistrement..." : "Enregistrer les paramètres généraux"}
+        </button>
+      </div>
     </div>
     </SettingsFilterCtx.Provider>
   );

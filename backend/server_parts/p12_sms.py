@@ -1379,6 +1379,30 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
     }
 
 
+@api.post("/me/contacts/{cid}/barriere/liberer", tags=["Portail Client"])
+async def me_contact_barriere_liberer(cid: str, user: dict = Depends(get_current_user)):
+    """Lot 64.13 — « Insérer dans la conversation » : les messages de ce contact RETENUS par
+    la barrière anti-rafale redeviennent des messages ordinaires de la conversation
+    (la trace de la retenue est conservée : barriere_libere_le / barriere_libere_par)."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    contact = await db.directory_contacts.find_one(
+        {"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0},
+    )
+    # Même contrôle que la lecture de la conversation (ligne WhatsApp autorisée)
+    from routes.numeros_wa import telephone_visible
+    if contact and not await telephone_visible(db, user, contact.get("whatsapp") or contact.get("phone"), contact):
+        contact = None
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    res = await db.whatsapp_messages.update_many(
+        {"client_id": {"$in": visible_scope}, "direction": "inbound", "barriere_retenu": True,
+         "$or": _contact_phone_clauses(contact)},
+        {"$set": {"barriere_retenu": False, "barriere_libere_le": _now(),
+                  "barriere_libere_par": user.get("full_name") or user.get("email")}},
+    )
+    return {"ok": True, "liberes": int(getattr(res, "modified_count", 0) or 0)}
+
+
 # ---------- Meta Cloud API webhook ----------
 @api.get("/whatsapp/webhook", tags=["Webhook"])
 async def whatsapp_webhook_verify(

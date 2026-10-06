@@ -7,5 +7,6 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "68.2"
-LOT_LIBELLE = "Paramètres : cartes « Nouveautés » mises à jour (lots 65 à 68.1, y compris les écrans Plateformes et Loois → Synchro)"
+# Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
+LOT = "68.3"
+LOT_LIBELLE = "Nouveautés systématiques : chaque lot a sa carte dans les Paramètres (source unique nouveautes.py, contrôle automatique)"

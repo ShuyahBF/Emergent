@@ -37,6 +37,9 @@ export default function BarriereWaSection() {
         wa_barriere_image_url: s.wa_barriere_image_url || "",
         wa_barriere_liluvine_compte: !!s.wa_barriere_liluvine_compte,
         wa_barriere_exemptes: s.wa_barriere_exemptes || "",
+        // Lot 64.16 — couleurs du bandeau « messages retenus » dans la conversation
+        wa_barriere_bandeau_fond: s.wa_barriere_bandeau_fond || "#1d4ed8",
+        wa_barriere_bandeau_texte: s.wa_barriere_bandeau_texte || "#ffffff",
       });
     }).catch(() => toast.error("Réglages indisponibles"));
   }, []);
@@ -177,6 +180,32 @@ export default function BarriereWaSection() {
         <input value={form.wa_barriere_exemptes} onChange={(e) => maj("wa_barriere_exemptes", e.target.value)}
           placeholder="+226 70 00 00 00, +226 76 00 00 00" className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
       </label>
+
+      {/* Lot 64.16 — couleurs du bandeau de signalement dans la conversation WhatsApp, avec aperçu */}
+      <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200 text-xs">
+        <p className="mb-2 font-semibold text-slate-700">Couleurs du bandeau de signalement (conversation WhatsApp)</p>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="inline-flex items-center gap-2">Fond
+            <input type="color" value={form.wa_barriere_bandeau_fond} onChange={(e) => maj("wa_barriere_bandeau_fond", e.target.value)}
+              className="h-8 w-12 cursor-pointer rounded border border-slate-300" data-testid="barriere-bandeau-fond" />
+          </label>
+          <label className="inline-flex items-center gap-2">Texte
+            <input type="color" value={form.wa_barriere_bandeau_texte} onChange={(e) => maj("wa_barriere_bandeau_texte", e.target.value)}
+              className="h-8 w-12 cursor-pointer rounded border border-slate-300" data-testid="barriere-bandeau-texte" />
+          </label>
+          <button type="button" onClick={() => { maj("wa_barriere_bandeau_fond", "#1d4ed8"); maj("wa_barriere_bandeau_texte", "#ffffff"); }}
+            className="text-sky-700 hover:underline">Couleurs par défaut (bleu / blanc)</button>
+        </div>
+        {/* Aperçu du bandeau tel qu'il apparaîtra dans la conversation */}
+        <div className="mt-2 flex items-center justify-between rounded px-3 py-2"
+          style={{ background: form.wa_barriere_bandeau_fond, color: form.wa_barriere_bandeau_texte }}>
+          <span>🚧 <strong>3</strong> message(s) de ce contact retenu(s) par la barrière anti-rafale</span>
+          <span className="rounded border px-2 py-0.5 font-semibold"
+            style={{ background: form.wa_barriere_bandeau_texte, color: form.wa_barriere_bandeau_fond, borderColor: form.wa_barriere_bandeau_texte }}>
+            Insérer dans la conversation
+          </span>
+        </div>
+      </div>
 
       {/* Lot 64.2 — diagnostic : état de la barrière pour un numéro (réglages ENREGISTRÉS) */}
       <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">

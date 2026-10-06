@@ -1388,7 +1388,13 @@ async def me_contact_messages(cid: str, verifier_ailleurs: bool = False, user: d
                     ailleurs = {"n": n_ailleurs, "dernier": (dernier or {}).get("created_at")}
         except Exception:  # noqa: BLE001 — la vérification ne bloque jamais la conversation
             logger.warning("[wa] vérification des messages rangés ailleurs impossible", exc_info=True)
+    # Lot 64.16 — couleurs du bandeau de la barrière (réglables dans les Paramètres ; bleu / blanc par défaut)
+    s_couleurs = await db.settings.find_one(
+        {"_id": "global"}, {"_id": 0, "wa_barriere_bandeau_fond": 1, "wa_barriere_bandeau_texte": 1}) or {}
+    bandeau_barriere = {"fond": s_couleurs.get("wa_barriere_bandeau_fond") or "#1d4ed8",
+                        "texte": s_couleurs.get("wa_barriere_bandeau_texte") or "#ffffff"}
     return {
+        "bandeau_barriere": bandeau_barriere,
         "ailleurs": ailleurs,
         "contact": contact,
         "messages": items,

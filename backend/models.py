@@ -969,6 +969,9 @@ class SettingsUpdate(BaseModel):
     wa_barriere_image_url: Optional[str] = None
     wa_barriere_liluvine_compte: Optional[bool] = None
     wa_barriere_exemptes: Optional[str] = None
+    # Lot 64.16 — couleurs du bandeau « messages retenus par la barrière » (conversation WhatsApp)
+    wa_barriere_bandeau_fond: Optional[str] = None
+    wa_barriere_bandeau_texte: Optional[str] = None
     wa_principal_couleur_fond: Optional[str] = None  # Lot 59.1 — couleur de fond de la pastille (défaut #ffffff)
     wa_principal_couleur_texte: Optional[str] = None # Lot 59.1 — couleur du texte de la pastille (défaut #000000)
     # Iter35b — WhatsApp inbound-silence detector

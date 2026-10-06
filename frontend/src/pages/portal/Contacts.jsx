@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import CrossTenantSearch from "@/components/CrossTenantSearch";
 import { ContactGroupChips } from "@/components/ContactGroupChips";
+import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -2050,6 +2051,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   }, [pendingFile?.previewUrl]);
 
   const messages = data.messages || [];
+  // Lot 64.3 — appels WhatsApp (reçus et émis) de ce contact, intercalés dans le fil
+  const appelsWa = useAppelsWa(contact.whatsapp || contact.phone);
+  const filAvecAppels = React.useMemo(() => fusionnerAppels(messages, appelsWa), [messages, appelsWa]);
   const canSendText = !!data.can_send_text;
   const windowExpires = data.window_expires_at;
 
@@ -2734,10 +2738,12 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
           {loading ? (
             <p className="text-center text-slate-500 text-sm">Chargement…</p>
-          ) : messages.length === 0 ? (
+          ) : filAvecAppels.length === 0 ? (
             <p className="text-center text-slate-400 italic text-sm py-8">Aucun message échangé pour l'instant.</p>
           ) : (
-            messages.map((m) => <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo} />)
+            filAvecAppels.map((m) => (m.__appel
+              ? <BulleAppelWa key={m.id} a={m} />
+              : <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo} />))
           )}
           <div ref={scrollEndRef} data-testid="conversation-scroll-end" />
         </div>

@@ -8,6 +8,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
+import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 import EmojiPicker from "@/components/EmojiPicker";
 import CalendrierModal from "@/components/CalendrierModal";   // lot 41
 import { apiClient } from "@/lib/api";
@@ -29,6 +30,9 @@ export default function UnifiedInbox() {
   const [selected, setSelected] = useState(null); // {channel, peer_id, page_id?, peer_name}
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  // Lot 64.3 — appels WhatsApp du correspondant ouvert, intercalés dans le fil
+  const appelsWa = useAppelsWa(selected?.channel === "whatsapp" ? selected.peer_id : "");
+  const filAvecAppels = React.useMemo(() => fusionnerAppels(messages, appelsWa), [messages, appelsWa]);
   const [filterCh, setFilterCh] = useState("all");
   const [composer, setComposer] = useState("");
   const composerRef = useRef(null);   // lot 27 : insertion d'emojis au curseur
@@ -331,9 +335,10 @@ export default function UnifiedInbox() {
               <div ref={filRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2 bg-slate-50" data-testid="inbox-fil">
                 {loadingMsgs ? (
                   <Loader2 className="h-5 w-5 animate-spin text-indigo-500 mx-auto" />
-                ) : messages.length === 0 ? (
+                ) : filAvecAppels.length === 0 ? (
                   <p className="text-xs text-slate-400 italic text-center">Aucun message.</p>
-                ) : messages.map((m, i) => {
+                ) : filAvecAppels.map((m, i) => {
+                  if (m.__appel) return <BulleAppelWa key={m.id} a={m} />;   // Lot 64.3 — appel WhatsApp
                   const isOut = m.direction === "outbound";
                   const showRecallBtn = isOut && canRecall(m);
                   if (m.is_recalled) {

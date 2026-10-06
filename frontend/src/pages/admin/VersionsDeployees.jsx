@@ -1,10 +1,9 @@
-// VersionsDeployees.jsx — Lot 65 : versions déployées de chaque solution, affichées en bas de la
-// page « Plateformes en temps réel » (administrateur).
+// VersionsDeployees.jsx — Lot 65 : solutions WINDOWS déployées chez les clients (Loois, LooisSyncService,
+// et toute application WinDev qui envoie le même signal), en bas de la page « Plateformes en temps réel ».
+// Lot 65.1 : section recentrée sur les postes Windows (suivi des postes clients), tableau des plateformes
+// web retiré ; colonne « Lancé le » (heure de démarrage du logiciel sur le poste).
 //
-// - SAWALI : libellé complet (page d'administration) « Version X · Lot N · commit · déployée le … » ;
-// - plateformes web (Ster, adLyn, beAuthentik, ALBARKA…) : version jointe à leurs statistiques
-//   (« non communiquée » tant que la plateforme ne l'envoie pas) ;
-// - logiciels de bureau (Loois, LooisSyncService) : un tableau des postes qui les exécutent, avec
+// - logiciels de bureau : un tableau des postes qui les exécutent, avec
 //   la version de chacun, l'utilisateur Windows, le site, et une pastille verte s'il a donné signe
 //   de vie il y a moins de 12 minutes. Les postes qui n'ont pas la dernière version sont signalés.
 import React, { useCallback, useEffect, useState } from "react";
@@ -60,46 +59,21 @@ export default function VersionsDeployees() {
     return () => clearInterval(t);
   }, [lire]);
 
-  const s = donnees?.sawali;
   return (
     <section className="space-y-3" data-testid="versions-deployees">
-      <h2 className="text-xl font-display font-bold">🏷️ Versions déployées</h2>
+      <h2 className="text-xl font-display font-bold">🖥️ Postes Windows — versions déployées</h2>
+      <p className="text-xs text-slate-500">
+        Chaque poste client qui exécute Loois (ou le service de synchronisation) envoie un signal toutes les 5 minutes :
+        pastille verte = en cours d'exécution, badge orange = version à mettre à jour.
+      </p>
       {erreur && <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{erreur}</p>}
       {!donnees && !erreur && <p className="text-sm text-slate-500">Patientez…</p>}
 
       {donnees && (
         <>
-          {/* Plateformes web : SAWALI (libellé complet) puis chaque émetteur */}
-          <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr><th className="px-3 py-2">Plateforme</th><th className="px-3 py-2">Version déployée</th><th className="px-3 py-2">Information reçue</th></tr>
-              </thead>
-              <tbody>
-                <tr className={selection === "web:sawali" ? "ligne-selectionnee" : ""} onClick={() => setSelection("web:sawali")}>
-                  <td className="px-3 py-2 font-semibold">SAWALI</td>
-                  <td className="px-3 py-2">
-                    {s ? `Version ${s.version} · Lot ${s.lot} · ${s.git_sha} · déployée le ${dateCourte(s.started_at)}` : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">serveur actuel</td>
-                </tr>
-                {(donnees.plateformes || []).map((p) => (
-                  <tr key={p.code} className={`${selection === `web:${p.code}` ? "ligne-selectionnee" : ""} ${p.actif ? "" : "opacity-60"}`}
-                    onClick={() => setSelection(`web:${p.code}`)}>
-                    <td className="px-3 py-2 font-semibold">{p.nom}</td>
-                    <td className="px-3 py-2">
-                      {libelleVersion(p.version, p.deploye_le) || <span className="text-slate-400">non communiquée par la plateforme</span>}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{p.recu_le ? depuis(p.recu_le) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
           {/* Logiciels de bureau : une carte par application, un tableau de ses postes */}
           {(donnees.logiciels || []).length === 0 && (
-            <p className="text-sm text-slate-500">Aucun poste n'a encore signalé de logiciel de bureau (Loois envoie un signal toutes les 5 minutes à partir de sa prochaine mise à jour).</p>
+            <p className="text-sm text-slate-500">Aucun poste Windows n'a encore envoyé de signal : publiez la nouvelle version de Loois (pspub.ps1) ; chaque poste apparaît ici dans les 6 minutes qui suivent l'ouverture de Loois.</p>
           )}
           {(donnees.logiciels || []).map((app) => (
             <div key={app.application} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200" data-testid={`logiciel-${app.application}`}>
@@ -115,7 +89,7 @@ export default function VersionsDeployees() {
                   <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-2 py-1.5">Machine</th><th className="px-2 py-1.5">Composant</th><th className="px-2 py-1.5">Version</th>
-                      <th className="px-2 py-1.5">Utilisateur</th><th className="px-2 py-1.5">Site</th><th className="px-2 py-1.5">Dernier signal</th>
+                      <th className="px-2 py-1.5">Utilisateur</th><th className="px-2 py-1.5">Site</th><th className="px-2 py-1.5">Lancé le</th><th className="px-2 py-1.5">Dernier signal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -137,6 +111,8 @@ export default function VersionsDeployees() {
                           </td>
                           <td className="px-2 py-1.5">{p.utilisateur || "—"}</td>
                           <td className="px-2 py-1.5">{p.site || "—"}</td>
+                          {/* Heure de démarrage du logiciel sur ce poste (connexion en cours) */}
+                          <td className="px-2 py-1.5">{dateCourte(p.demarre_le) || "—"}</td>
                           <td className="px-2 py-1.5 text-slate-500" title={p.systeme || ""}>{depuis(p.vu_le)}</td>
                         </tr>
                       );

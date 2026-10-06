@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
-LOT = "65"
-LOT_LIBELLE = "Versions déployées : SAWALI, plateformes web et postes Loois (machine, version, en ligne) dans Plateformes temps réel"
+LOT = "65.1"
+LOT_LIBELLE = "Postes Windows : section recentrée sur Loois et les logiciels des postes clients (heure de lancement), plateformes web retirées"

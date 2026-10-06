@@ -130,6 +130,13 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
         "payments": await _count("payment_transactions", full),
     }
     kpi["formulaires_sondages"] = await _formulaires_sondages(db, scope_uid, start_iso, end_iso)
+    # Lot 61 — activité et usage de chaque plateforme (adLyn, beAuthentik, Ster, ALBARKA…)
+    try:
+        from routes.rapport_plateformes import activite_plateformes
+        kpi["plateformes"] = await activite_plateformes(db, start_iso, end_iso)
+    except Exception:  # noqa: BLE001
+        logger.warning("[synthese] activité des plateformes indisponible", exc_info=True)
+        kpi["plateformes"] = []
     # Last 5 tickets summary (uses opened_at).
     try:
         cursor = db.support_tickets.find(full_tickets, {"_id": 0}).sort("opened_at", -1).limit(5)
@@ -202,6 +209,15 @@ def bloc_formulaires_sondages(kpis: Dict[str, Any]) -> str:
     return "\n".join(lignes)
 
 
+def _bloc_plateformes(kpis: Dict[str, Any]) -> str:
+    """Lot 61 — texte « Activité des plateformes » (vide s'il n'y a aucune plateforme)."""
+    try:
+        from routes.rapport_plateformes import bloc_plateformes
+        return bloc_plateformes(kpis.get("plateformes") or [])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: date) -> str:
     """Combine the user's custom prompt with the structured KPI block.
 
@@ -248,8 +264,11 @@ def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: da
         f"Indicateurs :\n{counts_lines}\n\n"
         f"5 derniers tickets :\n{tickets_lines}\n\n"
         f"{bloc_formulaires_sondages(kpis)}\n"
+        f"{_bloc_plateformes(kpis)}\n"
         f"[FIN CONTEXTE]\n\n"
         f"Consacre une puce aux formulaires et sondages (données reçues, commandes !formulaire AUTO / FORCÉ).\n"
+        f"Consacre ensuite une puce par plateforme active (adLyn, beAuthentik…) : volume, réussite, "
+        f"réponses des clients, désinscriptions, incidents ; signale toute plateforme sans activité.\n"
         f"Génère la synthèse en français, en t'appuyant sur les chiffres ci-dessus. "
         f"N'invente PAS de chiffres : utilise ceux fournis. Si une catégorie est à 0, mentionne-le explicitement."
     )
@@ -286,7 +305,9 @@ async def build_synthese(db, *, start: date, end: date, scope_uid: Optional[str]
     prompt = _build_prompt(s.get("synthese_prompt") or "", kpis, start, end)
     texte = await _call_liluvine(db, prompt)
     bloc = bloc_formulaires_sondages(kpis)                  # lot 41 : chiffres exacts ajoutés tels quels
-    return f"{texte}\n\n{bloc}" if bloc else texte
+    # Lot 61 — rapport d'activité de chaque plateforme, chiffres exacts ajoutés tels quels
+    blocs = [b for b in (bloc, _bloc_plateformes(kpis)) if b]
+    return "\n\n".join([texte, *blocs])
 
 
 async def detect_and_handle_synthese_command(

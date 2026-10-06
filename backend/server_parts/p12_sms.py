@@ -2042,6 +2042,15 @@ async def whatsapp_webhook_incoming(request: Request):
                                 },
                                 upsert=True,
                             )
+                    # Lot 61 — numéro en liste noire des commandes « ! » : la commande n'est pas
+                    # traitée et Liluvine répond le message de refus (le message reste enregistré).
+                    try:
+                        from routes.liste_noire_commandes import refuser_si_bloque
+                        if await refuser_si_bloque(db, from_num, text_body if mtype == "text" else (media_caption or text_body),
+                                                   envoyer=_wa_send_text):
+                            continue
+                    except Exception:  # noqa: BLE001
+                        logger.warning("[liste_noire_commandes] contrôle impossible", exc_info=True)
                     # Lot 36 — « !formulaire » : document (Word, Excel, PDF) ou photo en pièce
                     # jointe avec cette légende (ou texte seul → mode d'emploi). Traité ici,
                     # avant les autres commandes (elles n'acceptent que du texte).

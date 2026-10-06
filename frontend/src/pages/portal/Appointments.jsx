@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Calendar, Plus, ArrowRight, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { EditAppointmentModal } from "@/pages/admin/AdminAppointments";
+import ChoixParticipants from "@/components/ChoixParticipants";   // Lot 61 — participants par nom
 
 const formatDate = (d) => d.toISOString().slice(0, 10);
 
@@ -31,7 +32,7 @@ export default function ClientAppointments() {
   const [date, setDate] = useState(null);
   const [slots, setSlots] = useState([]);
   const [slot, setSlot] = useState(null);
-  const [form, setForm] = useState({ subject: "", message: "", participants: "", reminder_minutes: 60 });
+  const [form, setForm] = useState({ subject: "", message: "", participants: [], reminder_minutes: 60 });
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -69,10 +70,8 @@ export default function ClientAppointments() {
     setLoading(true);
     try {
       // 2026-02 fork iter107 — Participants (téléphones séparés par virgule) + rappel_minutes
-      const participants = (form.participants || "")
-        .split(/[,;\n]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Lot 61 — participants choisis par leur nom : objets {contact_id, name, phone}
+      const participants = (form.participants || []).filter((p) => p && (p.phone || p.contact_id));
       const reminder = Number(form.reminder_minutes);
       const payload = {
         subject: form.subject,
@@ -85,7 +84,7 @@ export default function ClientAppointments() {
       await apiClient.post("/me/appointments", payload);
       toast.success("Rendez-vous demandé");
       setShowForm(false);
-      setForm({ subject: "", message: "", participants: "", reminder_minutes: 60 });
+      setForm({ subject: "", message: "", participants: [], reminder_minutes: 60 });
       setSlot(null);
       await load();
     } catch (err) {
@@ -171,17 +170,16 @@ export default function ClientAppointments() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Participants — n° WhatsApp <span className="text-slate-400 font-normal">(séparés par virgule)</span>
+                Participants <span className="text-slate-400 font-normal">(tapez le nom, SAWALI complète)</span>
               </label>
-              <input
-                value={form.participants}
-                onChange={(e) => setForm({ ...form, participants: e.target.value })}
-                placeholder="+22670000001, +22670000002"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                data-testid="rdv-participants"
+              {/* Lot 61 — saisie par nom avec complétion (plus besoin de connaître les numéros) */}
+              <ChoixParticipants
+                participants={form.participants}
+                onChange={(liste) => setForm((f) => ({ ...f, participants: liste }))}
+                testid="rdv-participants"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Chaque numéro reçoit une invitation WhatsApp à la création du RDV et un rappel automatique.
+                Chaque participant reçoit une invitation WhatsApp à la création du RDV et un rappel automatique.
               </p>
             </div>
             <div>

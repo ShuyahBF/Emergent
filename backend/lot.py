@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "74"
-LOT_LIBELLE = "Message d'absence WhatsApp (texte fixe hors heures d'ouverture, une fois par contact) et corrections des modèles Meta : confirmation de paiement client distincte du reçu de caisse, alerte de retard réglable dans Paramètres, renvoi WhatsApp d'un ticket réparé, envois programmés complets (boutons, jetons d'événement), rappels de RDV par modèle Meta"
+LOT = "75"
+LOT_LIBELLE = "Carrousel WhatsApp : image de chaque carte générée par l'IA à partir d'une description (aperçu, puis « Utiliser cette image » qui l'enregistre et remplit l'adresse), limite par heure réglable dans Paramètres"

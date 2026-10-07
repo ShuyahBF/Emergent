@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "75", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel WhatsApp : images générées par l'IA",
+        "description": "Pour chaque carte : une description, « Générer », puis « Utiliser cette image » remplit l'adresse de l'image.",
+        "rubrique": "🖼️ Carrousel WhatsApp — images générées par l'IA",
+    },
+    {
         "lot": "74", "date": "2026-10-07",
         "titre": "🌙 Message d'absence WhatsApp",
         "description": "Texte fixe envoyé une fois par contact quand il écrit hors des heures d'ouverture (ou pendant les congés).",

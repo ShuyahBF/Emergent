@@ -1319,6 +1319,34 @@ def setup_liluvine_decroche_routes(*, db, api, get_current_user) -> None:
         return Response(content=audio, media_type=type_mime,
                         headers={"X-Voix-Fournisseur": fournisseur, "Cache-Control": "no-store"})
 
+    # Lot 73 — Voice Studio (/portal/voice-studio) : « 🤖 Transmettre à Liluvine » une voix clonée
+    @api.get("/me/liluvine-voix", tags=["Admin — WhatsApp"])
+    async def voix_de_liluvine(user: dict = Depends(get_current_user)):
+        """Voix clonée actuellement utilisée par Liluvine (badge « Voix de Liluvine ») et droit de la changer."""
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        cfg = reglages_decroche(s)
+        peut = user.get("role") in ("admin", "superviseur") or user.get("tracked_role") in ("Administrateur", "Superviseur")
+        return {"voice_id": cfg["voix_elevenlabs"] if cfg["voix"] == "elevenlabs" else "",
+                "peut_modifier": peut, "elevenlabs_cle": bool(os.environ.get("ELEVENLABS_API_KEY", "").strip())}
+
+    @api.post("/me/liluvine-voix", tags=["Admin — WhatsApp"])
+    async def transmettre_voix(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Fait de la voix clonée choisie la voix de Liluvine (appels décrochés, agenda, appels au propriétaire) :
+        moteur ElevenLabs + identifiant de la voix. Réservé à l'administrateur et au superviseur."""
+        _exiger_admin(user)
+        voix_id = str((payload or {}).get("voice_id") or "").strip()
+        doc = await db.eleven_voices.find_one({"voice_id": voix_id}, {"_id": 0, "name": 1}) if voix_id else None
+        if not doc:
+            raise HTTPException(status_code=404, detail="Voix clonée introuvable")
+        if not os.environ.get("ELEVENLABS_API_KEY", "").strip():
+            raise HTTPException(status_code=422, detail="ELEVENLABS_API_KEY absente : Liluvine ne pourrait pas parler avec cette voix")
+        await db.settings.update_one({"_id": "global"}, {"$set": {
+            "liluvine_decroche_voix": "elevenlabs", "liluvine_decroche_voix_elevenlabs": voix_id,
+            "liluvine_voix_choisie": {"nom": doc.get("name") or "Voix clonée", "voice_id": voix_id,
+                                      "par": user.get("full_name") or user.get("email"), "le": _maintenant().isoformat()}}},
+            upsert=True)
+        return {"ok": True, "voice_id": voix_id, "nom": doc.get("name") or "Voix clonée"}
+
     @api.get("/admin/liluvine-decroche/voix-clonees", tags=["Admin — WhatsApp"])
     async def voix_clonees(user: dict = Depends(get_current_user)):
         """Lot 70 — « Voix clonées dans SAWALI (Story Studio) » : voix ElevenLabs créées par clonage

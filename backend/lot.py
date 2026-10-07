@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "72"
-LOT_LIBELLE = "Toast persistant pour l'administrateur et le superviseur quand Liluvine appelle un contact de l'agenda (anniversaire, prospect, relance…), mis à jour avec le résultat de l'appel ; accélérations : webhook WhatsApp (accusé de réception immédiat à Meta, traitement en arrière-plan), Plateformes en temps réel (derniers chiffres tout de suite, rafraîchis en arrière-plan), roadmap (synchronisation une fois par démarrage)"
+LOT = "73"
+LOT_LIBELLE = "Menu « Liluvine » dépliable dans la barre latérale (agenda, Liluvine PRO, historique, commandes « ! », handlers IA), partage des éléments de Liluvine par superviseur (Paramètres, contrôlé par le serveur pour l'agenda), demande d'autorisation d'appel renvoyable (bouton + relance automatique après 24 h, limites Meta), voix clonées de Voice Studio transmises à Liluvine, sentinelle muette pendant l'arrêt du serveur"

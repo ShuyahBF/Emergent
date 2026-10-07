@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
   Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor, PhoneCall,
 } from "lucide-react";
+import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -57,7 +58,7 @@ const clientLinks = [
   // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
   // Lot 70 — agenda d'appels de Liluvine (superviseurs ; l'administrateur l'a dans son menu)
-  { to: "/portal/liluvine-agenda", label: "Agenda d'appels de Liluvine", icon: PhoneCall, adminOrSup: true },
+  { to: "/portal/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, adminOrSup: true, groupe: "liluvine", partage: "agenda" },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
   // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
   { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
@@ -100,7 +101,7 @@ const clientLinks = [
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
-  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", tKey: "nav.liluvine", icon: Bot, featureGate: "ai_liluvine_pro" },
+  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", tKey: "nav.liluvine", icon: Bot, featureGate: "ai_liluvine_pro", groupe: "liluvine", partage: "pro" },
   // Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes prescription)
   { to: "/portal/vidal", label: "VIDAL France (médicaments)", icon: HeartPulse, featureGate: "vidal_enabled" },
   // Iter41 Phase 2 — Table AMM (régulateurs / admins / superviseurs)
@@ -115,7 +116,7 @@ const clientLinks = [
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs
   // (et aux admin/sup pour cohérence avec la sidebar admin)
-  { to: "/portal/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot, moderationOnly: true },
+  { to: "/portal/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot, moderationOnly: true, groupe: "liluvine", partage: "historique" },
   // S-iter39b — Brochures & Guides accessible aux modérateurs (lecture en
   // ligne via la visionneuse PDF interne ; téléchargement réservé admin/sup).
   { to: "/portal/brochures", label: "Brochures & Guides", icon: FileText, moderationOnly: true },
@@ -147,9 +148,11 @@ const adminLinks = [
   { to: "/admin/whatsapp-carrousel", label: "Carrousel WhatsApp", icon: GalleryHorizontalEnd },   // lot 40
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   // Lot 70 — appels sortants planifiés de Liluvine (relances, prospection, anniversaires…)
-  { to: "/admin/liluvine-agenda", label: "Agenda d'appels de Liluvine", icon: PhoneCall },
+  { to: "/admin/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, groupe: "liluvine", partage: "agenda" },
+  // Lot 73 — Liluvine PRO (assistant) accessible aussi depuis le menu Liluvine de l'administration
+  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, groupe: "liluvine", partage: "pro" },
   { to: "/admin/automations", label: "Automations", icon: Zap },
-  { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
+  { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot, groupe: "liluvine", partage: "historique" },
   { to: "/admin/suggestions", label: "Suggestions (registre S###)", icon: ScrollText },
   { to: "/admin/suggestions-history", label: "Historique des suggestions", icon: History },
   { to: "/admin/download-audit", label: "Téléchargements — Audit (S029)", icon: History },
@@ -191,9 +194,9 @@ const adminLinks = [
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
   // Iter43-fix24d — Renommé "Exclamations Reçues" (ne contient que les !commandes).
-  { to: "/admin/liluvine-wa-requests", label: "Exclamations Reçues", icon: Inbox, moderatorPlus: true },
+  { to: "/admin/liluvine-wa-requests", label: "Commandes « ! » reçues", icon: Inbox, moderatorPlus: true, groupe: "liluvine" },
   // Iter43-fix24f — Historique des suggestions IA de handlers + dashboard coût Bird
-  { to: "/admin/handler-suggestions", label: "Handlers IA", icon: Sparkles, adminOnly: true },
+  { to: "/admin/handler-suggestions", label: "Handlers IA", icon: Sparkles, adminOnly: true, groupe: "liluvine" },
   { to: "/admin/bird-cost", label: "Coût SMS Bird", icon: CircleDollarSign, adminOnly: true },
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
   // Portage site-meetafrican — Suivi des logs VIDAL (appels API réels + sync référentiel)
@@ -233,6 +236,11 @@ function PortalLayoutInner({ admin = false }) {
   // Iter43-fix24az-aa (2026-07-22) — Live counter for walk-ins waiting TODAY.
   // Shown as a sidebar badge on "Planning consultations" for médecins.
   const [walkInsToday, setWalkInsToday] = useState(0);
+  // Lot 73 — éléments de Liluvine partagés avec ce compte (superviseur restreint) et groupe déplié ou non
+  const [partageLiluvine, setPartageLiluvine] = useState(null);
+  const [liluvineOuvert, setLiluvineOuvert] = useState(() => {
+    try { return localStorage.getItem("sawali.menu.liluvine") === "1"; } catch { return false; }
+  });
   // Lot 41 — nouvelles données reçues : soumissions de formulaires (bulle verte) et
   // réponses aux sondages (bulle bleue), depuis la dernière consultation de chacun.
   const [fsNouveautes, setFsNouveautes] = useState({ formulaires: 0, sondages: 0 });
@@ -520,7 +528,9 @@ function PortalLayoutInner({ admin = false }) {
     .filter((l) => !l.errorRegistryOnly || isAdminOrSup || isSysModerator)
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked)
     // 2026-02 fork (P4) — Override de masquage explicite du Tableau de bord
-    .filter((l) => l.to !== "/portal" || p4ShowDashboard);
+    .filter((l) => l.to !== "/portal" || p4ShowDashboard)
+    // Lot 73 — superviseur restreint : seuls les éléments de Liluvine partagés par l'administrateur
+    .filter((l) => !l.partage || !partageLiluvine?.restreint || (partageLiluvine.elements || []).includes(l.partage));
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page
   // that was counted refreshes the list). Also refresh every 90s.
@@ -642,6 +652,12 @@ function PortalLayoutInner({ admin = false }) {
     }
   }, [admin, user]);
 
+  // Lot 73 — ce que l'administrateur partage de Liluvine avec ce compte (menu « Liluvine »)
+  useEffect(() => {
+    if (!user) return;
+    apiClient.get("/me/liluvine-partage").then((r) => setPartageLiluvine(r.data)).catch(() => setPartageLiluvine(null));
+  }, [user]);
+
   // Iter35r — Welcome briefing modal: shown once per session after login.
   // Iter43-fix24az-j (2026-02-26) — Skip Welcome for Fabricant tenants (they
   // don't have a dashboard/welcome experience and land directly on /portal/cash).
@@ -666,6 +682,45 @@ function PortalLayoutInner({ admin = false }) {
   // Lot 54 — Ordinateur (lg et plus) : le haut (logo, langue, météo) et le bas (compte, alertes,
   // réglages, déconnexion) restent figés ; seule la liste des options défile. Téléphone et
   // tablette (tiroir) : comportement inchangé, tout le tiroir défile.
+  // Lot 73 — « le menu de la barre latérale est devenu trop complexe » : tout ce qui concerne Liluvine est
+  // regroupé dans UNE entrée « Liluvine » dépliable (placée là où apparaissait le premier élément du groupe).
+  // Le groupe s'ouvre seul quand la page affichée en fait partie ; sinon il garde le dernier choix (navigateur).
+  const basculerLiluvine = () => setLiluvineOuvert((avant) => {
+    try { localStorage.setItem("sawali.menu.liluvine", avant ? "0" : "1"); } catch { /* ignore */ }
+    return !avant;
+  });
+  const rendreMenu = (liste, rendreLien) => {
+    const enfants = liste.filter((l) => l.groupe === "liluvine");
+    const sortie = [];
+    let groupePlace = false;
+    liste.forEach((l) => {
+      if (l.groupe !== "liluvine") { sortie.push(rendreLien(l)); return; }
+      if (groupePlace) return;
+      groupePlace = true;
+      if (enfants.length === 1) { sortie.push(rendreLien(enfants[0])); return; }   // un seul élément : pas de groupe
+      const actif = enfants.some((e) => location.pathname === e.to || location.pathname.startsWith(e.to + "/"));
+      const ouvert = liluvineOuvert || actif;
+      sortie.push(
+        <div key="groupe-liluvine" data-testid="sidebar-groupe-liluvine">
+          <button type="button" onClick={basculerLiluvine} aria-expanded={ouvert}
+            className={`sidebar-link w-full ${actif && !ouvert ? "active" : ""} group`}
+            title={ouvert ? "Replier le menu Liluvine" : "Déplier le menu Liluvine"}>
+            <Bot className="h-4 w-4" />
+            <span className="flex-1 truncate text-left">Liluvine</span>
+            <span className="text-[10px] text-slate-400">{enfants.length}</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
+          </button>
+          {ouvert && (
+            <div className="ml-3 mt-1 space-y-1 border-l border-white/10 pl-2" data-testid="sidebar-groupe-liluvine-liens">
+              {enfants.map(rendreLien)}
+            </div>
+          )}
+        </div>,
+      );
+    });
+    return sortie;
+  };
+
   const renderSidebar = (bureau) => (
     <>
       <div className={bureau ? "shrink-0" : undefined} data-testid={bureau ? "sidebar-haut" : undefined}>
@@ -689,7 +744,9 @@ function PortalLayoutInner({ admin = false }) {
       </div>
       <nav className={bureau ? "space-y-1 flex-1 min-h-[8rem] overflow-y-auto overscroll-contain -mx-2 px-2" : "space-y-1"}
            data-testid={bureau ? "sidebar-liste" : undefined}>
-        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive, fsBadges }) => {
+        {(() => {
+        // Lot 73 — dessin d'un lien du menu (inchangé), réutilisé pour les liens du groupe « Liluvine »
+        const rendreLien = ({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive, fsBadges }) => {
           // Lot 27 — actif aussi sur les chemins associés (ex. sondages sous « Formulaires & Sondages »)
           const extraActive = (alsoActive || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
           // Lot 23 — le badge du Centre de Messagerie affiche le MÊME nombre que la cloche
@@ -841,7 +898,9 @@ function PortalLayoutInner({ admin = false }) {
               )}
             </NavLink>
           );
-        })}
+        };
+        return rendreMenu(links, rendreLien);
+        })()}
       </nav>
 
       <div className={bureau ? "shrink-0 mt-3 border-t border-white/10 pt-3" : "mt-8 border-t border-white/10 pt-4"}
@@ -1032,7 +1091,8 @@ function PortalLayoutInner({ admin = false }) {
       {/* Iter38r-fix9e — Live toast for Liluvine WhatsApp auto-replies (admins + superviseurs only). */}
       {isAdminOrSup && <LiluvineLiveToast />}
       {/* Lot 72 — administrateur ou superviseur (y compris utilisateur suivi de ce rôle) : appels de l'agenda */}
-      {(isAdminOrSup || ["Administrateur", "Superviseur"].includes(user?.tracked_role)) && <AlertesAppelsLiluvine />}
+      {(isAdminOrSup || ["Administrateur", "Superviseur"].includes(user?.tracked_role))
+        && (!partageLiluvine?.restreint || (partageLiluvine.elements || []).includes("alertes")) && <AlertesAppelsLiluvine />}
       <BrowserNotifications />
     </div>
   );

@@ -308,6 +308,9 @@ def reglages_agenda(s: Dict[str, Any]) -> Dict[str, Any]:
         "repli_modele": (s.get("liluvine_agenda_repli_modele") or "").strip(),
         "repli_modele_langue": (s.get("liluvine_agenda_repli_modele_langue") or "fr").strip() or "fr",
         "relance_auto": bool(s.get("liluvine_agenda_relance_auto")),
+        # Lot 73 — demande d'autorisation d'appel renvoyée automatiquement après 24 h sans réponse
+        # (limites Meta : 1 par 24 h, 2 par 7 jours) ; activé par défaut
+        "relance_autorisation": s.get("liluvine_agenda_relance_autorisation") is not False,
         "duree_max_min": e(s.get("liluvine_agenda_duree_max_min"), 5, 1, 30),
         "silence_s": e(s.get("liluvine_agenda_silence_s"), 15, 5, 120),
         # Anniversaires des utilisateurs suivis
@@ -327,7 +330,8 @@ CHAMPS = {
     "liluvine_agenda_intervalle_min": int, "liluvine_agenda_sonnerie_s": int,
     "liluvine_agenda_attente_autorisation_h": int, "liluvine_agenda_repli_message": bool,
     "liluvine_agenda_repli_modele": str, "liluvine_agenda_repli_modele_langue": str,
-    "liluvine_agenda_relance_auto": bool, "liluvine_agenda_duree_max_min": int, "liluvine_agenda_silence_s": int,
+    "liluvine_agenda_relance_auto": bool, "liluvine_agenda_relance_autorisation": bool,   # lot 73
+    "liluvine_agenda_duree_max_min": int, "liluvine_agenda_silence_s": int,
     "liluvine_agenda_anniv_actif": bool, "liluvine_agenda_anniv_heure": str, "liluvine_agenda_anniv_texte": str,
     "liluvine_agenda_anniv_ia": bool, "liluvine_agenda_anniv_ligne": str, "liluvine_agenda_anniv_repli": bool,
     "liluvine_agenda_anniv_repetitions": int,
@@ -1104,19 +1108,72 @@ async def _sans_autorisation(db, s, cfga, ev, numero_id, perm) -> Dict[str, Any]
                            "permission": {"etat": perm.get("etat"), "source": perm.get("source")},
                            "maj_le": _iso(maintenant)}
     envoi = None
+    relance = False
     if not deja:
         envoi = await demander_autorisation(db, s, numero_id, ev, maintenant)
         maj["autorisation_demandee_le"] = _iso(maintenant)
+        maj["autorisation_derniere_demande_le"] = _iso(maintenant)
+        maj["autorisation_demandes"] = 1
         maj["autorisation_envoi"] = envoi
         deja = maintenant
+    elif cfga.get("relance_autorisation"):
+        # Lot 73 — la demande a pu se perdre parmi les autres messages : renvoyée après 24 h sans réponse
+        derniere = ap.lire_date(ev.get("autorisation_derniere_demande_le")) or deja
+        if maintenant - derniere >= timedelta(hours=24):
+            envoi = await demander_autorisation(db, s, numero_id, ev, maintenant)
+            relance = True
+            if envoi.get("envoyee"):
+                maj["autorisation_derniere_demande_le"] = _iso(maintenant)
+                maj["autorisation_demandes"] = int(ev.get("autorisation_demandes") or 1) + 1
+            maj["autorisation_envoi"] = envoi
     # Nouvelle vérification à l'intervalle des tentatives (ou dès la réponse du contact, par le webhook)
     echeance = min(maintenant + timedelta(minutes=ev.get("intervalle_min") or cfga["intervalle_min"]),
                    deja + timedelta(hours=limite_h))
     maj["prochaine_tentative"] = _iso(echeance)
     await db[COLLECTION].update_one({"id": ev["id"]}, {"$set": maj, "$push": {"historique": {
-        "le": _iso(maintenant), "resultat": "autorisation demandée" if envoi else "en attente d'autorisation",
+        "le": _iso(maintenant),
+        "resultat": ("autorisation redemandée (relance automatique)" if relance else "autorisation demandée")
+        if envoi else "en attente d'autorisation",
         "raison": (envoi or {}).get("raison")}}})
     return {"resultat": "attente_autorisation", "envoi": envoi}
+
+
+def prochaine_demande_possible(dernieres: List[str]) -> Optional[str]:
+    """Lot 73 — date à partir de laquelle Meta accepte une nouvelle demande (1 par 24 h, 2 par 7 jours)."""
+    dates = sorted(d for d in (ap.lire_date(x) for x in dernieres) if d)
+    if not dates:
+        return None
+    candidates = [dates[-1] + timedelta(hours=24)]
+    if len(dates) >= 2:
+        candidates.append(dates[-2] + timedelta(days=7))
+    return _iso(max(candidates))
+
+
+async def redemander_autorisation(db, ev: Dict[str, Any], par: str) -> Dict[str, Any]:
+    """Lot 73 — renvoie la demande d'autorisation d'appel au contact (bouton de l'agenda).
+    Le délai d'attente repart de zéro ; refusé si la limite de Meta est atteinte (date du prochain essai possible)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    cfga = reglages_agenda(s)
+    numero_id, _ = ligne_de(s, ev.get("ligne_cle") or cfga["ligne"])
+    maintenant = _maintenant()
+    envoi = await demander_autorisation(db, s, numero_id, ev, maintenant)
+    if not envoi.get("envoyee"):
+        # Dates des demandes déjà envoyées à ce numéro (7 derniers jours) → prochaine date possible
+        fin = re.escape(ev["telephone"][-8:]) + "$"
+        docs = await db.whatsapp_messages.find(
+            {"message_type": "call_permission_request", "phone_digits": {"$regex": fin}, "ok": True,
+             "created_at": {"$gte": _iso(maintenant - timedelta(days=7))}}, {"_id": 0, "created_at": 1}).to_list(10)
+        return {"ok": False, "raison": envoi.get("raison") or "envoi impossible",
+                "possible_a_partir_de": prochaine_demande_possible([d["created_at"] for d in docs])}
+    await db[COLLECTION].update_one({"id": ev["id"]}, {"$set": {
+        "statut": "attente_autorisation", "autorisation_demandee_le": _iso(maintenant),
+        "autorisation_derniere_demande_le": _iso(maintenant),
+        "autorisation_demandes": int(ev.get("autorisation_demandes") or 1) + 1, "autorisation_envoi": envoi,
+        "autorisation_refusee": False, "raison": None, "verrou_par": None, "verrou_jusqua": None,
+        "prochaine_tentative": _iso(maintenant + timedelta(minutes=ev.get("intervalle_min") or cfga["intervalle_min"])),
+        "maj_le": _iso(maintenant)},
+        "$push": {"historique": {"le": _iso(maintenant), "resultat": "autorisation redemandée", "raison": f"par {par}"}}})
+    return {"ok": True, "envoi": envoi}
 
 
 async def permission_recue(db, telephone: str, accepte: bool) -> int:
@@ -1842,6 +1899,12 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
         if user.get("role") not in ("admin", "superviseur") and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
 
+    async def _exiger_agenda(user: dict, element: str = "agenda") -> None:
+        """Lot 73 — administrateur, ou superviseur avec qui l'élément de Liluvine est partagé (Paramètres)."""
+        _exiger_admin(user)
+        from routes.liluvine_partage import verifier_element
+        await verifier_element(db, user, element)
+
     async def _reglages() -> Tuple[Dict[str, Any], Dict[str, Any]]:
         s = await db.settings.find_one({"_id": "global"}) or {}
         return s, reglages_agenda(s)
@@ -1885,7 +1948,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     async def lister(du: Optional[str] = None, au: Optional[str] = None, type: Optional[str] = None,  # noqa: A002
                      statut: Optional[str] = None, q: Optional[str] = None, user: dict = Depends(get_current_user)):
         """Évènements de la période (filtres) + totaux (nombre, durée, coûts) + réglages utiles à l'écran."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         s, cfga = await _reglages()
         docs = await db[COLLECTION].find(filtre_liste(du, au, type, statut, q), {"_id": 0}) \
             .sort("date_heure", 1).to_list(3000)
@@ -1899,7 +1962,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/liluvine-agenda/alertes", tags=["Admin — Liluvine agenda"])
     async def alertes(since: Optional[str] = None, user: dict = Depends(get_current_user)):
         """Lot 72 — alertes « Liluvine appelle … » modifiées depuis `since` (sinon : 2 dernières heures)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user, "alertes")
         maintenant = _maintenant()
         depuis = since or _iso(maintenant - timedelta(hours=2))
         docs = await db[COLLECTION_ALERTES].find({"maj": {"$gte": depuis}}, {"_id": 0}).sort("maj", -1).to_list(50)
@@ -1909,7 +1972,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     async def exporter(du: Optional[str] = None, au: Optional[str] = None, type: Optional[str] = None,  # noqa: A002
                        statut: Optional[str] = None, q: Optional[str] = None, user: dict = Depends(get_current_user)):
         """Export CSV de la liste filtrée."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         docs = await db[COLLECTION].find(filtre_liste(du, au, type, statut, q), {"_id": 0}) \
             .sort("date_heure", 1).to_list(5000)
         return Response(content=csv_agenda(docs), media_type="text/csv; charset=utf-8",
@@ -1918,14 +1981,14 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/liluvine-agenda/reglages", tags=["Admin — Liluvine agenda"])
     async def lire_reglages(user: dict = Depends(get_current_user)):
         """Réglages de l'agenda et des anniversaires (+ texte par défaut)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         s, cfga = await _reglages()
         return {"reglages": {k: s.get(k) for k in CHAMPS}, "effectif": cfga, "texte_defaut": ANNIV_TEXTE_DEFAUT}
 
     @api.put("/admin/liluvine-agenda/reglages", tags=["Admin — Liluvine agenda"])
     async def enregistrer_reglages(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
         """Enregistre les réglages (champs connus, valeurs contrôlées)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         maj: Dict[str, Any] = {}
         for cle, genre in CHAMPS.items():
             if cle not in payload:
@@ -1952,20 +2015,20 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/liluvine-agenda/contacts", tags=["Admin — Liluvine agenda"])
     async def contacts(q: str = Query("", max_length=80), user: dict = Depends(get_current_user)):
         """Recherche d'un contact (WhatsApp, client, utilisateur suivi)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         return {"contacts": await rechercher_contacts(db, q)}
 
     @api.get("/admin/liluvine-agenda/maintenances", tags=["Admin — Liluvine agenda"])
     async def maintenances(q: str = Query("", max_length=80), user: dict = Depends(get_current_user)):
         """Recherche d'une fiche de maintenance / intervention (compte rendu de maintenance)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         return {"maintenances": await rechercher_maintenances(db, q)}
 
     @api.get("/admin/liluvine-agenda/formulaires", tags=["Admin — Liluvine agenda"])
     async def formulaires(q: str = Query("", max_length=80), user: dict = Depends(get_current_user)):
         """Lot 71 — formulaires disponibles pour un appel « basé sur un formulaire » (nombre de champs,
         champs demandés au téléphone, champs à compléter par écrit)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         filtre = _filtre_formulaires(user)
         if q.strip():
             filtre = {"$and": [filtre, {"title": {"$regex": re.escape(q.strip()), "$options": "i"}}]} if filtre \
@@ -1977,7 +2040,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/liluvine-agenda/formulaires/{fid}/apercu", tags=["Admin — Liluvine agenda"])
     async def apercu_formulaire(fid: str, user: dict = Depends(get_current_user)):
         """Lot 71 — questions que Liluvine posera (ordre, formulation orale) et champs à compléter."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         form = await db.forms.find_one({"id": fid, **_filtre_formulaires(user)}, {"_id": 0})
         if not form:
             raise HTTPException(status_code=404, detail="Formulaire introuvable")
@@ -1986,7 +2049,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.post("/admin/liluvine-agenda/apercu-anniversaire", tags=["Admin — Liluvine agenda"])
     async def apercu_anniversaire(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
         """Aperçu du texte d'anniversaire (modèle du formulaire, même non enregistré) pour une personne fictive."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         _, cfga = await _reglages()
         modele = str((payload or {}).get("texte") or "").strip() or cfga["anniv_texte"]
         variables = {"prenom": "Awa", "nom": "KABORÉ", "age": 35, "entreprise": "SAWALI"}
@@ -1995,7 +2058,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.post("/admin/liluvine-agenda/anniversaires/generer", tags=["Admin — Liluvine agenda"])
     async def generer(user: dict = Depends(get_current_user)):
         """Crée / met à jour tout de suite les évènements d'anniversaire (sinon : toutes les 10 minutes)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         s, _ = await _reglages()
         await assurer_index(db)
         return await generer_anniversaires(db, s, _maintenant())
@@ -2003,7 +2066,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.post("/admin/liluvine-agenda", tags=["Admin — Liluvine agenda"])
     async def creer(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
         """Nouvel évènement (statut « planifié »)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         _, cfga = await _reglages()
         champs = await _preparer(payload, cfga, user)
         champs["client_id"] = user.get("client_id") or user.get("id")
@@ -2015,13 +2078,13 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/liluvine-agenda/{ev_id}", tags=["Admin — Liluvine agenda"])
     async def lire(ev_id: str, user: dict = Depends(get_current_user)):
         """Un évènement complet (transcription comprise)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         return await _evenement(ev_id)
 
     @api.put("/admin/liluvine-agenda/{ev_id}", tags=["Admin — Liluvine agenda"])
     async def modifier(ev_id: str, payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
         """Modifie un évènement qui n'est pas en cours ; il redevient « planifié » à la nouvelle date."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         ev = await _evenement(ev_id)
         if ev.get("statut") == "en_cours":
             raise HTTPException(status_code=409, detail="Appel en cours : modification impossible")
@@ -2036,7 +2099,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.post("/admin/liluvine-agenda/{ev_id}/dupliquer", tags=["Admin — Liluvine agenda"])
     async def dupliquer(ev_id: str, payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
         """Copie d'un évènement (nouvelle date facultative, sinon même date + 1 jour), statut « planifié »."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         ev = await _evenement(ev_id)
         quand = lire_date_heure((payload or {}).get("date_heure")) or (
             max(lire_date_heure(ev["date_heure"]), _maintenant()) + timedelta(days=1))
@@ -2055,7 +2118,7 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
     @api.post("/admin/liluvine-agenda/{ev_id}/annuler", tags=["Admin — Liluvine agenda"])
     async def annuler(ev_id: str, user: dict = Depends(get_current_user)):
         """Annule un évènement planifié ou en attente (un appel en cours n'est pas coupé)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         r = await db[COLLECTION].update_one(
             {"id": ev_id, "statut": {"$in": ["planifie", "attente_autorisation", "sans_reponse", "echec"]}},
             {"$set": {"statut": "annule", "raison": f"annulé par {user.get('full_name') or user.get('email')}",
@@ -2064,10 +2127,30 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=409, detail="Évènement déjà terminé, annulé ou en cours")
         return {"ok": True}
 
+    @api.post("/admin/liluvine-agenda/{ev_id}/redemander-autorisation", tags=["Admin — Liluvine agenda"])
+    async def redemander_autorisation_route(ev_id: str, user: dict = Depends(get_current_user)):
+        """Lot 73 — « Renvoyer la demande d'autorisation » : la demande a pu se perdre parmi les messages."""
+        await _exiger_agenda(user)
+        ev = await _evenement(ev_id)
+        if ev.get("statut") in ("en_cours", "termine", "annule"):
+            raise HTTPException(status_code=409, detail="Évènement en cours, terminé ou annulé")
+        res = await redemander_autorisation(db, ev, user.get("full_name") or user.get("email") or "?")
+        if not res["ok"]:
+            quand = res.get("possible_a_partir_de")
+            suite = ""
+            if quand:
+                try:
+                    suite = " — prochaine demande possible le " + datetime.fromisoformat(quand).astimezone(
+                        ZoneInfo("Africa/Ouagadougou")).strftime("%d/%m/%Y à %H:%M")
+                except ValueError:
+                    pass
+            raise HTTPException(status_code=409, detail=f"{res['raison']}{suite}")
+        return {"ok": True, "evenement": _alleger(await _evenement(ev_id))}
+
     @api.post("/admin/liluvine-agenda/{ev_id}/appeler-maintenant", tags=["Admin — Liluvine agenda"])
     async def appeler_maintenant(ev_id: str, user: dict = Depends(get_current_user)):
         """« Appeler maintenant » : l'évènement est réclamé tout de suite (hors plage horaire acceptée)."""
-        _exiger_admin(user)
+        await _exiger_agenda(user)
         ev = await _evenement(ev_id)
         if ev.get("statut") in ("en_cours", "termine", "annule"):
             raise HTTPException(status_code=409, detail="Évènement en cours, terminé ou annulé : dupliquez-le")

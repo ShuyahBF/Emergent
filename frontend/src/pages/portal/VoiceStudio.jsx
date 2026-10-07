@@ -17,6 +17,9 @@ export default function VoiceStudio() {
   const [ttsText, setTtsText] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
   const [generating, setGenerating] = useState(false);
+  // Lot 73 — voix clonée utilisée par Liluvine (badge) et droit de la changer (administrateur / superviseur)
+  const [liluvine, setLiluvine] = useState({ voice_id: "", peut_modifier: false, elevenlabs_cle: false });
+  const [transmission, setTransmission] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +32,27 @@ export default function VoiceStudio() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // Lot 73 — lecture de la voix actuelle de Liluvine
+  const lireVoixLiluvine = useCallback(() => {
+    apiClient.get("/me/liluvine-voix").then((r) => setLiluvine(r.data)).catch(() => { /* rubrique facultative */ });
+  }, []);
+  useEffect(() => { lireVoixLiluvine(); }, [lireVoixLiluvine]);
+
+  // Lot 73 — « 🤖 Transmettre à Liluvine » : la voix clonée devient la voix de Liluvine (appels, agenda…)
+  const transmettreALiluvine = async (v) => {
+    if (!window.confirm(`Liluvine parlera désormais avec la voix « ${v.name} » (appels décrochés, agenda, appels au propriétaire). Continuer ?`)) return;
+    setTransmission(v.voice_id);
+    const t = toast.loading("Patientez…");
+    try {
+      await apiClient.post("/me/liluvine-voix", { voice_id: v.voice_id });
+      toast.success(`Voix « ${v.name} » transmise à Liluvine. Écoutez un essai dans Paramètres → Liluvine décroche.`, { id: t });
+      lireVoixLiluvine();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Transmission impossible", { id: t });
+    } finally {
+      setTransmission("");
+    }
+  };
 
   const submitClone = async (e) => {
     e.preventDefault();
@@ -161,10 +185,29 @@ export default function VoiceStudio() {
             {voices.map((v) => (
               <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg ring-1 ring-slate-100 px-3 py-2 hover:bg-slate-50" data-testid={`voice-row-${v.voice_id}`}>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm text-slate-800 truncate">{v.name}</div>
+                  <div className="font-semibold text-sm text-slate-800 truncate">
+                    {v.name}
+                    {/* Lot 73 — repère de la voix utilisée par Liluvine */}
+                    {liluvine.voice_id === v.voice_id && (
+                      <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800" data-testid={`voice-liluvine-${v.voice_id}`}>🤖 Voix de Liluvine</span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-slate-500 truncate">{v.description || v.voice_id}</div>
                 </div>
                 <div className="inline-flex items-center gap-1">
+                  {/* Lot 73 — transmettre cette voix clonée à Liluvine (administrateur / superviseur) */}
+                  {liluvine.peut_modifier && liluvine.voice_id !== v.voice_id && (
+                    <button
+                      type="button"
+                      onClick={() => transmettreALiluvine(v)}
+                      disabled={!!transmission || !liluvine.elevenlabs_cle}
+                      className="text-[11px] inline-flex items-center gap-1 rounded ring-1 ring-violet-300 hover:bg-violet-50 px-2 py-1 text-violet-800 disabled:opacity-50"
+                      title={liluvine.elevenlabs_cle ? "Faire de cette voix la voix de Liluvine" : "ELEVENLABS_API_KEY absente sur le serveur"}
+                      data-testid={`voice-liluvine-transmettre-${v.voice_id}`}
+                    >
+                      🤖 Transmettre à Liluvine
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setSelectedVoice(v.voice_id)}

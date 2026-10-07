@@ -341,7 +341,10 @@ export default function LiluvineAgenda() {
           dupliquer={() => action("dupliquer", () => apiClient.post(`/admin/liluvine-agenda/${detail.id}/dupliquer`, {}),
             () => "Évènement copié (demain, même heure)").then((r) => { if (r) { charger(); ouvrir(r.data); } })}
           annuler={() => { if (!window.confirm("Annuler cet évènement ?")) return; action("annuler", () => apiClient.post(`/admin/liluvine-agenda/${detail.id}/annuler`),
-            () => "Évènement annulé").then((r) => { if (r) { setDetail(null); charger(); } }); }} />
+            () => "Évènement annulé").then((r) => { if (r) { setDetail(null); charger(); } }); }}
+          // Lot 73 — renvoyer la demande d'autorisation d'appel (elle a pu se perdre parmi les messages)
+          redemander={() => action("redemander", () => apiClient.post(`/admin/liluvine-agenda/${detail.id}/redemander-autorisation`),
+            () => "Demande d'autorisation renvoyée au contact").then((r) => { if (r) { charger(); setDetail(r.data.evenement); } })} />
       )}
       {formulaire && (
         <FormulaireEvenement initial={formulaire} donnees={donnees} fermer={() => setFormulaire(null)}
@@ -355,7 +358,7 @@ export default function LiluvineAgenda() {
 // ---------------------------------------------------------------------------
 // Tiroir de détail d'un évènement
 // ---------------------------------------------------------------------------
-function TiroirDetail({ ev, types, statuts, occupe, fermer, modifier, appeler, dupliquer, annuler }) {
+function TiroirDetail({ ev, types, statuts, occupe, fermer, modifier, appeler, dupliquer, annuler, redemander }) {
   const r = ev.resultat || null;
   const modifiable = !["en_cours"].includes(ev.statut);
   // Journal au format attendu par TranscriptionAppelLiluvine (résumé, transcription, coût IA, qualité audio)
@@ -406,8 +409,17 @@ function TiroirDetail({ ev, types, statuts, occupe, fermer, modifier, appeler, d
           {ev.maintenance?.resume && <p><strong>Maintenance :</strong> {ev.maintenance.resume}</p>}
           {ev.statut === "attente_autorisation" && (
             <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
-              Demande d'autorisation d'appel envoyée le {dateHeure(ev.autorisation_demandee_le)}{ev.autorisation_envoi?.raison ? ` (${ev.autorisation_envoi.raison})` : ""} : l'appel partira dès que le contact acceptera.
+              Demande d'autorisation d'appel envoyée le {dateHeure(ev.autorisation_derniere_demande_le || ev.autorisation_demandee_le)}
+              {ev.autorisation_demandes > 1 ? ` (${ev.autorisation_demandes} demandes)` : ""}{ev.autorisation_envoi?.raison ? ` (${ev.autorisation_envoi.raison})` : ""} : l'appel partira dès que le contact acceptera.
             </p>
+          )}
+          {/* Lot 73 — demande perdue parmi les messages : la renvoyer (limites Meta : 1 par 24 h, 2 par 7 jours) */}
+          {(ev.statut === "attente_autorisation" || (ev.statut === "echec" && /autorisation/i.test(ev.raison || ""))) && (
+            <button type="button" onClick={redemander} disabled={!!occupe} data-testid="agenda-redemander-autorisation"
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              title="Renvoie au contact la demande d'autorisation d'appel (Meta : 1 par 24 h, 2 par 7 jours)">
+              {occupe === "redemander" ? <Jauge /> : "🔁"} Renvoyer la demande d'autorisation
+            </button>
           )}
         </div>
 
@@ -803,6 +815,7 @@ export function ReglagesAgenda({ lignes: lignesRecues, fermer, integre = false }
         liluvine_agenda_attente_autorisation_h: e.attente_autorisation_h, liluvine_agenda_repli_message: e.repli_message,
         liluvine_agenda_repli_modele: e.repli_modele, liluvine_agenda_repli_modele_langue: e.repli_modele_langue,
         liluvine_agenda_relance_auto: e.relance_auto, liluvine_agenda_duree_max_min: e.duree_max_min,
+        liluvine_agenda_relance_autorisation: e.relance_autorisation,   // lot 73
         liluvine_agenda_silence_s: e.silence_s, liluvine_agenda_anniv_actif: e.anniv_actif, liluvine_agenda_anniv_heure: e.anniv_heure,
         liluvine_agenda_anniv_texte: e.anniv_texte, liluvine_agenda_anniv_ia: e.anniv_ia, liluvine_agenda_anniv_ligne: e.anniv_ligne,
         liluvine_agenda_anniv_repli: e.anniv_repli, liluvine_agenda_anniv_repetitions: e.anniv_repetitions,
@@ -893,6 +906,12 @@ export function ReglagesAgenda({ lignes: lignesRecues, fermer, integre = false }
             <label className="inline-flex items-center gap-2 text-xs">
               <input type="checkbox" checked={!!f.liluvine_agenda_relance_auto} onChange={(e) => maj("liluvine_agenda_relance_auto", e.target.checked)} />
               Créer automatiquement l'évènement de relance suggéré par Liluvine (tous les évènements)
+            </label>
+            {/* Lot 73 — relance automatique de la demande d'autorisation d'appel restée sans réponse */}
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={f.liluvine_agenda_relance_autorisation !== false}
+                onChange={(e) => maj("liluvine_agenda_relance_autorisation", e.target.checked)} />
+              Renvoyer automatiquement la demande d'autorisation d'appel après 24 h sans réponse (Meta : 2 au plus par 7 jours)
             </label>
 
             {/* Anniversaires des utilisateurs suivis */}

@@ -77,6 +77,20 @@ def deja_existant(message: str) -> bool:
     return "already exists" in m or "existe déjà" in m or "content in this language already exists" in m
 
 
+async def app_id_du_jeton(http: httpx.AsyncClient, *, version: str, jeton: str) -> str:
+    """Lot 76.1 — l'App ID n'a pas besoin d'être saisi : le jeton WhatsApp le connaît.
+    Meta permet à un jeton de s'inspecter lui-même (GET /debug_token) ; la réponse contient app_id.
+    Renvoie "" si Meta ne le donne pas (le message d'erreur invite alors à le saisir)."""
+    try:
+        r = await http.get(f"https://graph.facebook.com/{version}/debug_token",
+                           params={"input_token": jeton, "access_token": jeton})
+        if r.status_code < 300:
+            return str(((r.json() or {}).get("data") or {}).get("app_id") or "").strip()
+    except (httpx.HTTPError, ValueError):
+        pass
+    return ""
+
+
 async def deposer_image(http: httpx.AsyncClient, *, version: str, app_id: str, jeton: str, octets: bytes) -> str:
     """Dépôt de l'image d'exemple (Resumable Upload) → « handle » utilisé dans header_handle."""
     r = await http.post(f"https://graph.facebook.com/{version}/{app_id}/uploads",
@@ -92,7 +106,7 @@ async def deposer_image(http: httpx.AsyncClient, *, version: str, app_id: str, j
     return r2.json()["h"]
 
 
-async def creer_modeles(*, version: str, app_id: str, waba_id: str, jeton: str, prefixe: str, langue: str,
+async def creer_modeles(*, version: str, app_id: Optional[str], waba_id: str, jeton: str, prefixe: str, langue: str,
                         url_bouton: str, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
     """Crée les 9 modèles (2 à 10 cartes). Renvoie une ligne par modèle :
     {nom, statut: « soumis » | « existe déjà » | « erreur », detail}. Ne lève jamais d'exception par modèle."""
@@ -100,6 +114,11 @@ async def creer_modeles(*, version: str, app_id: str, waba_id: str, jeton: str, 
     propre = client is None
     http = client or httpx.AsyncClient(timeout=60)
     try:
+        if not app_id:
+            app_id = await app_id_du_jeton(http, version=version, jeton=jeton)
+        if not app_id:
+            raise RuntimeError("App ID Meta introuvable : Meta ne l'a pas fourni avec le jeton WhatsApp. Saisissez-le dans "
+                               "Paramètres → « Intégration Meta (Facebook / Messenger / Ads) ».")
         handle = await deposer_image(http, version=version, app_id=app_id, jeton=jeton, octets=image_exemple())
         for n in range(CARTES_MIN, CARTES_MAX + 1):
             nom = nom_modele(prefixe, n)

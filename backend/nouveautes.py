@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "76.1", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel : App ID Meta retrouvé automatiquement",
+        "description": "Plus besoin de saisir l'App ID : il est lu à partir du jeton WhatsApp pour créer les modèles du carrousel.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "76", "date": "2026-10-07",
         "titre": "🖼️ Carrousel WhatsApp : modèles Meta créés d'un clic",
         "description": "Le bouton « Créer les modèles chez Meta » dépose les 9 modèles du carrousel (2 à 10 cartes) déjà conformes.",

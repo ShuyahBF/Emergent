@@ -636,10 +636,8 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=400, detail="WhatsApp Business incomplet : jeton d'accès ou identifiant du compte "
                                                         "WhatsApp Business (WABA) manquant dans les Paramètres.")
         s_glob = await db.settings.find_one({"_id": "global"}, {"_id": 0, "meta_app_id": 1, "wa_graph_version": 1}) or {}
-        app_id = (s_glob.get("meta_app_id") or "").strip()
-        if not app_id:
-            raise HTTPException(status_code=400, detail="App ID Meta manquant : renseignez-le dans Paramètres → « Intégration Meta "
-                                                        "(Facebook / Messenger / Ads) ». Meta l'exige pour déposer l'image d'exemple des cartes.")
+        # Lot 76.1 — App ID saisi dans « Intégration Meta » ; sinon retrouvé à partir du jeton WhatsApp
+        app_id = (s_glob.get("meta_app_id") or "").strip() or None
         version = (s_glob.get("wa_graph_version") or "v22.0").strip()
         try:
             resultats = await cmm.creer_modeles(version=version, app_id=app_id, waba_id=waba, jeton=jeton,

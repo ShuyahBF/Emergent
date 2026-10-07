@@ -1199,6 +1199,10 @@ async def _sentinelle_et_prechauffage():
     try:
         from routes.qdrant_rag import prechauffer_modules
         asyncio.get_running_loop().run_in_executor(None, prechauffer_modules)  # en arrière-plan, sans attendre
+        # Lot 71.2 — SDK d'IA (anthropic, openai, google.genai) préchargés aussi : le premier message
+        # WhatsApp après un redémarrage figeait le serveur ~3 s (import d'anthropic dans la boucle)
+        from ia_client import prechauffer_sdk
+        asyncio.get_running_loop().run_in_executor(None, prechauffer_sdk)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[prechauffage] non lancé : %s", exc)
 

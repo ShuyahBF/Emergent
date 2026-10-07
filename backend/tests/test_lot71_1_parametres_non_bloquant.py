@@ -88,3 +88,21 @@ def test_sentinelle_signale_le_code_qui_bloque(caplog):
     assert "[boucle-bloquee] serveur figé" in textes
     assert "fonction_qui_bloque" in textes
     assert "a repris après" in textes
+
+
+def test_lot71_2_sdk_ia_importe_hors_de_la_boucle(monkeypatch):
+    # Lot 71.2 — import lent simulé (1 s) d'un SDK d'IA : la boucle doit rester libre
+    import ia_client
+
+    def import_lent(nom):
+        time.sleep(1.0)
+
+    monkeypatch.setattr(ia_client.importlib, "import_module", import_lent)
+    ia_client._SDK_PRETS.discard("anthropic")
+    _, retard = asyncio.run(_pire_retard(ia_client._sdk_pret("anthropic")))
+    assert retard < 0.3, f"boucle figée {retard:.2f} s"
+    assert "anthropic" in ia_client._SDK_PRETS
+    # Deuxième appel : immédiat (déjà prêt)
+    t = time.perf_counter()
+    asyncio.run(ia_client._sdk_pret("anthropic"))
+    assert time.perf_counter() - t < 0.05

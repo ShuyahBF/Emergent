@@ -15,6 +15,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "71.2", "date": "2026-10-07",
+        "titre": "⚡ Premier message après redémarrage sans attente",
+        "description": "Les modules d'IA (Claude, OpenAI, Gemini) se chargent en arrière-plan : le serveur ne se fige plus ~3 s au premier message WhatsApp.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "71.1", "date": "2026-10-07",
         "titre": "⚡ Les Paramètres ne figent plus SAWALI",
         "description": "La première ouverture des Paramètres après un redémarrage ne bloque plus le serveur ~5 s ; tout blocage futur est noté dans les journaux.",

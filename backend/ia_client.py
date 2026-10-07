@@ -27,8 +27,10 @@ send_message successifs sur la même instance = même conversation).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import importlib
 import logging
 import os
 import pathlib
@@ -306,6 +308,35 @@ class LlmChat:
 
 
 # ---------------------------------------------------------------------------
+# Lot 71.2 — SDK d'IA importés HORS de la boucle principale
+# ---------------------------------------------------------------------------
+# Le premier `from anthropic import …` (ou openai, google.genai) coûte ~3 s : fait directement dans une
+# fonction async, il figeait tout le serveur (sentinelle du lot 71.1 : « [boucle-bloquee] … anthropic »).
+_SDK_PRETS: set = set()
+
+
+async def _sdk_pret(module: str) -> None:
+    """Importe `module` dans un fil séparé la première fois ; ensuite, ne coûte plus rien."""
+    if module in _SDK_PRETS:
+        return
+    try:
+        await asyncio.to_thread(importlib.import_module, module)
+    except Exception:  # noqa: BLE001 — module absent : l'appel suivant lèvera l'erreur habituelle
+        return
+    _SDK_PRETS.add(module)
+
+
+def prechauffer_sdk() -> None:
+    """Lot 71.2 — importe les SDK d'IA à l'avance (appelé dans un fil au démarrage du serveur)."""
+    for module in ("anthropic", "openai", "google.genai"):
+        try:
+            importlib.import_module(module)
+            _SDK_PRETS.add(module)
+        except Exception:  # noqa: BLE001 — SDK non installé : ignoré
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Anthropic (SDK officiel)
 # ---------------------------------------------------------------------------
 def _nouveau_client_anthropic(cle: str):
@@ -353,6 +384,7 @@ async def _appel_anthropic(cle: str, modele: str, systeme: str, messages: List[D
     if params.get("stop"):
         stop = params["stop"]
         requete["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
+    await _sdk_pret("anthropic")   # lot 71.2 : import hors de la boucle
     client = _nouveau_client_anthropic(cle)
     try:
         if max_tokens > SEUIL_FLUX_TOKENS:
@@ -411,6 +443,7 @@ async def _appel_openai(cle: str, modele: str, systeme: str, messages: List[Dict
     for nom in ("temperature", "top_p", "stop"):
         if params.get(nom) is not None:
             requete[nom] = params[nom]
+    await _sdk_pret("openai")   # lot 71.2 : import hors de la boucle
     client = _nouveau_client_openai(cle)
     try:
         reponse = await client.chat.completions.create(**requete)
@@ -434,6 +467,7 @@ def _nouveau_client_gemini(cle: str):
 
 async def _appel_gemini(cle: str, modele: str, systeme: str, messages: List[Dict[str, Any]],
                         params: Dict[str, Any], multimodal: bool) -> ChatResponse:
+    await _sdk_pret("google.genai")   # lot 71.2 : import hors de la boucle
     from google.genai import types
 
     contenus = []
@@ -509,6 +543,7 @@ class OpenAIImageGeneration:
     async def generate_images(self, prompt: str, model: str = "gpt-image-1", number_of_images: int = 1,
                               quality: str = "low") -> List[bytes]:
         self._verifier()
+        await _sdk_pret("openai")   # lot 71.2
         from openai import AsyncOpenAI
         params: Dict[str, Any] = {"model": model, "prompt": prompt, "n": number_of_images}
         if model in ("dall-e-3", "gpt-image-1"):
@@ -634,6 +669,7 @@ class OpenAISpeechToText:
             params["temperature"] = temperature
         if timestamp_granularities:
             params["timestamp_granularities"] = timestamp_granularities
+        await _sdk_pret("openai")   # lot 71.2 : import hors de la boucle (transcription pendant les appels)
         from openai import AsyncOpenAI
         async with AsyncOpenAI(api_key=self.api_key, timeout=DELAI_SECONDES) as client:
             reponse = await client.audio.transcriptions.create(**params)

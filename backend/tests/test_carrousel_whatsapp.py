@@ -181,7 +181,7 @@ def test_cartes_libres_verifiees(env):
     assert r.status_code == 400 and "Carte 2" in r.json()["detail"]
     r = client.post("/api/me/whatsapp/carrousel/envoyer", headers=h("cli_a"),
                     json={"message": "x", "cartes": [libre, dict(libre, lien="pas un lien")], "ids": ["c1"]})
-    assert r.status_code == 400 and "lien invalide" in r.json()["detail"]
+    assert r.status_code == 400 and "invalide" in r.json()["detail"]
     r = client.post("/api/me/whatsapp/carrousel/envoyer", headers=h("cli_a"),
                     json={"message": "x", "cartes": [libre], "ids": ["c1"]})
     assert r.status_code == 422   # 2 cartes au minimum

@@ -184,6 +184,18 @@ class BrouillonIn(BaseModel):
     cartes: List[CarteIn] = Field(default_factory=list, max_length=CARTES_MAX)
 
 
+class BrouillonAutoIn(BaseModel):
+    """Lot 78 — enregistrement automatique du carrousel en cours (sans nom)."""
+    message: str = Field("", max_length=500)
+    cartes: List[CarteIn] = Field(default_factory=list, max_length=CARTES_MAX)
+    carrousel_id: Optional[str] = None      # carrousel nommé ouvert dans l'éditeur, s'il y en a un
+
+
+class PreferencesIn(BaseModel):
+    """Lot 78 — lien utilisé par les cartes libres laissées sans lien (vide = aucun)."""
+    lien_defaut: str = Field("", max_length=600)
+
+
 class ImageIaIn(BaseModel):
     """Lot 75 — description de l'image à générer pour une carte (et titre de la carte, facultatif)."""
     prompt: str = Field(..., min_length=3, max_length=IA_PROMPT_MAX)
@@ -362,7 +374,8 @@ def attach_carrousel_whatsapp_routes(
     async def _lister_brouillons(perimetre: str, tenant_id: Optional[str]) -> Dict[str, Any]:
         meta = await _statuts_meta(tenant_id if perimetre == "client" else None)
         lignes = []
-        async for b in db.carrousel_brouillons.find(_filtre_brouillons(perimetre, tenant_id), {"_id": 0}).sort("modifie_le", -1):
+        async for b in db.carrousel_brouillons.find({**_filtre_brouillons(perimetre, tenant_id), "auto": {"$ne": True}},
+                                                    {"_id": 0}).sort("modifie_le", -1):
             n = len(b.get("cartes") or [])
             lignes.append({**b, "nb_cartes": n, "modele": f"{meta['prefixe']}_{n}" if meta["prefixe"] else None,
                            "statut_meta": statut_pour_cartes(n, meta["statuts"])})
@@ -383,6 +396,39 @@ def attach_carrousel_whatsapp_routes(
                     "cree_le": maintenant})
         await db.carrousel_brouillons.insert_one(dict(doc))
         return doc
+
+    # --- Lot 78 : préférences (lien par défaut) et brouillon automatique ----
+    def _cle_pref(perimetre: str, tenant_id: Optional[str]) -> dict:
+        return {"perimetre": perimetre, "tenant_id": tenant_id if perimetre == "client" else None}
+
+    async def _preferences(perimetre: str, tenant_id: Optional[str]) -> dict:
+        doc = await db.carrousel_preferences.find_one(_cle_pref(perimetre, tenant_id), {"_id": 0}) or {}
+        return {"lien_defaut": (doc.get("lien_defaut") or "").strip()}
+
+    async def _ecrire_preferences(data: PreferencesIn, perimetre: str, tenant_id: Optional[str]) -> dict:
+        lien = (data.lien_defaut or "").strip()
+        if lien and not lien_accepte(lien):
+            raise HTTPException(status_code=400, detail="Lien par défaut invalide : adresse complète https://… attendue")
+        await db.carrousel_preferences.update_one(_cle_pref(perimetre, tenant_id),
+                                                  {"$set": {**_cle_pref(perimetre, tenant_id), "lien_defaut": lien}}, upsert=True)
+        return {"lien_defaut": lien}
+
+    def _cle_auto(perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
+        """Un brouillon automatique par utilisateur (et par client sur le portail)."""
+        return {**_filtre_brouillons(perimetre, tenant_id), "auto": True, "user_id": user.get("id")}
+
+    async def _lire_auto(perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
+        doc = await db.carrousel_brouillons.find_one(_cle_auto(perimetre, tenant_id, user), {"_id": 0})
+        return {"brouillon": doc}
+
+    async def _ecrire_auto(data: BrouillonAutoIn, perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
+        cle = _cle_auto(perimetre, tenant_id, user)
+        maj = {**cle, "nom": "Sans nom (automatique)", "message": data.message,
+               "cartes": [c.model_dump() for c in data.cartes], "carrousel_id": data.carrousel_id,
+               "modifie_le": _maintenant()}
+        await db.carrousel_brouillons.update_one(cle, {"$set": maj, "$setOnInsert": {"id": uuid.uuid4().hex, "cree_le": _maintenant()}},
+                                                 upsert=True)
+        return {"ok": True, "enregistre_le": maj["modifie_le"]}
 
     async def _dupliquer_brouillon(bid: str, perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
         src = await db.carrousel_brouillons.find_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid}, {"_id": 0})
@@ -451,7 +497,7 @@ def attach_carrousel_whatsapp_routes(
         return {"url": url}
 
     # --- Cartes --------------------------------------------------------------
-    async def _preparer_cartes(cartes: List[CarteIn], tenant_id: Optional[str]) -> List[dict]:
+    async def _preparer_cartes(cartes: List[CarteIn], tenant_id: Optional[str], lien_defaut: str = "") -> List[dict]:
         """Vérifie chaque carte ; une carte produit prend photo, nom et prix du produit
         (du client connecté seulement) et son bouton mène à la page du produit."""
         base = base_publique()
@@ -471,13 +517,15 @@ def attach_carrousel_whatsapp_routes(
                 produit_id = p["id"]
             else:
                 image, titre = url_absolue(c.image_url, base), (c.titre or "").strip()
-                texte, lien, produit_id = (c.texte or "").strip(), (c.lien or "").strip(), None
+                # Lot 78 — carte libre sans lien : lien par défaut réglé sur la page Carrousel
+                texte, lien, produit_id = (c.texte or "").strip(), (c.lien or "").strip() or lien_defaut, None
             if not image_acceptee(image):
                 raise HTTPException(status_code=400, detail=f"Carte {i} : image JPEG ou PNG publique (https) obligatoire")
             if not titre:
                 raise HTTPException(status_code=400, detail=f"Carte {i} : titre obligatoire")
             if not lien_accepte(lien):
-                raise HTTPException(status_code=400, detail=f"Carte {i} : lien invalide (https://…)")
+                raise HTTPException(status_code=400, detail=f"Carte {i} : lien manquant ou invalide (https://…) — "
+                                                            "saisissez-le, ou réglez un « lien par défaut » sur la page Carrousel")
             prets.append({"source": c.source, "produit_id": produit_id, "image_url": image,
                           "titre": titre[:60], "texte": texte[:80], "lien": lien})
         return prets
@@ -539,7 +587,8 @@ def attach_carrousel_whatsapp_routes(
         if not r["modele"]:
             raise HTTPException(status_code=400, detail="Modèles de carrousel non renseignés : voir les réglages "
                                                         "de l'administration SAWALI")
-        cartes = await _preparer_cartes(envoi.cartes, tenant_id if perimetre == "client" else None)
+        prefs = await _preferences(perimetre, tenant_id)
+        cartes = await _preparer_cartes(envoi.cartes, tenant_id if perimetre == "client" else None, prefs["lien_defaut"])
         destinataires = _dedoublonner(personnes)
         if not destinataires:
             raise HTTPException(status_code=400, detail="Aucun destinataire n'a accepté de recevoir vos messages "
@@ -677,6 +726,22 @@ def attach_carrousel_whatsapp_routes(
     async def supprimer_brouillon_portail(bid: str, user: dict = Depends(utilisateur)):
         return await _supprimer_brouillon(bid, "client", _tenant_id(user))
 
+    @api.get("/me/whatsapp/carrousel/brouillon-auto", tags=["Portail Client — Carrousel WhatsApp"])
+    async def lire_auto_portail(user: dict = Depends(utilisateur)):
+        return await _lire_auto("client", _tenant_id(user), user)
+
+    @api.put("/me/whatsapp/carrousel/brouillon-auto", tags=["Portail Client — Carrousel WhatsApp"])
+    async def ecrire_auto_portail(data: BrouillonAutoIn, user: dict = Depends(utilisateur)):
+        return await _ecrire_auto(data, "client", _tenant_id(user), user)
+
+    @api.get("/me/whatsapp/carrousel/preferences", tags=["Portail Client — Carrousel WhatsApp"])
+    async def preferences_portail(user: dict = Depends(utilisateur)):
+        return await _preferences("client", _tenant_id(user))
+
+    @api.put("/me/whatsapp/carrousel/preferences", tags=["Portail Client — Carrousel WhatsApp"])
+    async def ecrire_preferences_portail(data: PreferencesIn, user: dict = Depends(utilisateur)):
+        return await _ecrire_preferences(data, "client", _tenant_id(user))
+
     @api.get("/me/whatsapp/carrousel/statuts-meta", tags=["Portail Client — Carrousel WhatsApp"])
     async def statuts_meta_portail(rafraichir: bool = False, user: dict = Depends(utilisateur)):
         return await _statuts_meta(_tenant_id(user), rafraichir)
@@ -812,6 +877,22 @@ def attach_carrousel_whatsapp_routes(
     @api.delete("/admin/whatsapp/carrousel/brouillons/{bid}", tags=["Admin — Carrousel WhatsApp"])
     async def supprimer_brouillon_admin(bid: str, _: dict = Depends(get_current_admin)):
         return await _supprimer_brouillon(bid, "admin", None)
+
+    @api.get("/admin/whatsapp/carrousel/brouillon-auto", tags=["Admin — Carrousel WhatsApp"])
+    async def lire_auto_admin(user: dict = Depends(get_current_admin)):
+        return await _lire_auto("admin", None, user)
+
+    @api.put("/admin/whatsapp/carrousel/brouillon-auto", tags=["Admin — Carrousel WhatsApp"])
+    async def ecrire_auto_admin(data: BrouillonAutoIn, user: dict = Depends(get_current_admin)):
+        return await _ecrire_auto(data, "admin", None, user)
+
+    @api.get("/admin/whatsapp/carrousel/preferences", tags=["Admin — Carrousel WhatsApp"])
+    async def preferences_admin(_: dict = Depends(get_current_admin)):
+        return await _preferences("admin", None)
+
+    @api.put("/admin/whatsapp/carrousel/preferences", tags=["Admin — Carrousel WhatsApp"])
+    async def ecrire_preferences_admin(data: PreferencesIn, _: dict = Depends(get_current_admin)):
+        return await _ecrire_preferences(data, "admin", None)
 
     @api.get("/admin/whatsapp/carrousel/statuts-meta", tags=["Admin — Carrousel WhatsApp"])
     async def statuts_meta_admin(rafraichir: bool = False, _: dict = Depends(get_current_admin)):

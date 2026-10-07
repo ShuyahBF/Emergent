@@ -10,7 +10,7 @@
   libre (image envoyée, générée ou de la médiathèque ; titre, texte, lien).
   API : /me/whatsapp/carrousel et /admin/whatsapp/carrousel (backend/routes/carrousel_whatsapp.py).
 */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Copy, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
@@ -26,6 +26,10 @@ const erreur = (e, defaut) => {
 };
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 const carteVide = () => ({ source: "libre", image_url: "", titre: "", texte: "", lien: "" });
+// Cartes telles que le serveur les attend (une carte produit ne garde que son produit et ses textes)
+const cartesPourServeur = (cartes) => cartes.map((c) => (c.source === "produit"
+  ? { source: "produit", produit_id: c.produit_id || null, titre: c.titre || null, texte: c.texte || null }
+  : { source: "libre", image_url: c.image_url || "", titre: c.titre || "", texte: c.texte || "", lien: c.lien || "" }));
 const champ = "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
 // Aperçu d'une carte, à la façon de WhatsApp
@@ -289,44 +293,20 @@ function PastilleMeta({ statut, modele }) {
 }
 
 // Lot 77 — carrousels enregistrés sous un nom : liste, ouvrir, dupliquer, supprimer
-function MesCarrousels({ base, courant, onOuvrir, message, cartes, onEnregistre }) {
+function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir }) {
   const [liste, setListe] = useState({ carrousels: [], erreur_meta: null });
-  const [nom, setNom] = useState("");
-  const [occupe, setOccupe] = useState(false);
-  const charger = useCallback(async (rafraichir = false) => {
+  const charger = useCallback(async (relireMeta = false) => {
     try {
-      if (rafraichir) await apiClient.get(`${base}/statuts-meta`, { params: { rafraichir: true } });
+      if (relireMeta) await apiClient.get(`${base}/statuts-meta`, { params: { rafraichir: true } });
       const { data } = await apiClient.get(`${base}/brouillons`);
       setListe(data);
     } catch (e) {
       toast.error(erreur(e, "Liste des carrousels indisponible"));
     }
   }, [base]);
-  useEffect(() => { charger(); }, [charger]);
-  useEffect(() => { setNom(courant?.nom || ""); }, [courant]);
+  // Rechargée au chargement et après chaque enregistrement (compteur « rafraichir »)
+  useEffect(() => { charger(); }, [charger, rafraichir]);
 
-  const corps = () => ({
-    nom: nom.trim(), message,
-    cartes: cartes.map((c) => (c.source === "produit"
-      ? { source: "produit", produit_id: c.produit_id, titre: c.titre || null, texte: c.texte || null }
-      : c)),
-  });
-  const enregistrer = async (commeNouveau) => {
-    if (!nom.trim()) { toast.error("Donnez un nom au carrousel."); return; }
-    setOccupe(true);
-    try {
-      const { data } = courant && !commeNouveau
-        ? await apiClient.put(`${base}/brouillons/${courant.id}`, corps())
-        : await apiClient.post(`${base}/brouillons`, corps());
-      toast.success(`Carrousel « ${data.nom} » enregistré`);
-      onEnregistre(data);
-      charger();
-    } catch (e) {
-      toast.error(erreur(e, "Enregistrement impossible"));
-    } finally {
-      setOccupe(false);
-    }
-  };
   const dupliquer = async (b) => {
     try {
       const { data } = await apiClient.post(`${base}/brouillons/${b.id}/dupliquer`);
@@ -356,22 +336,9 @@ function MesCarrousels({ base, courant, onOuvrir, message, cartes, onEnregistre 
           <RefreshCw className="mr-1 h-4 w-4" /> Statuts Meta
         </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <input className={`${champ} max-w-sm`} maxLength={80} placeholder="Nom du carrousel (ex. Nouveautés octobre)"
-               value={nom} onChange={(e) => setNom(e.target.value)} />
-        <Button type="button" size="sm" disabled={occupe} onClick={() => enregistrer(false)}>
-          {occupe ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-          {courant ? "Enregistrer les modifications" : "Enregistrer"}
-        </Button>
-        {courant && (
-          <Button type="button" size="sm" variant="outline" disabled={occupe} onClick={() => enregistrer(true)}>
-            <Copy className="mr-1 h-4 w-4" /> Enregistrer comme nouveau
-          </Button>
-        )}
-      </div>
       {liste.erreur_meta && <p className="text-xs text-amber-700">Statuts Meta indisponibles : {liste.erreur_meta}</p>}
       {liste.carrousels.length === 0 ? (
-        <p className="text-xs text-slate-500">Aucun carrousel enregistré. Composez-en un ci-dessous, nommez-le puis « Enregistrer ».</p>
+        <p className="text-xs text-slate-500">Aucun carrousel enregistré. Composez-en un ci-dessous, nommez-le et « Enregistrer » (en bas, avant l'aperçu).</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -424,8 +391,17 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [message, setMessage] = useState("");
   const [cartes, setCartes] = useState([carteVide(), carteVide()]);
   const [courant, setCourant] = useState(null);           // lot 77 : carrousel nommé ouvert dans l'éditeur
+  // Lot 78 — nom et enregistrement (barre en bas, avant l'aperçu), brouillon automatique, lien par défaut
+  const [nom, setNom] = useState("");
+  const [enregistrement, setEnregistrement] = useState(false);
+  const [rafraichirListe, setRafraichirListe] = useState(0);
+  const [autoLe, setAutoLe] = useState(null);             // heure du dernier enregistrement automatique
+  const autoPret = useRef(false);                         // pas d'enregistrement auto avant la restauration
+  const [lienDefaut, setLienDefaut] = useState("");
   const ouvrirCarrousel = (b) => {
-    setCourant(b ? { id: b.id, nom: b.nom } : null);
+    // Un carrousel enregistré garde son id ; un envoi rechargé devient un nouveau carrousel (sans id)
+    setCourant(b?.id ? { id: b.id, nom: b.nom } : null);
+    setNom(b?.nom || "");
     if (!b) return;
     setMessage(b.message || "");
     const cs = (b.cartes || []).map((c) => ({ ...carteVide(), ...Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v ?? ""])) }));
@@ -450,6 +426,80 @@ export default function CarrouselWhatsApp({ admin = false }) {
     }
   }, [base]);
   useEffect(() => { charger(); }, [charger]);
+
+  // Lot 78 — au chargement : lien par défaut, puis restauration du brouillon automatique
+  useEffect(() => {
+    let fini = false;
+    (async () => {
+      try {
+        const [pref, auto] = await Promise.all([apiClient.get(`${base}/preferences`), apiClient.get(`${base}/brouillon-auto`)]);
+        if (fini) return;
+        setLienDefaut(pref.data.lien_defaut || "");
+        const b = auto.data.brouillon;
+        const rempli = b && ((b.message || "").trim() || (b.cartes || []).some((c) => c.titre || c.image_url || c.lien || c.produit_id));
+        if (rempli) {
+          ouvrirCarrousel({ ...b, id: b.carrousel_id || null, nom: "" });
+          if (b.carrousel_id) {
+            const { data } = await apiClient.get(`${base}/brouillons`);
+            const nomme = (data.carrousels || []).find((x) => x.id === b.carrousel_id);
+            if (nomme) { setCourant({ id: nomme.id, nom: nomme.nom }); setNom(nomme.nom); } else setCourant(null);
+          } else {
+            setCourant(null);
+          }
+          setAutoLe(b.modifie_le);
+          toast.info(`Travail en cours restauré (enregistré automatiquement le ${dateFr(b.modifie_le)})`);
+        }
+      } catch (e) {
+        /* sans brouillon automatique, l'éditeur reste vide */
+      } finally {
+        autoPret.current = true;
+      }
+    })();
+    return () => { fini = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base]);
+
+  // Lot 78 — enregistrement automatique 3 s après la dernière modification
+  useEffect(() => {
+    if (!autoPret.current) return undefined;
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await apiClient.put(`${base}/brouillon-auto`, { message, cartes: cartesPourServeur(cartes), carrousel_id: courant?.id || null });
+        setAutoLe(data.enregistre_le);
+      } catch (e) {
+        /* silencieux : nouvel essai à la prochaine modification */
+      }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [base, message, cartes, courant]);
+
+  const enregistrerCarrousel = async (commeNouveau) => {
+    if (!nom.trim()) { toast.error("Donnez un nom au carrousel."); return; }
+    setEnregistrement(true);
+    try {
+      const corps = { nom: nom.trim(), message, cartes: cartesPourServeur(cartes) };
+      const { data } = courant?.id && !commeNouveau
+        ? await apiClient.put(`${base}/brouillons/${courant.id}`, corps)
+        : await apiClient.post(`${base}/brouillons`, corps);
+      toast.success(`Carrousel « ${data.nom} » enregistré`);
+      setCourant({ id: data.id, nom: data.nom });
+      setRafraichirListe((n) => n + 1);
+    } catch (e) {
+      toast.error(erreur(e, "Enregistrement impossible"));
+    } finally {
+      setEnregistrement(false);
+    }
+  };
+
+  const enregistrerLienDefaut = async () => {
+    try {
+      const { data } = await apiClient.put(`${base}/preferences`, { lien_defaut: lienDefaut.trim() });
+      setLienDefaut(data.lien_defaut);
+      toast.success(data.lien_defaut ? "Lien par défaut enregistré" : "Lien par défaut retiré");
+    } catch (e) {
+      toast.error(erreur(e, "Lien par défaut refusé"));
+    }
+  };
 
   const rechargerImages = async () => {
     const { data } = await apiClient.get(`${base}/images`);
@@ -498,9 +548,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     try {
       const corps = {
         message,
-        cartes: cartes.map((c) => (c.source === "produit"
-          ? { source: "produit", produit_id: c.produit_id, titre: c.titre || null, texte: c.texte || null }
-          : c)),
+        cartes: cartesPourServeur(cartes),
         ids: [...choisis], groupes: [...groupes],
       };
       const { data } = await apiClient.post(`${base}/envoyer`, corps);
@@ -544,14 +592,21 @@ export default function CarrouselWhatsApp({ admin = false }) {
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
 
       {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
-      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} message={message} cartes={cartes}
-                     onEnregistre={(b) => setCourant(b ? { id: b.id, nom: b.nom } : null)} />
+      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} rafraichir={rafraichirListe}
+                     onEnregistre={(b) => { setCourant(b ? { id: b.id, nom: b.nom } : null); if (!b) setNom(""); }} />
 
       {/* 1. Message et cartes */}
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
         <h2 className="font-semibold text-slate-800">1. Message et cartes</h2>
         <textarea className={champ} rows={2} maxLength={500} placeholder="Texte au-dessus des cartes (ex. Nos nouveautés de la semaine)"
                   value={message} onChange={(e) => setMessage(e.target.value)} />
+        {/* Lot 78 — lien utilisé par les cartes libres laissées sans lien */}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="carrousel-lien-defaut" className="text-xs font-medium text-slate-600">Lien par défaut des cartes sans lien :</label>
+          <input id="carrousel-lien-defaut" className={`${champ} max-w-md`} placeholder="https://sawalismartsystems.com"
+                 value={lienDefaut} onChange={(e) => setLienDefaut(e.target.value)} />
+          <Button type="button" size="sm" variant="outline" onClick={enregistrerLienDefaut}>Enregistrer le lien</Button>
+        </div>
         <div className="space-y-3">
           {cartes.map((c, i) => (
             <div key={i} className="rounded-md border border-slate-200 p-3">
@@ -592,6 +647,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     <input className={champ} maxLength={60} placeholder="Titre" value={c.titre} onChange={(e) => majCarte(i, { titre: e.target.value })} />
                     <input className={champ} maxLength={80} placeholder="Texte court" value={c.texte} onChange={(e) => majCarte(i, { texte: e.target.value })} />
                     <input className={champ} placeholder="Lien du bouton https://…" value={c.lien} onChange={(e) => majCarte(i, { lien: e.target.value })} />
+                    {!c.lien && (
+                      <p className={`text-[11px] ${lienDefaut ? "text-slate-500" : "text-amber-700"}`}>
+                        {lienDefaut ? `Sans lien : le bouton ouvrira ${lienDefaut}` : "Lien obligatoire (ou réglez un lien par défaut ci-dessus)."}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -602,6 +662,23 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 onClick={() => setCartes([...cartes, carteVide()])}>
           <Plus className="mr-1 h-4 w-4" /> Ajouter une carte ({cartes.length}/{etat.cartes_max})
         </Button>
+        {/* Lot 78 — nom et enregistrement, en bas de l'éditeur, juste avant l'aperçu */}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <input className={`${champ} max-w-sm`} maxLength={80} placeholder="Nom du carrousel (ex. Nouveautés octobre)"
+                 value={nom} onChange={(e) => setNom(e.target.value)} />
+          <Button type="button" size="sm" disabled={enregistrement} onClick={() => enregistrerCarrousel(false)}>
+            {enregistrement ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+            {courant?.id ? "Enregistrer les modifications" : "Enregistrer"}
+          </Button>
+          {courant?.id && (
+            <Button type="button" size="sm" variant="outline" disabled={enregistrement} onClick={() => enregistrerCarrousel(true)}>
+              <Copy className="mr-1 h-4 w-4" /> Enregistrer comme nouveau
+            </Button>
+          )}
+          <span className="ml-auto text-[11px] text-slate-500">
+            {autoLe ? `Enregistré automatiquement le ${dateFr(autoLe)}` : "Enregistrement automatique actif"}
+          </span>
+        </div>
         {/* Aperçu */}
         <div className="rounded-lg bg-[#e5ddd5] p-3">
           <div className="mb-2 max-w-md rounded-lg bg-white p-2 text-sm shadow-sm">{message || "Votre message…"}</div>
@@ -687,7 +764,12 @@ export default function CarrouselWhatsApp({ admin = false }) {
               <span className="text-emerald-700">{c.compte.envoyes} envoyé(s)</span>
               {c.compte.echecs > 0 && <span className="text-red-700">{c.compte.echecs} échec(s)</span>}
               <span className="text-slate-500">{c.statut === "EN_COURS" ? "en cours…" : ""}</span>
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => (detail?.id === c.id ? setDetail(null) : ouvrirDetail(c.id))}>
+              {/* Lot 78 — recharge les cartes et le message de cet envoi dans l'éditeur (nouveau carrousel) */}
+              <Button size="sm" variant="outline" className="ml-auto" title="Reprendre ce carrousel dans l'éditeur pour le modifier ou le renvoyer"
+                onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien }) => ({ source, produit_id, image_url, titre, texte, lien })) }); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>
+                Recharger dans l'éditeur
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => (detail?.id === c.id ? setDetail(null) : ouvrirDetail(c.id))}>
                 {detail?.id === c.id ? "Masquer" : "Détail"}
               </Button>
             </div>

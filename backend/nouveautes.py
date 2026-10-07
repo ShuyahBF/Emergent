@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "78", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel : enregistrement automatique et rechargement",
+        "description": "Le carrousel en cours est sauvegardé tout seul ; un envoi précédent se recharge d'un clic ; lien par défaut des cartes.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "77", "date": "2026-10-07",
         "titre": "🖼️ Carrousels nommés, dupliqués, avec statut Meta",
         "description": "Enregistrez vos carrousels sous un nom, dupliquez-les, et voyez d'une pastille si Meta a approuvé leur modèle.",

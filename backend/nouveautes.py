@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "78.3", "date": "2026-10-08",
+        "titre": "🖼️ Carrousel : bouton d'envoi qui explique ce qu'il manque",
+        "description": "Le lien par défaut suffit pour envoyer ; si le bouton est grisé, la liste de ce qui manque s'affiche à côté.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "78.2", "date": "2026-10-07",
         "titre": "🖼️ Carrousel : statuts Meta à jour",
         "description": "« Actualiser les statuts Meta » relit l'approbation des modèles ; relecture automatique tant qu'un modèle est en attente.",

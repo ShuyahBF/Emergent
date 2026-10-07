@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "78.2"
-LOT_LIBELLE = "Carrousel WhatsApp : statut actuel des modèles chez Meta (approuvé, en attente, refusé) avec bouton « Actualiser les statuts Meta » et relecture automatique ; jetons masqués dans les journaux du serveur"
+LOT = "78.3"
+LOT_LIBELLE = "Carrousel WhatsApp : le bouton « Envoyer le carrousel » tient compte du lien par défaut et affiche ce qu'il manque quand il est grisé"

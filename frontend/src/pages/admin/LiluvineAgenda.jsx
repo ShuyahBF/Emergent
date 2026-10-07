@@ -17,6 +17,7 @@
 // Heures : Africa/Ouagadougou (= UTC) ; affichage JJ/MM/AAAA HH:MM.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useSearchParams } from "react-router-dom";   // lot 72 : ?ev=<id> ouvre directement un évènement
 import { apiClient } from "@/lib/api";
 import TranscriptionAppelLiluvine from "@/components/TranscriptionAppelLiluvine";
 
@@ -137,6 +138,17 @@ export default function LiluvineAgenda() {
     setDetail(ev);
     try { const r = await apiClient.get(`/admin/liluvine-agenda/${ev.id}`); setDetail(r.data); } catch { /* résumé de la liste */ }
   };
+
+  // Lot 72 — ouverture directe depuis le toast « Liluvine appelle … » (lien /admin/liluvine-agenda?ev=<id>)
+  const [parametres, setParametres] = useSearchParams();
+  useEffect(() => {
+    const id = parametres.get("ev");
+    if (!id) return;
+    apiClient.get(`/admin/liluvine-agenda/${encodeURIComponent(id)}`)
+      .then((r) => setDetail(r.data))
+      .catch(() => toast.error("Évènement introuvable"))
+      .finally(() => { parametres.delete("ev"); setParametres(parametres, { replace: true }); });
+  }, [parametres, setParametres]);
 
   // Export CSV de la liste filtrée
   const exporter = () => action("csv", async () => {

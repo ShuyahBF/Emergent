@@ -50,6 +50,7 @@ import re
 import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo   # lot 72 : heure locale (Ouagadougou) du prochain essai dans les alertes
 from typing import Any, Dict, List, Optional, Tuple
 
 import routes.appel_proprietaire as ap
@@ -955,9 +956,72 @@ async def _executer(db, ev_id: str) -> Dict[str, Any]:
     perm = await ap.etat_permission(db, s, numero_id, tel)
     if not perm.get("peut_appeler"):
         return await _sans_autorisation(db, s, cfga, ev, numero_id, perm)
-    # 2. Appel et conversation
+    # 2. Appel et conversation — lot 72 : l'administrateur et le superviseur sont prévenus (toast persistant)
+    alerte_id = await alerte_debut(db, ev, ligne_cle)
     res = await appeler_et_converser(db, s, cfga, ev, numero_id=numero_id, ligne_cle=ligne_cle)
-    return await apres_appel(db, s, cfga, ev, res, numero_id=numero_id)
+    sortie = await apres_appel(db, s, cfga, ev, res, numero_id=numero_id)
+    await alerte_fin(db, alerte_id, res, sortie)
+    return sortie
+
+
+# ---------------------------------------------------------------------------
+# Lot 72 — alertes « Liluvine appelle … » pour l'administrateur et le superviseur
+# ---------------------------------------------------------------------------
+# Une alerte par appel : créée quand l'appel part, complétée à la fin (résultat, résumé). Le portail la lit
+# toutes les 10 s (/admin/liluvine-agenda/alertes) et l'affiche dans un toast qui reste jusqu'à sa fermeture.
+COLLECTION_ALERTES = "liluvine_agenda_alertes"
+
+
+async def alerte_debut(db, ev: Dict[str, Any], ligne_cle: str) -> Optional[str]:
+    """Enregistre « Liluvine appelle <contact> pour <type> » ; renvoie l'identifiant (None si échec, jamais bloquant)."""
+    try:
+        maintenant = _iso(_maintenant())
+        alerte = {
+            "id": str(uuid.uuid4()), "ev_id": ev["id"], "etat": "appel",
+            "type": ev.get("type"), "type_libelle": TYPES.get(ev.get("type") or "", "Appel"),
+            "titre": (ev.get("titre") or "")[:120], "mode": ev.get("mode") or "prompt",
+            "contact_nom": (ev.get("contact") or {}).get("nom") or f"+{ev.get('telephone')}",
+            "telephone": ev.get("telephone"), "ligne_cle": ligne_cle,
+            "tentative": int(ev.get("tentatives") or 0) + 1, "le": maintenant, "maj": maintenant,
+        }
+        await db[COLLECTION_ALERTES].insert_one(dict(alerte))
+        return alerte["id"]
+    except Exception:  # noqa: BLE001 — une alerte manquée ne doit jamais empêcher l'appel
+        logger.exception("[agenda] alerte de début d'appel non enregistrée")
+        return None
+
+
+def libelle_resultat(res: Dict[str, Any], sortie: Dict[str, Any]) -> Tuple[str, str]:
+    """(état, phrase) affichés dans le toast à la fin de l'appel."""
+    r = res.get("resultat")
+    if r == "decroche":
+        return "termine", "Conversation terminée"
+    if sortie.get("resultat") == "nouvelle_tentative":
+        heure = ""
+        try:
+            heure = datetime.fromisoformat(sortie["prochaine"]).astimezone(ZoneInfo("Africa/Ouagadougou")).strftime("%H:%M")
+        except Exception:  # noqa: BLE001
+            pass
+        motif = "appel refusé" if r == "refuse" else ("pas de réponse" if r == "sans_reponse" else (res.get("raison") or "échec"))
+        return "nouvelle_tentative", f"{motif[:120]} — nouvel essai{(' à ' + heure) if heure else ''}"
+    if r == "refuse":
+        return "refuse", "Appel refusé par le contact"
+    if r == "sans_reponse":
+        return "sans_reponse", "Pas de réponse"
+    return "echec", f"Échec : {(res.get('raison') or 'erreur inconnue')[:160]}"
+
+
+async def alerte_fin(db, alerte_id: Optional[str], res: Dict[str, Any], sortie: Dict[str, Any]) -> None:
+    """Complète l'alerte avec le résultat de l'appel (résumé de Liluvine si conversation)."""
+    if not alerte_id:
+        return
+    try:
+        etat, phrase = libelle_resultat(res, sortie)
+        await db[COLLECTION_ALERTES].update_one({"id": alerte_id}, {"$set": {
+            "etat": etat, "resultat": phrase, "resume": (sortie.get("resume") or "")[:400],
+            "maj": _iso(_maintenant())}})
+    except Exception:  # noqa: BLE001
+        logger.exception("[agenda] alerte de fin d'appel non enregistrée")
 
 
 async def preparer_contenu(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: Dict[str, Any]) -> Dict[str, Any]:
@@ -1831,6 +1895,15 @@ def setup_liluvine_agenda_routes(*, db, api, get_current_user) -> None:
                 "types_question": list(TYPES_QUESTION),
                 "lignes": [{"cle": li["cle"], "libelle": li["libelle"]} for li in lignes_configurees(s)],
                 "reglages": cfga, "moteur": {"disponible": ap.moteur_disponible()[0], "en_cours": len(ld._actifs)}}
+
+    @api.get("/admin/liluvine-agenda/alertes", tags=["Admin — Liluvine agenda"])
+    async def alertes(since: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Lot 72 — alertes « Liluvine appelle … » modifiées depuis `since` (sinon : 2 dernières heures)."""
+        _exiger_admin(user)
+        maintenant = _maintenant()
+        depuis = since or _iso(maintenant - timedelta(hours=2))
+        docs = await db[COLLECTION_ALERTES].find({"maj": {"$gte": depuis}}, {"_id": 0}).sort("maj", -1).to_list(50)
+        return {"alertes": docs, "server_now": _iso(maintenant)}
 
     @api.get("/admin/liluvine-agenda/export.csv", tags=["Admin — Liluvine agenda"])
     async def exporter(du: Optional[str] = None, au: Optional[str] = None, type: Optional[str] = None,  # noqa: A002

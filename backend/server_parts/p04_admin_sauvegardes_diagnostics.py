@@ -805,23 +805,36 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
 
 
 
+# Lot 72 — synchronisation de la roadmap déjà faite pour cette version de CHANGELOG.md (voir ci-dessous)
+_ROADMAP_SYNCHRO: Dict[str, Any] = {}
+
+
 @api.get("/admin/roadmap-actions", tags=["Admin"])
 async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
     """Liste toutes les actions de la roadmap triées par code croissant. Initialisée au 1er appel.
     Iter34j: One-shot backfill of `status` for rows that pre-date the field.
     Iter38f: Auto-syncs CHANGELOG.md entries on every call (idempotent)."""
-    await _seed_roadmap_actions()
-    # Iter38f — Auto-sync from /app/memory/CHANGELOG.md (best-effort, never blocks)
+    # Lot 72 — la liste initiale et CHANGELOG.md ne changent qu'avec un déploiement : leur synchronisation
+    # (des centaines de lectures une par une, ~6 s) n'est faite qu'une fois par démarrage du serveur, ou quand
+    # CHANGELOG.md a changé (date de modification). Avant, elle était refaite à CHAQUE ouverture de la page.
     try:
-        await _sync_roadmap_from_changelog()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[roadmap] CHANGELOG auto-sync failed: %s", exc)
-    # Iter34j backfill: rows without `status` get inferred from `done`
-    try:
-        await db.roadmap_actions.update_many({"status": {"$exists": False}, "done": True}, {"$set": {"status": "done"}})
-        await db.roadmap_actions.update_many({"status": {"$exists": False}}, {"$set": {"status": "todo"}})
-    except Exception:
-        pass
+        empreinte = _CHANGELOG_PATH.stat().st_mtime if _CHANGELOG_PATH.exists() else 0
+    except OSError:
+        empreinte = 0
+    if _ROADMAP_SYNCHRO.get("empreinte") != empreinte:
+        await _seed_roadmap_actions()
+        # Iter38f — Auto-sync from /app/memory/CHANGELOG.md (best-effort, never blocks)
+        try:
+            await _sync_roadmap_from_changelog()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[roadmap] CHANGELOG auto-sync failed: %s", exc)
+        # Iter34j backfill: rows without `status` get inferred from `done`
+        try:
+            await db.roadmap_actions.update_many({"status": {"$exists": False}, "done": True}, {"$set": {"status": "done"}})
+            await db.roadmap_actions.update_many({"status": {"$exists": False}}, {"$set": {"status": "todo"}})
+        except Exception:
+            pass
+        _ROADMAP_SYNCHRO["empreinte"] = empreinte
     items = [r async for r in db.roadmap_actions.find({}, {"_id": 0}).sort("code", 1)]
     total_h = sum(float(r.get("duration_h") or 0) for r in items if r.get("done"))
     total_xof = sum(int(r.get("cost_xof") or 0) for r in items if r.get("done"))

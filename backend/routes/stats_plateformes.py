@@ -95,10 +95,19 @@ async def interroger(emetteur: Dict[str, Any], debut_iso: str, fin_iso: str) -> 
         return {"ok": False, "erreur": f"réponse inexploitable : {exc}"}
 
 
+# Lot 72 — rafraîchissements en arrière-plan en cours (un seul à la fois par plateforme)
+_RAFRAICHISSEMENTS: Dict[str, "asyncio.Task"] = {}
+
+
 async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso: str,
-                           forcer: bool = False, duree_cache: timedelta = DUREE_CACHE) -> Dict[str, Any]:
+                           forcer: bool = False, duree_cache: timedelta = DUREE_CACHE,
+                           sans_attendre: bool = False) -> Dict[str, Any]:
     """Statistiques internes d'une plateforme pour la période (cache de 10 minutes ;
-    lot 63 : 1 minute pour la page « temps réel »)."""
+    lot 63 : 1 minute pour la page « temps réel »).
+
+    Lot 72 — sans_attendre (pages de l'administration) : si le cache est périmé, on renvoie TOUT DE SUITE les
+    derniers chiffres connus (« perime » = True) et on les rafraîchit en arrière-plan ; la page ne patiente plus
+    jusqu'à 10 s qu'une plateforme lente réponde. Sans aucun chiffre connu, on attend comme avant."""
     code = emetteur.get("code")
     cle_cache = f"{code}|{debut_iso[:13]}|{fin_iso[:13]}"     # période arrondie à l'heure
     if not forcer:
@@ -109,6 +118,14 @@ async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso
                     return en_cache["resultat"]
             except (KeyError, ValueError):
                 pass
+        if sans_attendre:
+            # Derniers chiffres connus de cette plateforme (même période, sinon la plus récente)
+            ancien = en_cache or await db.plateformes_stats.find_one({"code": code}, sort=[("recu_le", -1)])
+            if ancien and ancien.get("resultat"):
+                if code not in _RAFRAICHISSEMENTS or _RAFRAICHISSEMENTS[code].done():
+                    _RAFRAICHISSEMENTS[code] = asyncio.create_task(
+                        stats_plateforme(db, emetteur, debut_iso, fin_iso, forcer=True))
+                return {**ancien["resultat"], "perime": True}
     resultat = await interroger(emetteur, debut_iso, fin_iso)
     resultat["recu_le"] = _maintenant().isoformat()
     await db.plateformes_stats.update_one(
@@ -121,10 +138,12 @@ async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso
 
 
 async def stats_toutes(db, emetteurs: List[Dict[str, Any]], debut_iso: str, fin_iso: str,
-                       duree_cache: timedelta = DUREE_CACHE) -> Dict[str, Dict[str, Any]]:
-    """Statistiques internes de toutes les plateformes actives qui ont une adresse (en parallèle)."""
+                       duree_cache: timedelta = DUREE_CACHE, sans_attendre: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Statistiques internes de toutes les plateformes actives qui ont une adresse (en parallèle).
+    sans_attendre (lot 72) : chiffres connus tout de suite, rafraîchis en arrière-plan (voir stats_plateforme)."""
     cibles = [e for e in emetteurs if e.get("actif", True) and adresse_stats(e) and e.get("secret")]
-    resultats = await asyncio.gather(*(stats_plateforme(db, e, debut_iso, fin_iso, duree_cache=duree_cache)
+    resultats = await asyncio.gather(*(stats_plateforme(db, e, debut_iso, fin_iso, duree_cache=duree_cache,
+                                                        sans_attendre=sans_attendre)
                                        for e in cibles), return_exceptions=True)
     sortie: Dict[str, Dict[str, Any]] = {}
     for e, res in zip(cibles, resultats):

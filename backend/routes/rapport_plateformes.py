@@ -11,6 +11,7 @@
 # reçues, désinscriptions, incidents, dernier envoi, et usage du quota journalier.
 from __future__ import annotations
 
+import asyncio   # lot 72 : comptages en parallèle
 from typing import Any, Dict, List
 
 
@@ -36,7 +37,7 @@ async def _compter(db, collection: str, filtre: Dict[str, Any]) -> int:
 
 
 async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: bool = True,
-                               cache_s: int = 600) -> List[Dict[str, Any]]:
+                               cache_s: int = 600, sans_attendre: bool = False) -> List[Dict[str, Any]]:
     """Activité de chaque plateforme entre debut_iso (inclus) et fin_iso (exclu).
 
     Lot 62 : avec_interne → ajoute aussi les statistiques INTERNES fournies par la plateforme
@@ -61,10 +62,15 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
         if not code:
             continue
         base = {"emetteur": code, "date": periode}
-        envois = await _compter(db, "liluvine_transmissions", base)
-        reussis = await _compter(db, "liluvine_transmissions", {**base, "ok": True})
-        remis = await _compter(db, "liluvine_transmissions", {**base, "statut": {"$in": ["delivered", "read"]}})
-        lus = await _compter(db, "liluvine_transmissions", {**base, "statut": "read"})
+        # Lot 72 — les 7 comptages de la plateforme en parallèle (au lieu de l'un après l'autre)
+        envois, reussis, remis, lus, reponses, desinscriptions, incidents = await asyncio.gather(
+            _compter(db, "liluvine_transmissions", base),
+            _compter(db, "liluvine_transmissions", {**base, "ok": True}),
+            _compter(db, "liluvine_transmissions", {**base, "statut": {"$in": ["delivered", "read"]}}),
+            _compter(db, "liluvine_transmissions", {**base, "statut": "read"}),
+            _compter(db, "liluvine_reponses", {"emetteur": code, "relaye_le": periode}),
+            _compter(db, "liluvine_desinscriptions", {"emetteur": code, "actif": True, "date": periode}),
+            _compter(db, "liluvine_incidents", {"emetteur": code, "date": periode}))
         quota = int(e.get("quota_jour") or 0)
         resultat.append({
             "code": code,
@@ -75,10 +81,9 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             "echecs": envois - reussis,
             "remis": remis,
             "lus": lus,
-            "reponses": await _compter(db, "liluvine_reponses", {"emetteur": code, "relaye_le": periode}),
-            "desinscriptions": await _compter(db, "liluvine_desinscriptions",
-                                              {"emetteur": code, "actif": True, "date": periode}),
-            "incidents": await _compter(db, "liluvine_incidents", {"emetteur": code, "date": periode}),
+            "reponses": reponses,
+            "desinscriptions": desinscriptions,
+            "incidents": incidents,
             "dernier_envoi": e.get("dernier_envoi"),
             "quota_jour": quota,
             # Usage moyen du quota journalier sur la période (en %)
@@ -97,7 +102,8 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             from routes.stats_plateformes import stats_toutes
             complets = [x async for x in db.liluvine_emetteurs.find({}, {"_id": 0})]
             from datetime import timedelta as _td
-            internes = await stats_toutes(db, complets, debut_iso, fin_iso, duree_cache=_td(seconds=cache_s))
+            internes = await stats_toutes(db, complets, debut_iso, fin_iso, duree_cache=_td(seconds=cache_s),
+                                          sans_attendre=sans_attendre)
             for p in resultat:
                 p["interne"] = internes.get(p["code"])
         except Exception:  # noqa: BLE001 — les statistiques internes ne bloquent jamais le rapport
@@ -160,8 +166,9 @@ def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=403, detail="Page réservée à l'administrateur")
         fin = datetime.now(timezone.utc)
         debut = fin - timedelta(days=jours)
+        # Lot 72 — page d'administration : derniers chiffres tout de suite, rafraîchis en arrière-plan
         items = await activite_plateformes(db, debut.isoformat(), fin.isoformat(),
-                                           cache_s=60 if temps_reel else 600)
+                                           cache_s=60 if temps_reel else 600, sans_attendre=True)
         return {"debut": debut.isoformat(), "fin": fin.isoformat(), "jours": jours,
                 "items": items, "texte": bloc_plateformes(items)}
 

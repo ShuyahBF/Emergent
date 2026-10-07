@@ -130,3 +130,20 @@ def test_lot71_3_sentinelle_garde_les_derniers_blocages():
     b = e["blocages"][0]
     assert b["duree_s"] and b["duree_s"] >= 1.5
     assert "test_lot71_1_parametres_non_bloquant.py" in b["lieu"]
+
+
+def test_lot73_arret_du_serveur_n_est_pas_un_blocage():
+    # Lot 73 — après l'arrêt (« shutdown »), la boucle ne bat plus : ce n'est pas un blocage à signaler
+    import sentinelle_boucle as s
+    s._etat["demarree"] = False
+    s._BLOCAGES.clear()
+
+    async def scenario():
+        s.demarrer()
+        await asyncio.sleep(0.3)
+        s.arreter()
+        time.sleep(2.0)              # la boucle « ne bat plus », comme pendant l'arrêt du serveur
+        await asyncio.sleep(0.3)
+    asyncio.run(scenario())
+    assert s.etat()["blocages"] == []
+    s._etat["arretee"] = False

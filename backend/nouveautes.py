@@ -17,6 +17,24 @@
 
 NOUVEAUTES = [
     {
+        "lot": "73", "date": "2026-10-07",
+        "titre": "🤖 Menu « Liluvine » et partage par superviseur",
+        "description": "Tout Liluvine regroupé dans un menu dépliable ; choisissez ce que voit chaque superviseur (ex. support@).",
+        "rubrique": "🤖 Liluvine — partage avec les superviseurs",
+    },
+    {
+        "lot": "73", "date": "2026-10-07",
+        "titre": "🔁 Demande d'autorisation d'appel renvoyée",
+        "description": "Bouton « Renvoyer la demande » dans l'agenda et relance automatique après 24 h sans réponse (limites Meta).",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
+    },
+    {
+        "lot": "73", "date": "2026-10-07",
+        "titre": "🎙️ Voix clonée → voix de Liluvine",
+        "description": "Dans Voice Studio, « 🤖 Transmettre à Liluvine » fait d'une voix clonée la voix de ses appels.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "72", "date": "2026-10-07",
         "titre": "📞 Liluvine vous prévient quand elle appelle",
         "description": "Toast persistant (admin et superviseur) à chaque appel de l'agenda : contact, motif, puis résultat et résumé.",

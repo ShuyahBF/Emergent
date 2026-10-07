@@ -22,6 +22,7 @@ import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSectio
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
+import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
@@ -82,6 +83,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "70",
   "💬 Conversations WhatsApp — transfert et en-tête": "71",
@@ -105,6 +107,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
   "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-07",
   "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-07",
@@ -1088,6 +1091,11 @@ export default function AdminSettings() {
       {/* Lot 69 — Liluvine décroche les appels WhatsApp entrants et répond avec son prompt système */}
       <Filterable title="🤖📞 Liluvine décroche les appels WhatsApp" anchorId="s-liluvine-decroche">
         <LiluvineDecrocheSection />
+      </Filterable>
+
+      {/* Lot 73 — ce que l'administrateur partage de Liluvine avec chaque superviseur (menu « Liluvine ») */}
+      <Filterable title="🤖 Liluvine — partage avec les superviseurs" anchorId="s-liluvine-partage" category="liluvine">
+        <LiluvinePartageSection />
       </Filterable>
 
       {/* Lot 71.3 — agenda d'appels de Liluvine, anniversaires et mode « Formulaire » (lots 70 et 71) :

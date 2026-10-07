@@ -432,7 +432,10 @@ def test_compte_rendu_maintenance(db):
 def _client_http(db):
     utilisateurs = {"sup": {"id": "sawali", "role": "superviseur", "client_id": "sawali", "full_name": "Sup"},
                     "admin": {"id": "a1", "role": "admin", "full_name": "Admin"},
-                    "client": {"id": "x", "role": "client", "client_id": "x"}}
+                    "client": {"id": "x", "role": "client", "client_id": "x"},
+                    # Lot 73 — superviseur nommé (partage de Liluvine réglable par l'administrateur)
+                    "support": {"id": "s2", "role": "superviseur", "email": "support@sawalismartsystems.com",
+                                "full_name": "Support"}}
 
     async def utilisateur(request: Request):
         uid = request.headers.get("X-User")
@@ -442,6 +445,8 @@ def _client_http(db):
     api = APIRouter(prefix="/api")
     la.setup_liluvine_agenda_routes(db=db, api=api, get_current_user=utilisateur)
     ld.setup_liluvine_decroche_routes(db=db, api=api, get_current_user=utilisateur)
+    from routes.liluvine_partage import setup_liluvine_partage_routes   # lot 73
+    setup_liluvine_partage_routes(db=db, api=api, get_current_user=utilisateur)
     app = FastAPI()
     app.include_router(api)
     return TestClient(app)
@@ -766,3 +771,112 @@ def test_lot72_libelles_de_resultat():
     assert la.libelle_resultat({"resultat": "sans_reponse"}, {"resultat": "sans_reponse"}) == ("sans_reponse", "Pas de réponse")
     etat, phrase = la.libelle_resultat({"resultat": "echec", "raison": "connexion audio impossible"}, {"resultat": "echec"})
     assert etat == "echec" and "connexion audio impossible" in phrase
+
+
+# ---------------------------------------------------------------------------
+# Lot 73 — partage de Liluvine par superviseur, relance des demandes d'autorisation, voix clonée → Liluvine
+# ---------------------------------------------------------------------------
+
+def test_lot73_partage_par_superviseur(db):
+    # Par défaut le superviseur voit tout ; l'administrateur restreint support@ à l'agenda seul
+    c = _client_http(db)
+    h = {"X-User": "support"}
+    assert c.get("/api/me/liluvine-partage", headers=h).json() == {
+        "restreint": False, "elements": ["agenda", "alertes", "historique", "pro"]}
+    assert c.get("/api/admin/liluvine-agenda/alertes", headers=h).status_code == 200
+    # Seul l'administrateur règle le partage
+    assert c.put("/api/admin/liluvine-partage", json={"email": "support@sawalismartsystems.com", "elements": []},
+                 headers={"X-User": "sup"}).status_code == 403
+    assert c.put("/api/admin/liluvine-partage", json={"email": "Support@SawaliSmartSystems.com", "elements": ["agenda"]},
+                 headers={"X-User": "admin"}).json()["partage"] == ["agenda"]
+    assert c.get("/api/me/liluvine-partage", headers=h).json() == {"restreint": True, "elements": ["agenda"]}
+    # Agenda autorisé, notifications refusées par le serveur
+    assert c.get("/api/admin/liluvine-agenda", headers=h).status_code == 200
+    r = c.get("/api/admin/liluvine-agenda/alertes", headers=h)
+    assert r.status_code == 403 and "n'est pas partagé" in r.json()["detail"]
+    # Un autre superviseur (non réglé) et l'administrateur gardent tout
+    assert c.get("/api/admin/liluvine-agenda/alertes", headers={"X-User": "sup"}).status_code == 200
+    assert c.get("/api/me/liluvine-partage", headers={"X-User": "admin"}).json()["restreint"] is False
+    # Rien de partagé : l'agenda est refusé aussi ; « par défaut » (null) rend tout
+    c.put("/api/admin/liluvine-partage", json={"email": "support@sawalismartsystems.com", "elements": []}, headers={"X-User": "admin"})
+    assert c.get("/api/admin/liluvine-agenda", headers=h).status_code == 403
+    c.put("/api/admin/liluvine-partage", json={"email": "support@sawalismartsystems.com", "elements": None}, headers={"X-User": "admin"})
+    assert c.get("/api/admin/liluvine-agenda", headers=h).status_code == 200
+    # Élément inconnu refusé ; la liste des superviseurs vient des comptes
+    assert c.put("/api/admin/liluvine-partage", json={"email": "x@y.z", "elements": ["inconnu"]},
+                 headers={"X-User": "admin"}).status_code == 422
+    lancer(db.users.insert_one({"id": "s2", "role": "superviseur", "email": "support@sawalismartsystems.com", "full_name": "Support"}))
+    lecture = c.get("/api/admin/liluvine-partage", headers={"X-User": "admin"}).json()
+    assert [x["email"] for x in lecture["superviseurs"]] == ["support@sawalismartsystems.com"]
+
+
+def test_lot73_relance_automatique_de_la_demande_d_autorisation(db, monkeypatch):
+    # Sans réponse 24 h après la 1re demande : 2e demande envoyée ; la 3e est refusée par la limite Meta (2 / 7 jours)
+    g = FauxGraph()
+    monkeypatch.setattr(ap, "_graph_get", g.get)
+    monkeypatch.setattr(ap, "_graph_post", g.post)
+    lancer(db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_agenda_attente_autorisation_h": 168}}))
+    ev = inserer(db, intervalle_min=60)
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    assert len(g.messages) == 1
+    # 23 h plus tard : pas encore de relance
+    monkeypatch.setattr(ap, "_maintenant", lambda: datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc))
+    lancer(db.liluvine_agenda.update_one({"id": ev["id"]}, {"$set": {"prochaine_tentative": "2026-10-07T09:00:00+00:00"}}))
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    assert len(g.messages) == 1
+    # 24 h plus tard : relance automatique
+    monkeypatch.setattr(ap, "_maintenant", lambda: datetime(2026, 10, 7, 10, 1, tzinfo=timezone.utc))
+    lancer(db.liluvine_agenda.update_one({"id": ev["id"]}, {"$set": {"prochaine_tentative": "2026-10-07T10:01:00+00:00"}}))
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    doc = lancer(db.liluvine_agenda.find_one({"id": ev["id"]}))
+    assert len(g.messages) == 2 and doc["autorisation_demandes"] == 2
+    assert doc["historique"][-1]["resultat"] == "autorisation redemandée (relance automatique)"
+    # Réglage désactivé : plus de relance automatique
+    lancer(db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_agenda_relance_autorisation": False}}))
+    monkeypatch.setattr(ap, "_maintenant", lambda: datetime(2026, 10, 8, 11, 0, tzinfo=timezone.utc))
+    lancer(db.liluvine_agenda.update_one({"id": ev["id"]}, {"$set": {"prochaine_tentative": "2026-10-08T11:00:00+00:00"}}))
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    assert len(g.messages) == 2
+
+
+def test_lot73_bouton_renvoyer_la_demande(db, monkeypatch):
+    # Bouton « Renvoyer la demande » : envoi, délai d'attente qui repart, puis limite Meta avec date du prochain essai
+    g = FauxGraph()
+    monkeypatch.setattr(ap, "_graph_get", g.get)
+    monkeypatch.setattr(ap, "_graph_post", g.post)
+    ev = inserer(db)
+    lancer(la.executer_echeances(db, lancer_en_fond=False))                     # 1re demande (10:00)
+    c = _client_http(db)
+    h = {"X-User": "admin"}
+    # Moins de 24 h après : refus avec la date du prochain essai possible (heure de Ouagadougou)
+    r = c.post(f"/api/admin/liluvine-agenda/{ev['id']}/redemander-autorisation", headers=h)
+    assert r.status_code == 409 and "prochaine demande possible le 07/10/2026 à 10:00" in r.json()["detail"]
+    # Le lendemain : renvoyée, délai d'attente qui repart de zéro
+    monkeypatch.setattr(ap, "_maintenant", lambda: datetime(2026, 10, 7, 10, 30, tzinfo=timezone.utc))
+    r = c.post(f"/api/admin/liluvine-agenda/{ev['id']}/redemander-autorisation", headers=h)
+    assert r.status_code == 200 and len(g.messages) == 2
+    doc = r.json()["evenement"]
+    assert doc["statut"] == "attente_autorisation" and doc["autorisation_demandee_le"] == "2026-10-07T10:30:00+00:00"
+    assert doc["autorisation_demandes"] == 2 and doc["historique"][-1]["raison"] == "par Admin"
+    # 3e demande dans la semaine : limite Meta (2 par 7 jours) → prochaine possible 7 jours après la 1re
+    monkeypatch.setattr(ap, "_maintenant", lambda: datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc))
+    r = c.post(f"/api/admin/liluvine-agenda/{ev['id']}/redemander-autorisation", headers=h)
+    assert r.status_code == 409 and "13/10/2026 à 10:00" in r.json()["detail"]
+
+
+def test_lot73_voix_clonee_transmise_a_liluvine(db, monkeypatch):
+    # Voice Studio : « 🤖 Transmettre à Liluvine » règle le moteur ElevenLabs et la voix de Liluvine
+    c = _client_http(db)
+    lancer(db.eleven_voices.insert_one({"id": "v1", "user_id": "a1", "name": "Voix de Mariam",
+                                        "voice_id": "AbCdEf123456", "provider": "elevenlabs"}))
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    assert c.post("/api/me/liluvine-voix", json={"voice_id": "AbCdEf123456"}, headers={"X-User": "admin"}).status_code == 422
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "cle-factice")
+    assert c.post("/api/me/liluvine-voix", json={"voice_id": "AbCdEf123456"}, headers={"X-User": "client"}).status_code == 403
+    assert c.post("/api/me/liluvine-voix", json={"voice_id": "inconnue1"}, headers={"X-User": "admin"}).status_code == 404
+    r = c.post("/api/me/liluvine-voix", json={"voice_id": "AbCdEf123456"}, headers={"X-User": "admin"})
+    assert r.status_code == 200 and r.json()["nom"] == "Voix de Mariam"
+    s = lancer(db.settings.find_one({"_id": "global"}))
+    assert s["liluvine_decroche_voix"] == "elevenlabs" and s["liluvine_decroche_voix_elevenlabs"] == "AbCdEf123456"
+    lecture = c.get("/api/me/liluvine-voix", headers={"X-User": "client"}).json()
+    assert lecture["voice_id"] == "AbCdEf123456" and lecture["peut_modifier"] is False

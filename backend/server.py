@@ -1186,6 +1186,16 @@ api.include_router(_cycle_vie_router)
 _cycle_vie.configurer(envoyer_email=send_email, envoyer_wa=_wa_send_text, email_admin=SUPER_ADMIN_EMAIL)
 
 
+@app.on_event("shutdown")
+async def _sentinelle_arret():
+    """Lot 73 — arrêt du serveur : la sentinelle ne compte plus l'arrêt normal comme un blocage."""
+    try:
+        import sentinelle_boucle
+        sentinelle_boucle.arreter()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.on_event("startup")
 async def _sentinelle_et_prechauffage():
     """Lot 71.1 — (1) sentinelle : écrit dans les journaux la ligne de code qui fige le serveur si la

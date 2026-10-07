@@ -71,6 +71,8 @@ def _surveiller() -> None:
     debut_blocage: Optional[float] = None
     while True:
         time.sleep(INTERVALLE_S)
+        if _etat.get("arretee"):
+            continue        # lot 73 : serveur en cours d'arrêt — la boucle ne bat plus, ce n'est pas un blocage
         retard = time.monotonic() - _etat["battement"]
         if retard >= SEUIL_S and debut_blocage is None:
             # Début d'un blocage : on note la ligne de code fautive (une seule fois par blocage)
@@ -88,11 +90,18 @@ def _surveiller() -> None:
             debut_blocage = None
 
 
+def arreter() -> None:
+    """Lot 73 — à appeler à l'arrêt du serveur (« shutdown ») : la sentinelle cesse de signaler des blocages
+    (sinon l'arrêt normal de l'ancien serveur, lors d'un déploiement, était noté comme un blocage)."""
+    _etat["arretee"] = True
+
+
 def demarrer() -> None:
     """À appeler depuis un événement « startup » (donc dans la boucle principale). Une seule fois."""
     if _etat["demarree"] or os.environ.get("SENTINELLE_BOUCLE", "1") == "0":
         return
     _etat["demarree"] = True
+    _etat["arretee"] = False
     _etat["battement"] = time.monotonic()
     _etat["id_fil"] = threading.get_ident()          # fil de la boucle principale à surveiller
     asyncio.get_running_loop().create_task(_battre())

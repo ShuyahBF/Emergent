@@ -17,10 +17,16 @@
 
 NOUVEAUTES = [
     {
+        "lot": "76", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel WhatsApp : modèles Meta créés d'un clic",
+        "description": "Le bouton « Créer les modèles chez Meta » dépose les 9 modèles du carrousel (2 à 10 cartes) déjà conformes.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "75", "date": "2026-10-07",
         "titre": "🖼️ Carrousel WhatsApp : images générées par l'IA",
         "description": "Pour chaque carte : une description, « Générer », puis « Utiliser cette image » remplit l'adresse de l'image.",
-        "rubrique": "🖼️ Carrousel WhatsApp — images générées par l'IA",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
     },
     {
         "lot": "74", "date": "2026-10-07",

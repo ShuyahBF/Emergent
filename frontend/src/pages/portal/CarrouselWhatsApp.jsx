@@ -177,6 +177,27 @@ function Reglages({ etat, onEnregistre }) {
   const [modele, setModele] = useState(etat.modele || "");
   const [langue, setLangue] = useState(etat.langue || "fr");
   const [tenantId, setTenantId] = useState("");
+  // Lot 76 — bouton « Créer les modèles chez Meta » : les 9 modèles sont déposés par l'API de Meta
+  const [creation, setCreation] = useState(false);
+  const [resultats, setResultats] = useState(null);
+  const creerChezMeta = async () => {
+    if (!modele) { toast.error("Saisissez d'abord le nom (préfixe) des modèles, ex. sawali_carrousel."); return; }
+    if (!window.confirm(`Déposer chez Meta les 9 modèles ${modele}_2 à ${modele}_10 (catégorie Marketing) ?`)) return;
+    setCreation(true);
+    setResultats(null);
+    try {
+      const { data } = await apiClient.post("/admin/whatsapp/carrousel/modeles-meta",
+        { modele, langue, tenant_id: tenantId || null }, { timeout: 180000 });
+      setResultats(data.resultats);
+      const ok = data.resultats.filter((r) => r.statut !== "erreur").length;
+      if (ok) { toast.success(`${ok} modèle(s) soumis à Meta. L'approbation prend de quelques minutes à 24 h.`); onEnregistre(); }
+      else toast.error("Aucun modèle n'a été accepté : voir le détail ci-dessous.");
+    } catch (e) {
+      toast.error(erreur(e, "Création des modèles impossible"));
+    } finally {
+      setCreation(false);
+    }
+  };
   const enregistrer = async () => {
     try {
       await apiClient.put("/admin/whatsapp/carrousel/reglages", { modele, langue, tenant_id: tenantId || null });
@@ -190,7 +211,8 @@ function Reglages({ etat, onEnregistre }) {
     <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
       <h3 className="flex items-center gap-2 font-semibold text-slate-800"><Settings className="h-4 w-4" /> Modèles Meta</h3>
       <p className="text-xs text-slate-600">
-        Créez dans le WhatsApp Manager un modèle « Carrousel » (catégorie Marketing) par nombre de cartes :
+        Un modèle « Carrousel » (catégorie Marketing) par nombre de cartes, à créer dans le WhatsApp Manager ou
+        d'un clic avec le bouton « Créer les modèles chez Meta » ci-dessous :
         <b> {modele || "<nom>"}_2</b> à <b>{modele || "<nom>"}_10</b>. Message : <code>{"{{1}}"}</code> (expéditeur) et
         <code> {"{{2}}"}</code> (texte). Chaque carte : en-tête <b>image</b>, corps <code>{"{{1}}"}</code> (titre) et
         <code> {"{{2}}"}</code> (texte), un bouton URL dynamique : <code className="break-all">{etat.url_bouton_modele}</code>.
@@ -201,7 +223,45 @@ function Reglages({ etat, onEnregistre }) {
         <input className={champ} placeholder="(facultatif) id d'un client qui a son propre numéro" value={tenantId}
                onChange={(e) => setTenantId(e.target.value.trim())} />
       </div>
-      <Button size="sm" onClick={enregistrer} disabled={!modele}>Enregistrer</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer</Button>
+        {/* Lot 76 — l'interface Meta ne propose pas toujours « Carrousel » : SAWALI dépose les modèles par l'API */}
+        <Button size="sm" variant="outline" onClick={creerChezMeta} disabled={!modele || creation}>
+          {creation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+          Créer les modèles chez Meta
+        </Button>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        « Créer les modèles chez Meta » dépose les 9 modèles déjà conformes à SAWALI (image d'exemple, textes, bouton).
+        Il faut l'App ID Meta (Paramètres → Intégration Meta). Suivez ensuite leur approbation dans le WhatsApp Manager.
+      </p>
+      {creation && (
+        <div role="status" aria-live="polite" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900/80 px-4 py-3 text-sm text-white shadow-lg backdrop-blur">
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-[2.5px] border-transparent border-r-sky-400 border-t-sky-400" />
+            <strong>Patientez…</strong>
+          </div>
+          <div className="mt-1 text-xs opacity-80">Dépôt des 9 modèles chez Meta.</div>
+        </div>
+      )}
+      {resultats && (
+        <table className="w-full text-xs">
+          <thead><tr className="text-left text-slate-500"><th className="py-1">Modèle</th><th>Résultat</th><th>Détail</th></tr></thead>
+          <tbody>
+            {resultats.map((r) => (
+              <tr key={r.nom} className="border-t border-slate-100">
+                <td className="py-1 font-mono">{r.nom}</td>
+                <td>
+                  {r.statut === "erreur"
+                    ? <span className="inline-flex items-center gap-1 text-red-600"><XCircle className="h-3.5 w-3.5" /> erreur</span>
+                    : <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> {r.statut}</span>}
+                </td>
+                <td className="text-slate-600">{r.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

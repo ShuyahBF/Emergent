@@ -624,6 +624,32 @@ def attach_carrousel_whatsapp_routes(
             await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         return {"ok": True}
 
+    @api.post("/admin/whatsapp/carrousel/modeles-meta", tags=["Admin — Carrousel WhatsApp"])
+    async def creer_modeles_meta(data: ReglagesIn, _: dict = Depends(get_current_admin)):
+        """Lot 76 — bouton « Créer les modèles chez Meta » : dépose les 9 modèles <préfixe>_2 … _10
+        (catégorie MARKETING, type carrousel) sur le compte WhatsApp Business qui envoie
+        (plateforme, ou client qui a son propre numéro), puis enregistre le préfixe et la langue."""
+        from routes import carrousel_modeles_meta as cmm
+        creds = await resolve_wa_credentials(data.tenant_id)
+        jeton, waba = (creds.get("access_token") or "").strip(), (creds.get("waba_id") or "").strip()
+        if not jeton or not waba:
+            raise HTTPException(status_code=400, detail="WhatsApp Business incomplet : jeton d'accès ou identifiant du compte "
+                                                        "WhatsApp Business (WABA) manquant dans les Paramètres.")
+        s_glob = await db.settings.find_one({"_id": "global"}, {"_id": 0, "meta_app_id": 1, "wa_graph_version": 1}) or {}
+        app_id = (s_glob.get("meta_app_id") or "").strip()
+        if not app_id:
+            raise HTTPException(status_code=400, detail="App ID Meta manquant : renseignez-le dans Paramètres → « Intégration Meta "
+                                                        "(Facebook / Messenger / Ads) ». Meta l'exige pour déposer l'image d'exemple des cartes.")
+        version = (s_glob.get("wa_graph_version") or "v22.0").strip()
+        try:
+            resultats = await cmm.creer_modeles(version=version, app_id=app_id, waba_id=waba, jeton=jeton,
+                                                prefixe=data.modele, langue=data.langue, url_bouton=_url_bouton())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if any(r["statut"] in ("soumis", "existe déjà") for r in resultats):
+            await ecrire_reglages(data, _)          # préfixe et langue retenus pour les envois
+        return {"resultats": resultats, "url_bouton": _url_bouton()}
+
     @api.get("/admin/whatsapp/carrousel/produits", tags=["Admin — Carrousel WhatsApp"])
     async def produits_admin(_: dict = Depends(get_current_admin)):
         return {"produits": await _produits(None)}

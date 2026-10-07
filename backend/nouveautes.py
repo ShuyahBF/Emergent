@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "77", "date": "2026-10-07",
+        "titre": "🖼️ Carrousels nommés, dupliqués, avec statut Meta",
+        "description": "Enregistrez vos carrousels sous un nom, dupliquez-les, et voyez d'une pastille si Meta a approuvé leur modèle.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "76.1", "date": "2026-10-07",
         "titre": "🖼️ Carrousel : App ID Meta retrouvé automatiquement",
         "description": "Plus besoin de saisir l'App ID : il est lu à partir du jeton WhatsApp pour créer les modèles du carrousel.",

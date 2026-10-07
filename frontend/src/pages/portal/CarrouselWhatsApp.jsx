@@ -479,6 +479,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [autoLe, setAutoLe] = useState(null);             // heure du dernier enregistrement automatique
   const autoPret = useRef(false);                         // pas d'enregistrement auto avant la restauration
   const [lienDefaut, setLienDefaut] = useState("");
+  const [lienDefautServeur, setLienDefautServeur] = useState("");   // lot 78.3 : valeur enregistrée, utilisée à l'envoi
   const [autoErreur, setAutoErreur] = useState("");       // lot 78.1 : échec de l'enregistrement automatique affiché
   // Lot 78.1 — nouveau carrousel vide de n cartes (depuis un modèle Meta) ; demande confirmation si l'éditeur est rempli
   const composer = (n) => {
@@ -524,6 +525,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
         const [pref, auto] = await Promise.all([apiClient.get(`${base}/preferences`), apiClient.get(`${base}/brouillon-auto`)]);
         if (fini) return;
         setLienDefaut(pref.data.lien_defaut || "");
+        setLienDefautServeur(pref.data.lien_defaut || "");
         const b = auto.data.brouillon;
         const rempli = b && ((b.message || "").trim() || (b.cartes || []).some((c) => c.titre || c.image_url || c.lien || c.produit_id));
         if (rempli) {
@@ -586,6 +588,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     try {
       const { data } = await apiClient.put(`${base}/preferences`, { lien_defaut: lienDefaut.trim() });
       setLienDefaut(data.lien_defaut);
+      setLienDefautServeur(data.lien_defaut);
       toast.success(data.lien_defaut ? "Lien par défaut enregistré" : "Lien par défaut retiré");
     } catch (e) {
       toast.error(erreur(e, "Lien par défaut refusé"));
@@ -660,7 +663,21 @@ export default function CarrouselWhatsApp({ admin = false }) {
   if (refus) return <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">{refus}</div>;
   if (!etat) return <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
 
-  const cartesPretes = cartes.every((c) => (c.source === "produit" ? c.produit_id : c.image_url && c.titre && c.lien));
+  // Lot 78.3 — une carte libre sans lien est prête si un lien par défaut est enregistré (le serveur l'utilise)
+  const cartesPretes = cartes.every((c) => (c.source === "produit" ? c.produit_id
+    : c.image_url && c.titre && ((c.lien || "").trim() || lienDefautServeur)));
+  // Lot 78.3 — ce qui manque pour pouvoir envoyer (affiché à côté du bouton grisé)
+  const manques = [];
+  if (etat && !etat.pret) manques.push("WhatsApp ou les modèles du carrousel ne sont pas configurés");
+  if (!message.trim()) manques.push("le texte au-dessus des cartes (rubrique 1)");
+  cartes.forEach((c, i) => {
+    if (c.source === "produit") { if (!c.produit_id) manques.push(`carte ${i + 1} : choisir un produit`); return; }
+    const m = [!c.image_url && "image", !c.titre && "titre", !((c.lien || "").trim() || lienDefautServeur) && "lien (ou lien par défaut)"].filter(Boolean);
+    if (m.length) manques.push(`carte ${i + 1} : ${m.join(", ")}`);
+  });
+  if (retenus.length === 0) manques.push(choisis.size + groupes.size > 0
+    ? "aucun destinataire coché n'a « accepté » les messages WhatsApp (notez son accord dans la liste)"
+    : "cocher au moins un destinataire");
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
@@ -739,8 +756,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     <input className={champ} maxLength={80} placeholder="Texte court" value={c.texte} onChange={(e) => majCarte(i, { texte: e.target.value })} />
                     <input className={champ} placeholder="Lien du bouton https://…" value={c.lien} onChange={(e) => majCarte(i, { lien: e.target.value })} />
                     {!c.lien && (
-                      <p className={`text-[11px] ${lienDefaut ? "text-slate-500" : "text-amber-700"}`}>
-                        {lienDefaut ? `Sans lien : le bouton ouvrira ${lienDefaut}` : "Lien obligatoire (ou réglez un lien par défaut ci-dessus)."}
+                      <p className={`text-[11px] ${lienDefautServeur ? "text-slate-500" : "text-amber-700"}`}>
+                        {lienDefautServeur ? `Sans lien : le bouton ouvrira ${lienDefautServeur}` : "Lien obligatoire (ou réglez un lien par défaut ci-dessus)."}
                       </p>
                     )}
                   </div>
@@ -841,6 +858,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
                                                || retenus.length > etat.destinataires_max}>
             {envoi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />} Envoyer le carrousel
           </Button>
+          {!envoi && manques.length > 0 && (
+            <span className="w-full text-xs text-amber-700">Pour envoyer, il manque : {manques.join(" · ")}.</span>
+          )}
         </div>
       </section>
 

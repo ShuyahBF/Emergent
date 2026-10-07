@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import base64
 import re
+import time
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -61,6 +62,29 @@ IA_CONSIGNE = ("Image publicitaire carrée pour une carte de carrousel WhatsApp 
 
 def _maintenant() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def statut_pour_cartes(nb_cartes: int, statuts: Dict[int, str]) -> str:
+    """Lot 77 — statut chez Meta du modèle utilisé par un carrousel de nb_cartes cartes
+    (<préfixe>_<nb>) : APPROVED, PENDING, REJECTED…, « HORS_LIMITES » (moins de 2 ou plus de 10 cartes)
+    ou « ABSENT » (modèle pas encore créé chez Meta)."""
+    if nb_cartes < CARTES_MIN or nb_cartes > CARTES_MAX:
+        return "HORS_LIMITES"
+    return (statuts.get(nb_cartes) or "ABSENT").upper()
+
+
+def statuts_depuis_liste(prefixe: str, langue: str, modeles: List[dict]) -> Dict[int, str]:
+    """Lot 77 — {nombre de cartes: statut} à partir de la liste des modèles renvoyée par Meta
+    (seuls les noms <préfixe>_2 … _10 dans la bonne langue comptent)."""
+    sortie: Dict[int, str] = {}
+    for m in modeles or []:
+        nom = str(m.get("name") or "")
+        if not nom.startswith(f"{prefixe}_") or (langue and (m.get("language") or langue) != langue):
+            continue
+        suffixe = nom[len(prefixe) + 1:]
+        if suffixe.isdigit() and CARTES_MIN <= int(suffixe) <= CARTES_MAX:
+            sortie[int(suffixe)] = str(m.get("status") or "").upper()
+    return sortie
 
 
 def prompt_image_carte(description: str, titre: str = "") -> str:
@@ -151,6 +175,13 @@ class EnvoiIn(BaseModel):
     cartes: List[CarteIn] = Field(..., min_length=CARTES_MIN, max_length=CARTES_MAX)
     ids: List[str] = Field(default_factory=list)          # contacts (portail) ou clients (admin)
     groupes: List[str] = Field(default_factory=list)      # groupes de contacts (portail)
+
+
+class BrouillonIn(BaseModel):
+    """Lot 77 — carrousel enregistré sous un nom (message + cartes), réutilisable et duplicable."""
+    nom: str = Field(..., min_length=1, max_length=80)
+    message: str = Field("", max_length=500)
+    cartes: List[CarteIn] = Field(default_factory=list, max_length=CARTES_MAX)
 
 
 class ImageIaIn(BaseModel):
@@ -291,6 +322,81 @@ def attach_carrousel_whatsapp_routes(
                                    content_type=fichier.content_type, original_filename=fichier.filename,
                                    user_id=user.get("id"))
         return {"url": url_absolue(saved["url"], base_publique())}
+
+    # --- Lot 77 : carrousels nommés et statut des modèles chez Meta --------
+    _cache_statuts: Dict[str, tuple] = {}                 # clé → (horodatage, statuts) : 2 minutes
+
+    async def _statuts_meta(tenant_id: Optional[str], rafraichir: bool = False) -> Dict[str, Any]:
+        """Statut chez Meta de chaque modèle <préfixe>_2 … _10 (lecture de la liste des modèles du WABA)."""
+        r = await _reglages(tenant_id)
+        prefixe, langue = r["modele"], r["langue"]
+        if not prefixe:
+            return {"prefixe": "", "statuts": {}, "erreur": "Nom des modèles non renseigné"}
+        cle = f"{tenant_id or 'plateforme'}:{prefixe}:{langue}"
+        cache = _cache_statuts.get(cle)
+        if cache and not rafraichir and time.time() - cache[0] < 120:
+            return {"prefixe": prefixe, "statuts": cache[1], "erreur": None}
+        creds = await resolve_wa_credentials(tenant_id)
+        jeton, waba = (creds.get("access_token") or "").strip(), (creds.get("waba_id") or "").strip()
+        if not jeton or not waba:
+            return {"prefixe": prefixe, "statuts": {}, "erreur": "WhatsApp Business incomplet (jeton ou WABA)"}
+        s_glob = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_graph_version": 1}) or {}
+        version = (s_glob.get("wa_graph_version") or "v22.0").strip()
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15) as http:
+                rep = await http.get(f"https://graph.facebook.com/{version}/{waba}/message_templates",
+                                     params={"name": prefixe, "fields": "name,status,language", "limit": 200},
+                                     headers={"Authorization": f"Bearer {jeton}"})
+            if rep.status_code >= 300:
+                return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta : HTTP {rep.status_code}"}
+            statuts = statuts_depuis_liste(prefixe, langue, (rep.json() or {}).get("data") or [])
+        except Exception as exc:  # noqa: BLE001 — l'écran reste utilisable sans les pastilles
+            return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta injoignable : {type(exc).__name__}"}
+        _cache_statuts[cle] = (time.time(), statuts)
+        return {"prefixe": prefixe, "statuts": statuts, "erreur": None}
+
+    def _filtre_brouillons(perimetre: str, tenant_id: Optional[str]) -> dict:
+        return {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
+
+    async def _lister_brouillons(perimetre: str, tenant_id: Optional[str]) -> Dict[str, Any]:
+        meta = await _statuts_meta(tenant_id if perimetre == "client" else None)
+        lignes = []
+        async for b in db.carrousel_brouillons.find(_filtre_brouillons(perimetre, tenant_id), {"_id": 0}).sort("modifie_le", -1):
+            n = len(b.get("cartes") or [])
+            lignes.append({**b, "nb_cartes": n, "modele": f"{meta['prefixe']}_{n}" if meta["prefixe"] else None,
+                           "statut_meta": statut_pour_cartes(n, meta["statuts"])})
+        return {"carrousels": lignes, "statuts_meta": {str(k): v for k, v in meta["statuts"].items()},
+                "erreur_meta": meta["erreur"]}
+
+    async def _enregistrer_brouillon(data: BrouillonIn, perimetre: str, tenant_id: Optional[str], user: dict,
+                                     bid: Optional[str] = None) -> dict:
+        maintenant = _maintenant()
+        doc = {"nom": data.nom.strip(), "message": data.message, "cartes": [c.model_dump() for c in data.cartes],
+               "modifie_le": maintenant, "modifie_par": user.get("email") or user.get("id")}
+        if bid:
+            res = await db.carrousel_brouillons.update_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid}, {"$set": doc})
+            if not res.matched_count:
+                raise HTTPException(status_code=404, detail="Carrousel introuvable")
+            return {"id": bid, **doc}
+        doc.update({"id": uuid.uuid4().hex, "perimetre": perimetre, "tenant_id": tenant_id if perimetre == "client" else None,
+                    "cree_le": maintenant})
+        await db.carrousel_brouillons.insert_one(dict(doc))
+        return doc
+
+    async def _dupliquer_brouillon(bid: str, perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
+        src = await db.carrousel_brouillons.find_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid}, {"_id": 0})
+        if not src:
+            raise HTTPException(status_code=404, detail="Carrousel introuvable")
+        copie = BrouillonIn(nom=f"Copie de {src['nom']}"[:80], message=src.get("message") or "",
+                            cartes=[CarteIn(**c) for c in (src.get("cartes") or [])])
+        return await _enregistrer_brouillon(copie, perimetre, tenant_id, user)
+
+    async def _supprimer_brouillon(bid: str, perimetre: str, tenant_id: Optional[str]) -> dict:
+        res = await db.carrousel_brouillons.delete_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid})
+        if not res.deleted_count:
+            raise HTTPException(status_code=404, detail="Carrousel introuvable")
+        return {"ok": True}
 
     # --- Lot 75 : image générée par l'IA -----------------------------------
     async def _generer_image_ia(data: ImageIaIn, tenant_id: str, user: dict) -> dict:
@@ -550,6 +656,31 @@ def attach_carrousel_whatsapp_routes(
     async def envoyer_image_portail(fichier: UploadFile = File(...), user: dict = Depends(utilisateur)):
         return await _envoyer_image(fichier, _tenant_id(user), user)
 
+    # Lot 77 — carrousels nommés (portail)
+    @api.get("/me/whatsapp/carrousel/brouillons", tags=["Portail Client — Carrousel WhatsApp"])
+    async def brouillons_portail(user: dict = Depends(utilisateur)):
+        return await _lister_brouillons("client", _tenant_id(user))
+
+    @api.post("/me/whatsapp/carrousel/brouillons", tags=["Portail Client — Carrousel WhatsApp"])
+    async def creer_brouillon_portail(data: BrouillonIn, user: dict = Depends(utilisateur)):
+        return await _enregistrer_brouillon(data, "client", _tenant_id(user), user)
+
+    @api.put("/me/whatsapp/carrousel/brouillons/{bid}", tags=["Portail Client — Carrousel WhatsApp"])
+    async def modifier_brouillon_portail(bid: str, data: BrouillonIn, user: dict = Depends(utilisateur)):
+        return await _enregistrer_brouillon(data, "client", _tenant_id(user), user, bid)
+
+    @api.post("/me/whatsapp/carrousel/brouillons/{bid}/dupliquer", tags=["Portail Client — Carrousel WhatsApp"])
+    async def dupliquer_brouillon_portail(bid: str, user: dict = Depends(utilisateur)):
+        return await _dupliquer_brouillon(bid, "client", _tenant_id(user), user)
+
+    @api.delete("/me/whatsapp/carrousel/brouillons/{bid}", tags=["Portail Client — Carrousel WhatsApp"])
+    async def supprimer_brouillon_portail(bid: str, user: dict = Depends(utilisateur)):
+        return await _supprimer_brouillon(bid, "client", _tenant_id(user))
+
+    @api.get("/me/whatsapp/carrousel/statuts-meta", tags=["Portail Client — Carrousel WhatsApp"])
+    async def statuts_meta_portail(rafraichir: bool = False, user: dict = Depends(utilisateur)):
+        return await _statuts_meta(_tenant_id(user), rafraichir)
+
     async def _ia_autorisee(user: dict) -> None:
         """Portail : la génération d'images IA est une fonction payante, activée par client."""
         if not await fonction_active(user, "ai_image_gen"):
@@ -646,6 +777,7 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         if any(r["statut"] in ("soumis", "existe déjà") for r in resultats):
             await ecrire_reglages(data, _)          # préfixe et langue retenus pour les envois
+        _cache_statuts.clear()                      # lot 77 : les pastilles relisent Meta
         return {"resultats": resultats, "url_bouton": _url_bouton()}
 
     @api.get("/admin/whatsapp/carrousel/produits", tags=["Admin — Carrousel WhatsApp"])
@@ -659,6 +791,31 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/admin/whatsapp/carrousel/images", tags=["Admin — Carrousel WhatsApp"])
     async def envoyer_image_admin(fichier: UploadFile = File(...), user: dict = Depends(get_current_admin)):
         return await _envoyer_image(fichier, user["id"], user)
+
+    # Lot 77 — carrousels nommés (administration)
+    @api.get("/admin/whatsapp/carrousel/brouillons", tags=["Admin — Carrousel WhatsApp"])
+    async def brouillons_admin(_: dict = Depends(get_current_admin)):
+        return await _lister_brouillons("admin", None)
+
+    @api.post("/admin/whatsapp/carrousel/brouillons", tags=["Admin — Carrousel WhatsApp"])
+    async def creer_brouillon_admin(data: BrouillonIn, user: dict = Depends(get_current_admin)):
+        return await _enregistrer_brouillon(data, "admin", None, user)
+
+    @api.put("/admin/whatsapp/carrousel/brouillons/{bid}", tags=["Admin — Carrousel WhatsApp"])
+    async def modifier_brouillon_admin(bid: str, data: BrouillonIn, user: dict = Depends(get_current_admin)):
+        return await _enregistrer_brouillon(data, "admin", None, user, bid)
+
+    @api.post("/admin/whatsapp/carrousel/brouillons/{bid}/dupliquer", tags=["Admin — Carrousel WhatsApp"])
+    async def dupliquer_brouillon_admin(bid: str, user: dict = Depends(get_current_admin)):
+        return await _dupliquer_brouillon(bid, "admin", None, user)
+
+    @api.delete("/admin/whatsapp/carrousel/brouillons/{bid}", tags=["Admin — Carrousel WhatsApp"])
+    async def supprimer_brouillon_admin(bid: str, _: dict = Depends(get_current_admin)):
+        return await _supprimer_brouillon(bid, "admin", None)
+
+    @api.get("/admin/whatsapp/carrousel/statuts-meta", tags=["Admin — Carrousel WhatsApp"])
+    async def statuts_meta_admin(rafraichir: bool = False, _: dict = Depends(get_current_admin)):
+        return await _statuts_meta(None, rafraichir)
 
     @api.post("/admin/whatsapp/carrousel/images/ia", tags=["Admin — Carrousel WhatsApp"])
     async def generer_image_ia_admin(data: ImageIaIn, user: dict = Depends(get_current_admin)):

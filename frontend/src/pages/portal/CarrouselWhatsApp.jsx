@@ -13,8 +13,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
-  Send, Settings, Sparkles, Trash2, Users, XCircle,
+  ArrowLeft, ArrowRight, CheckCircle2, Copy, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
+  RefreshCw, Save, Send, Settings, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -267,6 +267,151 @@ function Reglages({ etat, onEnregistre }) {
   );
 }
 
+// Lot 77 — pastille du statut chez Meta du modèle utilisé (selon le nombre de cartes)
+const STATUTS_META = {
+  APPROVED: ["bg-emerald-500", "Approuvé par Meta : prêt à envoyer"],
+  PENDING: ["bg-amber-400", "En attente d'approbation chez Meta"],
+  IN_APPEAL: ["bg-amber-400", "En appel chez Meta"],
+  REJECTED: ["bg-red-500", "Refusé par Meta"],
+  PAUSED: ["bg-red-500", "Mis en pause par Meta"],
+  DISABLED: ["bg-red-500", "Désactivé par Meta"],
+  ABSENT: ["bg-slate-300", "Modèle pas encore créé chez Meta (bouton « Créer les modèles chez Meta »)"],
+  HORS_LIMITES: ["bg-slate-300", "Un carrousel compte de 2 à 10 cartes"],
+};
+function PastilleMeta({ statut, modele }) {
+  const [couleur, libelle] = STATUTS_META[statut] || ["bg-slate-300", `Statut Meta : ${statut}`];
+  return (
+    <span className="inline-flex items-center gap-1.5" title={`${modele ? `${modele} — ` : ""}${libelle}`}>
+      <span aria-hidden="true" className={`inline-block h-3 w-3 rounded-full ${couleur}`} />
+      <span className="sr-only">{libelle}</span>
+    </span>
+  );
+}
+
+// Lot 77 — carrousels enregistrés sous un nom : liste, ouvrir, dupliquer, supprimer
+function MesCarrousels({ base, courant, onOuvrir, message, cartes, onEnregistre }) {
+  const [liste, setListe] = useState({ carrousels: [], erreur_meta: null });
+  const [nom, setNom] = useState("");
+  const [occupe, setOccupe] = useState(false);
+  const charger = useCallback(async (rafraichir = false) => {
+    try {
+      if (rafraichir) await apiClient.get(`${base}/statuts-meta`, { params: { rafraichir: true } });
+      const { data } = await apiClient.get(`${base}/brouillons`);
+      setListe(data);
+    } catch (e) {
+      toast.error(erreur(e, "Liste des carrousels indisponible"));
+    }
+  }, [base]);
+  useEffect(() => { charger(); }, [charger]);
+  useEffect(() => { setNom(courant?.nom || ""); }, [courant]);
+
+  const corps = () => ({
+    nom: nom.trim(), message,
+    cartes: cartes.map((c) => (c.source === "produit"
+      ? { source: "produit", produit_id: c.produit_id, titre: c.titre || null, texte: c.texte || null }
+      : c)),
+  });
+  const enregistrer = async (commeNouveau) => {
+    if (!nom.trim()) { toast.error("Donnez un nom au carrousel."); return; }
+    setOccupe(true);
+    try {
+      const { data } = courant && !commeNouveau
+        ? await apiClient.put(`${base}/brouillons/${courant.id}`, corps())
+        : await apiClient.post(`${base}/brouillons`, corps());
+      toast.success(`Carrousel « ${data.nom} » enregistré`);
+      onEnregistre(data);
+      charger();
+    } catch (e) {
+      toast.error(erreur(e, "Enregistrement impossible"));
+    } finally {
+      setOccupe(false);
+    }
+  };
+  const dupliquer = async (b) => {
+    try {
+      const { data } = await apiClient.post(`${base}/brouillons/${b.id}/dupliquer`);
+      toast.success(`« ${data.nom} » créé : modifiez-le puis enregistrez`);
+      onOuvrir(data);
+      charger();
+    } catch (e) {
+      toast.error(erreur(e, "Duplication impossible"));
+    }
+  };
+  const supprimer = async (b) => {
+    if (!window.confirm(`Supprimer le carrousel « ${b.nom} » ?`)) return;
+    try {
+      await apiClient.delete(`${base}/brouillons/${b.id}`);
+      if (courant?.id === b.id) onEnregistre(null);
+      charger();
+    } catch (e) {
+      toast.error(erreur(e, "Suppression impossible"));
+    }
+  };
+
+  return (
+    <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold text-slate-800"><FolderOpen className="h-4 w-4" /> Mes carrousels</h2>
+        <Button type="button" size="sm" variant="outline" onClick={() => charger(true)} title="Relire les statuts chez Meta">
+          <RefreshCw className="mr-1 h-4 w-4" /> Statuts Meta
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${champ} max-w-sm`} maxLength={80} placeholder="Nom du carrousel (ex. Nouveautés octobre)"
+               value={nom} onChange={(e) => setNom(e.target.value)} />
+        <Button type="button" size="sm" disabled={occupe} onClick={() => enregistrer(false)}>
+          {occupe ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+          {courant ? "Enregistrer les modifications" : "Enregistrer"}
+        </Button>
+        {courant && (
+          <Button type="button" size="sm" variant="outline" disabled={occupe} onClick={() => enregistrer(true)}>
+            <Copy className="mr-1 h-4 w-4" /> Enregistrer comme nouveau
+          </Button>
+        )}
+      </div>
+      {liste.erreur_meta && <p className="text-xs text-amber-700">Statuts Meta indisponibles : {liste.erreur_meta}</p>}
+      {liste.carrousels.length === 0 ? (
+        <p className="text-xs text-slate-500">Aucun carrousel enregistré. Composez-en un ci-dessous, nommez-le puis « Enregistrer ».</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-slate-500">
+              <th className="py-1 pr-2">Meta</th><th>Nom</th><th>Cartes</th><th>Modèle</th><th>Modifié le</th><th className="text-right">Actions</th>
+            </tr></thead>
+            <tbody>
+              {liste.carrousels.map((b) => (
+                <tr key={b.id} aria-selected={courant?.id === b.id ? "true" : "false"}
+                    className={`border-t border-slate-100 ${courant?.id === b.id ? "ligne-selectionnee" : ""}`}>
+                  <td className="py-1.5 pr-2"><PastilleMeta statut={b.statut_meta} modele={b.modele} /></td>
+                  <td className="font-medium">{b.nom}</td>
+                  <td className="tabular-nums">{b.nb_cartes}</td>
+                  <td className="font-mono text-xs">{b.modele || "—"}</td>
+                  <td className="text-xs">{dateFr(b.modifie_le)}</td>
+                  <td className="whitespace-nowrap text-right">
+                    <Button type="button" size="sm" variant="outline" className="mr-1" onClick={() => onOuvrir(b)} title="Afficher ce carrousel dans l'éditeur">
+                      <FolderOpen className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" className="mr-1" onClick={() => dupliquer(b)} title="Dupliquer pour en créer un nouveau">
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => supprimer(b)} title="Supprimer">
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-[11px] text-slate-500">
+        Pastille : <span className="text-emerald-700">verte</span> = modèle approuvé par Meta pour ce nombre de cartes,
+        <span className="text-amber-700"> orange</span> = en attente, <span className="text-red-600">rouge</span> = refusé, grise = modèle non créé.
+      </p>
+    </section>
+  );
+}
+
 export default function CarrouselWhatsApp({ admin = false }) {
   const base = admin ? "/admin/whatsapp/carrousel" : "/me/whatsapp/carrousel";
   const [etat, setEtat] = useState(null);
@@ -278,6 +423,15 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [detail, setDetail] = useState(null);
   const [message, setMessage] = useState("");
   const [cartes, setCartes] = useState([carteVide(), carteVide()]);
+  const [courant, setCourant] = useState(null);           // lot 77 : carrousel nommé ouvert dans l'éditeur
+  const ouvrirCarrousel = (b) => {
+    setCourant(b ? { id: b.id, nom: b.nom } : null);
+    if (!b) return;
+    setMessage(b.message || "");
+    const cs = (b.cartes || []).map((c) => ({ ...carteVide(), ...Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v ?? ""])) }));
+    setCartes(cs.length >= 2 ? cs : [...cs, ...Array.from({ length: 2 - cs.length }, carteVide)]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const [choisis, setChoisis] = useState(new Set());
   const [groupes, setGroupes] = useState(new Set());
   const [filtre, setFiltre] = useState("");
@@ -388,6 +542,10 @@ export default function CarrouselWhatsApp({ admin = false }) {
         </div>
       )}
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
+
+      {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
+      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} message={message} cartes={cartes}
+                     onEnregistre={(b) => setCourant(b ? { id: b.id, nom: b.nom } : null)} />
 
       {/* 1. Message et cartes */}
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">

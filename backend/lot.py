@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "71.2"
-LOT_LIBELLE = "Le premier message WhatsApp après un redémarrage ne fige plus le serveur : les SDK d'IA (Claude, OpenAI, Gemini) sont importés hors de la boucle principale et préchargés au démarrage (blocage de 2,9 s repéré par la sentinelle du lot 71.1)"
+LOT = "71.3"
+LOT_LIBELLE = "Chaque carte « Nouveautés » ouvre la rubrique de paramétrage de la nouveauté dans les Paramètres (plus les écrans d'utilisation) : nouvelles rubriques Agenda d'appels et anniversaires (réglages intégrés), Conversations WhatsApp (modèle de repli par défaut pour les transferts), Loois, Postes et serveurs, Santé du serveur (blocages notés par la sentinelle)"

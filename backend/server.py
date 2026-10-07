@@ -1290,6 +1290,13 @@ async def _demarrer_migration_programmation():
         return
     _migration_programmation_demarrer()
 
+# Lot 71.3 — Paramètres → « ⚡ Santé du serveur » : sentinelle active et derniers blocages de la boucle
+@api.get("/admin/sentinelle", tags=["Admin"])
+async def admin_sentinelle(_: dict = Depends(get_admin_or_supervisor)):
+    import sentinelle_boucle
+    return sentinelle_boucle.etat()
+
+
 app.include_router(api)
 
 

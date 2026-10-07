@@ -59,3 +59,19 @@ def test_route_renvoie_le_lot_courant_et_les_cartes():
     corps = _client("admin").get("/api/admin/nouveautes").json()
     assert corps["lot_courant"] == str(lot.LOT)
     assert any(n["lot"] == str(lot.LOT) for n in corps["nouveautes"])
+
+
+def test_chaque_carte_ouvre_une_rubrique_des_parametres():
+    # Règle du 07/10/2026 : une carte « Nouveautés » ne mène JAMAIS hors des Paramètres.
+    # Elle porte le titre EXACT d'une rubrique (<Filterable title="…">) d'AdminSettings.jsx,
+    # ou, pour une nouveauté de la page Paramètres elle-même, le lien "/admin/settings".
+    from pathlib import Path
+    from nouveautes import NOUVEAUTES
+    page = (Path(__file__).resolve().parents[2] / "frontend/src/pages/admin/AdminSettings.jsx").read_text(encoding="utf-8")
+    rubriques = set(re.findall(r'<Filterable\s+title="([^"]+)"', page))
+    for n in NOUVEAUTES:
+        if n.get("rubrique"):
+            assert n["rubrique"] in rubriques, f"rubrique introuvable dans les Paramètres : {n['rubrique']} ({n['titre']})"
+        else:
+            assert n.get("lien") == "/admin/settings", (
+                f"la carte « {n['titre']} » ouvre {n.get('lien')} hors des Paramètres : créez sa rubrique")

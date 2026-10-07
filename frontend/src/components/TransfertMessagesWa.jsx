@@ -54,6 +54,15 @@ export default function TransfertMessagesWa({ messages, onClose }) {
     apiClient.get("/me/wa-transfert/lignes").then((r) => setLignes(r.data.lignes || [])).catch(() => setLignes([]));
   }, []);
 
+  // Lot 71.3 — réglages des Paramètres (« 💬 Conversations WhatsApp ») : modèle de repli proposé et origine
+  const [reglages, setReglages] = useState(null);
+  useEffect(() => {
+    apiClient.get("/me/wa-transfert/reglages").then((r) => {
+      setReglages(r.data || null);
+      if (r.data && r.data.indiquer_origine === false) setOrigine(false);
+    }).catch(() => setReglages(null));
+  }, []);
+
   // Recherche des destinataires (nom ou numéro), relancée quand la ligne choisie change
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -76,6 +85,13 @@ export default function TransfertMessagesWa({ messages, onClose }) {
     if (!besoinModele || modeles !== null) return;
     apiClient.get("/me/whatsapp/templates").then((r) => setModeles(r.data.items || [])).catch(() => setModeles([]));
   }, [besoinModele, modeles]);
+  // Modèle de repli des Paramètres présélectionné dès que la liste des modèles approuvés est connue
+  useEffect(() => {
+    const d = reglages?.modele_defaut;
+    if (!d || modele || !modeles?.length) return;
+    const trouve = modeles.find((x) => x.name === d.name && (x.language || "fr") === (d.language || "fr"));
+    if (trouve) setModele(trouve);
+  }, [modeles, reglages, modele]);
 
   // Cocher / décocher un destinataire (10 au plus)
   const basculer = (d) => {

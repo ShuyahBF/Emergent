@@ -18,6 +18,11 @@ import BarriereWaSection from "@/pages/admin/sections/BarriereWaSection";   // L
 import AppelProprietaireSection from "@/pages/admin/sections/AppelProprietaireSection";   // Lot 67
 import HistoriqueAppelsLiluvine from "@/pages/admin/sections/HistoriqueAppelsLiluvine";   // Lot 67.1
 import LiluvineDecrocheSection from "@/pages/admin/sections/LiluvineDecrocheSection";   // Lot 69
+import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSection";   // Lot 71.3
+import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
+import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
+import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
+import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineEmetteursSection from "@/pages/admin/sections/LiluvineEmetteursSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
@@ -77,6 +82,12 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
+  "📅 Agenda d'appels de Liluvine et anniversaires": "70",
+  "💬 Conversations WhatsApp — transfert et en-tête": "71",
+  "🔄 Loois — synchronisation des tables et clés clients": "68",
+  "🖥️ Postes et serveurs — signal de présence": "65",
+  "⚡ Santé du serveur — blocages": "71.1",
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "63",
@@ -94,6 +105,12 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
+  "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-07",
+  "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-07",
+  "🔄 Loois — synchronisation des tables et clés clients": "2026-10-07",
+  "🖥️ Postes et serveurs — signal de présence": "2026-10-07",
+  "⚡ Santé du serveur — blocages": "2026-10-07",
   // Lots 67 et 67.1 (06/10/2026) — Liluvine appelle le propriétaire, historique des appels (durée, coût)
   "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
   "📊 Historique des appels de Liluvine (durée et coût)": "2026-10-06",
@@ -164,16 +181,16 @@ const NEW_DESCRIPTIONS = {
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "Plusieurs numéros (Standard, VIP, Publicités), couleurs des pastilles, appels (lots 59-60).",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "QR de paiement instantané de la banque sur les factures (lot 57.8).",
 };
-// Lot 68.2 — nouveautés qui ne sont PAS des rubriques de cette page (autres écrans d'administration) :
-// elles ont aussi leur carte ; un clic ouvre directement l'écran concerné.
+// Lot 68.2 — nouveautés d'autres écrans d'administration (repli local si le serveur ne répond pas).
+// Lot 71.3 — elles mènent désormais à LEUR rubrique de paramétrage sur cette page (plus d'ouverture d'écran).
 const NEW_PAGES = [
-  { titre: "🔑 Clés clients Loois et structures chiffrées", lot: "68.1", date: "2026-10-06", lien: "/admin/loois-synchro",
+  { titre: "🔑 Clés clients Loois et structures chiffrées", lot: "68.1", date: "2026-10-06", rubrique: "🔄 Loois — synchronisation des tables et clés clients",
     description: "Une clé par client (montrée une seule fois), structure des tables téléchargée et gardée chiffrée sur le poste." },
-  { titre: "🔄 Plateformes → Loois → Synchro", lot: "68", date: "2026-10-06", lien: "/admin/loois-synchro",
+  { titre: "🔄 Plateformes → Loois → Synchro", lot: "68", date: "2026-10-06", rubrique: "🔄 Loois — synchronisation des tables et clés clients",
     description: "Tables HFSQL remontées vers MongoDB (e-Kol : Paiements, ElèveEdu), état, resynchronisation, visionneuse." },
-  { titre: "🖥️ Postes et serveurs — lien « Détails »", lot: "66", date: "2026-10-06", lien: "/admin/plateformes-temps-reel",
+  { titre: "🖥️ Postes et serveurs — lien « Détails »", lot: "66", date: "2026-10-06", rubrique: "🖥️ Postes et serveurs — signal de présence",
     description: "Inventaire des postes Loois (système, mémoire, disques, réseau, tâches) et fiches du Parc créées automatiquement." },
-  { titre: "🖥️ Postes et serveurs — versions déployées", lot: "65", date: "2026-10-06", lien: "/admin/plateformes-temps-reel",
+  { titre: "🖥️ Postes et serveurs — versions déployées", lot: "65", date: "2026-10-06", rubrique: "🖥️ Postes et serveurs — signal de présence",
     description: "Signal de présence de Loois et des serveurs (Ster, adLyn, beAuthentik, ALBARKA) : version, poste, dernier signal." },
 ];
 
@@ -1071,6 +1088,39 @@ export default function AdminSettings() {
       {/* Lot 69 — Liluvine décroche les appels WhatsApp entrants et répond avec son prompt système */}
       <Filterable title="🤖📞 Liluvine décroche les appels WhatsApp" anchorId="s-liluvine-decroche">
         <LiluvineDecrocheSection />
+      </Filterable>
+
+      {/* Lot 71.3 — agenda d'appels de Liluvine, anniversaires et mode « Formulaire » (lots 70 et 71) :
+          mêmes réglages que le bouton « ⚙️ Réglages » de l'agenda, directement ici */}
+      <Filterable title="📅 Agenda d'appels de Liluvine et anniversaires" anchorId="s-liluvine-agenda" category="liluvine">
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-slate-900">📅 Agenda d'appels de Liluvine et anniversaires</h3>
+            <Link to="/admin/liluvine-agenda" className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">Ouvrir l'agenda ↗</Link>
+          </div>
+          <p className="text-xs text-slate-600">Le mode « Prompt » ou « Formulaire » se choisit pour chaque appel, dans l'agenda.</p>
+          <ReglagesAgenda integre />
+        </div>
+      </Filterable>
+
+      {/* Lot 71.3 — transfert de messages WhatsApp (lot 71) et en-tête de conversation en pictogrammes (lot 71.1) */}
+      <Filterable title="💬 Conversations WhatsApp — transfert et en-tête" anchorId="s-conversations-wa" category="meta">
+        <ConversationsWaSection />
+      </Filterable>
+
+      {/* Lot 71.3 — Loois : synchronisation des tables HFSQL et clés par client (lots 68 et 68.1) */}
+      <Filterable title="🔄 Loois — synchronisation des tables et clés clients" anchorId="s-loois" category="modules">
+        <LooisSection />
+      </Filterable>
+
+      {/* Lot 71.3 — signal de présence des postes et serveurs (lots 65 et 66) */}
+      <Filterable title="🖥️ Postes et serveurs — signal de présence" anchorId="s-postes-serveurs" category="modules">
+        <PostesServeursSection />
+      </Filterable>
+
+      {/* Lot 71.3 — santé du serveur : blocages notés par la sentinelle (lots 71.1 et 71.2) */}
+      <Filterable title="⚡ Santé du serveur — blocages" anchorId="s-sante-serveur" category="diagnostics">
+        <SanteServeurSection />
       </Filterable>
 
       {/* Lot 61 — numéros interdits aux commandes « ! » et message de refus de Liluvine */}

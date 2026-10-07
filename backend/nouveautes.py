@@ -9,52 +9,66 @@
 #   date         : date de mise en ligne, AAAA-MM-JJ (la carte reste affichée 7 jours)
 #   titre        : titre court de la carte
 #   description  : une ligne : ce que le lot apporte
-#   rubrique     : (facultatif) titre EXACT de la rubrique de la page Paramètres à atteindre au clic
-#   lien         : (facultatif) écran à ouvrir au clic quand la nouveauté n'est pas dans les Paramètres
+#   rubrique     : titre EXACT de la rubrique de la page Paramètres où se règle la nouveauté (ouverte au clic)
+#   lien         : seulement "/admin/settings" (nouveauté qui concerne la page Paramètres elle-même)
+# Règle (07/10/2026) : une carte ne mène JAMAIS hors des Paramètres. Si la nouveauté n'a pas encore de rubrique,
+# on la crée dans AdminSettings.jsx (réglages, état, bouton vers l'écran d'utilisation). Contrôlé par le test.
 # Les plus récentes en premier.
 
 NOUVEAUTES = [
     {
+        "lot": "71.3", "date": "2026-10-07",
+        "titre": "⚙️ Chaque nouveauté ouvre son paramétrage",
+        "description": "Agenda et anniversaires, conversations WhatsApp, Loois, postes et serveurs, santé du serveur : nouvelles rubriques ici même.",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
+    },
+    {
+        "lot": "71.3", "date": "2026-10-07",
+        "titre": "↪ Modèle de repli par défaut pour les transferts",
+        "description": "Le modèle approuvé choisi ici est proposé d'office dans « Transférer » pour les contacts hors fenêtre de 24 h.",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "71.2", "date": "2026-10-07",
         "titre": "⚡ Premier message après redémarrage sans attente",
         "description": "Les modules d'IA (Claude, OpenAI, Gemini) se chargent en arrière-plan : le serveur ne se fige plus ~3 s au premier message WhatsApp.",
-        "lien": "/admin/settings",
+        "rubrique": "⚡ Santé du serveur — blocages",
     },
     {
         "lot": "71.1", "date": "2026-10-07",
         "titre": "⚡ Les Paramètres ne figent plus SAWALI",
         "description": "La première ouverture des Paramètres après un redémarrage ne bloque plus le serveur ~5 s ; tout blocage futur est noté dans les journaux.",
-        "lien": "/admin/settings",
+        "rubrique": "⚡ Santé du serveur — blocages",
     },
     {
         "lot": "71.1", "date": "2026-10-07",
         "titre": "🔘 En-tête de conversation en pictogrammes",
         "description": "Appeler, alerte propriétaire, journal des appels, sélectionner et actualiser : des icônes cliquables (libellé au survol).",
-        "lien": "/portal/contacts",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
     },
     {
         "lot": "71", "date": "2026-10-06",
         "titre": "📋📞 Appels de Liluvine basés sur un formulaire",
         "description": "Dans l'agenda, « Mode de l'appel » : Liluvine pose les champs d'un formulaire et enregistre la réponse (badge « 📞 Appel »).",
-        "lien": "/admin/liluvine-agenda",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
     },
     {
         "lot": "71", "date": "2026-10-06",
         "titre": "↪ Transférer des messages WhatsApp",
         "description": "Dans une conversation, « Transférer » un message ou une image à 10 contacts ; fenêtre de 24 h vérifiée avant l'envoi.",
-        "lien": "/portal/contacts",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
     },
     {
         "lot": "70", "date": "2026-10-06",
         "titre": "📅 Agenda d'appels de Liluvine",
         "description": "Liluvine appelle à la date prévue (relance, prospection, suivi, compte rendu de maintenance…), pose vos questions et note les réponses.",
-        "lien": "/admin/liluvine-agenda",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
     },
     {
         "lot": "70", "date": "2026-10-06",
         "titre": "🎂 Anniversaires des utilisateurs suivis",
         "description": "Date de naissance sur la fiche ; Liluvine appelle à l'heure réglée pour lire vos vœux (message WhatsApp si pas de réponse).",
-        "lien": "/admin/tracked-users",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
     },
     {
         "lot": "70", "date": "2026-10-06",
@@ -96,13 +110,13 @@ NOUVEAUTES = [
         "lot": "68.1", "date": "2026-10-06",
         "titre": "🔑 Clés clients Loois et structures chiffrées",
         "description": "Une clé par client (montrée une seule fois), structure des tables téléchargée et gardée chiffrée sur le poste.",
-        "lien": "/admin/loois-synchro",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
     },
     {
         "lot": "68", "date": "2026-10-06",
         "titre": "🔄 Plateformes → Loois → Synchro",
         "description": "Tables HFSQL remontées vers MongoDB (e-Kol : Paiements, ElèveEdu), état, resynchronisation, visionneuse.",
-        "lien": "/admin/loois-synchro",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
     },
     {
         "lot": "67.1", "date": "2026-10-06",
@@ -120,13 +134,13 @@ NOUVEAUTES = [
         "lot": "66", "date": "2026-10-06",
         "titre": "🖥️ Postes et serveurs — lien « Détails »",
         "description": "Inventaire des postes Loois (système, mémoire, disques, réseau, tâches) et fiches du Parc créées automatiquement.",
-        "lien": "/admin/plateformes-temps-reel",
+        "rubrique": "🖥️ Postes et serveurs — signal de présence",
     },
     {
         "lot": "65", "date": "2026-10-06",
         "titre": "🖥️ Postes et serveurs — versions déployées",
         "description": "Signal de présence de Loois et des serveurs (Ster, adLyn, beAuthentik, ALBARKA) : version, poste, dernier signal.",
-        "lien": "/admin/plateformes-temps-reel",
+        "rubrique": "🖥️ Postes et serveurs — signal de présence",
     },
     {
         "lot": "63", "date": "2026-10-06",

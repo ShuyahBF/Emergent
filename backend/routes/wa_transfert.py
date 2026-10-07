@@ -640,6 +640,37 @@ def setup_wa_transfert_routes(*, db, api, get_current_user, visibles_fn: Callabl
         sortie["resultats"] = refus + sortie["resultats"]
         return sortie
 
+    # Lot 71.3 — réglages du transfert (rubrique « 💬 Conversations WhatsApp » des Paramètres)
+    def _reglages(s: Dict[str, Any]) -> Dict[str, Any]:
+        """Modèle de repli proposé par défaut (« nom|langue ») et case « indiquer l'origine » cochée ou non."""
+        brut = str(s.get("wa_transfert_modele_defaut") or "").strip()
+        nom, _, langue = brut.partition("|")
+        return {
+            "modele_defaut": {"name": nom, "language": langue or "fr"} if nom else None,
+            "indiquer_origine": s.get("wa_transfert_indiquer_origine") is not False,   # oui par défaut
+        }
+
+    @api.get("/me/wa-transfert/reglages", tags=["WhatsApp — transfert"])
+    async def lire_reglages(user: dict = Depends(get_current_user)):
+        """Réglages appliqués à la fenêtre « Transférer » (lecture pour tout utilisateur qui peut transférer)."""
+        _exiger_envoi(user)
+        return _reglages(await db.settings.find_one({"_id": "global"}) or {})
+
+    @api.put("/admin/wa-transfert/reglages", tags=["WhatsApp — transfert"])
+    async def ecrire_reglages(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Enregistre les réglages du transfert (administrateur ou superviseur)."""
+        if not _est_encadrant(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur ou au superviseur")
+        p = payload or {}
+        modele = p.get("modele_defaut") if isinstance(p.get("modele_defaut"), dict) else None
+        valeur = f"{str(modele.get('name') or '').strip()[:120]}|{str(modele.get('language') or 'fr').strip()[:10]}" \
+            if modele and str(modele.get("name") or "").strip() else ""
+        await db.settings.update_one({"_id": "global"}, {"$set": {
+            "wa_transfert_modele_defaut": valeur,
+            "wa_transfert_indiquer_origine": bool(p.get("indiquer_origine", True)),
+        }}, upsert=True)
+        return _reglages(await db.settings.find_one({"_id": "global"}) or {})
+
     @api.get("/me/wa-transfert/journal", tags=["WhatsApp — transfert"])
     async def journal(limit: int = Query(100, ge=1, le=500), user: dict = Depends(get_current_user)):
         """Journal des transferts : tout pour l'encadrement, ses propres transferts pour les autres."""

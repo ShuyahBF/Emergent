@@ -764,8 +764,17 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
 // ---------------------------------------------------------------------------
 // Réglages de l'agenda et des anniversaires
 // ---------------------------------------------------------------------------
-function ReglagesAgenda({ lignes, fermer }) {
+// Lot 71.3 — aussi intégré tel quel dans Paramètres (integre = sans fenêtre ni bouton de fermeture ;
+// les lignes WhatsApp sont alors lues ici, puisque la page de l'agenda n'est pas ouverte).
+export function ReglagesAgenda({ lignes: lignesRecues, fermer, integre = false }) {
   const [f, setF] = useState(null);
+  const [lignesLues, setLignesLues] = useState([]);
+  const lignes = lignesRecues?.length ? lignesRecues : lignesLues;
+  // Mode intégré : liste des lignes WhatsApp (Standard, VIP…) pour les listes déroulantes
+  useEffect(() => {
+    if (!integre) return;
+    apiClient.get("/admin/liluvine-agenda").then((r) => setLignesLues(r.data?.lignes || [])).catch(() => setLignesLues([]));
+  }, [integre]);
   const [apercu, setApercu] = useState("");
   const [occupe, setOccupe] = useState(false);
   const maj = (cle, valeur) => setF((x) => ({ ...x, [cle]: valeur }));
@@ -797,7 +806,7 @@ function ReglagesAgenda({ lignes, fermer }) {
       await apiClient.put("/admin/liluvine-agenda/reglages", { ...f, liluvine_agenda_jours: (f.liluvine_agenda_jours || []).join(",") });
       const g = await apiClient.post("/admin/liluvine-agenda/anniversaires/generer");
       toast.success(`Réglages enregistrés — anniversaires : ${g.data.crees} créé(s), ${g.data.mis_a_jour} mis à jour`, { id: t });
-      fermer();
+      if (!integre && fermer) fermer();   // en mode intégré (Paramètres), la rubrique reste ouverte
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Enregistrement impossible", { id: t });
     } finally {
@@ -810,12 +819,15 @@ function ReglagesAgenda({ lignes, fermer }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="w-full max-w-3xl space-y-3 rounded-2xl bg-white p-4 shadow-xl" data-testid="reglages-agenda">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">⚙️ Réglages de l'agenda et des anniversaires</h2>
-          <button type="button" onClick={fermer} className="rounded px-2 text-xl text-slate-400 hover:bg-slate-100">×</button>
-        </div>
+    // Fenêtre par-dessus l'agenda, ou simple bloc dans la rubrique des Paramètres (integre)
+    <div className={integre ? "" : "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"}>
+      <div className={integre ? "space-y-3" : "w-full max-w-3xl space-y-3 rounded-2xl bg-white p-4 shadow-xl"} data-testid="reglages-agenda">
+        {!integre && (
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold">⚙️ Réglages de l'agenda et des anniversaires</h2>
+            <button type="button" onClick={fermer} className="rounded px-2 text-xl text-slate-400 hover:bg-slate-100">×</button>
+          </div>
+        )}
         {!f ? <p className="text-sm"><Jauge /> Patientez…</p> : (
           <>
             <label className="inline-flex items-center gap-2 text-sm font-semibold">
@@ -910,7 +922,7 @@ function ReglagesAgenda({ lignes, fermer }) {
               <p className="text-[11px] text-slate-500">Personnes nées un 29 février : appel le 28 février les années non bissextiles.</p>
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Fermer</button>
+              {!integre && <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Fermer</button>}
               <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-lg bg-violet-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
                 {occupe ? <Jauge /> : null} Enregistrer
               </button>

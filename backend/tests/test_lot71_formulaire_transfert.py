@@ -451,6 +451,7 @@ def _client_wa(db, monkeypatch, g):
         "restreint": {"id": "u2", "role": "client", "client_id": "sawali", "full_name": "Agent VIP",
                       "wa_lignes_autorisees": ["principal"]},
         "visiteur": {"id": "u3", "role": "visiteur"},
+        "chef": {"id": "u9", "role": "admin", "client_id": "sawali", "full_name": "Chef"},   # lot 71.3
     }
 
     async def utilisateur(request: Request):
@@ -545,3 +546,23 @@ def test_transfert_droits_visibilite_et_echec_partiel(db_wa, monkeypatch):
     res = {x["id"]: x for x in r["resultats"]}
     assert "non attribuée" in res["c-ouvert"]["raison"] and "non visible" in res["c-vip"]["raison"]
     assert [x["cle"] for x in c.get("/api/me/wa-transfert/lignes", headers=hr).json()["lignes"]] == ["principal"]
+
+
+def test_lot71_3_reglages_du_transfert(db_wa, monkeypatch):
+    # Lot 71.3 — rubrique « 💬 Conversations WhatsApp » : modèle de repli par défaut et origine indiquée
+    c = _client_wa(db_wa, monkeypatch, FauxGraph())
+    # Valeurs par défaut : aucun modèle, origine indiquée
+    assert c.get("/api/me/wa-transfert/reglages", headers={"X-User": "agent"}).json() == {
+        "modele_defaut": None, "indiquer_origine": True}
+    # Un agent ne peut pas modifier les réglages
+    assert c.put("/api/admin/wa-transfert/reglages", json={"indiquer_origine": False},
+                 headers={"X-User": "agent"}).status_code == 403
+    # L'administrateur enregistre un modèle et décoche l'origine ; l'agent lit les nouveaux réglages
+    r = c.put("/api/admin/wa-transfert/reglages", headers={"X-User": "chef"},
+              json={"modele_defaut": {"name": "message_liluvine", "language": "fr"}, "indiquer_origine": False})
+    assert r.status_code == 200
+    assert c.get("/api/me/wa-transfert/reglages", headers={"X-User": "agent"}).json() == {
+        "modele_defaut": {"name": "message_liluvine", "language": "fr"}, "indiquer_origine": False}
+    # Retour à « aucun modèle »
+    c.put("/api/admin/wa-transfert/reglages", headers={"X-User": "chef"}, json={"modele_defaut": None, "indiquer_origine": True})
+    assert c.get("/api/me/wa-transfert/reglages", headers={"X-User": "agent"}).json()["modele_defaut"] is None

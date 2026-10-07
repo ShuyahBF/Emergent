@@ -106,3 +106,27 @@ def test_lot71_2_sdk_ia_importe_hors_de_la_boucle(monkeypatch):
     t = time.perf_counter()
     asyncio.run(ia_client._sdk_pret("anthropic"))
     assert time.perf_counter() - t < 0.05
+
+
+def test_lot71_3_sentinelle_garde_les_derniers_blocages():
+    # Lot 71.3 — rubrique « ⚡ Santé du serveur » : heure, durée et ligne de code SAWALI en cause
+    import sentinelle_boucle as s
+    s._etat["demarree"] = False
+    s._BLOCAGES.clear()
+
+    def code_sawali_lent():
+        time.sleep(2.0)
+
+    async def scenario():
+        s.demarrer()
+        await asyncio.sleep(0.3)
+        code_sawali_lent()
+        await asyncio.sleep(0.6)
+
+    asyncio.run(scenario())
+    e = s.etat()
+    assert e["active"] is True and e["seuil_s"] == s.SEUIL_S
+    assert len(e["blocages"]) == 1
+    b = e["blocages"][0]
+    assert b["duree_s"] and b["duree_s"] >= 1.5
+    assert "test_lot71_1_parametres_non_bloquant.py" in b["lieu"]

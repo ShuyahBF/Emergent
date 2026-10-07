@@ -15,6 +15,7 @@ import {
   Sparkles, Loader2, ClipboardPaste, ArrowDown, PenTool,
 } from "lucide-react";
 import { CalendarDays } from "lucide-react";                          // lot 41
+import { Phone, PhoneCall, Forward } from "lucide-react";              // lot 71.1 : pictogrammes de l'en-tête de conversation
 import CalendrierModal from "@/components/CalendrierModal";           // lot 41
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -2362,51 +2363,59 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Lot 71.1 — en-tête compact : chaque action est un pictogramme cliquable (infobulle au survol, libellé lu par les lecteurs d'écran) */}
+          <div className="flex items-center gap-1.5">
             {/* Lot 60 — appel WhatsApp vers ce contact (autorisation du client vérifiée avant l'appel) */}
             {(contact.whatsapp || contact.phone) && (
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent("sawali:appel-wa", {
                   detail: { telephone: contact.whatsapp || contact.phone, contact_id: contact.id, nom: contact.name },
                 }))}
-                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 text-xs font-semibold"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
                 title="Appeler ce contact sur WhatsApp (depuis le navigateur, avec le micro)"
+                aria-label="Appeler"
                 data-testid="conversation-appeler"
               >
-                📞 Appeler
+                <Phone className="h-4 w-4" />
               </button>
             )}
-            {/* Lot 67 — alerte du propriétaire à chaque message de ce client (activée par défaut) */}
-            <ToggleAlerteProprietaire contact={contact} />
+            {/* Lot 67 — alerte du propriétaire à chaque message de ce client (activée par défaut), en pictogramme cloche */}
+            <ToggleAlerteProprietaire contact={contact} compact />
             {/* Lot 60 — journal des appels de ce contact (durées) */}
             {(contact.whatsapp || contact.phone) && (
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent("sawali:journal-appels", {
                   detail: { telephone: contact.whatsapp || contact.phone },
                 }))}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
                 title="Journal des appels WhatsApp de ce contact"
+                aria-label="Journal des appels"
                 data-testid="conversation-journal-appels"
               >
-                Appels
+                <PhoneCall className="h-4 w-4" />
               </button>
             )}
-            {/* Lot 71 — sélection de plusieurs messages pour les transférer ensemble */}
+            {/* Lot 71 — sélection de plusieurs messages pour les transférer ensemble (bleu quand la sélection est active) */}
             <button
               type="button"
               onClick={() => setSelection((s) => (s ? null : []))}
-              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs ${selection ? "border-sky-500 bg-sky-50 text-sky-800" : "border-slate-300 bg-white hover:bg-slate-50"}`}
-              title="Sélectionner des messages à transférer"
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border ${selection ? "border-sky-500 bg-sky-100 text-sky-800" : "border-slate-300 bg-white hover:bg-slate-50 text-slate-700"}`}
+              title={selection ? "Annuler la sélection" : "Sélectionner des messages à transférer"}
+              aria-label={selection ? "Annuler la sélection" : "Sélectionner des messages"}
+              aria-pressed={!!selection}
               data-testid="conversation-selection"
             >
-              ↪ {selection ? "Annuler la sélection" : "Sélectionner"}
+              <Forward className="h-4 w-4" />
             </button>
+            {/* Rechargement de la conversation (l'icône tourne pendant le chargement) */}
             <button
               onClick={load}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-xs"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+              title="Actualiser la conversation"
+              aria-label="Actualiser"
               data-testid="conversation-refresh"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Actualiser
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
             <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
           </div>

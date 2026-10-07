@@ -1187,6 +1187,23 @@ _cycle_vie.configurer(envoyer_email=send_email, envoyer_wa=_wa_send_text, email_
 
 
 @app.on_event("startup")
+async def _sentinelle_et_prechauffage():
+    """Lot 71.1 — (1) sentinelle : écrit dans les journaux la ligne de code qui fige le serveur si la
+    boucle principale ne répond plus pendant 1,5 s ; (2) préchauffage : importe qdrant_client dans un
+    fil séparé, pour que la première ouverture des Paramètres ne fige plus le serveur. Jamais bloquant."""
+    try:
+        import sentinelle_boucle
+        sentinelle_boucle.demarrer()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[sentinelle] non démarrée : %s", exc)
+    try:
+        from routes.qdrant_rag import prechauffer_modules
+        asyncio.get_running_loop().run_in_executor(None, prechauffer_modules)  # en arrière-plan, sans attendre
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[prechauffage] non lancé : %s", exc)
+
+
+@app.on_event("startup")
 async def _index_cycle_vie():
     """Lot 51 — index des avertissements (envoi unique) et du journal : jamais bloquant."""
     try:

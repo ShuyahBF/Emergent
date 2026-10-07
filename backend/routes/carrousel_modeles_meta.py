@@ -82,8 +82,9 @@ async def app_id_du_jeton(http: httpx.AsyncClient, *, version: str, jeton: str) 
     Meta permet à un jeton de s'inspecter lui-même (GET /debug_token) ; la réponse contient app_id.
     Renvoie "" si Meta ne le donne pas (le message d'erreur invite alors à le saisir)."""
     try:
+        # Lot 78.2 — le jeton d'accès passe dans l'en-tête (jamais dans l'adresse, qui est journalisée)
         r = await http.get(f"https://graph.facebook.com/{version}/debug_token",
-                           params={"input_token": jeton, "access_token": jeton})
+                           params={"input_token": jeton}, headers={"Authorization": f"Bearer {jeton}"})
         if r.status_code < 300:
             return str(((r.json() or {}).get("data") or {}).get("app_id") or "").strip()
     except (httpx.HTTPError, ValueError):
@@ -95,7 +96,8 @@ async def deposer_image(http: httpx.AsyncClient, *, version: str, app_id: str, j
     """Dépôt de l'image d'exemple (Resumable Upload) → « handle » utilisé dans header_handle."""
     r = await http.post(f"https://graph.facebook.com/{version}/{app_id}/uploads",
                         params={"file_name": "carrousel-exemple.png", "file_length": len(octets),
-                                "file_type": "image/png", "access_token": jeton})
+                                "file_type": "image/png"},
+                        headers={"Authorization": f"OAuth {jeton}"})   # lot 78.2 : jeton hors de l'adresse
     if r.status_code >= 300:
         raise RuntimeError(f"Dépôt de l'image d'exemple refusé : {_message_erreur(r)}")
     session = (r.json() or {}).get("id")

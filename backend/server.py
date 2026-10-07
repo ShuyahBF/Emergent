@@ -220,6 +220,9 @@ def _alexa_notify_async(event_type: str, message: str) -> None:
     _alexa_notify_async_impl(db, event_type, message)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# Lot 78.2 — aucun jeton (access_token=…, input_token=…) en clair dans les journaux
+import masque_jetons as _masque_jetons  # noqa: E402
+_masque_jetons.installer()
 logger = logging.getLogger("sawali")
 
 app = FastAPI(

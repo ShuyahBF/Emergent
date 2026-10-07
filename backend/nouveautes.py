@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "78.2", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel : statuts Meta à jour",
+        "description": "« Actualiser les statuts Meta » relit l'approbation des modèles ; relecture automatique tant qu'un modèle est en attente.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "78.1", "date": "2026-10-07",
         "titre": "🖼️ Carrousel : utilisateurs suivis et contacts destinataires",
         "description": "Clients, utilisateurs suivis et contacts se cochent par groupe ; les modèles Meta s'affichent par nombre de cartes.",

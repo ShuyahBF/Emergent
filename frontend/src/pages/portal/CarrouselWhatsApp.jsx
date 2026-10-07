@@ -184,6 +184,36 @@ function Reglages({ etat, onEnregistre }) {
   // Lot 76 — bouton « Créer les modèles chez Meta » : les 9 modèles sont déposés par l'API de Meta
   const [creation, setCreation] = useState(false);
   const [resultats, setResultats] = useState(null);
+  // Lot 78.2 — statut ACTUEL de chaque modèle chez Meta (le résultat du dépôt n'est qu'une photo à l'instant du dépôt)
+  const [actuels, setActuels] = useState({});
+  const [actualisation, setActualisation] = useState(false);
+  const actualiser = useCallback(async (silencieux = false) => {
+    setActualisation(true);
+    try {
+      const { data } = await apiClient.get("/admin/whatsapp/carrousel/statuts-meta", { params: { rafraichir: true } });
+      setActuels(data.statuts || {});
+      if (!silencieux) toast.success(data.erreur ? `Statuts Meta : ${data.erreur}` : "Statuts relus chez Meta");
+    } catch (e) {
+      if (!silencieux) toast.error(erreur(e, "Statuts Meta indisponibles"));
+    } finally {
+      setActualisation(false);
+    }
+  }, []);
+  // Tant qu'un modèle déposé est en attente, relecture automatique toutes les 60 s (30 min au plus)
+  useEffect(() => {
+    if (!resultats) return undefined;
+    let n = 0;
+    const t = setInterval(() => {
+      n += 1;
+      const enAttente = resultats.some((r) => {
+        const k = Number(String(r.nom).split("_").pop());
+        return (actuels[k] || actuels[String(k)] || "PENDING") === "PENDING";
+      });
+      if (!enAttente || n > 30) { clearInterval(t); return; }
+      actualiser(true);
+    }, 60000);
+    return () => clearInterval(t);
+  }, [resultats, actuels, actualiser]);
   const creerChezMeta = async () => {
     if (!modele) { toast.error("Saisissez d'abord le nom (préfixe) des modèles, ex. sawali_carrousel."); return; }
     if (!window.confirm(`Déposer chez Meta les 9 modèles ${modele}_2 à ${modele}_10 (catégorie Marketing) ?`)) return;
@@ -193,6 +223,7 @@ function Reglages({ etat, onEnregistre }) {
       const { data } = await apiClient.post("/admin/whatsapp/carrousel/modeles-meta",
         { modele, langue, tenant_id: tenantId || null }, { timeout: 180000 });
       setResultats(data.resultats);
+      setActuels({});
       const ok = data.resultats.filter((r) => r.statut !== "erreur").length;
       if (ok) { toast.success(`${ok} modèle(s) soumis à Meta. L'approbation prend de quelques minutes à 24 h.`); onEnregistre(); }
       else toast.error("Aucun modèle n'a été accepté : voir le détail ci-dessous.");
@@ -250,8 +281,17 @@ function Reglages({ etat, onEnregistre }) {
         </div>
       )}
       {resultats && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <Button type="button" size="sm" variant="outline" disabled={actualisation} onClick={() => actualiser(false)}>
+            {actualisation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+            Actualiser les statuts Meta
+          </Button>
+          Relu automatiquement chaque minute tant qu'un modèle est en attente.
+        </div>
+      )}
+      {resultats && (
         <table className="w-full text-xs">
-          <thead><tr className="text-left text-slate-500"><th className="py-1">Modèle</th><th>Résultat</th><th>Détail</th></tr></thead>
+          <thead><tr className="text-left text-slate-500"><th className="py-1">Modèle</th><th>Dépôt</th><th>Détail du dépôt</th><th>Statut actuel chez Meta</th></tr></thead>
           <tbody>
             {resultats.map((r) => (
               <tr key={r.nom} className="border-t border-slate-100">
@@ -261,7 +301,15 @@ function Reglages({ etat, onEnregistre }) {
                     ? <span className="inline-flex items-center gap-1 text-red-600"><XCircle className="h-3.5 w-3.5" /> erreur</span>
                     : <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> {r.statut}</span>}
                 </td>
-                <td className="text-slate-600">{r.detail}</td>
+                <td className="text-slate-600">{STATUT_COURT[r.detail] ? `${STATUT_COURT[r.detail]} (au dépôt)` : r.detail}</td>
+                <td>
+                  {(() => {
+                    const k = Number(String(r.nom).split("_").pop());
+                    const st = actuels[k] || actuels[String(k)];
+                    return st ? <span className="inline-flex items-center gap-1"><PastilleMeta statut={st} modele={r.nom} /> {STATUT_COURT[st] || st}</span>
+                      : <span className="text-slate-400">—</span>;
+                  })()}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -282,6 +330,9 @@ const STATUTS_META = {
   ABSENT: ["bg-slate-300", "Modèle pas encore créé chez Meta (bouton « Créer les modèles chez Meta »)"],
   HORS_LIMITES: ["bg-slate-300", "Un carrousel compte de 2 à 10 cartes"],
 };
+// Lot 78.2 — statut Meta en mots simples (au lieu de APPROVED / PENDING)
+const STATUT_COURT = { APPROVED: "approuvé", PENDING: "en attente", IN_APPEAL: "en appel", REJECTED: "refusé",
+  PAUSED: "en pause", DISABLED: "désactivé", ABSENT: "non créé" };
 function PastilleMeta({ statut, modele }) {
   const [couleur, libelle] = STATUTS_META[statut] || ["bg-slate-300", `Statut Meta : ${statut}`];
   return (
@@ -308,6 +359,14 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
   }, [base]);
   // Rechargée au chargement et après chaque enregistrement (compteur « rafraichir »)
   useEffect(() => { charger(); }, [charger, rafraichir]);
+  // Lot 78.2 — tant qu'un modèle est « en attente » chez Meta, relecture automatique chaque minute (30 min au plus)
+  const enAttente = Object.values(meta.statuts || {}).some((x) => x === "PENDING" || x === "IN_APPEAL");
+  useEffect(() => {
+    if (!enAttente) return undefined;
+    let n = 0;
+    const t = setInterval(() => { n += 1; if (n > 30) clearInterval(t); else charger(true); }, 60000);
+    return () => clearInterval(t);
+  }, [enAttente, charger]);
 
   const dupliquer = async (b) => {
     try {
@@ -335,7 +394,7 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-semibold text-slate-800"><FolderOpen className="h-4 w-4" /> Mes carrousels</h2>
         <Button type="button" size="sm" variant="outline" onClick={() => charger(true)} title="Relire les statuts chez Meta">
-          <RefreshCw className="mr-1 h-4 w-4" /> Statuts Meta
+          <RefreshCw className="mr-1 h-4 w-4" /> Actualiser les statuts Meta
         </Button>
       </div>
       {liste.erreur_meta && <p className="text-xs text-amber-700">Statuts Meta indisponibles : {liste.erreur_meta}</p>}
@@ -353,6 +412,7 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
                       className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 ring-1 ring-slate-300 hover:ring-emerald-500"
                       title={`Composer un nouveau carrousel de ${n} cartes`}>
                 <PastilleMeta statut={meta.statuts?.[n] || meta.statuts?.[String(n)] || "ABSENT"} modele={`${meta.prefixe}_${n}`} /> {n} cartes
+                <span className="text-slate-500">· {STATUT_COURT[meta.statuts?.[n] || meta.statuts?.[String(n)] || "ABSENT"] || ""}</span>
               </button>
             ))}
           </div>

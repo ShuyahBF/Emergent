@@ -28,9 +28,11 @@ GET /api/public/carrousel/l/{code} qui compte les clics puis redirige vers le li
 """
 from __future__ import annotations
 
+import base64
 import re
 import secrets
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional
 
 from fastapi import BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -49,10 +51,24 @@ ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 CHEMIN_LIEN = "/api/public/carrousel/l/"
 INDICATIF_DEFAUT = "226"                # numéro local à 8 chiffres : Burkina Faso (pays par défaut)
+# Lot 75 — image d'une carte générée par l'IA (gpt-image-1) à partir d'une description
+IA_PROMPT_MAX = 1000                    # longueur maximale de la description
+IA_PAR_HEURE_DEFAUT = 20                # générations par compte et par heure (réglable dans Paramètres)
+IA_APERCU_DUREE_H = 2                   # un aperçu non retenu est oublié après 2 h
+IA_CONSIGNE = ("Image publicitaire carrée pour une carte de carrousel WhatsApp : visuel net et lumineux, "
+               "sujet centré, aucun texte ni lettre incrustés dans l'image.")
 
 
 def _maintenant() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def prompt_image_carte(description: str, titre: str = "") -> str:
+    """Lot 75 — consigne envoyée à l'IA : la description saisie, le titre de la carte (contexte)
+    et la consigne de format (carré, sans texte : WhatsApp affiche déjà titre et texte sous l'image)."""
+    description = " ".join((description or "").split())[:IA_PROMPT_MAX]
+    contexte = f" Sujet de la carte : « {titre.strip()[:60]} »." if (titre or "").strip() else ""
+    return f"{description}.{contexte} {IA_CONSIGNE}".strip()
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +151,12 @@ class EnvoiIn(BaseModel):
     cartes: List[CarteIn] = Field(..., min_length=CARTES_MIN, max_length=CARTES_MAX)
     ids: List[str] = Field(default_factory=list)          # contacts (portail) ou clients (admin)
     groupes: List[str] = Field(default_factory=list)      # groupes de contacts (portail)
+
+
+class ImageIaIn(BaseModel):
+    """Lot 75 — description de l'image à générer pour une carte (et titre de la carte, facultatif)."""
+    prompt: str = Field(..., min_length=3, max_length=IA_PROMPT_MAX)
+    titre: Optional[str] = Field(None, max_length=120)
 
 
 class ConsentementIn(BaseModel):
@@ -269,6 +291,58 @@ def attach_carrousel_whatsapp_routes(
                                    content_type=fichier.content_type, original_filename=fichier.filename,
                                    user_id=user.get("id"))
         return {"url": url_absolue(saved["url"], base_publique())}
+
+    # --- Lot 75 : image générée par l'IA -----------------------------------
+    async def _generer_image_ia(data: ImageIaIn, tenant_id: str, user: dict) -> dict:
+        """Étape 1 : génère l'image et la garde 2 h comme APERÇU (pas encore dans les fichiers).
+        Rien n'est enregistré dans la médiathèque tant que l'utilisateur ne l'a pas retenue."""
+        reglages = await db.settings.find_one({"_id": "global"}, {"_id": 0, "carrousel_ia_par_heure": 1}) or {}
+        try:
+            par_heure = max(1, int(reglages.get("carrousel_ia_par_heure") or IA_PAR_HEURE_DEFAUT))
+        except (TypeError, ValueError):
+            par_heure = IA_PAR_HEURE_DEFAUT
+        il_y_a_une_heure = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        if await db.carrousel_images_ia.count_documents({"tenant_id": tenant_id, "cree_le": {"$gte": il_y_a_une_heure}}) >= par_heure:
+            raise HTTPException(status_code=429, detail=f"Limite atteinte : {par_heure} images générées par heure. Réessayez plus tard.")
+        try:
+            from ia_client import OpenAIImageGeneration
+            images = await OpenAIImageGeneration().generate_images(
+                prompt_image_carte(data.prompt, data.titre or ""), model="gpt-image-1", quality="medium")
+        except Exception as exc:  # noqa: BLE001 — clé absente, refus de contenu, réseau…
+            raise HTTPException(status_code=502, detail=f"Génération de l'image impossible : {str(exc)[:200]}") from exc
+        if not images:
+            raise HTTPException(status_code=502, detail="L'IA n'a renvoyé aucune image. Reformulez la description.")
+        octets = images[0]
+        if len(octets) > IMAGE_MAX_OCTETS:
+            raise HTTPException(status_code=502, detail="Image générée trop lourde pour WhatsApp (5 Mo). Réessayez.")
+        apercu_id = uuid.uuid4().hex
+        # Nettoyage des aperçus anciens, puis enregistrement de celui-ci
+        limite = (datetime.now(timezone.utc) - timedelta(hours=IA_APERCU_DUREE_H)).isoformat()
+        await db.carrousel_images_ia.update_many({"cree_le": {"$lt": limite}, "octets_b64": {"$ne": None}},
+                                                 {"$set": {"octets_b64": None}})
+        b64 = base64.b64encode(octets).decode("ascii")
+        await db.carrousel_images_ia.insert_one({
+            "id": apercu_id, "tenant_id": tenant_id, "user_id": user.get("id"), "prompt": data.prompt[:IA_PROMPT_MAX],
+            "octets_b64": b64, "retenue": False, "cree_le": _maintenant(),
+        })
+        return {"apercu_id": apercu_id, "apercu": f"data:image/png;base64,{b64}"}
+
+    async def _retenir_image_ia(apercu_id: str, tenant_id: str, user: dict) -> dict:
+        """Étape 2 : l'image convient → elle est enregistrée (fichiers SAWALI), son adresse publique
+        https://… est renvoyée et placée dans le champ « image » de la carte."""
+        if save_and_log is None:
+            raise HTTPException(status_code=503, detail="Stockage des fichiers indisponible")
+        doc = await db.carrousel_images_ia.find_one({"id": apercu_id, "tenant_id": tenant_id}, {"_id": 0})
+        if doc and doc.get("url"):
+            return {"url": doc["url"]}                     # déjà retenue (double clic) : même adresse
+        if not doc or not doc.get("octets_b64"):
+            raise HTTPException(status_code=404, detail="Aperçu expiré ou introuvable : générez l'image à nouveau.")
+        saved = await save_and_log(db, data=base64.b64decode(doc["octets_b64"]), kind="carrousel", tenant_id=tenant_id,
+                                   ext="png", content_type="image/png", original_filename=f"carrousel-ia-{apercu_id[:8]}.png",
+                                   user_id=user.get("id"))
+        url = url_absolue(saved["url"], base_publique())
+        await db.carrousel_images_ia.update_one({"id": apercu_id}, {"$set": {"retenue": True, "url": url, "octets_b64": None}})
+        return {"url": url}
 
     # --- Cartes --------------------------------------------------------------
     async def _preparer_cartes(cartes: List[CarteIn], tenant_id: Optional[str]) -> List[dict]:
@@ -460,7 +534,9 @@ def attach_carrousel_whatsapp_routes(
     @api.get("/me/whatsapp/carrousel", tags=["Portail Client — Carrousel WhatsApp"])
     async def etat_portail(user: dict = Depends(utilisateur)):
         tid = _tenant_id(user)
-        return await _etat(tid, {"perimetre": "client", "tenant_id": tid})
+        etat = await _etat(tid, {"perimetre": "client", "tenant_id": tid})
+        etat["ia_images"] = bool(await fonction_active(user, "ai_image_gen"))   # lot 75
+        return etat
 
     @api.get("/me/whatsapp/carrousel/produits", tags=["Portail Client — Carrousel WhatsApp"])
     async def produits_portail(user: dict = Depends(utilisateur)):
@@ -473,6 +549,22 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/me/whatsapp/carrousel/images", tags=["Portail Client — Carrousel WhatsApp"])
     async def envoyer_image_portail(fichier: UploadFile = File(...), user: dict = Depends(utilisateur)):
         return await _envoyer_image(fichier, _tenant_id(user), user)
+
+    async def _ia_autorisee(user: dict) -> None:
+        """Portail : la génération d'images IA est une fonction payante, activée par client."""
+        if not await fonction_active(user, "ai_image_gen"):
+            raise HTTPException(status_code=403, detail="La génération d'images par l'IA n'est pas activée pour votre compte. "
+                                                        "Demandez son activation à votre administrateur SAWALI.")
+
+    @api.post("/me/whatsapp/carrousel/images/ia", tags=["Portail Client — Carrousel WhatsApp"])
+    async def generer_image_ia_portail(data: ImageIaIn, user: dict = Depends(utilisateur)):
+        await _ia_autorisee(user)
+        return await _generer_image_ia(data, _tenant_id(user), user)
+
+    @api.post("/me/whatsapp/carrousel/images/ia/{apercu_id}/retenir", tags=["Portail Client — Carrousel WhatsApp"])
+    async def retenir_image_ia_portail(apercu_id: str, user: dict = Depends(utilisateur)):
+        await _ia_autorisee(user)
+        return await _retenir_image_ia(apercu_id, _tenant_id(user), user)
 
     @api.get("/me/whatsapp/carrousel/destinataires", tags=["Portail Client — Carrousel WhatsApp"])
     async def destinataires_portail(user: dict = Depends(utilisateur)):
@@ -512,7 +604,7 @@ def attach_carrousel_whatsapp_routes(
     # =======================================================================
     @api.get("/admin/whatsapp/carrousel", tags=["Admin — Carrousel WhatsApp"])
     async def etat_admin(_: dict = Depends(get_current_admin)):
-        return await _etat(None, {"perimetre": "admin"})
+        return {**(await _etat(None, {"perimetre": "admin"})), "ia_images": True}   # lot 75
 
     @api.get("/admin/whatsapp/carrousel/reglages", tags=["Admin — Carrousel WhatsApp"])
     async def lire_reglages(tenant_id: Optional[str] = None, _: dict = Depends(get_current_admin)):
@@ -543,6 +635,14 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/admin/whatsapp/carrousel/images", tags=["Admin — Carrousel WhatsApp"])
     async def envoyer_image_admin(fichier: UploadFile = File(...), user: dict = Depends(get_current_admin)):
         return await _envoyer_image(fichier, user["id"], user)
+
+    @api.post("/admin/whatsapp/carrousel/images/ia", tags=["Admin — Carrousel WhatsApp"])
+    async def generer_image_ia_admin(data: ImageIaIn, user: dict = Depends(get_current_admin)):
+        return await _generer_image_ia(data, user["id"], user)
+
+    @api.post("/admin/whatsapp/carrousel/images/ia/{apercu_id}/retenir", tags=["Admin — Carrousel WhatsApp"])
+    async def retenir_image_ia_admin(apercu_id: str, user: dict = Depends(get_current_admin)):
+        return await _retenir_image_ia(apercu_id, user["id"], user)
 
     @api.get("/admin/whatsapp/carrousel/destinataires", tags=["Admin — Carrousel WhatsApp"])
     async def destinataires_admin(_: dict = Depends(get_current_admin)):

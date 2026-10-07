@@ -1073,6 +1073,31 @@ export default function AdminSettings() {
         <LiluvineWaAutoreplySection />
       </Filterable>
 
+      {/* Lot 75 — carrousel WhatsApp : images des cartes générées par l'IA (limite par heure) */}
+      <Filterable title="🖼️ Carrousel WhatsApp — images générées par l'IA" anchorId="s-carrousel-ia">
+        <CorpsSection icon={Sparkles} title="🖼️ Carrousel WhatsApp — images générées par l'IA">
+          <p className="text-xs text-slate-500">
+            Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
+            le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.
+            Côté portail, la fonction du client « Génération d'Image IA » doit être active (Admin → Clients → Fonctionnalités).
+            Les modèles Meta du carrousel se règlent en haut de la page Carrousel.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-3 items-end">
+            <Input
+              label="Images générées au plus par compte et par heure"
+              type="number"
+              value={s.carrousel_ia_par_heure ?? 20}
+              onChange={(v) => upd("carrousel_ia_par_heure", v === "" ? 20 : Math.max(1, Number(v) || 20))}
+              placeholder="20"
+              testid="carrousel-ia-par-heure"
+            />
+            <Link to="/admin/whatsapp-carrousel" className="inline-flex items-center justify-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-3 py-2" data-testid="carrousel-ouvrir">
+              Ouvrir le carrousel WhatsApp
+            </Link>
+          </div>
+        </CorpsSection>
+      </Filterable>
+
       {/* Lot 74 — message d'absence : texte fixe envoyé hors des heures d'ouverture, une fois par contact */}
       <Filterable title="🌙 Message d'absence WhatsApp" anchorId="s-wa-absence">
         <CorpsSection icon={MessageCircle} title="🌙 Message d'absence WhatsApp">

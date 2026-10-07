@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
-  Send, Settings, Trash2, Users, XCircle,
+  Send, Settings, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -48,9 +48,51 @@ function ApercuCarte({ carte, produit }) {
 }
 
 // Choix d'une image : galerie (générées, médiathèque, envoyées), envoi d'un fichier ou adresse
-function ChoixImage({ base, images, onEnvoyee, valeur, onChange }) {
+function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia = false }) {
   const [ouvert, setOuvert] = useState(false);
   const [envoi, setEnvoi] = useState(false);
+  // Lot 75 — image générée par l'IA : 1) description → « Générer » (aperçu) ;
+  // 2) si l'image convient → « Utiliser cette image » : enregistrée, son adresse va dans le champ.
+  const [prompt, setPrompt] = useState("");
+  const [apercu, setApercu] = useState(null);            // { apercu_id, apercu (data:image/png…) }
+  const [generation, setGeneration] = useState(false);
+  const [retenue, setRetenue] = useState(false);
+  const [secondes, setSecondes] = useState(0);
+  useEffect(() => {                                     // compteur du toast « Patientez… »
+    if (!generation) { setSecondes(0); return undefined; }
+    const t = setInterval(() => setSecondes((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [generation]);
+
+  const generer = async () => {
+    if (prompt.trim().length < 3) { toast.error("Décrivez l'image souhaitée (quelques mots au moins)."); return; }
+    setGeneration(true);
+    setApercu(null);
+    try {
+      const { data } = await apiClient.post(`${base}/images/ia`, { prompt: prompt.trim(), titre }, { timeout: 180000 });
+      setApercu(data);
+    } catch (e) {
+      toast.error(erreur(e, "Génération impossible"));
+    } finally {
+      setGeneration(false);
+    }
+  };
+
+  const retenir = async () => {
+    if (!apercu) return;
+    setRetenue(true);
+    try {
+      const { data } = await apiClient.post(`${base}/images/ia/${apercu.apercu_id}/retenir`);
+      onChange(data.url);                               // l'adresse https://… remplit le champ de la carte
+      onEnvoyee();                                      // la galerie se met à jour
+      setApercu(null);
+      toast.success("Image ajoutée à la carte");
+    } catch (e) {
+      toast.error(erreur(e, "Enregistrement de l'image impossible"));
+    } finally {
+      setRetenue(false);
+    }
+  };
 
   const envoyer = async (fichier) => {
     if (!fichier) return;
@@ -82,6 +124,38 @@ function ChoixImage({ base, images, onEnvoyee, valeur, onChange }) {
       </div>
       <input className={champ} placeholder="ou adresse https://… d'une image JPEG ou PNG" value={valeur}
              onChange={(e) => onChange(e.target.value)} />
+      {/* Lot 75 — générer l'image par l'IA à partir d'une description */}
+      {ia && (
+        <div className="space-y-2 rounded-md border border-violet-200 bg-violet-50/50 p-2">
+          <div className="flex items-center gap-1 text-xs font-semibold text-violet-800"><Sparkles className="h-3.5 w-3.5" /> Générer l'image avec l'IA</div>
+          <textarea className={champ} rows={2} maxLength={1000} value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Décrivez l'image (ex. une tablette affichant un formulaire en ligne, sur un bureau lumineux)" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={generation || retenue} onClick={generer}>
+              {generation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1 h-4 w-4" />}
+              {apercu ? "Générer une autre" : "Générer"}
+            </Button>
+            {apercu && (
+              <Button type="button" size="sm" disabled={retenue} onClick={retenir}>
+                {retenue ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1 h-4 w-4" />}
+                Utiliser cette image
+              </Button>
+            )}
+          </div>
+          {apercu && <img src={apercu.apercu} alt="Aperçu de l'image générée" className="h-40 w-40 rounded-md border border-slate-200 object-cover" />}
+          <p className="text-[11px] text-slate-500">L'image ne contiendra pas de texte : le titre et le texte de la carte s'affichent dessous dans WhatsApp.</p>
+        </div>
+      )}
+      {/* Toast « Patientez… » avec jauge circulaire pendant la génération (souvent 20 à 60 s) */}
+      {generation && (
+        <div role="status" aria-live="polite" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900/80 px-4 py-3 text-sm text-white shadow-lg backdrop-blur">
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-[2.5px] border-transparent border-r-sky-400 border-t-sky-400" />
+            <strong>Patientez…</strong><span className="ml-3 tabular-nums opacity-70">{secondes} s</span>
+          </div>
+          <div className="mt-1 text-xs opacity-80">L'IA dessine l'image, cela prend souvent 20 à 60 secondes.</div>
+        </div>
+      )}
       {ouvert && (
         <div className="grid max-h-60 grid-cols-4 gap-2 overflow-y-auto rounded-md border border-slate-200 p-2 sm:grid-cols-6">
           {images.length === 0 && <p className="col-span-full text-xs text-slate-500">Aucune image JPEG/PNG disponible : envoyez-en une.</p>}
@@ -294,7 +368,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
                   <ChoixImage base={base} images={images} onEnvoyee={rechargerImages} valeur={c.image_url}
-                              onChange={(url) => majCarte(i, { image_url: url })} />
+                              onChange={(url) => majCarte(i, { image_url: url })} titre={c.titre} ia={!!etat.ia_images} />
                   <div className="space-y-2">
                     <input className={champ} maxLength={60} placeholder="Titre" value={c.titre} onChange={(e) => majCarte(i, { titre: e.target.value })} />
                     <input className={champ} maxLength={80} placeholder="Texte court" value={c.texte} onChange={(e) => majCarte(i, { texte: e.target.value })} />

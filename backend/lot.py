@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "71.1"
-LOT_LIBELLE = "La première ouverture des Paramètres ne fige plus le serveur (client Qdrant créé hors de la boucle principale, préchargé au démarrage), sentinelle qui note dans les journaux tout blocage du serveur, et en-tête de conversation des Contacts en pictogrammes cliquables (appeler, alerte propriétaire, journal des appels, sélectionner, actualiser)"
+LOT = "71.2"
+LOT_LIBELLE = "Le premier message WhatsApp après un redémarrage ne fige plus le serveur : les SDK d'IA (Claude, OpenAI, Gemini) sont importés hors de la boucle principale et préchargés au démarrage (blocage de 2,9 s repéré par la sentinelle du lot 71.1)"

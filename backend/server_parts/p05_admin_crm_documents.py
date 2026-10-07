@@ -71,8 +71,8 @@ async def admin_create_client_payment(
     Side effects on success:
       1. Inserts a row in `db.tenant_payments`.
       2. Updates `users.last_payment_at` (so the Retard column recomputes).
-      3. Sends the WA `payment_confirmation_template` (default
-         `confirmation_paiement_avecrecu`) to the client's phone.
+      3. Sends the WA `payment_confirmation_template` (lot 74 : par défaut le réglage
+         `wa_template_client_payment`, sinon `confirmation_paiement_client`) to the client's phone.
     """
     client = await db.users.find_one(
         {"id": client_id},
@@ -130,7 +130,15 @@ async def admin_create_client_payment(
         pass
     wa_result: Optional[dict] = None
     if payload.send_confirmation is not False:
-        tpl_name = (client.get("payment_confirmation_template") or "").strip() or "confirmation_paiement_avecrecu"
+        # Lot 74 (anomalie A1) : modèle propre aux clients abonnés (5 variables, sans en-tête),
+        # distinct du reçu de caisse — fiche client, sinon Paramètres, sinon confirmation_paiement_client
+        _reglages_wa = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_template_receipt_name": 1,
+                                                                     "wa_template_client_payment": 1,
+                                                                     "wa_template_client_payment_language": 1}) or {}
+        tpl_name, tpl_lang, tpl_remarque = _modeles_meta.modele_paiement_client(
+            client.get("payment_confirmation_template"), _reglages_wa)
+        if tpl_remarque:
+            logger.info("[payment] %s", tpl_remarque)
         to_phone = (client.get("phone") or "").strip() or (client.get("whatsapp_number") or "").strip()
         if to_phone:
             base_ctx = _build_recipient_ctx(
@@ -152,7 +160,7 @@ async def admin_create_client_payment(
             ]
             components = _build_components(variables, base_ctx)
             try:
-                wr = await _wa_send_template(to_phone, tpl_name, "fr", components)
+                wr = await _wa_send_template(to_phone, tpl_name, tpl_lang, components)
             except Exception as exc:  # noqa: BLE001
                 wr = {"ok": False, "error": str(exc)[:200]}
             wa_result = {
@@ -167,7 +175,7 @@ async def admin_create_client_payment(
                     "client_id": client_id,
                     "to": to_phone,
                     "template_name": tpl_name,
-                    "language_code": "fr",
+                    "language_code": tpl_lang,
                     "ok": bool(wr.get("ok")),
                     "status": wr.get("status"),
                     "message_id": wr.get("message_id"),

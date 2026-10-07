@@ -767,7 +767,7 @@ export default function AdminClients() {
                   testid="client-contract-overdue-days"
                 />
                 <Input
-                  label="Template WA — confirmation paiement"
+                  label="Template WA — confirmation paiement (vide = modèle des Paramètres)"
                   value={form.payment_confirmation_template || ""}
                   onChange={(v) => setForm({ ...form, payment_confirmation_template: v })}
                   testid="client-payment-confirmation-template"
@@ -1503,7 +1503,7 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                   onChange={(e) => setDraft({ ...draft, send_confirmation: e.target.checked })}
                   data-testid="payments-send-confirm"
                 />
-                <span>Envoyer automatiquement le WhatsApp de confirmation (template <code className="bg-white px-1 rounded">{client.payment_confirmation_template || "confirmation_paiement_avecrecu"}</code>)</span>
+                <span>Envoyer automatiquement le WhatsApp de confirmation (template <code className="bg-white px-1 rounded">{client.payment_confirmation_template || "modèle des Paramètres (confirmation_paiement_client)"}</code>)</span>
               </label>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowForm(false)} className="text-sm px-3 py-1.5 text-slate-600 hover:text-slate-800">Annuler</button>

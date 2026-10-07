@@ -1754,25 +1754,32 @@ async def me_ticket_resend_wa(tid: str, user: dict = Depends(get_current_user)):
       - `open` ou `in_progress` → template d'ouverture (`wa_template_ticket_open`)
       - `closed`                → template de clôture (`wa_template_ticket_close`)
     """
-    scope = user.get("parent_client_id") or user.get("client_id") or user["id"]
-    ticket = await db.tickets.find_one({"id": tid, "client_id": scope}, {"_id": 0})
+    # Lot 74 (anomalie A3) : les tickets sont enregistrés dans `support_tickets` (et non `tickets`),
+    # avec le même filtre de visibilité que l'ouverture et la clôture ; le motif est le champ `motif`,
+    # la durée part de `opened_at`, et la langue est celle réglée dans Paramètres.
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket introuvable")
+    scope = ticket.get("client_id") or user.get("parent_client_id") or user.get("client_id") or user["id"]
     phone = (ticket.get("contact_phone") or ticket.get("contact_whatsapp") or "").strip()
     if not phone:
         raise HTTPException(status_code=400, detail="Aucun numéro de contact sur ce ticket — impossible de renvoyer un WhatsApp.")
-    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_template_ticket_open": 1, "wa_template_ticket_close": 1}) or {}
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_template_ticket_open": 1, "wa_template_ticket_close": 1,
+                                                       "wa_template_ticket_language": 1}) or {}
+    tpl_lang = (s.get("wa_template_ticket_language") or "fr").strip() or "fr"
     status = (ticket.get("status") or "open").lower()
-    if status in ("closed", "resolved"):
+    if status in TICKET_CLOSED_STATUSES or status in ("closed", "resolved"):
         tpl_name = (s.get("wa_template_ticket_close") or "").strip() or "clotureticket"
-        duration = _format_ticket_duration(ticket.get("created_at") or "", ticket.get("closed_at") or _now())
-        components = _ticket_components(ticket.get("number") or tid, motif="", duration=duration)
+        duration = _format_ticket_duration(ticket.get("opened_at") or ticket.get("created_at") or "",
+                                           ticket.get("closed_at") or _now())
+        components = _ticket_components(ticket.get("number") or tid, duration=duration)
     else:
         tpl_name = (s.get("wa_template_ticket_open") or "").strip() or "ouvertureticket"
-        motif = (ticket.get("reason") or "")[:200]
+        motif = (ticket.get("motif") or ticket.get("reason") or "")[:200]
         components = _ticket_components(ticket.get("number") or tid, motif=motif)
     try:
-        wr = await _wa_send_template(phone, tpl_name, "fr", components)
+        wr = await _wa_send_template(phone, tpl_name, tpl_lang, components)
     except Exception as exc:  # noqa: BLE001
         wr = {"ok": False, "error": str(exc)[:200]}
     log_entry = {
@@ -1781,7 +1788,7 @@ async def me_ticket_resend_wa(tid: str, user: dict = Depends(get_current_user)):
         "client_id": scope,
         "to": phone,
         "template_name": tpl_name,
-        "language_code": "fr",
+        "language_code": tpl_lang,
         "ok": bool(wr.get("ok")),
         "status": wr.get("status"),
         "message_id": wr.get("message_id"),

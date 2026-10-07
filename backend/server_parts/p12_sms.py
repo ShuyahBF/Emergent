@@ -1107,6 +1107,9 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
             "header_text": payload.header_text,
             "header_media": payload.header_media,
             "button_vars": payload.button_vars,
+            # Lot 74 (anomalie A5) : la page d'envoi groupé n'envoie que `button_specs` (type réel de
+            # chaque bouton) ; sans lui, les variables des boutons étaient perdues à l'envoi programmé
+            "button_specs": payload.button_specs,
             "scheduled_at": sched_dt.astimezone(timezone.utc).isoformat(),
             "status": "pending",
             "result_summary": None,
@@ -2475,6 +2478,23 @@ async def whatsapp_webhook_incoming(request: Request):
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("[wa_autoreply] handler crashed: %s", exc)
                             ar_result = {"ok": False, "reason": f"crash: {str(exc)[:160]}"}
+                    # Lot 74 — message d'absence (texte fixe hors heures d'ouverture, une fois par contact).
+                    # Pas pour les accusés de tâche, commandes RH ni réponses relayées à une plateforme.
+                    if not (skip_autoreply or hr_handled or relais_plateforme):
+                        try:
+                            from routes.message_absence import traiter_message_entrant as _absence_entrant
+                            _s_abs = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_absence_actif": 1,
+                                "wa_absence_texte": 1, "wa_absence_mode": 1, "wa_absence_intervalle_h": 1,
+                                "wa_absence_exclus": 1, "business_open_time": 1, "business_close_time": 1,
+                                "business_days": 1}) or {}
+                            if _s_abs.get("wa_absence_actif"):
+                                await _absence_entrant(
+                                    db, reglages=_s_abs, numero=digits_only, de=from_num,
+                                    texte_recu=text_body or "", nom=(contact or {}).get("name") or profile_name,
+                                    client_id=scope_for_msg, contact_id=(contact or {}).get("id"),
+                                    send_text=_wa_send_text)
+                        except Exception:  # noqa: BLE001 — ne bloque jamais la réception
+                            logger.warning("[absence] envoi du message d'absence impossible", exc_info=True)
                     try:
                         await db.liluvine_wa_autoreply_log.insert_one({
                             "id": _uuid(), "at": _now(), "tenant_id": scope_for_msg,

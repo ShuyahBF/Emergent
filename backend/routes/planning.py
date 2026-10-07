@@ -266,6 +266,9 @@ class PlanningConfigUpdate(BaseModel):
     planning_webhook_secret: Optional[str] = Field(None, description="Secret du webhook (32 chars)")
     regenerate: Optional[bool] = Field(False, description="Génère un nouveau secret aléatoire")
     reminder_template: Optional[str] = Field(None, description="Template WA (placeholders {patient}, {medecin}, {start_time}, {motif})")
+    # Lot 74 (anomalie A6) : modèle Meta du rappel (4 variables : patient, médecin, heure, motif)
+    reminder_wa_template: Optional[str] = Field(None, description="Nom du modèle Meta du rappel (vide = texte libre)")
+    reminder_wa_language: Optional[str] = Field(None, description="Langue du modèle Meta (fr par défaut)")
 
 
 def attach_planning_routes(
@@ -324,6 +327,8 @@ def attach_planning_routes(
         """
         if not wa_send_text:
             return {"ok": False, "sent": 0, "skipped": 0, "error": "wa_send_text non fourni"}
+        # Lot 74 (anomalie A6) : un texte libre n'est remis que si le patient a écrit dans les 24 h.
+        # Avec un modèle Meta réglé, le rappel part par ce modèle et arrive donc toujours.
 
         now = datetime.now(timezone.utc)
         window_start = now + timedelta(minutes=55)
@@ -334,6 +339,8 @@ def attach_planning_routes(
             "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. "
             "Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI"
         )
+        modele_wa = (s.get("planning_reminder_wa_template") or "").strip()
+        langue_wa = (s.get("planning_reminder_wa_language") or "fr").strip() or "fr"
 
         query = {
             "start_at": {"$gte": window_start.isoformat(), "$lt": window_end.isoformat()},
@@ -365,7 +372,17 @@ def attach_planning_routes(
                     start_time=start_time,
                     motif=rdv.get("motif") or "consultation",
                 )
-                result = await wa_send_text(patient_phone, text)
+                if modele_wa and wa_send_template:
+                    # Modèle Meta : {{1}} patient · {{2}} médecin · {{3}} heure · {{4}} motif
+                    composants = [{"type": "body", "parameters": [
+                        {"type": "text", "text": (rdv.get("patient") or "—")[:60]},
+                        {"type": "text", "text": (rdv.get("medecin") or "—")[:60]},
+                        {"type": "text", "text": start_time or "—"},
+                        {"type": "text", "text": (rdv.get("motif") or "consultation")[:120]},
+                    ]}]
+                    result = await wa_send_template(patient_phone, modele_wa, langue_wa, composants)
+                else:
+                    result = await wa_send_text(patient_phone, text)
                 status = "sent" if result and result.get("ok") else "failed"
                 await db.planning_appointments.update_one(
                     {"id": rdv["id"]},
@@ -408,6 +425,8 @@ def attach_planning_routes(
             "webhook_url": f"{base}/api/webhooks/planning/{secret}",
             "webhook_created_at": s.get("planning_webhook_created_at"),
             "reminder_template": s.get("planning_reminder_template") or "",
+            "reminder_wa_template": s.get("planning_reminder_wa_template") or "",
+            "reminder_wa_language": s.get("planning_reminder_wa_language") or "fr",
             "sample_payload": {
                 "code_clinique": "CLI-001",
                 "medecin": "Dr. Aissata Ouedraogo",
@@ -448,6 +467,10 @@ def attach_planning_routes(
         }
         if payload.reminder_template is not None:
             set_doc["planning_reminder_template"] = payload.reminder_template.strip()
+        if payload.reminder_wa_template is not None:
+            set_doc["planning_reminder_wa_template"] = payload.reminder_wa_template.strip()
+        if payload.reminder_wa_language is not None:
+            set_doc["planning_reminder_wa_language"] = payload.reminder_wa_language.strip() or "fr"
         await db.settings.update_one(
             {"_id": "global"},
             {"$set": set_doc},
@@ -459,6 +482,8 @@ def attach_planning_routes(
             "planning_webhook_secret": new_secret,
             "webhook_url": f"{base}/api/webhooks/planning/{new_secret}",
             "reminder_template": set_doc.get("planning_reminder_template", ""),
+            "reminder_wa_template": set_doc.get("planning_reminder_wa_template", s.get("planning_reminder_wa_template") or ""),
+            "reminder_wa_language": set_doc.get("planning_reminder_wa_language", s.get("planning_reminder_wa_language") or "fr"),
         }
 
     @api.post("/admin/planning/reminders/run", tags=["Admin — Planning"])

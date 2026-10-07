@@ -1084,10 +1084,10 @@ export default function AdminSettings() {
             y dépose les 9 modèles d'un clic (lot 76).
           </p>
           <p className="text-xs">
-            App ID Meta (exigé pour créer les modèles) :{" "}
+            App ID Meta (pour l'image d'exemple des cartes) :{" "}
             {s.meta_app_id
               ? <span className="font-semibold text-emerald-700">renseigné</span>
-              : <span className="font-semibold text-red-600">manquant : à saisir dans « Intégration Meta (Facebook / Messenger / Ads) »</span>}
+              : <span className="font-semibold text-emerald-700">retrouvé automatiquement à partir du jeton WhatsApp</span>}
           </p>
           <div className="grid sm:grid-cols-3 gap-3 items-end">
             <Input

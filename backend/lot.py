@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "76"
-LOT_LIBELLE = "Carrousel WhatsApp : bouton « Créer les modèles chez Meta » qui dépose par l'API les 9 modèles (2 à 10 cartes, image d'exemple, textes et bouton conformes à SAWALI), l'interface Meta ne proposant pas toujours le type Carrousel"
+LOT = "76.1"
+LOT_LIBELLE = "Carrousel WhatsApp : l'App ID Meta n'a plus besoin d'être saisi, il est retrouvé à partir du jeton WhatsApp pour créer les modèles chez Meta"

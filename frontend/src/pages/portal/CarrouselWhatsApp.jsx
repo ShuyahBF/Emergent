@@ -233,7 +233,8 @@ function Reglages({ etat, onEnregistre }) {
       </div>
       <p className="text-[11px] text-slate-500">
         « Créer les modèles chez Meta » dépose les 9 modèles déjà conformes à SAWALI (image d'exemple, textes, bouton).
-        Il faut l'App ID Meta (Paramètres → Intégration Meta). Suivez ensuite leur approbation dans le WhatsApp Manager.
+        L'App ID Meta est retrouvé automatiquement à partir du jeton WhatsApp (comme pour la page Templates WhatsApp).
+        Suivez ensuite leur approbation dans « Templates WhatsApp » ou le WhatsApp Manager.
       </p>
       {creation && (
         <div role="status" aria-live="polite" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900/80 px-4 py-3 text-sm text-white shadow-lg backdrop-blur">

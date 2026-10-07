@@ -90,3 +90,39 @@ def test_depot_image_refuse_leve_une_erreur_claire():
                                            prefixe="p", langue="fr", url_bouton=URL_BOUTON, client=client)
     with pytest.raises(RuntimeError, match="image d'exemple refusé : Invalid app id"):
         asyncio.run(scenario())
+
+
+def test_app_id_retrouve_a_partir_du_jeton():
+    # Lot 76.1 — sans App ID saisi, il est lu par /debug_token puis utilisé pour le dépôt de l'image
+    vus = []
+
+    def repondre(request):
+        chemin = request.url.path
+        vus.append(chemin)
+        if chemin.endswith("/debug_token"):
+            assert request.url.params["input_token"] == "jeton"
+            return httpx.Response(200, json={"data": {"app_id": "987654", "is_valid": True}})
+        if chemin.endswith("/987654/uploads"):
+            return httpx.Response(200, json={"id": "upload:s"})
+        if chemin.endswith("/upload:s"):
+            return httpx.Response(200, json={"h": "4::h"})
+        return httpx.Response(200, json={"status": "PENDING"})
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(repondre)) as client:
+            return await cmm.creer_modeles(version="v22.0", app_id=None, waba_id="w", jeton="jeton",
+                                           prefixe="p", langue="fr", url_bouton=URL_BOUTON, client=client)
+    res = asyncio.run(scenario())
+    assert all(r["statut"] == "soumis" for r in res) and any(c.endswith("/987654/uploads") for c in vus)
+
+
+def test_app_id_introuvable_message_clair():
+    def repondre(request):
+        return httpx.Response(200, json={"data": {}})
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(repondre)) as client:
+            return await cmm.creer_modeles(version="v22.0", app_id="", waba_id="w", jeton="j",
+                                           prefixe="p", langue="fr", url_bouton=URL_BOUTON, client=client)
+    with pytest.raises(RuntimeError, match="App ID Meta introuvable"):
+        asyncio.run(scenario())

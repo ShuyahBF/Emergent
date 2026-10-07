@@ -1074,13 +1074,20 @@ export default function AdminSettings() {
       </Filterable>
 
       {/* Lot 75 — carrousel WhatsApp : images des cartes générées par l'IA (limite par heure) */}
-      <Filterable title="🖼️ Carrousel WhatsApp — images générées par l'IA" anchorId="s-carrousel-ia">
-        <CorpsSection icon={Sparkles} title="🖼️ Carrousel WhatsApp — images générées par l'IA">
+      <Filterable title="🖼️ Carrousel WhatsApp — modèles Meta et images IA" anchorId="s-carrousel-ia">
+        <CorpsSection icon={Sparkles} title="🖼️ Carrousel WhatsApp — modèles Meta et images IA">
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.
             Côté portail, la fonction du client « Génération d'Image IA » doit être active (Admin → Clients → Fonctionnalités).
-            Les modèles Meta du carrousel se règlent en haut de la page Carrousel.
+            Les modèles Meta du carrousel se règlent en haut de la page Carrousel ; le bouton « Créer les modèles chez Meta »
+            y dépose les 9 modèles d'un clic (lot 76).
+          </p>
+          <p className="text-xs">
+            App ID Meta (exigé pour créer les modèles) :{" "}
+            {s.meta_app_id
+              ? <span className="font-semibold text-emerald-700">renseigné</span>
+              : <span className="font-semibold text-red-600">manquant : à saisir dans « Intégration Meta (Facebook / Messenger / Ads) »</span>}
           </p>
           <div className="grid sm:grid-cols-3 gap-3 items-end">
             <Input

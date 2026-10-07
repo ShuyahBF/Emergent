@@ -701,3 +701,68 @@ def test_identification_de_l_appelant_numeros_formates(db):
         {"id": "in.1", "event": "connect", "from": "22675000002", "session": {"sdp": "v=0"}}]}))
     appel = lancer(db.wa_appels.find_one({"id": "in.1"}))
     assert appel["contact_nom"] == "Issa Traoré" and appel["appelant_source"] == "suivi"
+
+
+# ---------------------------------------------------------------------------
+# Lot 72 — alertes « Liluvine appelle … » (toast persistant de l'administrateur / superviseur)
+# ---------------------------------------------------------------------------
+
+def test_lot72_alerte_appel_sans_reponse_puis_nouvel_essai(db, monkeypatch):
+    # Un appel sans réponse : l'alerte passe de « appel » à « nouvelle tentative » avec l'heure locale du prochain essai
+    g = FauxGraph(permission="permanent")
+    monkeypatch.setattr(ap, "_graph_get", g.get)
+    monkeypatch.setattr(ap, "_graph_post", g.post)
+    vues = []
+
+    async def sans_reponse(db_, s, cfga, ev, **kw):
+        # Pendant l'appel, l'alerte existe déjà à l'état « appel »
+        vues.append(await db_.liluvine_agenda_alertes.find_one({"ev_id": ev["id"]}, {"_id": 0}))
+        return {"resultat": "sans_reponse", "raison": "pas de réponse", "call_id": "c1"}
+    monkeypatch.setattr(la, "appeler_et_converser", sans_reponse)
+    ev = inserer(db, tentatives_max=2, intervalle_min=15)
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    assert vues[0]["etat"] == "appel" and vues[0]["type_libelle"] and vues[0]["tentative"] == 1
+    alerte = lancer(db.liluvine_agenda_alertes.find_one({"ev_id": ev["id"]}, {"_id": 0}))
+    # 10:15 UTC = 10:15 à Ouagadougou (UTC+0)
+    assert alerte["etat"] == "nouvelle_tentative" and alerte["resultat"] == "pas de réponse — nouvel essai à 10:15"
+
+
+def test_lot72_alerte_conversation_avec_resume_et_route(db, monkeypatch):
+    # Conversation : l'alerte se termine avec le résumé de Liluvine ; la route est réservée à l'encadrement
+    g = FauxGraph(permission="permanent")
+    monkeypatch.setattr(ap, "_graph_get", g.get)
+    monkeypatch.setattr(ap, "_graph_post", g.post)
+
+    async def conversation(db_, s, cfga, ev, **kw):
+        return {"resultat": "decroche", "call_id": "wacid.A", "fin": "au revoir", "duree_s": 30, "transfert": False,
+                "transcription": [{"qui": "liluvine", "texte": "Bonjour", "t": 0},
+                                  {"qui": "appelant", "texte": "Oui merci", "t": 3}], "mesures": {}}
+    monkeypatch.setattr(la, "appeler_et_converser", conversation)
+
+    async def extraction(systeme, texte, max_jetons=900):
+        return {"texte": json.dumps({"resume": "Contact joint, tout va bien.", "reponses": {},
+                                     "action_suivante": {"texte": "", "type": "aucune", "date": None}}),
+                "entree": 10, "sortie": 5}
+    monkeypatch.setattr(la, "llm_texte", extraction)
+    ev = inserer(db)
+    lancer(la.executer_echeances(db, lancer_en_fond=False))
+    alerte = lancer(db.liluvine_agenda_alertes.find_one({"ev_id": ev["id"]}, {"_id": 0}))
+    assert alerte["etat"] == "termine" and alerte["resultat"] == "Conversation terminée"
+    assert alerte["resume"] == "Contact joint, tout va bien."
+    c = _client_http(db)
+    assert c.get("/api/admin/liluvine-agenda/alertes", headers={"X-User": "client"}).status_code == 403
+    corps = c.get("/api/admin/liluvine-agenda/alertes", headers={"X-User": "sup"}).json()
+    assert [a["ev_id"] for a in corps["alertes"]] == [ev["id"]] and corps["server_now"]
+    # Lecture incrémentale : seules les alertes modifiées depuis `since` (bornes comprises : une alerte modifiée
+    # au même instant est renvoyée plutôt que perdue ; le portail l'ignore si rien n'a changé)
+    plus_tard = "2099-01-01T00:00:00+00:00"
+    assert c.get("/api/admin/liluvine-agenda/alertes", params={"since": plus_tard},
+                 headers={"X-User": "sup"}).json()["alertes"] == []
+
+
+def test_lot72_libelles_de_resultat():
+    # Phrases affichées dans le toast pour chaque fin d'appel
+    assert la.libelle_resultat({"resultat": "refuse"}, {"resultat": "refuse"}) == ("refuse", "Appel refusé par le contact")
+    assert la.libelle_resultat({"resultat": "sans_reponse"}, {"resultat": "sans_reponse"}) == ("sans_reponse", "Pas de réponse")
+    etat, phrase = la.libelle_resultat({"resultat": "echec", "raison": "connexion audio impossible"}, {"resultat": "echec"})
+    assert etat == "echec" and "connexion audio impossible" in phrase

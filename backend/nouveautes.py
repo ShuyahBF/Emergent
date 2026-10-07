@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "72", "date": "2026-10-07",
+        "titre": "📞 Liluvine vous prévient quand elle appelle",
+        "description": "Toast persistant (admin et superviseur) à chaque appel de l'agenda : contact, motif, puis résultat et résumé.",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
+    },
+    {
+        "lot": "72", "date": "2026-10-07",
+        "titre": "🚀 Écrans et webhook WhatsApp plus rapides",
+        "description": "Meta reçoit sa réponse tout de suite ; Plateformes en temps réel et la roadmap s'ouvrent sans attente.",
+        "rubrique": "⚡ Santé du serveur — blocages",
+    },
+    {
         "lot": "71.3", "date": "2026-10-07",
         "titre": "⚙️ Chaque nouveauté ouvre son paramétrage",
         "description": "Agenda et anniversaires, conversations WhatsApp, Loois, postes et serveurs, santé du serveur : nouvelles rubriques ici même.",

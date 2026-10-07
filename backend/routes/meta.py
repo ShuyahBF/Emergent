@@ -579,7 +579,8 @@ def setup_meta_routes(
             # Delegate to the WhatsApp Cloud handler. We import lazily to avoid
             # a circular dependency between server.py and routes/meta.py.
             try:
-                from server import whatsapp_webhook_incoming  # type: ignore
+                # Lot 72 — même accusé de réception immédiat que /whatsapp/webhook (traitement en arrière-plan)
+                from server import traiter_webhook_wa_en_arriere_plan as whatsapp_webhook_incoming  # type: ignore
             except Exception:
                 whatsapp_webhook_incoming = None  # noqa: N816
             if whatsapp_webhook_incoming is not None:

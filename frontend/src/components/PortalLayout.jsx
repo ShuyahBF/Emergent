@@ -19,6 +19,7 @@ import TicketsBubble from "@/components/TicketsBubble";
 import AppelsWhatsApp from "@/components/AppelsWhatsApp";   // Lot 60
 import VeilleStatsPlateformes from "@/components/VeilleStatsPlateformes";   // Lot 64.9
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
+import AlertesAppelsLiluvine from "@/components/AlertesAppelsLiluvine";   // Lot 72 : toast persistant « Liluvine appelle … »
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
 import BrowserNotifications from "@/components/BrowserNotifications";
@@ -1030,6 +1031,8 @@ function PortalLayoutInner({ admin = false }) {
       <VeilleStatsPlateformes />
       {/* Iter38r-fix9e — Live toast for Liluvine WhatsApp auto-replies (admins + superviseurs only). */}
       {isAdminOrSup && <LiluvineLiveToast />}
+      {/* Lot 72 — administrateur ou superviseur (y compris utilisateur suivi de ce rôle) : appels de l'agenda */}
+      {(isAdminOrSup || ["Administrateur", "Superviseur"].includes(user?.tracked_role)) && <AlertesAppelsLiluvine />}
       <BrowserNotifications />
     </div>
   );

@@ -1595,7 +1595,37 @@ async def _try_handle_masked_reply(*, from_num: str, digits_only: str, text_body
     return {"code": code, "routed_to": original_sender, "ok": ok, "error": None if ok else res.get("error")}
 
 
+# Lot 72 — Meta attend une réponse rapide : s'il n'a pas son « 200 » assez vite, il renvoie le même webhook
+# (doublons) et finit par désactiver l'abonnement. Le traitement complet (enregistrement, réponse de Liluvine,
+# relais, barrière…) prenait 12 à 16 s. Désormais : accusé de réception IMMÉDIAT, puis exactement le même
+# traitement (`whatsapp_webhook_incoming`) en arrière-plan. WA_WEBHOOK_SYNCHRONE=1 rétablit l'ancien fonctionnement.
+_TRAITEMENTS_WEBHOOK_WA: set = set()   # tâches en cours (référence gardée jusqu'à leur fin)
+
+
+async def traiter_webhook_wa_en_arriere_plan(request: Request) -> Dict[str, Any]:
+    """Lit le corps tout de suite (gardé en mémoire par Starlette), lance le traitement, répond « ok »."""
+    if os.environ.get("WA_WEBHOOK_SYNCHRONE") == "1":
+        return await whatsapp_webhook_incoming(request)
+    await request.body()
+
+    async def _traiter() -> None:
+        try:
+            await whatsapp_webhook_incoming(request)
+        except Exception:  # noqa: BLE001 — une erreur ici ne doit jamais être perdue silencieusement
+            logger.exception("[webhook WA] traitement en arrière-plan en erreur")
+
+    tache = asyncio.create_task(_traiter())
+    _TRAITEMENTS_WEBHOOK_WA.add(tache)
+    tache.add_done_callback(_TRAITEMENTS_WEBHOOK_WA.discard)
+    return {"ok": True}
+
+
 @api.post("/whatsapp/webhook", tags=["Webhook"])
+async def whatsapp_webhook_reception(request: Request):
+    """Point d'entrée Meta (messages et statuts WhatsApp) : réponse immédiate, traitement en arrière-plan."""
+    return await traiter_webhook_wa_en_arriere_plan(request)
+
+
 async def whatsapp_webhook_incoming(request: Request):
     """Receive Meta Cloud API events: new inbound messages + outbound status updates.
     Shape: {object:'whatsapp_business_account', entry:[{changes:[{value:{...}}]}]}

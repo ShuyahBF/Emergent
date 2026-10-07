@@ -76,9 +76,9 @@ async def _ensure_vidal_collection(db) -> bool:
     if not await _vidal_qdrant_enabled(db):
         return False
     try:
-        from routes.qdrant_rag import _resolve_credentials, _make_client, _EMBED_VECTOR_SIZE
+        from routes.qdrant_rag import _resolve_credentials, _client_pret, _EMBED_VECTOR_SIZE  # lot 71.1 : client créé hors de la boucle
         url, key = await _resolve_credentials(db)
-        client = _make_client(url, key)
+        client = await _client_pret(url, key)
         try:
             existing = await asyncio.to_thread(client.get_collections)  # lot 26 : hors du serveur principal
             names = {c.name for c in (existing.collections or [])}

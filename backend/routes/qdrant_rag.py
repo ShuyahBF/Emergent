@@ -136,11 +136,36 @@ _CLIENTS: dict = {}
 
 
 def _make_client(url: str, api_key: str):
+    """Client Qdrant (appel BLOQUANT la première fois : import de qdrant_client + création du client).
+    Depuis une fonction async, toujours passer par `_client_pret` ci-dessous."""
     from qdrant_client import QdrantClient
     cle = (url, api_key)
     if cle not in _CLIENTS:
         _CLIENTS[cle] = QdrantClient(url=url, api_key=api_key, timeout=20)
     return _CLIENTS[cle]
+
+
+async def _client_pret(url: str, api_key: str):
+    """Lot 71.1 — client Qdrant sans jamais figer le serveur.
+
+    Le premier appel importait le module qdrant_client (~3 s, ~5 s sur Render) DIRECTEMENT dans la boucle
+    principale : à la première ouverture des Paramètres après chaque redémarrage, toutes les requêtes en
+    cours attendaient ~5,5 s et certaines étaient coupées (« LocalProtocolError »).
+    Désormais : client déjà prêt -> rendu tout de suite ; sinon création dans un fil séparé."""
+    client = _CLIENTS.get((url, api_key))
+    if client is not None:
+        return client
+    return await asyncio.to_thread(_make_client, url, api_key)
+
+
+def prechauffer_modules() -> None:
+    """Lot 71.1 — importe qdrant_client à l'avance (appelé dans un fil au démarrage du serveur) :
+    la première page qui en a besoin le trouve déjà chargé. Sans effet si le module est absent."""
+    try:
+        import qdrant_client  # noqa: F401
+        import qdrant_client.models  # noqa: F401
+    except Exception:  # noqa: BLE001 — module absent : Qdrant restera simplement indisponible
+        pass
 
 
 # Lot 69.1 — liste des collections gardée 60 s : la page Qdrant appelle « collections », « storage » et
@@ -177,7 +202,7 @@ async def _collections_et_comptes(url: str, key: str) -> list[tuple[str, int]]:
     maintenant = _t.monotonic()
     if _CACHE_LISTE["cle"] == (url, key) and maintenant - _CACHE_LISTE["le"] < _DUREE_CACHE_LISTE:
         return _CACHE_LISTE["donnees"]
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     donnees = await asyncio.wait_for(asyncio.to_thread(_lire_collections_sync, client), timeout=25)
     _CACHE_LISTE.update({"cle": (url, key), "le": _t.monotonic(), "donnees": donnees})
     return donnees
@@ -347,7 +372,7 @@ async def get_storage_info(db) -> dict:
 
 async def create_collection(db, *, name: str, description: str = "") -> dict:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     if not re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", name or ""):
         raise HTTPException(status_code=400, detail="Nom de collection invalide (a-z, 0-9, _, -, 1-64 car.)")
     from qdrant_client.models import VectorParams, Distance
@@ -380,7 +405,7 @@ async def create_collection(db, *, name: str, description: str = "") -> dict:
 
 async def delete_collection(db, *, name: str) -> dict:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     try:
         await asyncio.to_thread(client.delete_collection, name)   # lot 69.1 : hors de la boucle principale
         _vider_cache_liste()
@@ -399,7 +424,7 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
     if not docs:
         raise HTTPException(status_code=400, detail="Aucun document fourni.")
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     from qdrant_client.models import PointStruct
     now_iso = datetime.now(timezone.utc).isoformat()
     points: list[PointStruct] = []
@@ -534,7 +559,7 @@ async def upsert_image(
     embed_parts = [p for p in [title, caption, visual_summary, ocr_text] if p]
     embed_text = "\n".join(embed_parts)
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     from qdrant_client.models import PointStruct
     vec = (await asyncio.to_thread(_embed_texts, [embed_text]))[0]  # lot 26
     point_id = str(uuid.uuid4())
@@ -570,7 +595,7 @@ async def upsert_image(
 
 async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50) -> dict:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     limit = min(max(1, limit), 200)
     try:
         # Lot 69.1 — lecture bloquante lancée hors de la boucle principale
@@ -604,7 +629,7 @@ async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50
 
 async def delete_point(db, *, collection: str, point_id: str) -> dict:
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     try:
         from qdrant_client.models import PointIdsList
         await asyncio.to_thread(lambda: client.delete(collection_name=collection, points_selector=PointIdsList(points=[point_id])))
@@ -618,7 +643,7 @@ async def search_points(db, *, collection: str, query: str, top_k: int = 5) -> d
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Requête vide")
     url, key = await _resolve_credentials(db)
-    client = _make_client(url, key)
+    client = await _client_pret(url, key)
     qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     top_k = min(max(1, int(top_k or 5)), 50)
     try:
@@ -675,7 +700,7 @@ async def search_similar_images(db, *, query: str, top_k: int = 4) -> list[dict]
         return []
     try:
         url, key = await _resolve_credentials(db)
-        client = _make_client(url, key)
+        client = await _client_pret(url, key)
         qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] search_similar_images credentials/embed failed")
@@ -728,7 +753,7 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
         return ""   # lot 58.2 : serveur trop petit pour le modèle d'indexation (voir embeddings_autorises)
     try:
         url, key = await _resolve_credentials(db)
-        client = _make_client(url, key)
+        client = await _client_pret(url, key)
         qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] build_rag_context credentials/embed failed")

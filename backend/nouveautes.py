@@ -15,6 +15,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "71.1", "date": "2026-10-07",
+        "titre": "⚡ Les Paramètres ne figent plus SAWALI",
+        "description": "La première ouverture des Paramètres après un redémarrage ne bloque plus le serveur ~5 s ; tout blocage futur est noté dans les journaux.",
+        "lien": "/admin/settings",
+    },
+    {
+        "lot": "71.1", "date": "2026-10-07",
+        "titre": "🔘 En-tête de conversation en pictogrammes",
+        "description": "Appeler, alerte propriétaire, journal des appels, sélectionner et actualiser : des icônes cliquables (libellé au survol).",
+        "lien": "/portal/contacts",
+    },
+    {
         "lot": "71", "date": "2026-10-06",
         "titre": "📋📞 Appels de Liluvine basés sur un formulaire",
         "description": "Dans l'agenda, « Mode de l'appel » : Liluvine pose les champs d'un formulaire et enregistre la réponse (badge « 📞 Appel »).",

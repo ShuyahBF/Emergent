@@ -17,6 +17,24 @@
 
 NOUVEAUTES = [
     {
+        "lot": "74", "date": "2026-10-07",
+        "titre": "🌙 Message d'absence WhatsApp",
+        "description": "Texte fixe envoyé une fois par contact quand il écrit hors des heures d'ouverture (ou pendant les congés).",
+        "rubrique": "🌙 Message d'absence WhatsApp",
+    },
+    {
+        "lot": "74", "date": "2026-10-07",
+        "titre": "🧾 Modèles Meta des contrats (paiement client, alerte de retard)",
+        "description": "Confirmation de paiement client distincte du reçu de caisse ; modèle, langue et numéro de l'alerte de retard réglables.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
+        "lot": "74", "date": "2026-10-07",
+        "titre": "⏰ Rappels de RDV par modèle Meta",
+        "description": "Le rappel 1 h avant le RDV peut partir par un modèle approuvé : il arrive même si le patient n'a pas écrit depuis 24 h.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "73", "date": "2026-10-07",
         "titre": "🤖 Menu « Liluvine » et partage par superviseur",
         "description": "Tout Liluvine regroupé dans un menu dépliable ; choisissez ce que voit chaque superviseur (ex. support@).",

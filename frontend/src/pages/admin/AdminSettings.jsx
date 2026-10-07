@@ -1073,6 +1073,65 @@ export default function AdminSettings() {
         <LiluvineWaAutoreplySection />
       </Filterable>
 
+      {/* Lot 74 — message d'absence : texte fixe envoyé hors des heures d'ouverture, une fois par contact */}
+      <Filterable title="🌙 Message d'absence WhatsApp" anchorId="s-wa-absence">
+        <CorpsSection icon={MessageCircle} title="🌙 Message d'absence WhatsApp">
+          <p className="text-xs text-slate-500">
+            Quand un contact écrit en dehors des heures d'ouverture (rubrique « Heures ouvrables / RDV » :{" "}
+            {s.business_open_time || "09:00"} – {s.business_close_time || "18:00"}), SAWALI lui répond une seule fois
+            ce texte fixe. Il s'ajoute à l'auto-réponse de Liluvine PRO, qui peut rester active. Les commandes « ! »
+            ne reçoivent pas ce message. Pensez à cliquer sur « Enregistrer » en haut de la page.
+          </p>
+          <Toggle
+            label="Activer le message d'absence"
+            value={!!s.wa_absence_actif}
+            onChange={(v) => upd("wa_absence_actif", v)}
+            testid="wa-absence-actif"
+          />
+          <label className="block text-xs font-medium text-slate-700">
+            Texte du message (marqueurs : {"{nom}"}, {"{ouverture}"}, {"{fermeture}"})
+            <textarea
+              value={s.wa_absence_texte ?? ""}
+              onChange={(e) => upd("wa_absence_texte", e.target.value)}
+              rows={3}
+              maxLength={1000}
+              placeholder="Bonjour {nom}, merci pour votre message. Nos bureaux sont fermés pour le moment (ouverts de {ouverture} à {fermeture}). Nous vous répondrons dès la réouverture."
+              className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              data-testid="wa-absence-texte"
+            />
+          </label>
+          <div className="grid sm:grid-cols-3 gap-3 items-end">
+            <label className="block text-xs font-medium text-slate-700">
+              Quand l'envoyer
+              <select
+                value={s.wa_absence_mode || "hors_heures"}
+                onChange={(e) => upd("wa_absence_mode", e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                data-testid="wa-absence-mode"
+              >
+                <option value="hors_heures">Hors des heures d'ouverture</option>
+                <option value="toujours">Toujours (congés, fermeture exceptionnelle)</option>
+              </select>
+            </label>
+            <Input
+              label="Une fois par contact toutes les (heures)"
+              type="number"
+              value={s.wa_absence_intervalle_h ?? 12}
+              onChange={(v) => upd("wa_absence_intervalle_h", v === "" ? 12 : Math.max(1, Number(v) || 12))}
+              placeholder="12"
+              testid="wa-absence-intervalle"
+            />
+            <Input
+              label="Numéros exclus (équipe, propriétaire), séparés par des virgules"
+              value={s.wa_absence_exclus ?? ""}
+              onChange={(v) => upd("wa_absence_exclus", v)}
+              placeholder="22670000001, 22670000002"
+              testid="wa-absence-exclus"
+            />
+          </div>
+        </CorpsSection>
+      </Filterable>
+
       {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}
       <Filterable title="🚧 Barrière anti-rafale WhatsApp (messages sans réponse)" anchorId="s-barriere-wa">
         <BarriereWaSection />
@@ -3498,7 +3557,9 @@ export default function AdminSettings() {
       </Section>
 
       {/* 2026-02 fork iter104 — Retard de paiement (seuil global) */}
-      <Section icon={Webhook} title="Contrats — Seuil de retard de paiement (par défaut)" testid="contract-overdue-section">
+      {/* Lot 74 — rubrique déclarée en Filterable littéral : la carte Nouveautés du lot 74 l'ouvre */}
+      <Filterable title="Contrats — Seuil de retard de paiement (par défaut)" anchorId="s-contrats-retard-paiement">
+      <CorpsSection icon={Webhook} title="Contrats — Seuil de retard de paiement (par défaut)">
         <p className="text-xs text-slate-500">
           Nombre de jours après la <em>dernière date de règlement</em> (ou, à défaut, la <em>date de signature</em>) au-delà duquel un client est considéré comme en retard. Chaque fiche client peut fixer sa propre valeur qui prévaut sur ce défaut. Un scan quotidien (08:15 Africa/Abidjan) envoie un email à l'administrateur pour chaque client au-delà du seuil.
         </p>
@@ -3534,7 +3595,57 @@ export default function AdminSettings() {
             Lancer un scan maintenant
           </button>
         </div>
-      </Section>
+        {/* Lot 74 — modèles WhatsApp Meta des contrats (anomalies A1 et A2 corrigées) */}
+        <div className="mt-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2" data-testid="contract-wa-templates">
+          <p className="text-xs font-semibold text-slate-700">Modèles WhatsApp Meta des contrats</p>
+          <p className="text-[11px] text-slate-500">
+            Le nom et la langue doivent être exactement ceux du modèle approuvé chez Meta.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-3 items-end">
+            <Input
+              label="Alerte de retard au super-admin (5 variables : client, jours de retard, seuil, n° contrat, montant)"
+              value={s.contract_overdue_wa_template ?? ""}
+              onChange={(v) => upd("contract_overdue_wa_template", v)}
+              placeholder="alerte_retard_paiement"
+              testid="contract-overdue-wa-template"
+            />
+            <Input
+              label="Langue de l'alerte"
+              value={s.contract_overdue_wa_language ?? ""}
+              onChange={(v) => upd("contract_overdue_wa_language", v)}
+              placeholder="fr"
+              testid="contract-overdue-wa-language"
+            />
+            <Input
+              label="Numéro WhatsApp du super-admin (avec indicatif)"
+              value={s.super_admin_phone ?? ""}
+              onChange={(v) => upd("super_admin_phone", v)}
+              placeholder="22670000000"
+              testid="contract-super-admin-phone"
+            />
+            <Input
+              label="Confirmation de paiement d'un client (5 variables : client, montant, date, réf. facture, moyen de paiement)"
+              value={s.wa_template_client_payment ?? ""}
+              onChange={(v) => upd("wa_template_client_payment", v)}
+              placeholder="confirmation_paiement_client"
+              testid="client-payment-wa-template"
+            />
+            <Input
+              label="Langue de la confirmation"
+              value={s.wa_template_client_payment_language ?? ""}
+              onChange={(v) => upd("wa_template_client_payment_language", v)}
+              placeholder="fr"
+              testid="client-payment-wa-language"
+            />
+          </div>
+          <p className="text-[11px] text-slate-500">
+            La confirmation de paiement d'un client est distincte du reçu de caisse (4 variables + PDF) : une fiche client
+            qui indique le modèle du reçu de caisse est ignorée et ce modèle-ci est utilisé. Sans numéro du super-admin,
+            l'alerte de retard part seulement par e-mail.
+          </p>
+        </div>
+      </CorpsSection>
+      </Filterable>
 
       <Section icon={Webhook} title="Webhook Interventions (REST API externe)">
         <p className="text-xs text-slate-500">
@@ -6465,6 +6576,16 @@ const OrphanDataSection = () => {
 };
 
 
+// Lot 74 — même cadre qu'une Section, sans le Filterable automatique (rubrique déclarée à la main)
+const CorpsSection = ({ icon: Icon, title, children }) => (
+  <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3" data-section-title={title}>
+    <div className="flex items-center gap-2">
+      {Icon && <Icon className="h-4 w-4 text-sawali-blue" />}
+      <h2 className="font-display font-semibold">{title}</h2>
+    </div>
+    {children}
+  </div>
+);
 const Section = ({ icon: Icon, title, children }) => {
   const anchorId = `s-${slugify(title)}`;
   return (

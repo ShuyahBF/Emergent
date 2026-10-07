@@ -15,6 +15,9 @@ export default function PlanningWebhookSection() {
   const [regenerating, setRegenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [template, setTemplate] = useState("");
+  // Lot 74 — modèle Meta du rappel (hors fenêtre de 24 h) et sa langue
+  const [modeleWa, setModeleWa] = useState("");
+  const [langueWa, setLangueWa] = useState("fr");
   const [savingTpl, setSavingTpl] = useState(false);
   const [runningCron, setRunningCron] = useState(false);
 
@@ -24,6 +27,8 @@ export default function PlanningWebhookSection() {
       const c = await apiClient.get("/admin/planning/config");
       setCfg(c.data);
       setTemplate(c.data?.reminder_template || "");
+      setModeleWa(c.data?.reminder_wa_template || "");
+      setLangueWa(c.data?.reminder_wa_language || "fr");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Impossible de charger la config");
     } finally {
@@ -160,13 +165,41 @@ export default function PlanningWebhookSection() {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
               data-testid="planning-reminder-template"
             />
+            {/* Lot 74 — modèle Meta : le texte libre ci-dessus n'arrive que si le patient a écrit dans les 24 h */}
+            <div className="grid sm:grid-cols-3 gap-2">
+              <label className="sm:col-span-2 text-xs text-slate-600">
+                Modèle Meta du rappel (recommandé — 4 variables : patient, médecin, heure, motif)
+                <input
+                  value={modeleWa}
+                  onChange={(e) => setModeleWa(e.target.value)}
+                  placeholder="ex. rappel_rdv_patient (vide = texte libre ci-dessus)"
+                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  data-testid="planning-reminder-wa-template"
+                />
+              </label>
+              <label className="text-xs text-slate-600">
+                Langue du modèle
+                <input
+                  value={langueWa}
+                  onChange={(e) => setLangueWa(e.target.value)}
+                  placeholder="fr"
+                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  data-testid="planning-reminder-wa-language"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Sans modèle, le rappel part en texte libre et WhatsApp ne le remet que si le patient vous a écrit dans les 24 dernières heures.
+            </p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={async () => {
                   setSavingTpl(true);
                   try {
-                    await apiClient.put("/admin/planning/config", { reminder_template: template });
+                    await apiClient.put("/admin/planning/config", {
+                      reminder_template: template, reminder_wa_template: modeleWa, reminder_wa_language: langueWa,
+                    });
                     toast.success("Template sauvegardé");
                   } catch (e) {
                     toast.error(e?.response?.data?.detail || "Erreur sauvegarde");

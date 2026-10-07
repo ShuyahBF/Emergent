@@ -550,8 +550,8 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
         # 2026-02 fork iter107 (S157) — Alerte WhatsApp au super-admin en plus
         # de l'email. Nécessite `settings.super_admin_phone` défini et un
         # template Meta `alerte_retard_paiement` approuvé (variables 1-5).
-        super_wa = (settings_doc.get("super_admin_phone") or "").strip()
-        wa_template = (settings_doc.get("contract_overdue_wa_template") or "alerte_retard_paiement").strip()
+        # Lot 74 (anomalie A2) : modèle, langue et numéro réglables dans Paramètres → « Contrats — Seuil de retard »
+        wa_template, wa_lang, super_wa = _modeles_meta.parametres_alerte_retard(settings_doc)
         if super_wa and wa_template:
             ctx = {
                 "full_name": tenant.get("company") or tenant.get("full_name") or "—",
@@ -566,7 +566,7 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
             ]
             components = _build_components(variables, ctx)
             try:
-                wr = await _wa_send_template(super_wa, wa_template, "fr", components)
+                wr = await _wa_send_template(super_wa, wa_template, wa_lang, components)
                 wa_sent = bool(wr.get("ok"))
                 wa_error = wr.get("error")
             except Exception as exc:  # noqa: BLE001

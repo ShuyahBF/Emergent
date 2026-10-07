@@ -936,6 +936,10 @@ async def _run_scheduled_whatsapp():
                 # Per-recipient dynamic components
                 if variables or sc.get("header_text") or sc.get("header_media") or sc.get("button_vars") or sc.get("button_specs"):
                     ctx = _build_recipient_ctx(kind, user_doc, phone, label)
+                    # Lot 74 (anomalie A5) : une automatisation différée garde les jetons propres à son
+                    # événement (date du RDV, message reçu, formulaire…) ; avant, ils sortaient vides (« — »)
+                    for k, v in (sc.get("extra_ctx") or {}).items():
+                        ctx[k] = str(v) if v is not None else ""
                     components = _build_components(
                         variables, ctx,
                         header_text=sc.get("header_text"),

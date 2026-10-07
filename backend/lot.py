@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "73"
-LOT_LIBELLE = "Menu « Liluvine » dépliable dans la barre latérale (agenda, Liluvine PRO, historique, commandes « ! », handlers IA), partage des éléments de Liluvine par superviseur (Paramètres, contrôlé par le serveur pour l'agenda), demande d'autorisation d'appel renvoyable (bouton + relance automatique après 24 h, limites Meta), voix clonées de Voice Studio transmises à Liluvine, sentinelle muette pendant l'arrêt du serveur"
+LOT = "74"
+LOT_LIBELLE = "Message d'absence WhatsApp (texte fixe hors heures d'ouverture, une fois par contact) et corrections des modèles Meta : confirmation de paiement client distincte du reçu de caisse, alerte de retard réglable dans Paramètres, renvoi WhatsApp d'un ticket réparé, envois programmés complets (boutons, jetons d'événement), rappels de RDV par modèle Meta"

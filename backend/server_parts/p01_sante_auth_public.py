@@ -18,6 +18,7 @@ async def health():
 
 
 import lot as _lot_deploye  # noqa: E402  (numéro de lot affiché avec la version)
+import modeles_meta as _modeles_meta  # noqa: E402  (lot 74 : règles des modèles WhatsApp Meta)
 
 
 @api.get("/version", tags=["Santé"])

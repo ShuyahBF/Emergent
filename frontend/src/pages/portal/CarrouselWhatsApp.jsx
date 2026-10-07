@@ -228,7 +228,7 @@ function Reglages({ etat, onEnregistre }) {
                onChange={(e) => setTenantId(e.target.value.trim())} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer</Button>
+        <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer le nom et la langue des modèles</Button>
         {/* Lot 76 — l'interface Meta ne propose pas toujours « Carrousel » : SAWALI dépose les modèles par l'API */}
         <Button size="sm" variant="outline" onClick={creerChezMeta} disabled={!modele || creation}>
           {creation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
@@ -293,11 +293,13 @@ function PastilleMeta({ statut, modele }) {
 }
 
 // Lot 77 — carrousels enregistrés sous un nom : liste, ouvrir, dupliquer, supprimer
-function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir }) {
+function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onComposer }) {
   const [liste, setListe] = useState({ carrousels: [], erreur_meta: null });
+  const [meta, setMeta] = useState({ prefixe: "", statuts: {} });   // lot 78.1 : modèles déposés chez Meta
   const charger = useCallback(async (relireMeta = false) => {
     try {
-      if (relireMeta) await apiClient.get(`${base}/statuts-meta`, { params: { rafraichir: true } });
+      const sm = await apiClient.get(`${base}/statuts-meta`, { params: { rafraichir: relireMeta } });
+      setMeta(sm.data);
       const { data } = await apiClient.get(`${base}/brouillons`);
       setListe(data);
     } catch (e) {
@@ -337,8 +339,27 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir }) {
         </Button>
       </div>
       {liste.erreur_meta && <p className="text-xs text-amber-700">Statuts Meta indisponibles : {liste.erreur_meta}</p>}
+      {/* Lot 78.1 — modèles chez Meta : une structure vide par nombre de cartes (pas vos images ni vos textes) */}
+      {meta.prefixe && (
+        <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+          <div className="mb-1">
+            Modèles chez Meta <span className="font-mono">{meta.prefixe}_2 … _10</span> : ce sont des <b>cadres vides</b> (un par
+            nombre de cartes). Meta ne garde ni vos images ni vos textes : ils sont dans « Mes carrousels » (si enregistrés)
+            ou dans « 3. Envois précédents ». Cliquez sur un modèle pour composer un carrousel de ce nombre de cartes.
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+              <button key={n} type="button" onClick={() => onComposer(n)}
+                      className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 ring-1 ring-slate-300 hover:ring-emerald-500"
+                      title={`Composer un nouveau carrousel de ${n} cartes`}>
+                <PastilleMeta statut={meta.statuts?.[n] || meta.statuts?.[String(n)] || "ABSENT"} modele={`${meta.prefixe}_${n}`} /> {n} cartes
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {liste.carrousels.length === 0 ? (
-        <p className="text-xs text-slate-500">Aucun carrousel enregistré. Composez-en un ci-dessous, nommez-le et « Enregistrer » (en bas, avant l'aperçu).</p>
+        <p className="text-xs text-slate-500">Aucun carrousel enregistré. Composez-en un ci-dessous, nommez-le et cliquez « Enregistrer ce carrousel » (en bas, avant l'aperçu).</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -398,6 +419,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [autoLe, setAutoLe] = useState(null);             // heure du dernier enregistrement automatique
   const autoPret = useRef(false);                         // pas d'enregistrement auto avant la restauration
   const [lienDefaut, setLienDefaut] = useState("");
+  const [autoErreur, setAutoErreur] = useState("");       // lot 78.1 : échec de l'enregistrement automatique affiché
+  // Lot 78.1 — nouveau carrousel vide de n cartes (depuis un modèle Meta) ; demande confirmation si l'éditeur est rempli
+  const composer = (n) => {
+    const rempli = message.trim() || cartes.some((c) => c.titre || c.image_url || c.lien || c.produit_id);
+    if (rempli && !window.confirm("Remplacer le carrousel affiché par un nouveau carrousel vide ? (enregistrez-le d'abord si besoin)")) return;
+    setCourant(null); setNom(""); setMessage("");
+    setCartes(Array.from({ length: n }, carteVide));
+  };
   const ouvrirCarrousel = (b) => {
     // Un carrousel enregistré garde son id ; un envoi rechargé devient un nouveau carrousel (sans id)
     setCourant(b?.id ? { id: b.id, nom: b.nom } : null);
@@ -466,8 +495,10 @@ export default function CarrouselWhatsApp({ admin = false }) {
       try {
         const { data } = await apiClient.put(`${base}/brouillon-auto`, { message, cartes: cartesPourServeur(cartes), carrousel_id: courant?.id || null });
         setAutoLe(data.enregistre_le);
+        setAutoErreur("");
       } catch (e) {
-        /* silencieux : nouvel essai à la prochaine modification */
+        // Lot 78.1 — l'échec n'est plus silencieux : il s'affiche dans la barre d'enregistrement
+        setAutoErreur(erreur(e, "serveur injoignable"));
       }
     }, 3000);
     return () => clearTimeout(t);
@@ -592,7 +623,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
 
       {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
-      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} rafraichir={rafraichirListe}
+      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} rafraichir={rafraichirListe} onComposer={composer}
                      onEnregistre={(b) => { setCourant(b ? { id: b.id, nom: b.nom } : null); if (!b) setNom(""); }} />
 
       {/* 1. Message et cartes */}
@@ -605,7 +636,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
           <label htmlFor="carrousel-lien-defaut" className="text-xs font-medium text-slate-600">Lien par défaut des cartes sans lien :</label>
           <input id="carrousel-lien-defaut" className={`${champ} max-w-md`} placeholder="https://sawalismartsystems.com"
                  value={lienDefaut} onChange={(e) => setLienDefaut(e.target.value)} />
-          <Button type="button" size="sm" variant="outline" onClick={enregistrerLienDefaut}>Enregistrer le lien</Button>
+          <Button type="button" size="sm" variant="outline" onClick={enregistrerLienDefaut}>Enregistrer le lien par défaut</Button>
         </div>
         <div className="space-y-3">
           {cartes.map((c, i) => (
@@ -668,16 +699,17 @@ export default function CarrouselWhatsApp({ admin = false }) {
                  value={nom} onChange={(e) => setNom(e.target.value)} />
           <Button type="button" size="sm" disabled={enregistrement} onClick={() => enregistrerCarrousel(false)}>
             {enregistrement ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-            {courant?.id ? "Enregistrer les modifications" : "Enregistrer"}
+            {courant?.id ? "Enregistrer les modifications du carrousel" : "Enregistrer ce carrousel"}
           </Button>
           {courant?.id && (
             <Button type="button" size="sm" variant="outline" disabled={enregistrement} onClick={() => enregistrerCarrousel(true)}>
-              <Copy className="mr-1 h-4 w-4" /> Enregistrer comme nouveau
+              <Copy className="mr-1 h-4 w-4" /> Enregistrer comme nouveau carrousel
             </Button>
           )}
           <span className="ml-auto text-[11px] text-slate-500">
             {autoLe ? `Enregistré automatiquement le ${dateFr(autoLe)}` : "Enregistrement automatique actif"}
           </span>
+          {autoErreur && <span className="w-full text-[11px] text-red-700">Enregistrement automatique impossible : {autoErreur}</span>}
         </div>
         {/* Aperçu */}
         <div className="rounded-lg bg-[#e5ddd5] p-3">

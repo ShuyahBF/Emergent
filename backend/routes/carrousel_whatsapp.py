@@ -544,9 +544,19 @@ def attach_carrousel_whatsapp_routes(
                    "telephone": c.get("whatsapp") or c.get("phone") or "",
                    "accepte": bool(c.get("accepte_whatsapp")), "accepte_le": c.get("accepte_whatsapp_le")}
                   for c in contacts]
-        return {"contacts": lignes, "groupes": [
-            {"id": g["id"], "nom": g.get("name") or "", "couleur": g.get("color"),
-             "contact_ids": g.get("contact_ids") or []} for g in groupes]}
+        # Lot 78.1 — les utilisateurs suivis du client sont aussi des destinataires possibles
+        suivis_docs = await db.tracked_users.find({"client_id": {"$in": ids}}, {
+            "_id": 0, "id": 1, "name": 1, "whatsapp_number": 1, "phone": 1,
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(2000)
+        suivis = [_ligne(t, t.get("name"), "Utilisateur suivi", t.get("whatsapp_number") or t.get("phone"))
+                  for t in suivis_docs if t.get("id")]
+        lignes = sorted(lignes + suivis, key=lambda x: x["nom"].lower())
+        liste_groupes = [{"id": g["id"], "nom": g.get("name") or "", "couleur": g.get("color"),
+                          "contact_ids": g.get("contact_ids") or []} for g in groupes]
+        if suivis:
+            liste_groupes.insert(0, {"id": "@suivis", "nom": "Utilisateurs suivis", "couleur": None,
+                                     "contact_ids": [x["id"] for x in suivis]})
+        return {"contacts": lignes, "groupes": liste_groupes}
 
     def _filtre_clients(ids: Optional[List[str]] = None) -> dict:
         q: Dict[str, Any] = {
@@ -557,16 +567,49 @@ def attach_carrousel_whatsapp_routes(
             q["id"] = {"$in": ids}
         return q
 
-    async def _clients_admin() -> Dict[str, Any]:
+    def _ligne(doc: dict, nom: str, societe: str, telephone: str) -> dict:
+        """Une ligne de la liste des destinataires (même forme pour clients, suivis et contacts)."""
+        return {"id": doc["id"], "nom": nom or "", "societe": societe or "", "telephone": telephone or "",
+                "accepte": bool(doc.get("accepte_whatsapp")), "accepte_le": doc.get("accepte_whatsapp_le")}
+
+    def _portees_admin(user: Optional[dict]) -> List[str]:
+        """Lot 78.1 — « mes contacts » de l'administration : ceux rangés sous le compte admin connecté."""
+        return [x for x in {(user or {}).get("id"), (user or {}).get("client_id")} if x]
+
+    async def _clients_admin(user: Optional[dict] = None) -> Dict[str, Any]:
+        """Destinataires de l'administration SAWALI.
+        Lot 78.1 : en plus des clients, les utilisateurs suivis (tracked_users) et les contacts
+        de l'annuaire de l'administration ; des groupes « Clients », « Utilisateurs suivis »,
+        « Mes contacts » et les groupes de contacts de l'administration permettent de tout cocher d'un clic."""
         comptes = await db.users.find(_filtre_clients(), {
             "_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
             "whatsapp_number": 1, "phone": 1, "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(3000)
-        lignes = [{"id": c["id"], "nom": c.get("company") or c.get("full_name") or c.get("email") or "",
-                   "societe": c.get("client_code") or "", "telephone": c.get("whatsapp_number") or c.get("phone") or "",
-                   "accepte": bool(c.get("accepte_whatsapp")), "accepte_le": c.get("accepte_whatsapp_le")}
-                  for c in comptes]
+        noms_clients = {c["id"]: c.get("company") or c.get("full_name") or c.get("email") or "" for c in comptes}
+        clients = [_ligne(c, noms_clients[c["id"]], f"Client {c.get('client_code') or ''}".strip(),
+                          c.get("whatsapp_number") or c.get("phone")) for c in comptes]
+        # Utilisateurs suivis : rattachés à un client (on affiche le nom du client à côté)
+        suivis_docs = await db.tracked_users.find({}, {
+            "_id": 0, "id": 1, "name": 1, "client_id": 1, "whatsapp_number": 1, "phone": 1,
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(5000)
+        suivis = [_ligne(t, t.get("name"), f"Suivi · {noms_clients.get(t.get('client_id'), '')}".rstrip(" ·"),
+                         t.get("whatsapp_number") or t.get("phone")) for t in suivis_docs if t.get("id")]
+        # Contacts de l'annuaire de l'administration
+        portees = _portees_admin(user)
+        contacts_docs = await db.directory_contacts.find({"client_id": {"$in": portees}}, {
+            "_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1,
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(5000) if portees else []
+        contacts = [_ligne(c, c.get("name"), f"Contact · {c.get('company') or ''}".rstrip(" ·"),
+                           c.get("whatsapp") or c.get("phone")) for c in contacts_docs if c.get("id")]
+        groupes_docs = await db.contact_groups.find({"client_id": {"$in": portees}}, {
+            "_id": 0, "id": 1, "name": 1, "color": 1, "contact_ids": 1}).sort("name", 1).to_list(500) if portees else []
+        lignes = clients + suivis + contacts
         lignes.sort(key=lambda x: x["nom"].lower())
-        return {"contacts": lignes, "groupes": []}
+        groupes = [{"id": "@clients", "nom": "Clients", "couleur": None, "contact_ids": [x["id"] for x in clients]},
+                   {"id": "@suivis", "nom": "Utilisateurs suivis", "couleur": None, "contact_ids": [x["id"] for x in suivis]},
+                   {"id": "@contacts", "nom": "Mes contacts", "couleur": None, "contact_ids": [x["id"] for x in contacts]}]
+        groupes += [{"id": g["id"], "nom": g.get("name") or "", "couleur": g.get("color"),
+                     "contact_ids": g.get("contact_ids") or []} for g in groupes_docs]
+        return {"contacts": lignes, "groupes": [g for g in groupes if g["contact_ids"]]}
 
     def _dedoublonner(personnes: List[dict]) -> List[dict]:
         """Seulement ceux qui ont accepté et ont un numéro ; un numéro reçoit une seule fois."""
@@ -675,6 +718,11 @@ def attach_carrousel_whatsapp_routes(
     # =======================================================================
     # Lien du bouton (public) : compte le clic et redirige
     # =======================================================================
+    @api.get("/public/carrousel/l/", tags=["Public"], include_in_schema=False)
+    async def ouvrir_lien_vide():
+        # Lot 78.1 — Meta vérifie l'adresse du bouton sans code : on redirige vers le site au lieu d'un 404
+        return RedirectResponse(base_publique() or "/", status_code=302)
+
     @api.get("/public/carrousel/l/{code}", tags=["Public"])
     async def ouvrir_lien(code: str):
         doc = await db.carrousel_liens.find_one_and_update({"code": code[:40]}, {"$inc": {"clics": 1}},
@@ -771,6 +819,9 @@ def attach_carrousel_whatsapp_routes(
         ids = await visible_client_ids(user)
         n = await _noter_consentement(db.directory_contacts, {"id": {"$in": data.ids}, "client_id": {"$in": ids}},
                                       data.accepte, user)
+        # Lot 78.1 — consentement des utilisateurs suivis du client
+        n += await _noter_consentement(db.tracked_users, {"id": {"$in": data.ids}, "client_id": {"$in": ids}},
+                                       data.accepte, user)
         return {"modifies": n}
 
     @api.post("/me/whatsapp/carrousel/envoyer", status_code=202, tags=["Portail Client — Carrousel WhatsApp"])
@@ -907,17 +958,29 @@ def attach_carrousel_whatsapp_routes(
         return await _retenir_image_ia(apercu_id, user["id"], user)
 
     @api.get("/admin/whatsapp/carrousel/destinataires", tags=["Admin — Carrousel WhatsApp"])
-    async def destinataires_admin(_: dict = Depends(get_current_admin)):
-        return await _clients_admin()
+    async def destinataires_admin(user: dict = Depends(get_current_admin)):
+        return await _clients_admin(user)
 
     @api.put("/admin/whatsapp/carrousel/consentements", tags=["Admin — Carrousel WhatsApp"])
     async def consentements_admin(data: ConsentementIn, user: dict = Depends(get_current_admin)):
-        return {"modifies": await _noter_consentement(db.users, _filtre_clients(data.ids), data.accepte, user)}
+        # Lot 78.1 — le consentement est noté là où vit la personne : compte client, utilisateur suivi ou contact
+        n = await _noter_consentement(db.users, _filtre_clients(data.ids), data.accepte, user)
+        n += await _noter_consentement(db.tracked_users, {"id": {"$in": data.ids}}, data.accepte, user)
+        portees = _portees_admin(user)
+        if portees:
+            n += await _noter_consentement(db.directory_contacts, {"id": {"$in": data.ids}, "client_id": {"$in": portees}},
+                                           data.accepte, user)
+        return {"modifies": n}
 
     @api.post("/admin/whatsapp/carrousel/envoyer", status_code=202, tags=["Admin — Carrousel WhatsApp"])
     async def envoyer_admin(envoi: EnvoiIn, bg: BackgroundTasks, user: dict = Depends(get_current_admin)):
+        annuaire = await _clients_admin(user)
+        # Lot 78.1 — les groupes cochés (Clients, Utilisateurs suivis, Mes contacts…) sont aussi pris en compte
         voulus = set(envoi.ids)
-        personnes = [c for c in (await _clients_admin())["contacts"] if c["id"] in voulus]
+        for g in annuaire["groupes"]:
+            if g["id"] in set(envoi.groupes or []):
+                voulus.update(g["contact_ids"])
+        personnes = [c for c in annuaire["contacts"] if c["id"] in voulus]
         return await _creer_campagne(perimetre="admin", user=user, tenant_id=None, envoi=envoi,
                                      personnes=personnes, expediteur="SAWALI SMART SYSTEMS", bg=bg)
 

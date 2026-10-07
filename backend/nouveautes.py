@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "78.1", "date": "2026-10-07",
+        "titre": "🖼️ Carrousel : utilisateurs suivis et contacts destinataires",
+        "description": "Clients, utilisateurs suivis et contacts se cochent par groupe ; les modèles Meta s'affichent par nombre de cartes.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "78", "date": "2026-10-07",
         "titre": "🖼️ Carrousel : enregistrement automatique et rechargement",
         "description": "Le carrousel en cours est sauvegardé tout seul ; un envoi précédent se recharge d'un clic ; lien par défaut des cartes.",

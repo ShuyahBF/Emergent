@@ -3788,7 +3788,8 @@ const ClientsConsistencySection = () => {
   const TITLE = "Cohérence multi-utilisateurs (panoramique)";
 
   return (
-    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    // Lot 79.3 — titre écrit en clair : une carte Nouveautés peut ouvrir cette rubrique
+    <Filterable title="Cohérence multi-utilisateurs (panoramique)" anchorId={`s-${slugify(TITLE)}`}>
     <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-6 space-y-3" data-testid="admin-clients-consistency-section">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

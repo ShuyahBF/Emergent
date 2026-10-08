@@ -1557,6 +1557,26 @@ async def admin_vault_audit(_: dict = Depends(get_current_admin)):
 # Together with the POST sibling (`/admin/realign-user-to-client`) the admin
 # can repair production without ad-hoc SQL.
 # ============================================================
+def _compte_demo(u: Dict[str, Any]) -> bool:
+    """Lot 79.3 — compte de démonstration : jamais rattaché aux données d'une vraie entreprise."""
+    email = str((u or {}).get("email") or "").lower()
+    return (u or {}).get("role") == "demo" or bool((u or {}).get("is_demo")) or email.startswith("demo@") or email.startswith("demo.")
+
+
+async def _premier_admin_entreprise(company: str) -> Optional[Dict[str, Any]]:
+    """Lot 79.3 — premier compte admin/superviseur (hors démo) d'une entreprise, dans l'ordre de la base :
+    c'est la racine commune utilisée à la fois par la détection et par le réalignement."""
+    async for u in db.users.find(
+        {"company": {"$regex": f"^\\s*{re.escape(company)}\\s*$", "$options": "i"},
+         "role": {"$in": ["admin", "superviseur"]},
+         "account_status": {"$nin": ["disabled", "deleted", "blocked"]}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1, "is_demo": 1},
+    ):
+        if not _compte_demo(u):
+            return u
+    return None
+
+
 @api.get("/admin/client-data-diagnostic", tags=["Admin"])
 async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current_admin)):
     email_norm = (email or "").strip().lower()
@@ -1586,8 +1606,17 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
         canonical = parent_client_id
         canonical_source = "parent_client_id"
     elif role in ("admin", "superviseur"):
-        canonical = uid
-        canonical_source = "self (admin/superviseur)"
+        # Lot 79.3 — même règle que la détection (« Cohérence multi-utilisateurs ») : dans une entreprise qui a
+        # plusieurs admins/superviseurs, la racine est le PREMIER d'entre eux ; les autres s'y rattachent.
+        # Avant, chaque admin/superviseur était sa propre racine : « Tout réaligner » les ignorait.
+        premier = await _premier_admin_entreprise(company) if company else None
+        if premier and premier["id"] != uid:
+            canonical = premier["id"]
+            canonical_source = f"premier admin/superviseur de l'entreprise → {premier.get('email')}"
+            canonical_user = premier
+        else:
+            canonical = uid
+            canonical_source = "self (admin/superviseur)"
     elif company:
         # Find an admin or superviseur with the same company; case-insensitive trim
         same_company = await db.users.find_one(
@@ -1930,13 +1959,21 @@ async def admin_revert_retag(
 # ============================================================
 async def _scan_clients_consistency() -> Dict[str, Any]:
     groups: Dict[str, Dict[str, Any]] = {}
+    demos_rattaches: List[Dict[str, Any]] = []   # lot 79.3
     async for u in db.users.find(
         {"company": {"$exists": True, "$nin": [None, ""]}},
-        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1,
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1, "is_demo": 1,
          "company": 1, "client_id": 1, "parent_client_id": 1, "account_status": 1},
     ):
         # Skip disabled/deleted accounts so we don't flag old data
         if u.get("account_status") in ("disabled", "deleted", "blocked"):
+            continue
+        # Lot 79.3 — un compte de démonstration reste isolé : jamais réaligné sur une entreprise réelle.
+        # S'il pointe vers le périmètre de quelqu'un d'autre, il est signalé pour être ISOLÉ.
+        if _compte_demo(u):
+            if (u.get("client_id") and u["client_id"] != u["id"]) or u.get("parent_client_id"):
+                demos_rattaches.append({"id": u["id"], "email": u.get("email"), "client_id": u.get("client_id"),
+                                        "parent_client_id": u.get("parent_client_id")})
             continue
         key = (u.get("company") or "").strip().lower()
         if not key:
@@ -2043,6 +2080,7 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
             aligned_groups += 1
 
     return {
+        "demos_rattaches": demos_rattaches,   # lot 79.3 : comptes démo à isoler
         "scanned_groups": len(groups),
         "aligned_groups": aligned_groups,
         "misaligned_groups": len(misaligned_groups),
@@ -2106,6 +2144,22 @@ async def admin_realign_all(payload: _RealignAllPayload = Body(...), admin: dict
             except Exception as exc:
                 entry["error"] = str(exc)[:200]
             results.append(entry)
+    # Lot 79.3 — comptes de démonstration rattachés au périmètre d'une entreprise : remis sur leur propre périmètre
+    for d in scan.get("demos_rattaches", []):
+        entry = {"user_id": d["id"], "email": d.get("email"), "company": "(compte de démonstration)",
+                 "from_client_id": d.get("client_id"), "to_client_id": d["id"], "applied": False,
+                 "actions": 1, "error": None, "reason": "compte de démonstration isolé"}
+        if not payload.dry_run:
+            await db.users.update_one({"id": d["id"]}, {
+                "$set": {"client_id": d["id"], "client_id_legacy": d.get("client_id"),
+                         "parent_client_id_legacy": d.get("parent_client_id"), "updated_at": _now()},
+                "$unset": {"parent_client_id": ""}})
+            entry["applied"] = True
+            users_done += 1
+        else:
+            entry["would_apply"] = True
+            users_done += 1
+        results.append(entry)
     return {
         "ok": True, "dry_run": payload.dry_run,
         "groups_scanned": scan.get("misaligned_groups", 0),

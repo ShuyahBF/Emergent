@@ -35,6 +35,8 @@ export default function MarketingLayout({ children }) {
       <MarketingNav />
       <main className="flex-1 max-w-full">{children}</main>
       <MarketingFooter />
+      {/* Lot 79.13 — sur téléphone : version sous le pied de page (pas de libellé flottant sur le contenu) */}
+      <VersionStamp variante="pied" />
       <StatusPill />
       <VersionStamp tone="light" />
       <CookieBanner />

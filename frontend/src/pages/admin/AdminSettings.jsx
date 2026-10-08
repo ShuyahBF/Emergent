@@ -3482,6 +3482,8 @@ export default function AdminSettings() {
         </div>
       </Section>
 
+      {/* Lot 79.13 — rubrique déclarée en Filterable littéral : la carte Nouveautés du lot 79.13 l'ouvre */}
+      <Filterable title="🏷️ Version affichée (pied de page)" anchorId="s-version-stamp">
       <Section icon={Tag} title="Version stamp (footer)">
         <p className="text-xs text-slate-500">
           Personnalise l'affichage discret de la version (ex. <code>v1.0 · 06/05/2026 13:09</code>) en bas à gauche.
@@ -3568,6 +3570,7 @@ export default function AdminSettings() {
           </span>
         </div>
       </Section>
+      </Filterable>
 
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">
         <p className="text-xs text-slate-500">

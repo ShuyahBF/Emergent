@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82.5", "date": "2026-10-08",
+        "titre": "🧩 Contrats : services suspendables propres à chaque plateforme",
+        "description": "Chaque plateforme (ALBARKA, Ster…) déclare elle-même les services qu'elle sait suspendre ; le contrat n'affiche que les siens.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "82.4", "date": "2026-10-08",
         "titre": "🧩 Contrats : un contrat par plateforme",
         "description": "Chaque plateforme garde son propre contrat, même si plusieurs sont rattachées au même client SAWALI (ALBARKA et Ster ne s'écrasent plus).",

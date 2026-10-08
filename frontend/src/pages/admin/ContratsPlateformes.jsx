@@ -6,6 +6,8 @@
 //   - payé, montant dû, état (à jour / échéance proche en orange / dépassée / renouvellement urgent en rouge) ;
 //   - historique des paiements (ceux de la fiche client) et bouton « Enregistrer un paiement ».
 // La plateforme lit elle-même cet état (requête signée) pour afficher le bandeau orange ou rouge à son DG.
+// Lot 82 : bandeau seulement de J−5 (orange) à J+5 (rouge), plus rien ensuite ; cases « Services suspendus
+// automatiquement » (WA, e-mails, comptes rendus…) : bloqués chez la plateforme dès que le contrat est échu.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -16,27 +18,31 @@ const argent = (v, devise = "XOF") => `${Math.round(Number(v) || 0).toLocaleStri
 const jour = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "—");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
 
-// Pastille de l'état du contrat (orange avant / juste après l'échéance, rouge au-delà)
+// Pastille de l'état du contrat (orange avant l'échéance, rouge juste après, gris foncé une fois échu)
 function Etat({ etat }) {
   if (!etat) return null;
   const cls = etat.couleur === "rouge" ? "bg-rose-100 text-rose-800" : etat.couleur === "orange" ? "bg-amber-100 text-amber-800"
-    : etat.niveau === "ok" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600";
+    : etat.niveau === "ok" ? "bg-emerald-100 text-emerald-800" : etat.niveau === "echu" ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600";
   const jours = etat.jours_restants;
   const precision = jours == null ? "" : jours >= 0 ? ` · J−${jours}` : ` · J+${-jours}`;
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{etat.libelle}{precision}</span>;
 }
 
 // Formulaire du contrat d'une plateforme (rattachement client + paramètres + lignes)
-function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
+function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnuler }) {
   const [f, setF] = useState({
     client_id: contrat.client?.id || "", numero: contrat.numero || "", devise: contrat.devise || "XOF",
     debut: (contrat.debut || "2026-10-15").slice(0, 10), fin: (contrat.fin || "").slice(0, 10),
     montant: contrat.finances?.montant != null && contrat.finances?.montant !== contrat.finances?.somme_lignes ? contrat.finances.montant : "",
     alerte_avant_jours: contrat.alerte_avant_jours ?? 5, alerte_apres_jours: contrat.alerte_apres_jours ?? 5,
+    services_suspendus: contrat.services_a_suspendre || [],   // lot 82 : cases cochées
     lignes: (contrat.lignes || []).length ? contrat.lignes : [{ type: "prestation", libelle: "Développement", montant: "" }],
   });
   const [enCours, setEnCours] = useState(false);
   const total = f.lignes.reduce((s, l) => s + (Number(l.montant) || 0), 0);
+  // Lot 82 : coche / décoche un service suspendu automatiquement
+  const basculer = (code) => setF({ ...f, services_suspendus: f.services_suspendus.includes(code)
+    ? f.services_suspendus.filter((c) => c !== code) : [...f.services_suspendus, code] });
   const majLigne = (i, champ, valeur) => setF({ ...f, lignes: f.lignes.map((l, k) => (k === i ? { ...l, [champ]: valeur } : l)) });
 
   const enregistrer = async () => {
@@ -96,6 +102,19 @@ function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
         <label className="text-xs"><span className="font-semibold">Rouge : jours après</span>
           <input type="number" min="0" max="90" value={f.alerte_apres_jours} onChange={(e) => setF({ ...f, alerte_apres_jours: e.target.value })} className={champ} /></label>
       </div>
+      {/* Lot 82 : services suspendus automatiquement chez la plateforme une fois le contrat échu (après J+jours) */}
+      <div data-testid={`contrat-services-${contrat.code}`}>
+        <p className="text-xs font-semibold">Services suspendus automatiquement (contrat échu depuis plus de {f.alerte_apres_jours} jours)</p>
+        <div className="mt-1 grid gap-1 sm:grid-cols-2">
+          {catalogue.map((s) => (
+            <label key={s.code} className="flex cursor-pointer items-start gap-2 text-xs" title={s.description}>
+              <input type="checkbox" className="mt-0.5" checked={f.services_suspendus.includes(s.code)} onChange={() => basculer(s.code)} />
+              <span><b>{s.libelle}</b> <span className="text-slate-500">— {s.description}</span></span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500">Rien de coché = aucune suspension. Repousser l'échéance (renouvellement) rouvre aussitôt les services.</p>
+      </div>
       <div className="flex gap-2">
         <button type="button" disabled={enCours} onClick={enregistrer} className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
           {enCours ? "Patientez…" : "Enregistrer le contrat"}</button>
@@ -136,12 +155,13 @@ function NouveauPaiement({ contrat, onEnregistre }) {
 
 export default function ContratsPlateformes() {
   const [contrats, setContrats] = useState(null);
+  const [catalogue, setCatalogue] = useState([]);    // lot 82 : services pouvant être suspendus
   const [clients, setClients] = useState([]);
   const [edition, setEdition] = useState(null);       // code de la plateforme en cours de modification
   const [selection, setSelection] = useState(null);   // ligne de paiement sélectionnée (règle 3)
 
   const charger = useCallback(() => {
-    apiClient.get("/admin/plateformes/contrats").then((r) => setContrats(r.data.contrats)).catch(() => setContrats([]));
+    apiClient.get("/admin/plateformes/contrats").then((r) => { setContrats(r.data.contrats); setCatalogue(r.data.services_catalogue || []); }).catch(() => setContrats([]));
   }, []);
   useEffect(() => {
     charger();
@@ -171,7 +191,7 @@ export default function ContratsPlateformes() {
               </div>
             </div>
             {edition === c.code && (
-              <FormulaireContrat contrat={c} clients={clients} onAnnuler={() => setEdition(null)}
+              <FormulaireContrat contrat={c} clients={clients} catalogue={catalogue} onAnnuler={() => setEdition(null)}
                 onEnregistre={() => { setEdition(null); charger(); }} />
             )}
             {c.client && (
@@ -182,8 +202,16 @@ export default function ContratsPlateformes() {
                     <p className="text-[11px] text-slate-500">Prestations {argent(f.prestations, c.devise)} · Services {argent(f.services, c.devise)}</p></div>
                   <div className="rounded-lg bg-emerald-50 p-2"><p className="text-[11px] text-slate-500">Payé depuis le {jour(c.debut)}</p><p className="font-semibold text-emerald-800">{argent(f.paye, c.devise)}</p></div>
                   <div className={`rounded-lg p-2 ${f.du > 0 ? "bg-amber-50" : "bg-slate-50"}`}><p className="text-[11px] text-slate-500">Montant dû</p><p className={`font-semibold ${f.du > 0 ? "text-amber-800" : ""}`}>{argent(f.du, c.devise)}</p></div>
-                  <div className="rounded-lg bg-slate-50 p-2"><p className="text-[11px] text-slate-500">Alertes chez le DG</p><p className="text-xs">orange J−{c.alerte_avant_jours} · rouge J+{c.alerte_apres_jours}</p></div>
+                  <div className="rounded-lg bg-slate-50 p-2"><p className="text-[11px] text-slate-500">Alertes chez le DG</p><p className="text-xs">orange J−{c.alerte_avant_jours} · rouge J+{c.alerte_apres_jours} · puis aucun bandeau</p></div>
                 </div>
+                {/* Lot 82 : services cochés, suspendus ou à suspendre */}
+                {(c.services_a_suspendre || []).length > 0 && (
+                  <p className={`rounded-lg p-2 text-xs ${(c.services_suspendus || []).length ? "bg-rose-50 text-rose-800" : "bg-slate-50 text-slate-700"}`}>
+                    {(c.services_suspendus || []).length ? "⛔ Suspendus depuis le " : "Suspendus automatiquement à partir du "}
+                    <b>{jour(c.suspension_le)}</b> si le contrat n'est pas renouvelé :{" "}
+                    {c.services_a_suspendre.map((code) => catalogue.find((s) => s.code === code)?.libelle || code).join(", ")}
+                  </p>
+                )}
                 {(c.lignes || []).length > 0 && (
                   <ul className="text-xs text-slate-600">
                     {c.lignes.map((l, i) => <li key={i}>{l.type === "service" ? "Service" : "Prestation"} — {l.libelle} : {argent(l.montant, c.devise)}</li>)}

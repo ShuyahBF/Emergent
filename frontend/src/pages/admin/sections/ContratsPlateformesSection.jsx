@@ -18,10 +18,12 @@ export default function ContratsPlateformesSection() {
       <p className="text-xs text-slate-600">
         Chaque plateforme cliente (ALBARKA…) est rattachée à son client SAWALI : n° de contrat, prestations et services,
         paiements et montant dû. Son DG voit un bandeau <b className="text-amber-700">orange</b> quelques jours avant l'échéance,
-        puis une barre <b className="text-rose-700">rouge</b> quelques jours après (délais réglables par contrat).
+        puis une barre <b className="text-rose-700">rouge</b> quelques jours après (délais réglables par contrat) ; en dehors de
+        cette fenêtre, aucun bandeau. Lot 82 : les <b>services cochés</b> sur le contrat (WhatsApp, e-mails, comptes rendus…)
+        sont <b>suspendus automatiquement</b> chez la plateforme dès que le contrat est échu, et rouverts dès son renouvellement.
       </p>
       <table className="w-full text-xs">
-        <thead className="text-left text-slate-500"><tr><th className="py-1">Plateforme</th><th>N° de contrat</th><th>Échéance</th><th>Montant dû</th><th>État</th></tr></thead>
+        <thead className="text-left text-slate-500"><tr><th className="py-1">Plateforme</th><th>N° de contrat</th><th>Échéance</th><th>Montant dû</th><th>État</th><th>Suspendus</th></tr></thead>
         <tbody>
           {contrats.map((c) => (
             <tr key={c.code} className="border-t border-slate-100">
@@ -29,6 +31,7 @@ export default function ContratsPlateformesSection() {
               <td>{c.fin ? String(c.fin).slice(0, 10).split("-").reverse().join("/") : "—"}</td>
               <td>{c.finances ? `${Math.round(c.finances.du).toLocaleString("fr-FR")} ${c.devise}` : "—"}</td>
               <td className={`font-semibold ${couleur(c.etat)}`}>{c.etat?.libelle}</td>
+              <td>{(c.services_suspendus || []).length ? `⛔ ${c.services_suspendus.length}` : (c.services_a_suspendre || []).length ? `${c.services_a_suspendre.length} coché(s)` : "—"}</td>
             </tr>
           ))}
         </tbody>

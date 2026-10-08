@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const BASE = "/admin/appel-proprietaire";
 
@@ -138,7 +139,7 @@ export default function HistoriqueAppelsLiluvine() {
   // Chargement au changement de période / filtre, puis actualisation automatique toutes les 60 s
   useEffect(() => {
     actualiser(false);
-    const minuterie = setInterval(() => actualiser(false), 60000);
+    const minuterie = setInterval(siVisible(() => actualiser(false)), 60000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(minuterie);
   }, [actualiser]);
 

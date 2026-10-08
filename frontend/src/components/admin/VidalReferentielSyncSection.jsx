@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "../../lib/api";
 import { toast } from "sonner";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const FREQUENCY_PRESETS = [
   { value: 0, label: "Désactivée (sync manuelle uniquement)" },
@@ -43,7 +44,7 @@ export default function VidalReferentielSyncSection() {
   // appels VIDAL, plusieurs minutes) — permet de voir le statut évoluer.
   useEffect(() => {
     if (!config?.sync_in_progress) return;
-    const t = setInterval(() => { load(); loadLog(); }, 5000);
+    const t = setInterval(siVisible(() => { load(); loadLog(); }), 5000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(t);
   }, [config?.sync_in_progress]);
 

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.6", "date": "2026-10-08",
+        "titre": "🚧 Messages WhatsApp bloqués : nouvel écran dans le menu Liluvine",
+        "description": "Tous les correspondants retenus par la barrière, remise dans la conversation en un clic ; serveur plus économe (réponses compressées).",
+        "rubrique": "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)",
+    },
+    {
         "lot": "79.5", "date": "2026-10-08",
         "titre": "💾 Sauvegarde complète R2 : erreur expliquée",
         "description": "Si R2 est illisible, la raison s'affiche clairement (identifiant de compte, accès…) sans jamais montrer de jeton.",

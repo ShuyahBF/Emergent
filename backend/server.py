@@ -254,6 +254,10 @@ app.add_middleware(
     # donc voyager en en-tête pour que le bouton "Envoi WA" puisse l'utiliser.
     expose_headers=["X-Blocking-Ticket-Id", "X-Blocking-Ticket-Number", "X-Ordonnance-Id"],
 )
+# Lot 79.6 — compression gzip des réponses texte (JSON…) pour réduire la bande passante Render ;
+# jamais les flux en continu, fichiers déjà compressés ni petites réponses (voir compression_reponses.py)
+from compression_reponses import CompressionSelective  # noqa: E402
+app.add_middleware(CompressionSelective)
 
 
 # Cached compiled blacklist networks; refreshed on every settings/blacklist change.

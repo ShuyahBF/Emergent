@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { apiClient } from "@/lib/api";
 import { MessageCircle, X, AlertTriangle } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -53,7 +54,7 @@ export default function VirtualAssistant() {
       } catch { /* silent */ }
     };
     fetchLoad();
-    const t = setInterval(fetchLoad, 60000);
+    const t = setInterval(siVisible(fetchLoad), 60000);   // lot 79.6 : relecture en pause onglet masqué
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 

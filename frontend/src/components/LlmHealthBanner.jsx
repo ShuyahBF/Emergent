@@ -11,6 +11,7 @@ import { useLocation } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { AlertTriangle, RefreshCw, X as XIcon, Loader2, TrendingUp, Clock } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const SUPER_ADMIN_EMAIL = "admin@sawalismartsystems.com";
 const POLL_MS = 60_000;
@@ -68,7 +69,7 @@ export default function LlmHealthBanner() {
   useEffect(() => {
     if (!canRender) return;
     refresh();
-    timerRef.current = setInterval(refresh, POLL_MS);
+    timerRef.current = setInterval(siVisible(refresh), POLL_MS);   // lot 79.6 : relecture en pause onglet masqué
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [canRender, refresh]);
 

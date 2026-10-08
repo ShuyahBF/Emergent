@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Info, AlertTriangle, AlertOctagon, X, ArrowRight } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -38,7 +39,7 @@ export default function IncidentBanner() {
       } catch { /* noop */ }
     };
     load();
-    const t = setInterval(load, 120000); // re-check every 2 min
+    const t = setInterval(siVisible(load), 120000);   // lot 79.6 : relecture en pause onglet masqué ; // re-check every 2 min
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 

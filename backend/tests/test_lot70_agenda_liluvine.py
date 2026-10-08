@@ -782,7 +782,7 @@ def test_lot73_partage_par_superviseur(db):
     c = _client_http(db)
     h = {"X-User": "support"}
     assert c.get("/api/me/liluvine-partage", headers=h).json() == {
-        "restreint": False, "elements": ["agenda", "alertes", "historique", "pro"]}
+        "restreint": False, "elements": ["agenda", "alertes", "bloques", "historique", "pro"]}   # lot 79.6 : « bloques »
     assert c.get("/api/admin/liluvine-agenda/alertes", headers=h).status_code == 200
     # Seul l'administrateur règle le partage
     assert c.put("/api/admin/liluvine-partage", json={"email": "support@sawalismartsystems.com", "elements": []},

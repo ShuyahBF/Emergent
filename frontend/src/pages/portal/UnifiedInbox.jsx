@@ -14,6 +14,7 @@ import CalendrierModal from "@/components/CalendrierModal";   // lot 41
 import { apiClient } from "@/lib/api";
 import { CalendarDays, MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const channelMeta = {
   whatsapp: { label: "WA", color: "bg-emerald-100 text-emerald-700 ring-emerald-200", Icon: MessageCircle },
@@ -91,8 +92,8 @@ export default function UnifiedInbox() {
     } catch { /* au mieux : prochain essai dans 10 s */ }
   }, []);
   useEffect(() => {
-    const id = setInterval(() => { load(); loadBirdCost(); }, 20000);   // liste : 20 s (appel plus lourd)
-    const fil = setInterval(relireFil, 10000);                        // conversation ouverte : 10 s
+    const id = setInterval(siVisible(() => { load(); loadBirdCost(); }), 20000);   // liste : 20 s (appel plus lourd)
+    const fil = setInterval(siVisible(relireFil), 10000);                        // conversation ouverte : 10 s
     return () => { clearInterval(id); clearInterval(fil); };
   }, [load, loadBirdCost, relireFil]);
 

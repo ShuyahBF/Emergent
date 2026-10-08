@@ -22,6 +22,7 @@ import SurveySendModal from "@/components/SurveySendModal";
 import { SURVEY_STATUS } from "@/pages/portal/Surveys";
 import { marquerVu } from "@/lib/nouveautesFormulaires";   // lot 41
 import SuiviEnvois from "@/components/SuiviEnvois";            // lot 42
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const PALETTE = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#64748b"];
 const INVITE_STATUS = {
@@ -146,7 +147,7 @@ export default function SurveyResults() {
   const running = campaigns.some((c) => c.status === "running");
   useEffect(() => {
     if (!running) return undefined;
-    const t = setInterval(load, 4000);
+    const t = setInterval(siVisible(load), 4000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(t);
   }, [running, load]);
 

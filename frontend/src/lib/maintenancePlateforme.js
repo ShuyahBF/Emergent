@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 // ---------------------------------------------------------------------------
 // Lot 50 — Maintenance de la plateforme (déconnexion programmée de tous les
@@ -81,7 +82,7 @@ export function useEtatMaintenance(actif = true, source = "/maintenance/etat") {
   useEffect(() => {
     if (!actif) { setEtat(null); return undefined; }
     recharger();
-    const lecture = setInterval(recharger, INTERVALLE_LECTURE_MS);
+    const lecture = setInterval(siVisible(recharger), INTERVALLE_LECTURE_MS);   // lot 79.6 : relecture en pause onglet masqué
     const tic = setInterval(() => setTic((n) => n + 1), 1000);
     const auRetour = () => { if (document.visibilityState !== "hidden") recharger(); };
     window.addEventListener("focus", auRetour);

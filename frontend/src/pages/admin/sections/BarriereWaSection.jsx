@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { absoluteFileUrl } from "@/lib/fileIcons";   // adresse complète d'un fichier du serveur
+import { Link } from "react-router-dom";   // lot 79.6 : bouton vers l'écran « Messages bloqués »
 
 const MESSAGE_DEFAUT = "Sans réponse de votre correspondant, tout autre message de votre part ne sera pas transmis. "
   + "Instructions de l'Administrateur. Attendez une réponse avant de poursuivre SVP.";
@@ -125,6 +126,12 @@ export default function BarriereWaSection() {
         conversation avec la mention « Retenu », mais sans notification ni réponse de Liluvine) jusqu'à votre réponse.
         Les commandes « ! » et les réponses à des boutons ou formulaires ne sont jamais bloquées.
       </p>
+
+      {/* Lot 79.6 — tous les messages retenus, tous correspondants confondus (menu Liluvine → Messages bloqués) */}
+      <Link to="/admin/liluvine-messages-bloques" data-testid="ouvrir-messages-bloques"
+        className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800">
+        🚧 Voir tous les messages bloqués
+      </Link>
 
       <label className="inline-flex items-center gap-2 text-sm font-semibold">
         <input type="checkbox" checked={form.wa_barriere_active} onChange={(e) => maj("wa_barriere_active", e.target.checked)}

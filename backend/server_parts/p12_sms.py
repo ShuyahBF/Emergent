@@ -2484,6 +2484,10 @@ async def whatsapp_webhook_incoming(request: Request):
                             if _rel.get("action") == "reponse_relayee" and doc.get("id"):
                                 await db.whatsapp_messages.update_one(
                                     {"id": doc["id"]}, {"$set": {"relaye_a": _rel.get("nom") or _rel.get("emetteur")}})
+                            # Lot 84 : réponse à une plateforme réglée sur « non transmises » (gardée par SAWALI)
+                            if _rel.get("action") == "reponse_non_transmise" and doc.get("id"):
+                                await db.whatsapp_messages.update_one(
+                                    {"id": doc["id"]}, {"$set": {"reponse_non_transmise": _rel.get("nom") or _rel.get("emetteur")}})
                         except Exception:  # noqa: BLE001
                             logger.warning("[liluvine_relais] traitement du message entrant impossible", exc_info=True)
                     if relais_plateforme:

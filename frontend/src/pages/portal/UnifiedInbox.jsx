@@ -383,6 +383,12 @@ export default function UnifiedInbox() {
                           <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
                             title="Réponse transmise à la plateforme : c'est elle qui y répond, pas SAWALI">↪ Relayé à {m.relaye_a}</span>
                         )}
+                        {/* Lot 84 : réponse à une plateforme réglée sur « réponses non transmises » */}
+                        {!isOut && m.reponse_non_transmise && (
+                          <span className="mt-1 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                            title="La plateforme ne reçoit pas les réponses de ses clients (réglage dans Transmission WA Universelle)">
+                            Réponse à {m.reponse_non_transmise} — non transmise</span>
+                        )}
                         <p className={`text-[10px] mt-1 ${isOut ? "text-indigo-200" : "text-slate-400"}`}>{m.at ? new Date(m.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</p>
                       </div>
                     </div>

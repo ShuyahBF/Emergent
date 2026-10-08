@@ -177,6 +177,7 @@ export default function LiluvineEmetteursSection() {
               <th className="py-1 pr-2">Code</th><th className="pr-2">Nom</th><th className="pr-2">État</th>
               <th className="pr-2">Quota / jour</th><th className="pr-2">Envois du jour</th>
               <th className="pr-2">Dernier envoi</th><th className="pr-2">Clé générée le</th>
+              <th className="pr-2">Réponses des clients</th>
               <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th><th></th>
             </tr>
           </thead>
@@ -200,6 +201,16 @@ export default function LiluvineEmetteursSection() {
                 <td className="pr-2">{e.envois_du_jour}</td>
                 <td className="pr-2">{fmt(e.dernier_envoi)}</td>
                 <td className="pr-2">{fmt(e.cle_regeneree_le)}</td>
+                <td className="pr-2">
+                  {/* Lot 84 : réponses faites avec « Répondre » sur un message de la plateforme — transmises ou gardées par SAWALI */}
+                  <button type="button" onClick={(ev) => { ev.stopPropagation(); modifier(e.code, { reponses_transmises: e.reponses_transmises === false }); }}
+                          title={e.reponses_transmises === false
+                            ? "Non transmises : la plateforme ne reçoit rien ; les messages portent « merci de ne pas y répondre »"
+                            : "Transmises : une réponse faite avec « Répondre » est envoyée à la plateforme"}
+                          className={`rounded px-2 py-0.5 font-semibold ${e.reponses_transmises === false ? "bg-slate-200 text-slate-700" : "bg-sky-100 text-sky-800"}`}>
+                    {e.reponses_transmises === false ? "Non transmises" : "Transmises"}
+                  </button>
+                </td>
                 <td className="pr-2">
                   {/* URL de retour : réponses, statuts, désinscriptions (enregistrée en quittant le champ) */}
                   <input defaultValue={e.url_retour || ""} onClick={(ev) => ev.stopPropagation()} placeholder="https://…"

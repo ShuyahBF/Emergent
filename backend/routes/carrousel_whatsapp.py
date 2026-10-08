@@ -191,6 +191,16 @@ class BrouillonAutoIn(BaseModel):
     carrousel_id: Optional[str] = None      # carrousel nommé ouvert dans l'éditeur, s'il y en a un
 
 
+class DemandeAccordIn(BaseModel):
+    """Lot 79 — personnes à qui demander leur accord WhatsApp (boutons Oui / Non)."""
+    ids: List[str] = Field(default_factory=list, max_length=DESTINATAIRES_MAX)
+
+
+class PartageIn(BaseModel):
+    """Lot 79 — adresses e-mail des comptes avec qui partager un carrousel (liste complète, vide = aucun)."""
+    emails: List[str] = Field(default_factory=list, max_length=50)
+
+
 class PreferencesIn(BaseModel):
     """Lot 78 — lien utilisé par les cartes libres laissées sans lien (vide = aucun)."""
     lien_defaut: str = Field("", max_length=600)
@@ -371,6 +381,80 @@ def attach_carrousel_whatsapp_routes(
     def _filtre_brouillons(perimetre: str, tenant_id: Optional[str]) -> dict:
         return {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
 
+    def _filtre_partages(perimetre: str, tenant_id: Optional[str]) -> dict:
+        """Lot 79 — carrousels d'un AUTRE espace partagés avec cet espace (admin, ou client = tenant)."""
+        cible = {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
+        return {"partages": {"$elemMatch": cible}, "$nor": [_filtre_brouillons(perimetre, tenant_id)]}
+
+    async def _partager(bid: str, data: PartageIn, perimetre: str, tenant_id: Optional[str]) -> dict:
+        """Lot 79 — partage d'un carrousel avec des comptes désignés par leur e-mail. Le compte destinataire le
+        voit dans « Mes carrousels » (sans les envois ni leurs statistiques, qui restent chez l'expéditeur)."""
+        src = await db.carrousel_brouillons.find_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid}, {"_id": 0})
+        if not src:
+            raise HTTPException(status_code=404, detail="Carrousel introuvable")
+        partages, inconnus = [], []
+        for e in dict.fromkeys(x.strip().lower() for x in data.emails if x and x.strip()):
+            u = await db.users.find_one({"email": {"$regex": f"^{re.escape(e)}$", "$options": "i"}},
+                                        {"_id": 0, "id": 1, "email": 1, "role": 1, "full_name": 1, "company": 1,
+                                         "client_id": 1, "parent_client_id": 1})
+            if not u:
+                inconnus.append(e)
+                continue
+            if u.get("role") == "admin":
+                cible = {"perimetre": "admin", "tenant_id": None}
+            else:
+                cible = {"perimetre": "client", "tenant_id": _tenant_id(u)}
+            partages.append({**cible, "email": u.get("email") or e, "user_id": u["id"],
+                             "nom": u.get("full_name") or u.get("company") or u.get("email") or e})
+        if inconnus:
+            raise HTTPException(status_code=400, detail="Aucun compte SAWALI pour : " + ", ".join(inconnus))
+        await db.carrousel_brouillons.update_one({"id": bid}, {"$set": {"partages": partages}})
+        return {"id": bid, "partages": partages}
+
+    # --- Lot 79 : accord WhatsApp demandé à la personne (boutons) et lien / QR code d'accord ---
+    _numeros_affiches: Dict[str, str] = {}
+
+    async def _version_graph() -> str:
+        g = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_graph_version": 1}) or {}
+        return (g.get("wa_graph_version") or "v22.0").strip()
+
+    async def _demander_accord(personnes: List[dict], tenant_id: Optional[str]) -> dict:
+        from routes import accord_whatsapp as aw
+        sans_accord = [p for p in personnes if not p.get("accepte") and len(numero_whatsapp(p.get("telephone"))) >= 10]
+        if not sans_accord:
+            return {"envoyees": 0, "fenetre_fermee": [], "erreurs": [], "deja": len(personnes)}
+        creds = await resolve_wa_credentials(tenant_id)
+        res = await aw.envoyer_demandes(db, sans_accord, creds, await _version_graph())
+        return {**res, "deja": len(personnes) - len(sans_accord)}
+
+    async def _lien_accord(tenant_id: Optional[str]) -> dict:
+        """Lien wa.me (et texte pré-rempli « OUI NOUVEAUTES ») vers le numéro WhatsApp qui envoie les carrousels."""
+        from routes import accord_whatsapp as aw
+        creds = await resolve_wa_credentials(tenant_id)
+        numero_id, jeton = (creds.get("phone_number_id") or "").strip(), (creds.get("access_token") or "").strip()
+        if not numero_id or not jeton:
+            return {"lien": "", "numero": "", "mot_cle": aw.MOT_CLE_ACCORD, "erreur": "WhatsApp n'est pas configuré"}
+        affiche = _numeros_affiches.get(numero_id, "")
+        if not affiche:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=10) as http:
+                    r = await http.get(f"https://graph.facebook.com/{await _version_graph()}/{numero_id}",
+                                       params={"fields": "display_phone_number"},
+                                       headers={"Authorization": f"Bearer {jeton}"})
+                affiche = str((r.json() or {}).get("display_phone_number") or "") if r.status_code < 300 else ""
+                if affiche:
+                    _numeros_affiches[numero_id] = affiche
+            except Exception:  # noqa: BLE001 — le lien est un plus : l'écran reste utilisable
+                affiche = ""
+        return {"lien": aw.lien_accord(affiche), "numero": affiche, "mot_cle": aw.MOT_CLE_ACCORD,
+                "erreur": None if affiche else "Numéro WhatsApp introuvable chez Meta"}
+
+    def _peut_partager(user: dict) -> None:
+        """Lot 79 — le partage est réservé à l'administration et aux superviseurs."""
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Le partage des carrousels est réservé aux administrateurs et superviseurs")
+
     async def _lister_brouillons(perimetre: str, tenant_id: Optional[str]) -> Dict[str, Any]:
         meta = await _statuts_meta(tenant_id if perimetre == "client" else None)
         lignes = []
@@ -379,6 +463,13 @@ def attach_carrousel_whatsapp_routes(
             n = len(b.get("cartes") or [])
             lignes.append({**b, "nb_cartes": n, "modele": f"{meta['prefixe']}_{n}" if meta["prefixe"] else None,
                            "statut_meta": statut_pour_cartes(n, meta["statuts"])})
+        # Lot 79 — carrousels partagés AVEC ce périmètre (lecture seule : ouvrir, dupliquer, envoyer à ses contacts)
+        async for b in db.carrousel_brouillons.find({**_filtre_partages(perimetre, tenant_id), "auto": {"$ne": True}},
+                                                    {"_id": 0, "partages": 0}).sort("modifie_le", -1):
+            n = len(b.get("cartes") or [])
+            lignes.append({**b, "nb_cartes": n, "modele": f"{meta['prefixe']}_{n}" if meta["prefixe"] else None,
+                           "statut_meta": statut_pour_cartes(n, meta["statuts"]), "partage": True,
+                           "partage_par": b.get("cree_par_nom") or b.get("modifie_par") or ""})
         return {"carrousels": lignes, "statuts_meta": {str(k): v for k, v in meta["statuts"].items()},
                 "erreur_meta": meta["erreur"]}
 
@@ -393,7 +484,7 @@ def attach_carrousel_whatsapp_routes(
                 raise HTTPException(status_code=404, detail="Carrousel introuvable")
             return {"id": bid, **doc}
         doc.update({"id": uuid.uuid4().hex, "perimetre": perimetre, "tenant_id": tenant_id if perimetre == "client" else None,
-                    "cree_le": maintenant})
+                    "cree_le": maintenant, "cree_par_nom": user.get("full_name") or user.get("email") or ""})
         await db.carrousel_brouillons.insert_one(dict(doc))
         return doc
 
@@ -431,7 +522,8 @@ def attach_carrousel_whatsapp_routes(
         return {"ok": True, "enregistre_le": maj["modifie_le"]}
 
     async def _dupliquer_brouillon(bid: str, perimetre: str, tenant_id: Optional[str], user: dict) -> dict:
-        src = await db.carrousel_brouillons.find_one({**_filtre_brouillons(perimetre, tenant_id), "id": bid}, {"_id": 0})
+        src = await db.carrousel_brouillons.find_one(
+            {"id": bid, "$or": [_filtre_brouillons(perimetre, tenant_id), _filtre_partages(perimetre, tenant_id)]}, {"_id": 0})
         if not src:
             raise HTTPException(status_code=404, detail="Carrousel introuvable")
         copie = BrouillonIn(nom=f"Copie de {src['nom']}"[:80], message=src.get("message") or "",
@@ -536,18 +628,19 @@ def attach_carrousel_whatsapp_routes(
         contacts = await db.directory_contacts.find(
             {"client_id": {"$in": ids}},
             {"_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1, "tags": 1,
-             "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).sort("name", 1).to_list(5000)
+             "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).sort("name", 1).to_list(5000)
         groupes = await db.contact_groups.find(
             {"client_id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "color": 1, "contact_ids": 1}
         ).sort("name", 1).to_list(500)
         lignes = [{"id": c["id"], "nom": c.get("name") or "", "societe": c.get("company") or "",
                    "telephone": c.get("whatsapp") or c.get("phone") or "",
-                   "accepte": bool(c.get("accepte_whatsapp")), "accepte_le": c.get("accepte_whatsapp_le")}
+                   "accepte": bool(c.get("accepte_whatsapp")), "accepte_le": c.get("accepte_whatsapp_le"),
+                   "moyen": c.get("accepte_whatsapp_moyen")}
                   for c in contacts]
         # Lot 78.1 — les utilisateurs suivis du client sont aussi des destinataires possibles
         suivis_docs = await db.tracked_users.find({"client_id": {"$in": ids}}, {
             "_id": 0, "id": 1, "name": 1, "whatsapp_number": 1, "phone": 1,
-            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(2000)
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(2000)
         suivis = [_ligne(t, t.get("name"), "Utilisateur suivi", t.get("whatsapp_number") or t.get("phone"))
                   for t in suivis_docs if t.get("id")]
         lignes = sorted(lignes + suivis, key=lambda x: x["nom"].lower())
@@ -570,7 +663,8 @@ def attach_carrousel_whatsapp_routes(
     def _ligne(doc: dict, nom: str, societe: str, telephone: str) -> dict:
         """Une ligne de la liste des destinataires (même forme pour clients, suivis et contacts)."""
         return {"id": doc["id"], "nom": nom or "", "societe": societe or "", "telephone": telephone or "",
-                "accepte": bool(doc.get("accepte_whatsapp")), "accepte_le": doc.get("accepte_whatsapp_le")}
+                "accepte": bool(doc.get("accepte_whatsapp")), "accepte_le": doc.get("accepte_whatsapp_le"),
+                "moyen": doc.get("accepte_whatsapp_moyen")}   # lot 79 : bouton, mot-clé ou noté à la main
 
     def _portees_admin(user: Optional[dict]) -> List[str]:
         """Lot 78.1 — « mes contacts » de l'administration : ceux rangés sous le compte admin connecté."""
@@ -583,21 +677,21 @@ def attach_carrousel_whatsapp_routes(
         « Mes contacts » et les groupes de contacts de l'administration permettent de tout cocher d'un clic."""
         comptes = await db.users.find(_filtre_clients(), {
             "_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
-            "whatsapp_number": 1, "phone": 1, "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(3000)
+            "whatsapp_number": 1, "phone": 1, "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(3000)
         noms_clients = {c["id"]: c.get("company") or c.get("full_name") or c.get("email") or "" for c in comptes}
         clients = [_ligne(c, noms_clients[c["id"]], f"Client {c.get('client_code') or ''}".strip(),
                           c.get("whatsapp_number") or c.get("phone")) for c in comptes]
         # Utilisateurs suivis : rattachés à un client (on affiche le nom du client à côté)
         suivis_docs = await db.tracked_users.find({}, {
             "_id": 0, "id": 1, "name": 1, "client_id": 1, "whatsapp_number": 1, "phone": 1,
-            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(5000)
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(5000)
         suivis = [_ligne(t, t.get("name"), f"Suivi · {noms_clients.get(t.get('client_id'), '')}".rstrip(" ·"),
                          t.get("whatsapp_number") or t.get("phone")) for t in suivis_docs if t.get("id")]
         # Contacts de l'annuaire de l'administration
         portees = _portees_admin(user)
         contacts_docs = await db.directory_contacts.find({"client_id": {"$in": portees}}, {
             "_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1,
-            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}).to_list(5000) if portees else []
+            "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(5000) if portees else []
         contacts = [_ligne(c, c.get("name"), f"Contact · {c.get('company') or ''}".rstrip(" ·"),
                            c.get("whatsapp") or c.get("phone")) for c in contacts_docs if c.get("id")]
         groupes_docs = await db.contact_groups.find({"client_id": {"$in": portees}}, {
@@ -711,7 +805,8 @@ def attach_carrousel_whatsapp_routes(
 
     async def _noter_consentement(collection, filtre: dict, accepte: bool, user: dict) -> int:
         maj = {"accepte_whatsapp": accepte, "accepte_whatsapp_le": _maintenant() if accepte else None,
-               "accepte_whatsapp_par": user.get("email") or user["id"]}
+               "accepte_whatsapp_par": user.get("email") or user["id"],
+               "accepte_whatsapp_moyen": f"noté par {user.get('email') or user['id']}"}   # lot 79 : traçabilité
         res = await collection.update_many(filtre, {"$set": maj})
         return res.modified_count
 
@@ -769,6 +864,21 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/me/whatsapp/carrousel/brouillons/{bid}/dupliquer", tags=["Portail Client — Carrousel WhatsApp"])
     async def dupliquer_brouillon_portail(bid: str, user: dict = Depends(utilisateur)):
         return await _dupliquer_brouillon(bid, "client", _tenant_id(user), user)
+
+    @api.put("/me/whatsapp/carrousel/brouillons/{bid}/partages", tags=["Portail Client — Carrousel WhatsApp"])
+    async def partager_portail(bid: str, data: PartageIn, user: dict = Depends(utilisateur)):
+        _peut_partager(user)
+        return await _partager(bid, data, "client", _tenant_id(user))
+
+    @api.post("/me/whatsapp/carrousel/demande-accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def demande_accord_portail(data: DemandeAccordIn, user: dict = Depends(utilisateur)):
+        voulus = set(data.ids)
+        personnes = [c for c in (await _contacts_portail(user))["contacts"] if c["id"] in voulus]
+        return await _demander_accord(personnes, _tenant_id(user))
+
+    @api.get("/me/whatsapp/carrousel/lien-accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def lien_accord_portail(user: dict = Depends(utilisateur)):
+        return await _lien_accord(_tenant_id(user))
 
     @api.delete("/me/whatsapp/carrousel/brouillons/{bid}", tags=["Portail Client — Carrousel WhatsApp"])
     async def supprimer_brouillon_portail(bid: str, user: dict = Depends(utilisateur)):
@@ -924,6 +1034,20 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/admin/whatsapp/carrousel/brouillons/{bid}/dupliquer", tags=["Admin — Carrousel WhatsApp"])
     async def dupliquer_brouillon_admin(bid: str, user: dict = Depends(get_current_admin)):
         return await _dupliquer_brouillon(bid, "admin", None, user)
+
+    @api.put("/admin/whatsapp/carrousel/brouillons/{bid}/partages", tags=["Admin — Carrousel WhatsApp"])
+    async def partager_admin(bid: str, data: PartageIn, user: dict = Depends(get_current_admin)):
+        return await _partager(bid, data, "admin", None)
+
+    @api.post("/admin/whatsapp/carrousel/demande-accord", tags=["Admin — Carrousel WhatsApp"])
+    async def demande_accord_admin(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
+        voulus = set(data.ids)
+        personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
+        return await _demander_accord(personnes, None)
+
+    @api.get("/admin/whatsapp/carrousel/lien-accord", tags=["Admin — Carrousel WhatsApp"])
+    async def lien_accord_admin(_: dict = Depends(get_current_admin)):
+        return await _lien_accord(None)
 
     @api.delete("/admin/whatsapp/carrousel/brouillons/{bid}", tags=["Admin — Carrousel WhatsApp"])
     async def supprimer_brouillon_admin(bid: str, _: dict = Depends(get_current_admin)):

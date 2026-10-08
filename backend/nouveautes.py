@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79", "date": "2026-10-08",
+        "titre": "✅ Carrousel : accord WhatsApp demandé d'un clic",
+        "description": "Boutons Oui / Non envoyés au contact, accord noté dès qu'il clique ; lien et QR code d'accord à afficher.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
+        "lot": "79", "date": "2026-10-08",
+        "titre": "🔗 Carrousels partagés entre comptes",
+        "description": "L'admin ou un superviseur partage un carrousel par e-mail ; le destinataire le voit dans « Mes carrousels ».",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "78.3", "date": "2026-10-08",
         "titre": "🖼️ Carrousel : bouton d'envoi qui explique ce qu'il manque",
         "description": "Le lien par défaut suffit pour envoyer ; si le bouton est grisé, la liste de ce qui manque s'affiche à côté.",

@@ -1688,6 +1688,22 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
                 # Surface the mismatch even when we cannot auto-fix it.
                 parent_company_mismatch = True
 
+    # Lot 79.4 — un compte rattaché (parent_client_id) à un AUTRE membre de la même entreprise suit lui aussi la
+    # règle commune : la racine est le premier admin/superviseur de l'entreprise (comme dans la détection).
+    # Sinon le réalignement s'arrêtait au parent (ex. un ancien compte de l'entreprise) et le compte restait
+    # signalé « désaligné » indéfiniment. Le lien parent est alors corrigé (action relink_parent).
+    if canonical_source == "parent_client_id" and company and not parent_company_mismatch:
+        premier = await _premier_admin_entreprise(company)
+        parent_meme_entreprise = (
+            not canonical_user
+            or (canonical_user.get("company") or "").strip().lower() == company.strip().lower()
+        )
+        if premier and premier["id"] != canonical and premier["id"] != uid and parent_meme_entreprise:
+            parent_company_mismatch = True
+            canonical = premier["id"]
+            canonical_source = f"premier admin/superviseur de l'entreprise (parent mis à jour) → {premier.get('email')}"
+            canonical_user = premier
+
     effective_scope = declared_client_id or uid
 
     # Peers — users that the canonical client_id should encompass

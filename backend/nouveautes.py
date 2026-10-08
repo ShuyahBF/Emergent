@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.4", "date": "2026-10-08",
+        "titre": "🔧 « Tout réaligner » : comptes rattachés par un parent",
+        "description": "Les comptes liés à un ancien membre de l'entreprise rejoignent eux aussi le premier admin : plus aucun reste.",
+        "rubrique": "Cohérence multi-utilisateurs (panoramique)",
+    },
+    {
         "lot": "79.3", "date": "2026-10-08",
         "titre": "🔧 « Tout réaligner » traite enfin tous les comptes",
         "description": "Les admins et superviseurs secondaires rejoignent le périmètre de leur entreprise ; les comptes démo restent isolés.",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.7", "date": "2026-10-08",
+        "titre": "💰 Retards de paiement : un récapitulatif, vous choisissez qui relancer",
+        "description": "Une liste numérotée chaque matin ; répondez « ok 1,2,5 » sur WhatsApp et Liluvine relance ces clients.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "79.6", "date": "2026-10-08",
         "titre": "🚧 Messages WhatsApp bloqués : nouvel écran dans le menu Liluvine",
         "description": "Tous les correspondants retenus par la barrière, remise dans la conversation en un clic ; serveur plus économe (réponses compressées).",

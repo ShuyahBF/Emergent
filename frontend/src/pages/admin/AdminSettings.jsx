@@ -83,6 +83,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "70",
@@ -107,6 +108,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
   "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-07",
@@ -3616,7 +3618,14 @@ export default function AdminSettings() {
             onClick={async () => {
               try {
                 const r = await apiClient.post("/admin/contract-overdue/run");
-                toast.success(`Scan lancé : ${r.data.dispatched}/${r.data.scanned} clients notifiés (seuil ${r.data.threshold_default} j).`);
+                // Lot 79.7 — mode récapitulatif : un seul message pour tous les clients en retard
+                if (r.data.mode === "recap") {
+                  toast.success(r.data.recap?.envoye
+                    ? `Récapitulatif envoyé : ${r.data.scanned} client(s) en retard (répondez « ok 1,2,5 » sur WhatsApp).`
+                    : `${r.data.scanned} client(s) en retard — récapitulatif non envoyé : ${r.data.recap?.raison || r.data.recap?.erreur || "voir le journal"}`);
+                } else {
+                  toast.success(`Scan lancé : ${r.data.dispatched}/${r.data.scanned} clients notifiés (seuil ${r.data.threshold_default} j).`);
+                }
               } catch (e) {
                 toast.error(e?.response?.data?.detail || "Erreur");
               }
@@ -3626,6 +3635,45 @@ export default function AdminSettings() {
           >
             Lancer un scan maintenant
           </button>
+        </div>
+        {/* Lot 79.7 — alertes de retard : UN récapitulatif numéroté au propriétaire, qui répond « ok 1,2,5 »
+            depuis son WhatsApp pour relancer ces clients (au lieu d'un message par client) */}
+        <div className="mt-3 rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 space-y-2" data-testid="contract-overdue-recap">
+          <p className="text-xs font-semibold text-amber-900">💰 Alertes de retard de paiement (chaque jour à 08:15)</p>
+          <label className="block text-xs">
+            <span className="font-semibold text-slate-700">Mode des alertes</span>
+            <select value={s.contract_overdue_mode || "recap"} onChange={(e) => upd("contract_overdue_mode", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm bg-white" data-testid="contract-overdue-mode">
+              <option value="recap">Récapitulatif : une liste numérotée, je réponds « ok 1,2,5 » pour relancer ces clients</option>
+              <option value="detail">Détail : un message par client en retard (ancien fonctionnement)</option>
+              <option value="off">Aucune alerte</option>
+            </select>
+          </label>
+          <p className="text-[11px] text-slate-600">
+            Le récapitulatif part sur le numéro WhatsApp du super-admin ci-dessous (texte libre si vous avez écrit à la ligne
+            SAWALI depuis moins de 24 h, sinon par le modèle « relais » de « Liluvine appelle le propriétaire »). Répondez
+            « ok 1,2,5 » ou « ok tous » : Liluvine relance ces clients et vous confirme l'envoi.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 items-end">
+            <Input
+              label="Modèle Meta de la relance au client (4 variables : client, jours de retard, n° contrat, montant)"
+              value={s.contract_relance_wa_template ?? ""}
+              onChange={(v) => upd("contract_relance_wa_template", v)}
+              placeholder="relance_retard_paiement"
+              testid="contract-relance-wa-template"
+            />
+            <Input
+              label="Langue du modèle de relance"
+              value={s.contract_relance_wa_language ?? ""}
+              onChange={(v) => upd("contract_relance_wa_language", v)}
+              placeholder="fr"
+              testid="contract-relance-wa-language"
+            />
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Sans modèle de relance, seuls les clients ayant écrit à SAWALI depuis moins de 24 h reçoivent la relance sur
+            WhatsApp ; les autres la reçoivent par e-mail.
+          </p>
         </div>
         {/* Lot 74 — modèles WhatsApp Meta des contrats (anomalies A1 et A2 corrigées) */}
         <div className="mt-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2" data-testid="contract-wa-templates">

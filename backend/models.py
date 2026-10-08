@@ -1079,6 +1079,11 @@ class SettingsUpdate(BaseModel):
     # en retard de paiement (désactivé par défaut : le scan quotidien a été
     # inactif des mois, les règlements ont pu ne pas être saisis).
     contract_auto_suspend_enabled: Optional[bool] = None
+    # Lot 79.7 — alertes de retard : "recap" (un message numéroté, réponse « ok 1,2,5 »), "detail", "off"
+    contract_overdue_mode: Optional[str] = None
+    # Lot 79.7 — modèle Meta de la relance au client (4 variables : nom, jours, n° contrat, montant)
+    contract_relance_wa_template: Optional[str] = None
+    contract_relance_wa_language: Optional[str] = None
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
     openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)

@@ -1347,6 +1347,7 @@ async def appeler_et_converser(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: 
 
         @connexion.on("connectionstatechange")
         async def sur_etat():
+            logger.info("[appel-audio] agenda de Liluvine : connexion %s", connexion.connectionState)   # lot 79.7 : diagnostic
             if connexion.connectionState in ("failed", "closed"):
                 signaler_raccroche()
 
@@ -1358,7 +1359,9 @@ async def appeler_et_converser(db, s: Dict[str, Any], cfga: Dict[str, Any], ev: 
         """(boucle média) Arrête l'écoute et ferme la connexion."""
         for t in lecteurs:
             t.cancel()
-        await pc.close()
+        # Lot 79.7 — son réellement transmis (paquets envoyés / reçus) écrit au journal, puis fermeture
+        from routes.audio_appel import fermer_avec_mesures
+        await fermer_avec_mesures(pc, "agenda de Liluvine")
 
     pc = None
     piste = None

@@ -87,7 +87,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "📑 Contrats des plateformes": "81",   // lot 81 : contrat de chaque plateforme cliente
+  "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "79.8",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
@@ -115,7 +115,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
-  "📑 Contrats des plateformes": "2026-10-08",   // lot 81
+  "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7

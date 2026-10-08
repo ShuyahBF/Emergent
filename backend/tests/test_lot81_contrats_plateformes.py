@@ -28,9 +28,9 @@ from routes import contrats_plateformes as cp  # noqa: E402
     (date(2027, 10, 9), "ok", None),             # J-6
     (date(2027, 10, 10), "bientot", "orange"),   # J-5 : bandeau orange
     (date(2027, 10, 15), "bientot", "orange"),   # jour de l'échéance
-    (date(2027, 10, 16), "expire", "orange"),    # J+1
-    (date(2027, 10, 19), "expire", "orange"),    # J+4
-    (date(2027, 10, 20), "critique", "rouge"),   # J+5 : barre rouge
+    (date(2027, 10, 16), "expire", "rouge"),     # J+1 : barre rouge (lot 82)
+    (date(2027, 10, 20), "expire", "rouge"),     # J+5 : dernier jour du bandeau
+    (date(2027, 10, 21), "echu", None),          # J+6 : plus de bandeau (lot 82), services cochés suspendus
 ])
 def test_etat_du_contrat(aujourdhui, niveau, couleur):
     e = cp.etat_contrat("2026-10-15", "2027-10-15", aujourdhui)

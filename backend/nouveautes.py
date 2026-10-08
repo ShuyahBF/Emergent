@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82", "date": "2026-10-08",
+        "titre": "⛔ Contrats : services suspendus automatiquement",
+        "description": "Cochez les services (WA, e-mails, comptes rendus…) suspendus chez la plateforme dès que son contrat est échu ; bandeau du DG limité à ± 5 jours de l'échéance.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "81", "date": "2026-10-08",
         "titre": "📑 Contrats des plateformes",
         "description": "N° de contrat, prestations et services, paiements et montant dû de chaque plateforme ; bandeau orange/rouge chez son DG.",

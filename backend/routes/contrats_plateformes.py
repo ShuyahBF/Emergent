@@ -16,25 +16,49 @@
 #   - les paiements sont ceux de l'historique existant (db.tenant_payments, POST /admin/clients/{id}/payments) ;
 #     montant payé = paiements datés depuis le début du contrat ; montant dû = montant du contrat − payé ;
 #   - ÉTAT (logique pure, testée) : « ok », « bientot » (orange, à partir de J−5), « expire » (orange, échéance passée
-#     depuis moins de 5 jours), « critique » (rouge, à partir de J+5) ;
+#     depuis moins de 5 jours), « critique » (rouge, à partir de J+5) [lot 81, remplacé ci-dessous] ;
+#   - Lot 82 (08/10/2026) : « Le bandeau ne s'affiche qu'à ± 5 jours de la date d'expiration ; en dehors, pas de
+#     bandeau. » → orange de J−5 à J, rouge de J+1 à J+5, puis « echu » SANS couleur (plus de bandeau) ;
+#     « Services pouvant être suspendus : je coche ou décoche (CR, WA…) ; tous ceux qui sont cochés sont suspendus
+#     automatiquement » → liste cochée sur le contrat (contract_services_suspendus), envoyée à la plateforme, qui
+#     bloque ces services dès que le contrat est échu (au-delà de J+5) et les rouvre dès que l'échéance est repoussée.
 #   - la plateforme lit SON état : POST /api/webhook/plateforme-contrat, signé comme la transmission universelle
 #     (X-Emetteur, X-Timestamp, X-Signature = HMAC-SHA256(clé, "<timestamp>.<corps>")) : aucune nouvelle clé.
 from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
 
 AVANT_DEFAUT = 5        # jours avant l'échéance : bandeau orange
-APRES_DEFAUT = 5        # jours après l'échéance : barre rouge
+APRES_DEFAUT = 5        # jours après l'échéance : barre rouge (puis plus de bandeau, services cochés suspendus)
 TYPES_LIGNE = {"prestation": "Prestation", "service": "Service"}
 LIBELLES_ETAT = {
     "aucun": "Pas de contrat", "a_venir": "Pas encore commencé", "ok": "À jour",
-    "bientot": "Échéance proche", "expire": "Échéance dépassée", "critique": "Renouvellement urgent",
+    "bientot": "Échéance proche", "expire": "Renouvellement urgent", "echu": "Contrat échu",
 }
+
+# Lot 82 — catalogue des services qu'une plateforme peut suspendre (cases à cocher sur le contrat).
+# Le CODE est partagé avec la plateforme (ALBARKA…) qui sait quelles fonctions bloquer pour chacun.
+SERVICES_SUSPENDABLES = [
+    {"code": "wa", "libelle": "WhatsApp (envois)", "description": "Factures, documents, notifications et messages envoyés par WhatsApp (les codes de connexion restent envoyés)"},
+    {"code": "email", "libelle": "E-mails (envois)", "description": "Envois d'e-mails aux clients et au personnel (les codes de connexion restent envoyés)"},
+    {"code": "cr", "libelle": "Comptes rendus / rapports clients", "description": "Génération, modèles et envoi des rapports clients"},
+    {"code": "conversations_wa", "libelle": "Conversations WhatsApp", "description": "Centre de conversations (les messages reçus restent enregistrés)"},
+    {"code": "ia", "libelle": "Analyse IA (OCR) des pièces", "description": "Lecture automatique des pièces et relances d'analyse"},
+    {"code": "espace_client", "libelle": "Espace client", "description": "Dépôts et consultation des documents de l'espace client"},
+    {"code": "formulaires", "libelle": "Formulaires", "description": "Formulaires en ligne, envois et réponses"},
+    {"code": "pispi", "libelle": "Encaissement PI-SPI", "description": "QR codes et réglages de paiement instantané"},
+    {"code": "modeles", "libelle": "Documents & modèles", "description": "Courriers, attestations et documents à variables"},
+    {"code": "paie", "libelle": "RH & Paie", "description": "Bulletins, livre et tableau de paie"},
+    {"code": "compta", "libelle": "Comptabilité OHADA", "description": "Plan comptable, journaux et états"},
+    {"code": "chat", "libelle": "Chat interne", "description": "Messagerie instantanée du personnel"},
+    {"code": "push", "libelle": "Notifications push", "description": "Notifications sur les navigateurs et téléphones"},
+]
+CODES_SERVICES = [s["code"] for s in SERVICES_SUSPENDABLES]
 
 
 def _jour(valeur: Any) -> Optional[date]:
@@ -53,8 +77,9 @@ def etat_contrat(debut: Any, fin: Any, aujourdhui: date, avant: int = AVANT_DEFA
                  apres: int = APRES_DEFAUT) -> Dict[str, Any]:
     """État du contrat à une date : {niveau, couleur, jours_restants, libelle}.
 
-    niveau : « aucun » (pas d'échéance), « a_venir » (avant le début), « ok », « bientot » (orange, J−avant à J−1 et
-    le jour J), « expire » (orange, de J+1 à J+apres−1), « critique » (rouge, à partir de J+apres)."""
+    niveau : « aucun » (pas d'échéance), « a_venir » (avant le début), « ok », « bientot » (orange, de J−avant au jour
+    J), « expire » (rouge, de J+1 à J+apres), « echu » (au-delà de J+apres : PAS de couleur, donc plus de bandeau ;
+    les services cochés sont suspendus). Lot 82 : bandeau seulement à ± avant/apres jours de l'échéance."""
     d_fin = _jour(fin)
     if not d_fin:
         return {"niveau": "aucun", "couleur": None, "jours_restants": None, "libelle": LIBELLES_ETAT["aucun"]}
@@ -66,12 +91,36 @@ def etat_contrat(debut: Any, fin: Any, aujourdhui: date, avant: int = AVANT_DEFA
         niveau = "ok"
     elif restants >= 0:
         niveau = "bientot"
-    elif -restants < max(1, apres):
+    elif -restants <= max(1, apres):
         niveau = "expire"
     else:
-        niveau = "critique"
-    couleur = {"bientot": "orange", "expire": "orange", "critique": "rouge"}.get(niveau)
+        niveau = "echu"
+    couleur = {"bientot": "orange", "expire": "rouge"}.get(niveau)
     return {"niveau": niveau, "couleur": couleur, "jours_restants": restants, "libelle": LIBELLES_ETAT[niveau]}
+
+
+def date_suspension(fin: Any, apres: int = APRES_DEFAUT) -> Optional[str]:
+    """Lot 82 : premier jour où les services cochés sont suspendus (lendemain de J+apres) ; None sans échéance."""
+    d_fin = _jour(fin)
+    return (d_fin + timedelta(days=max(1, apres) + 1)).isoformat() if d_fin else None
+
+
+def nettoyer_services(services: Any) -> List[str]:
+    """Lot 82 : codes cochés, connus du catalogue, sans doublon, dans l'ordre du catalogue ; ValueError sinon."""
+    if services in (None, ""):
+        return []
+    if not isinstance(services, list):
+        raise ValueError("services suspendus : liste de codes attendue")
+    codes = {str(c or "").strip().lower() for c in services}
+    inconnus = sorted(codes - set(CODES_SERVICES) - {""})
+    if inconnus:
+        raise ValueError(f"service(s) inconnu(s) : {', '.join(inconnus)}")
+    return [c for c in CODES_SERVICES if c in codes]
+
+
+def services_suspendus(etat: Dict[str, Any], coches: List[str]) -> List[str]:
+    """Lot 82 : services à bloquer MAINTENANT — les cochés, seulement quand le contrat est échu (au-delà de J+apres)."""
+    return list(coches or []) if (etat or {}).get("niveau") == "echu" else []
 
 
 def nettoyer_lignes(lignes: Any) -> List[Dict[str, Any]]:
@@ -142,7 +191,8 @@ def signature_valide(secret: str, timestamp: str, corps: bytes, signature: str, 
 CHAMPS_CLIENT = {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
                  "contract_number": 1, "contract_amount": 1, "contract_currency": 1, "contract_signed_at": 1,
                  "contract_start_at": 1, "contract_end_at": 1, "contract_lignes": 1,
-                 "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "last_payment_at": 1}
+                 "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "last_payment_at": 1,
+                 "contract_services_suspendus": 1}
 
 
 def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
@@ -166,6 +216,8 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
         lignes = client.get("contract_lignes") or []
         avant = int(client.get("contract_alerte_avant_jours") or AVANT_DEFAUT)
         apres = int(client.get("contract_alerte_apres_jours") or APRES_DEFAUT)
+        etat = etat_contrat(client.get("contract_start_at"), client.get("contract_end_at"), date.today(), avant, apres)
+        coches = client.get("contract_services_suspendus") or []
         return {
             **base,
             "client": {"id": client["id"], "nom": client.get("company") or client.get("full_name") or client.get("email"),
@@ -175,7 +227,10 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
             "fin": client.get("contract_end_at"), "lignes": lignes,
             "alerte_avant_jours": avant, "alerte_apres_jours": apres,
             "finances": resume_financier(client.get("contract_amount"), lignes, paiements, client.get("contract_start_at")),
-            "etat": etat_contrat(client.get("contract_start_at"), client.get("contract_end_at"), date.today(), avant, apres),
+            "etat": etat,
+            # Lot 82 : services cochés, ceux suspendus aujourd'hui et la date de début de suspension
+            "services_a_suspendre": coches, "services_suspendus": services_suspendus(etat, coches),
+            "suspension_le": date_suspension(client.get("contract_end_at"), apres) if coches else None,
             "paiements": paiements if avec_paiements else None,
         }
 
@@ -186,7 +241,7 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
         sortie = []
         async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "secret": 0}).sort("nom", 1):
             sortie.append(await _contrat(e))
-        return {"contrats": sortie, "libelles_etat": LIBELLES_ETAT}
+        return {"contrats": sortie, "libelles_etat": LIBELLES_ETAT, "services_catalogue": SERVICES_SUSPENDABLES}
 
     @api.put("/admin/plateformes/{code}/contrat", tags=["Plateformes — contrats"])
     async def enregistrer(code: str, request: Request, user: dict = Depends(get_current_user)):
@@ -241,6 +296,11 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
                 if not 0 <= n <= 90:
                     raise HTTPException(status_code=422, detail="Jours d'alerte : 0 à 90")
                 champs[champ] = n
+        if "services_suspendus" in corps:   # lot 82 : cases cochées
+            try:
+                champs["contract_services_suspendus"] = nettoyer_services(corps.get("services_suspendus"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
         maintenant = datetime.now(timezone.utc).isoformat()
         if champs:
             await db.users.update_one({"id": client_id}, {"$set": {**champs, "updated_at": maintenant}})
@@ -264,4 +324,10 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
         # Ce que la plateforme affiche à son DG : jamais les autres clients, ni l'historique détaillé
         return {"numero": c.get("numero"), "debut": c.get("debut"), "fin": c.get("fin"), "devise": c.get("devise"),
                 "montant": f.get("montant"), "paye": f.get("paye"), "du": f.get("du"), "etat": c.get("etat"),
-                "alerte_avant_jours": c.get("alerte_avant_jours"), "alerte_apres_jours": c.get("alerte_apres_jours")}
+                "alerte_avant_jours": c.get("alerte_avant_jours"), "alerte_apres_jours": c.get("alerte_apres_jours"),
+                # Lot 82 : la plateforme bloque « services_suspendus » (vide tant que le contrat n'est pas échu) et
+                # annonce « services_a_suspendre » à partir de « suspension_le » dans la barre rouge
+                "services_a_suspendre": c.get("services_a_suspendre") or [],
+                "services_suspendus": c.get("services_suspendus") or [],
+                "suspension_le": c.get("suspension_le"),
+                "services_catalogue": [{"code": s["code"], "libelle": s["libelle"]} for s in SERVICES_SUSPENDABLES]}

@@ -16,6 +16,20 @@ import { apiClient } from "@/lib/api";
 const argent = (v, devise = "XOF") => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} ${devise}`;
 // « 15/10/2026 »
 const jour = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "—");
+// Lot 82.1 : « AAAA-MM-JJ » + n jours → « AAAA-MM-JJ » (calcul en UTC : pas de décalage de fuseau horaire)
+const ajouterJours = (iso, n) => {
+  if (!iso || !Number.isFinite(n)) return "";
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+// Lot 82.1 : nombre de jours entre deux dates « AAAA-MM-JJ » ("" si l'une manque)
+const ecartJours = (debut, fin) => (debut && fin
+  ? String(Math.round((Date.parse(`${fin.slice(0, 10)}T00:00:00Z`) - Date.parse(`${debut.slice(0, 10)}T00:00:00Z`)) / 86400000))
+  : "");
+// Durées proposées dans la liste (le propriétaire peut aussi taper un nombre de jours)
+const DUREES = [30, 90, 180, 365, 730];
+
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
 
 // Pastille de l'état du contrat (orange avant l'échéance, rouge juste après, gris foncé une fois échu)
@@ -39,6 +53,18 @@ function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnule
     lignes: (contrat.lignes || []).length ? contrat.lignes : [{ type: "prestation", libelle: "Développement", montant: "" }],
   });
   const [enCours, setEnCours] = useState(false);
+  // Lot 82.1 : durée en jours ↔ échéance (l'une calcule l'autre ; un changement de début recalcule l'échéance)
+  const [duree, setDuree] = useState(ecartJours((contrat.debut || "2026-10-15").slice(0, 10), (contrat.fin || "").slice(0, 10)));
+  const changerDuree = (valeur) => {
+    setDuree(valeur);
+    const n = parseInt(valeur, 10);
+    if (Number.isFinite(n) && n > 0) setF((avant) => ({ ...avant, fin: ajouterJours(avant.debut, n) }));
+  };
+  const changerDebut = (valeur) => {
+    const n = parseInt(duree, 10);
+    setF((avant) => ({ ...avant, debut: valeur, fin: Number.isFinite(n) && n > 0 && valeur ? ajouterJours(valeur, n) : avant.fin }));
+  };
+  const changerFin = (valeur) => { setF((avant) => ({ ...avant, fin: valeur })); setDuree(ecartJours(f.debut, valeur)); };
   const total = f.lignes.reduce((s, l) => s + (Number(l.montant) || 0), 0);
   // Lot 82 : coche / décoche un service suspendu automatiquement
   const basculer = (code) => setF({ ...f, services_suspendus: f.services_suspendus.includes(code)
@@ -69,9 +95,14 @@ function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnule
         <label className="text-xs"><span className="font-semibold">N° de contrat</span>
           <input value={f.numero} onChange={(e) => setF({ ...f, numero: e.target.value })} className={champ} placeholder="CTR-ALB-2026-01" /></label>
         <label className="text-xs"><span className="font-semibold">Début</span>
-          <input type="date" value={f.debut} onChange={(e) => setF({ ...f, debut: e.target.value })} className={champ} /></label>
+          <input type="date" value={f.debut} onChange={(e) => changerDebut(e.target.value)} className={champ} /></label>
         <label className="text-xs"><span className="font-semibold">Échéance</span>
-          <input type="date" value={f.fin} onChange={(e) => setF({ ...f, fin: e.target.value })} className={champ} /></label>
+          <input type="date" value={f.fin} onChange={(e) => changerFin(e.target.value)} className={champ} /></label>
+        {/* Lot 82.1 : durée en jours — choisie dans la liste ou tapée ; l'échéance = début + durée */}
+        <label className="text-xs sm:col-start-3"><span className="font-semibold">Durée (jours) → calcule l'échéance</span>
+          <input type="number" min="1" list="durees-contrat" value={duree} onChange={(e) => changerDuree(e.target.value)}
+            className={champ} placeholder="ex. 365" data-testid={`contrat-duree-${contrat.code}`} />
+          <datalist id="durees-contrat">{DUREES.map((n) => <option key={n} value={n} />)}</datalist></label>
       </div>
       {/* Prestations et services */}
       <div>

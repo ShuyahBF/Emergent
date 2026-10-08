@@ -258,3 +258,114 @@ def setup_barriere_wa_routes(*, db, api, get_current_user, resolve_visible_clien
                     getattr(res, "modified_count", 0), fiche["id"])
         return {"ok": True, "rattaches": int(getattr(res, "modified_count", 0) or 0),
                 "fiche": fiche.get("name") or fiche["id"]}
+
+
+# ---------------------------------------------------------------------------
+# Lot 79.6 — « Messages bloqués » : liste de TOUS les correspondants dont des messages sont
+# retenus par la barrière (menu Liluvine), en plus du bandeau de chaque conversation du
+# Centre de messagerie. Fonctions séparées des routes pour être testées sans serveur.
+# ---------------------------------------------------------------------------
+async def lister_retenus(db, perimetre: Optional[list], jours_liberes: int = 7, limite: int = 3000) -> Dict[str, Any]:
+    """Regroupe par correspondant les messages RETENUS (barriere_retenu) du périmètre de l'utilisateur.
+    perimetre : liste des client_id visibles (None = tout, réservé aux tests).
+    -> {"bloques": [...], "liberes": [...]} ; « liberes » = retenues levées depuis `jours_liberes` jours."""
+    filtre: Dict[str, Any] = {"direction": "inbound", "barriere_retenu": True}
+    if perimetre is not None:
+        filtre["client_id"] = {"$in": list(perimetre)}
+    champs = {"_id": 0, "phone_digits": 1, "contact_id": 1, "contact_name": 1, "created_at": 1, "body": 1,
+              "text": 1, "message_type": 1, "client_id": 1}
+    groupes: Dict[str, Dict[str, Any]] = {}
+    # Du plus récent au plus ancien : le premier message vu d'un correspondant est son dernier
+    async for m in db.whatsapp_messages.find(filtre, champs).sort("created_at", -1).limit(limite):
+        chiffres = _chiffres(m.get("phone_digits"))
+        cle = chiffres[-8:] or (m.get("contact_id") or "?")
+        g = groupes.get(cle)
+        if g is None:
+            g = groupes[cle] = {
+                "numero": chiffres, "contact_id": m.get("contact_id"), "nom": m.get("contact_name") or "",
+                "retenus": 0, "dernier_le": m.get("created_at"), "premier_le": m.get("created_at"),
+                "dernier_texte": (m.get("body") or m.get("text") or f"[{m.get('message_type') or 'message'}]")[:120],
+            }
+        g["retenus"] += 1
+        g["premier_le"] = m.get("created_at")          # le plus ancien vu jusqu'ici
+        g["contact_id"] = g["contact_id"] or m.get("contact_id")
+        g["nom"] = g["nom"] or m.get("contact_name") or ""
+    bloques = sorted(groupes.values(), key=lambda g: g["dernier_le"] or "", reverse=True)
+    # Date de l'avertissement automatique de la barrière (dernier envoyé à ce correspondant)
+    for g in bloques:
+        fin = g["numero"][-8:]
+        if len(fin) == 8:
+            av = await db.whatsapp_messages.find_one(
+                {"direction": "outbound", "barriere_auto": True,
+                 "$or": [{"to": {"$regex": re.escape(fin) + "$"}}, {"phone_digits": {"$regex": re.escape(fin) + "$"}}]},
+                {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
+            g["averti_le"] = (av or {}).get("created_at")
+    # Retenues récemment levées (traçabilité : qui a libéré, quand)
+    depuis = (datetime.now(timezone.utc) - timedelta(days=jours_liberes)).isoformat()
+    filtre_lib: Dict[str, Any] = {"direction": "inbound", "barriere_libere_le": {"$gte": depuis}}
+    if perimetre is not None:
+        filtre_lib["client_id"] = {"$in": list(perimetre)}
+    liberes: Dict[str, Dict[str, Any]] = {}
+    async for m in db.whatsapp_messages.find(
+            filtre_lib, {"_id": 0, "phone_digits": 1, "contact_name": 1, "barriere_libere_le": 1,
+                         "barriere_libere_par": 1}).sort("barriere_libere_le", -1).limit(limite):
+        cle = _chiffres(m.get("phone_digits"))[-8:] or "?"
+        lib = liberes.setdefault(cle, {"numero": _chiffres(m.get("phone_digits")), "nom": m.get("contact_name") or "",
+                                     "messages": 0, "libere_le": m.get("barriere_libere_le"),
+                                     "libere_par": m.get("barriere_libere_par") or ""})
+        lib["messages"] += 1
+    return {"bloques": bloques, "liberes": list(liberes.values()),
+            "total_retenus": sum(g["retenus"] for g in bloques)}
+
+
+async def liberer_numero(db, perimetre: Optional[list], numero: str, par: str) -> int:
+    """Remet dans la conversation les messages retenus de ce numéro (périmètre de l'utilisateur).
+    La trace de la retenue est gardée (barriere_libere_le / barriere_libere_par). -> nombre libéré."""
+    fin = _chiffres(numero)[-8:]
+    if len(fin) < 8:
+        return 0
+    filtre: Dict[str, Any] = {"direction": "inbound", "barriere_retenu": True,
+                              "phone_digits": {"$regex": re.escape(fin) + "$"}}
+    if perimetre is not None:
+        filtre["client_id"] = {"$in": list(perimetre)}
+    res = await db.whatsapp_messages.update_many(
+        filtre, {"$set": {"barriere_retenu": False, "barriere_libere_le": datetime.now(timezone.utc).isoformat(),
+                          "barriere_libere_par": par}})
+    logger.info("[barriere_wa] …%s : %s message(s) retenu(s) libéré(s) par %s", fin[-4:],
+                getattr(res, "modified_count", 0), par)
+    return int(getattr(res, "modified_count", 0) or 0)
+
+
+def setup_messages_bloques_routes(*, db, api, get_current_user, resolve_visible_client_ids) -> None:
+    """Lot 79.6 — routes du sous-menu Liluvine « Messages bloqués » (admin et superviseurs ;
+    un superviseur restreint doit avoir reçu l'élément « bloques » dans le partage de Liluvine)."""
+    from fastapi import Depends, HTTPException
+    from routes.liluvine_partage import verifier_element
+
+    async def _controle(user: dict) -> list:
+        """Rôle autorisé + élément partagé ; renvoie le périmètre visible de l'utilisateur."""
+        if user.get("role") not in ("admin", "super_admin", "superviseur") \
+                and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+        await verifier_element(db, user, "bloques")
+        return list(await resolve_visible_client_ids(user))
+
+    @api.get("/liluvine/messages-bloques", tags=["Liluvine — messages bloqués"])
+    async def messages_bloques(user: dict = Depends(get_current_user)):
+        """Correspondants dont des messages WhatsApp sont retenus par la barrière anti-rafale."""
+        perimetre = await _controle(user)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        reglages = reglages_barriere(s)
+        resultat = await lister_retenus(db, perimetre)
+        resultat["barriere_active"] = reglages is not None
+        resultat["seuil"] = (reglages or {}).get("seuil")
+        return resultat
+
+    @api.post("/liluvine/messages-bloques/liberer", tags=["Liluvine — messages bloqués"])
+    async def liberer(numero: str, user: dict = Depends(get_current_user)):
+        """« Remettre dans la conversation » les messages retenus d'un numéro."""
+        perimetre = await _controle(user)
+        if len(_chiffres(numero)) < 8:
+            raise HTTPException(status_code=422, detail="Numéro trop court (8 chiffres au moins)")
+        n = await liberer_numero(db, perimetre, numero, user.get("full_name") or user.get("email") or "")
+        return {"ok": True, "liberes": n}

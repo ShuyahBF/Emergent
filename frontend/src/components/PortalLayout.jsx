@@ -59,6 +59,8 @@ const clientLinks = [
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
   // Lot 70 — agenda d'appels de Liluvine (superviseurs ; l'administrateur l'a dans son menu)
   { to: "/portal/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, adminOrSup: true, groupe: "liluvine", partage: "agenda" },
+  // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
+  { to: "/portal/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, adminOrSup: true, groupe: "liluvine", partage: "bloques" },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
   // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
   { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
@@ -149,6 +151,8 @@ const adminLinks = [
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   // Lot 70 — appels sortants planifiés de Liluvine (relances, prospection, anniversaires…)
   { to: "/admin/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, groupe: "liluvine", partage: "agenda" },
+  // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
+  { to: "/admin/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, groupe: "liluvine", partage: "bloques" },
   // Lot 73 — Liluvine PRO (assistant) accessible aussi depuis le menu Liluvine de l'administration
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, groupe: "liluvine", partage: "pro" },
   { to: "/admin/automations", label: "Automations", icon: Zap },

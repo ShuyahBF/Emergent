@@ -15,6 +15,7 @@ import OcrDashboard from "@/components/ocr-core/OcrDashboard";
 import StarRating from "@/components/ocr-core/StarRating";
 import { displayValue, errorMessage, formatXof, shortModel } from "@/components/ocr-core/format";
 import { estPhoto, reduirePhoto, triNaturel } from "@/lib/photos";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 /*
   Portail / Admin → « OCR sur Pièces » (lot 2026-09).
@@ -268,7 +269,7 @@ export default function OcrPieces() {
   const analysing = useMemo(() => pieces.some((p) => p.status === "en_analyse"), [pieces]);
   useEffect(() => {
     if (!analysing) return undefined;
-    const t = setInterval(loadPieces, 4000);
+    const t = setInterval(siVisible(loadPieces), 4000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(t);
   }, [analysing, loadPieces]);
 

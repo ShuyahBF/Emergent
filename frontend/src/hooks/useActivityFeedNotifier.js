@@ -13,7 +13,9 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
-const POLL_MS = 8000;
+// Lot 79.6 — 15 s au lieu de 8 s (bande passante Render) ; onglet masqué : pas de lecture,
+// les événements manqués s'affichent au retour (curseur « since » conservé)
+const POLL_MS = 15000;
 const STORAGE_KEY = "sawali_activity_since";
 
 const KIND_LABELS = {
@@ -48,6 +50,11 @@ export function useActivityFeedNotifier(enabled = true) {
     let timer = null;
 
     const tick = async () => {
+      // Lot 79.6 — onglet masqué : on saute ce tour (rien n'est perdu, le curseur reste en place)
+      if (typeof document !== "undefined" && document.hidden) {
+        if (!cancelled) timer = setTimeout(tick, POLL_MS);
+        return;
+      }
       try {
         const params = sinceRef.current ? { since: sinceRef.current } : {};
         const r = await apiClient.get("/me/recent-activity", { params });

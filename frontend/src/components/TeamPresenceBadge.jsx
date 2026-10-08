@@ -12,6 +12,7 @@
  */
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -33,7 +34,7 @@ export default function TeamPresenceBadge({ tone = "light", compact = false, cla
       }
     };
     fetchPresence();
-    const t = setInterval(fetchPresence, 30000);
+    const t = setInterval(siVisible(fetchPresence), 30000);   // lot 79.6 : relecture en pause onglet masqué
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 

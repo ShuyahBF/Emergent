@@ -92,7 +92,7 @@ const NEW_LOTS = {
   "⚡ Santé du serveur — blocages": "71.1",
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
-  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "63",
+  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "79.6",   // lot 79.6 : écran « Messages bloqués »
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
   "Transmission WA Universelle Liluvine (webhook entrant)": "62",
@@ -118,7 +118,7 @@ const NEW_SECTIONS = {
   "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
   "📊 Historique des appels de Liluvine (durée et coût)": "2026-10-06",
   // Lots 59 à 63 (05-06/10/2026) — numéros WhatsApp multiples, appels, liste noire, barrière, plateformes
-  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-06",
+  "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-08",   // lot 79.6
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
   "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-06",

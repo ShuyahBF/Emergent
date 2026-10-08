@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Headphones } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 /*
   Public Support Load Gauge — sticky top banner, centered, displays 7 bars
@@ -46,7 +47,7 @@ export default function SupportLoadGauge({ inline = false }) {
       } catch { /* silent — keep last known state */ }
     };
     load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(siVisible(load), 60000);   // lot 79.6 : relecture en pause onglet masqué
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 

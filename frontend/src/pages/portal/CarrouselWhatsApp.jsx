@@ -20,6 +20,7 @@ import QRCode from "qrcode";                                  // lot 79 : QR cod
 import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle (partage réservé admin / superviseur)
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const erreur = (e, defaut) => {
   const d = e?.response?.data?.detail;
@@ -402,7 +403,7 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
   useEffect(() => {
     if (!enAttente) return undefined;
     let n = 0;
-    const t = setInterval(() => { n += 1; if (n > 30) clearInterval(t); else charger(true); }, 60000);
+    const t = setInterval(() => { n += 1; if (n > 30) clearInterval(t); else if (pageVisible()) charger(true); }, 60000);   // lot 79.6 : pas de relecture onglet masqué
     return () => clearInterval(t);
   }, [enAttente, charger]);
 

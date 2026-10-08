@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 /*
   État de connexion + version du déploiement (page de connexion et barre latérale).
@@ -100,8 +101,8 @@ export default function EtatConnexion({ tone = "light", className = "", compact 
   useEffect(() => {
     verifier();
     lireVersion();
-    const t1 = setInterval(verifier, INTERVALLE_MS);
-    const t2 = setInterval(lireVersion, 5 * 60 * 1000);
+    const t1 = setInterval(siVisible(verifier), INTERVALLE_MS);   // lot 79.6 : relecture en pause onglet masqué
+    const t2 = setInterval(siVisible(lireVersion), 5 * 60 * 1000);
     window.addEventListener("online", verifier);
     window.addEventListener("offline", verifier);
     return () => {

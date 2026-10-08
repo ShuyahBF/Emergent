@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Eye, Clock, TrendingUp } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const fmtDate = (d) => d.toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 const fmtTime = (d) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -36,8 +37,8 @@ export default function HomeStatsTicker() {
         .then((r) => setTrend(Array.isArray(r.data?.days) ? r.data.days : []))
         .catch(() => {});
     const t0 = setTimeout(() => { fetchCount(); fetchTrend(); }, 800);
-    const tCount = setInterval(fetchCount, 30000);
-    const tTrend = setInterval(fetchTrend, 60000);
+    const tCount = setInterval(siVisible(fetchCount), 30000);   // lot 79.6 : relecture en pause onglet masqué
+    const tTrend = setInterval(siVisible(fetchTrend), 60000);
     return () => { clearTimeout(t0); clearInterval(tCount); clearInterval(tTrend); };
   }, []);
 

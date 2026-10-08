@@ -9,6 +9,7 @@ import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import ComptesTestPanel from "@/pages/admin/sections/ComptesTestPanel";
 // Lot 55 — dernière connexion, adresse IP et historique des connexions (blocage / autorisation d'IP)
 import HistoriqueConnexionsDialog, { dateHeureOuaga, BadgeIp, SitesBloquesDialog } from "@/pages/admin/sections/HistoriqueConnexionsDialog";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"];
 // Lot 54 — pastille de présence (seuils définis côté serveur : routes/presence_utilisateurs.py)
@@ -106,7 +107,7 @@ export default function AdminTrackedUsers() {
       .then((r) => { if (actif) setPresence(r.data?.items || {}); })
       .catch(() => {});
     lire();
-    const t = setInterval(lire, RAFRAICHISSEMENT_PRESENCE_MS);
+    const t = setInterval(siVisible(lire), RAFRAICHISSEMENT_PRESENCE_MS);   // lot 79.6 : relecture en pause onglet masqué
     return () => { actif = false; clearInterval(t); };
   }, []);
   useEffect(() => {

@@ -12,6 +12,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient } from "@/lib/api";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const INTERVALLE_MS = 60000;
 const CLE_STOCKAGE = "sawali_veille_stats_plateformes";
@@ -139,7 +140,7 @@ export default function VeilleStatsPlateformes() {
     window.addEventListener("sawali:test-bulle-stats", surTest);
 
     lire();
-    const t = setInterval(lire, INTERVALLE_MS);
+    const t = setInterval(siVisible(lire), INTERVALLE_MS);   // lot 79.6 : relecture en pause onglet masqué
     const surRetour = () => { if (!document.hidden) lire(); };
     document.addEventListener("visibilitychange", surRetour);
     return () => {

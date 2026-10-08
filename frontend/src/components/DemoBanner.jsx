@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { AlertTriangle, Clock, X } from "lucide-react";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 /**
  * Iter35h — DemoBanner.
@@ -41,7 +42,7 @@ export default function DemoBanner() {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 60_000); // 1 min
+    const id = setInterval(siVisible(load), 60_000);   // lot 79.6 : relecture en pause onglet masqué ; // 1 min
     return () => clearInterval(id);
   }, []);
 

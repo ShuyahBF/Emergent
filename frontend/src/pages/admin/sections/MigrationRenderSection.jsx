@@ -305,16 +305,17 @@ const MigrationRenderSection = () => {
   }, []);
   useEffect(() => { charger(); }, [charger]);
 
-  // Suivi en direct d'une sauvegarde (toutes les 3 s tant qu'elle tourne)
+  // Suivi en direct d'une sauvegarde (toutes les 8 s tant qu'elle tourne)
   const suivre = useCallback(async (id) => {
     clearTimeout(minuterie.current);
     try {
       const { data } = await apiClient.get(`/admin/migration/jobs/${id}`);
       setJob(data);
-      if (data.statut === "EN_COURS") minuterie.current = setTimeout(() => suivre(id), 3000);
+      // Lot 79.6 — toutes les 8 s (au lieu de 3) : la réponse contient tout le journal de la sauvegarde
+      if (data.statut === "EN_COURS") minuterie.current = setTimeout(() => suivre(id), 8000);
       else charger();
     } catch {
-      minuterie.current = setTimeout(() => suivre(id), 5000);
+      minuterie.current = setTimeout(() => suivre(id), 10000);
     }
   }, [charger]);
   useEffect(() => () => clearTimeout(minuterie.current), []);

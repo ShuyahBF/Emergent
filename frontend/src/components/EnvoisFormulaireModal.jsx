@@ -13,6 +13,7 @@ import { apiClient } from "@/lib/api";
 import SurveySendModal from "@/components/SurveySendModal";
 import SuiviEnvois, { STATUTS_ENVOI } from "@/components/SuiviEnvois";
 import { dateHeure } from "@/components/EnvoiProgrammation";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 export default function EnvoisFormulaireModal({ form, onClose }) {
   const [envois, setEnvois] = useState([]);
@@ -28,7 +29,7 @@ export default function EnvoisFormulaireModal({ form, onClose }) {
   const enCours = envois.some((e) => e.status === "running");
   useEffect(() => {
     if (!enCours) return undefined;
-    const t = setInterval(charger, 4000);
+    const t = setInterval(siVisible(charger), 4000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(t);
   }, [enCours, charger]);
 

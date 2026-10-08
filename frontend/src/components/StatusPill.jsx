@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
+import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -22,7 +23,7 @@ export default function StatusPill() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(siVisible(load), 60000);   // lot 79.6 : relecture en pause onglet masqué
     return () => clearInterval(t);
   }, []);
 

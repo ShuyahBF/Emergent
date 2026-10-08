@@ -20,7 +20,7 @@ import TicketsBubble from "@/components/TicketsBubble";
 import AppelsWhatsApp from "@/components/AppelsWhatsApp";   // Lot 60
 import VeilleStatsPlateformes from "@/components/VeilleStatsPlateformes";   // Lot 64.9
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
-import JaugeAtlasSidebar from "@/components/JaugeAtlasSidebar";   // Lot 79.9 : jauge Atlas (administrateur)
+import { useMesureAtlas, PastilleAtlas, DetailAtlas } from "@/components/JaugeAtlasSidebar";   // Lots 79.9 / 79.10 : jauge Atlas (administrateur)
 import AlertesAppelsLiluvine from "@/components/AlertesAppelsLiluvine";   // Lot 72 : toast persistant « Liluvine appelle … »
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
@@ -207,9 +207,9 @@ const adminLinks = [
   // Portage site-meetafrican — Suivi des logs VIDAL (appels API réels + sync référentiel)
   { to: "/admin/vidal-logs", label: "Suivi des logs VIDAL", icon: History, adminOrSup: true },
   // Lot 63 — activité des plateformes (adLyn, Ster, beAuthentik…) en temps réel
-  { to: "/admin/plateformes-temps-reel", label: "Plateformes (temps réel)", icon: Activity, adminOnly: true },
+  { to: "/admin/plateformes-temps-reel", label: "Temps réel", icon: Activity, adminOnly: true, groupe: "plateformes" },   // lot 79.10 : groupe « Plateformes »
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
-  { to: "/admin/loois-synchro", label: "Plateformes → Loois → Synchro", icon: Database, adminOnly: true },
+  { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 
@@ -246,6 +246,14 @@ function PortalLayoutInner({ admin = false }) {
   const [liluvineOuvert, setLiluvineOuvert] = useState(() => {
     try { return localStorage.getItem("sawali.menu.liluvine") === "1"; } catch { return false; }
   });
+  // Lot 79.10 — groupe « Plateformes » (temps réel, Loois → Synchro) dépliable comme « Liluvine »
+  const [plateformesOuvert, setPlateformesOuvert] = useState(() => {
+    try { return localStorage.getItem("sawali.menu.plateformes") === "1"; } catch { return false; }
+  });
+  // Lot 79.10 — bas de la barre latérale compact : panneau déplié (null, "atlas" ou "reglages")
+  const [panneauBas, setPanneauBas] = useState(null);
+  // Lot 79.10 — mesure Atlas lue seulement pour l'administrateur (pastille + détail du bas de la barre latérale)
+  const mesureAtlas = useMesureAtlas(user?.role === "admin");
   // Lot 41 — nouvelles données reçues : soumissions de formulaires (bulle verte) et
   // réponses aux sondages (bulle bleue), depuis la dernière consultation de chacun.
   const [fsNouveautes, setFsNouveautes] = useState({ formulaires: 0, sondages: 0 });
@@ -690,33 +698,40 @@ function PortalLayoutInner({ admin = false }) {
   // Lot 73 — « le menu de la barre latérale est devenu trop complexe » : tout ce qui concerne Liluvine est
   // regroupé dans UNE entrée « Liluvine » dépliable (placée là où apparaissait le premier élément du groupe).
   // Le groupe s'ouvre seul quand la page affichée en fait partie ; sinon il garde le dernier choix (navigateur).
-  const basculerLiluvine = () => setLiluvineOuvert((avant) => {
-    try { localStorage.setItem("sawali.menu.liluvine", avant ? "0" : "1"); } catch { /* ignore */ }
+  // Lot 79.10 — même principe pour « Plateformes » : un seul code dessine tous les groupes dépliables.
+  const GROUPES = {
+    liluvine: { libelle: "Liluvine", icone: Bot, ouvert: liluvineOuvert, cle: "sawali.menu.liluvine", changer: setLiluvineOuvert },
+    plateformes: { libelle: "Plateformes", icone: Globe2, ouvert: plateformesOuvert, cle: "sawali.menu.plateformes", changer: setPlateformesOuvert },
+  };
+  const basculerGroupe = (g) => GROUPES[g].changer((avant) => {
+    try { localStorage.setItem(GROUPES[g].cle, avant ? "0" : "1"); } catch { /* ignore */ }
     return !avant;
   });
   const rendreMenu = (liste, rendreLien) => {
-    const enfants = liste.filter((l) => l.groupe === "liluvine");
     const sortie = [];
-    let groupePlace = false;
+    const places = new Set();          // groupes déjà dessinés (à la place de leur premier élément)
     liste.forEach((l) => {
-      if (l.groupe !== "liluvine") { sortie.push(rendreLien(l)); return; }
-      if (groupePlace) return;
-      groupePlace = true;
+      const g = l.groupe && GROUPES[l.groupe] ? l.groupe : null;
+      if (!g) { sortie.push(rendreLien(l)); return; }
+      if (places.has(g)) return;
+      places.add(g);
+      const enfants = liste.filter((e) => e.groupe === g);
       if (enfants.length === 1) { sortie.push(rendreLien(enfants[0])); return; }   // un seul élément : pas de groupe
+      const { libelle, icone: Icone } = GROUPES[g];
       const actif = enfants.some((e) => location.pathname === e.to || location.pathname.startsWith(e.to + "/"));
-      const ouvert = liluvineOuvert || actif;
+      const ouvert = GROUPES[g].ouvert || actif;
       sortie.push(
-        <div key="groupe-liluvine" data-testid="sidebar-groupe-liluvine">
-          <button type="button" onClick={basculerLiluvine} aria-expanded={ouvert}
+        <div key={`groupe-${g}`} data-testid={`sidebar-groupe-${g}`}>
+          <button type="button" onClick={() => basculerGroupe(g)} aria-expanded={ouvert}
             className={`sidebar-link w-full ${actif && !ouvert ? "active" : ""} group`}
-            title={ouvert ? "Replier le menu Liluvine" : "Déplier le menu Liluvine"}>
-            <Bot className="h-4 w-4" />
-            <span className="flex-1 truncate text-left">Liluvine</span>
+            title={ouvert ? `Replier le menu ${libelle}` : `Déplier le menu ${libelle}`}>
+            <Icone className="h-4 w-4" />
+            <span className="flex-1 truncate text-left">{libelle}</span>
             <span className="text-[10px] text-slate-400">{enfants.length}</span>
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
           </button>
           {ouvert && (
-            <div className="ml-3 mt-1 space-y-1 border-l border-white/10 pl-2" data-testid="sidebar-groupe-liluvine-liens">
+            <div className="ml-3 mt-1 space-y-1 border-l border-white/10 pl-2" data-testid={`sidebar-groupe-${g}-liens`}>
               {enfants.map(rendreLien)}
             </div>
           )}
@@ -921,6 +936,9 @@ function PortalLayoutInner({ admin = false }) {
           <p className="text-xs text-sawali-blue-light truncate">{user.email}</p>
           <p className="text-[10px] text-slate-500 mt-0.5 group-hover:text-slate-300 transition">→ Voir mon compte</p>
         </NavLink>
+        {/* Lot 79.10 — bas de la barre latérale COMPACT : une seule ligne d'icônes toujours visible
+            (Notif · Son · Base Atlas pour l'administrateur · Réglages) ; un clic sur Base Atlas ou Réglages
+            déplie son détail juste en dessous (un seul panneau ouvert à la fois). Rien n'a été retiré. */}
         <div className="px-3 py-2 mt-1 rounded-lg bg-white/5 ring-1 ring-white/10 space-y-1.5" data-testid="wa-notifier-controls">
           <p className="text-[10px] uppercase tracking-wider text-slate-400 inline-flex items-center gap-1.5">
             <Bell className="h-3 w-3" /> Alerte WhatsApp
@@ -950,14 +968,19 @@ function PortalLayoutInner({ admin = false }) {
               {!waNotifier.soundAllowedByAdmin || !waNotifier.soundOn ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
               {!waNotifier.soundAllowedByAdmin ? "Bloqué" : (waNotifier.soundOn ? "Son" : "Muet")}
             </button>
+            {/* Base Atlas (administrateur) : pastille couleur + % */}
+            {user?.role === "admin" && (
+              <PastilleAtlas mesure={mesureAtlas} ouvert={panneauBas === "atlas"}
+                onClick={() => setPanneauBas((p) => (p === "atlas" ? null : "atlas"))} />
+            )}
+            {/* Réglages : préférences de son, mode sombre, notes VIDAL */}
+            <button type="button" onClick={() => setPanneauBas((p) => (p === "reglages" ? null : "reglages"))}
+              aria-expanded={panneauBas === "reglages"}
+              className={`inline-flex items-center justify-center text-[10px] rounded px-1.5 py-1 ring-1 transition-colors ${panneauBas === "reglages" ? "bg-white/15 text-white ring-white/30" : "bg-white/5 text-slate-300 ring-white/10 hover:bg-white/10"}`}
+              title="Réglages : préférences de son, mode sombre, notes VIDAL" data-testid="bouton-reglages-bas">
+              <Settings className="h-3 w-3" />
+            </button>
           </div>
-          {waNotifier.soundAllowedByAdmin && waNotifier.soundOn && (
-            <WaSoundPreferences
-              adminDefaults={waNotifier.soundAdminDefaults}
-              disabled={false}
-              onChange={waNotifier.refreshSoundConfig}
-            />
-          )}
           {waNotifier.permission === "default" && waNotifier.desktopOn && (
             <button
               onClick={waNotifier.requestPermission}
@@ -967,15 +990,20 @@ function PortalLayoutInner({ admin = false }) {
               Autoriser les notifications
             </button>
           )}
-        </div>
-
-        {/* Lot 79.9 — jauge des collections du cluster Atlas (administrateur), sous « Alerte WhatsApp » */}
-        {user?.role === "admin" && <JaugeAtlasSidebar />}
-
-        {/* Portage site-meetafrican — Réglages : thème (tous) + Notes VIDAL
-            admin (admin/superviseur uniquement). */}
-        <div className="px-3 py-2 mt-1 rounded-lg bg-white/5 ring-1 ring-white/10 space-y-1.5" data-testid="portal-ui-settings">
-          <p className="text-[10px] uppercase tracking-wider text-slate-400">Réglages</p>
+          {/* Panneau déplié : détail de la base Atlas */}
+          {panneauBas === "atlas" && user?.role === "admin" && (
+            <div className="pt-1.5 border-t border-white/10"><DetailAtlas mesure={mesureAtlas} /></div>
+          )}
+          {/* Panneau déplié : réglages */}
+          {panneauBas === "reglages" && (
+            <div className="pt-1.5 border-t border-white/10 space-y-1.5" data-testid="portal-ui-settings">
+          {waNotifier.soundAllowedByAdmin && waNotifier.soundOn && (
+            <WaSoundPreferences
+              adminDefaults={waNotifier.soundAdminDefaults}
+              disabled={false}
+              onChange={waNotifier.refreshSoundConfig}
+            />
+          )}
           <button
             type="button"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -1005,6 +1033,8 @@ function PortalLayoutInner({ admin = false }) {
                 <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${vidalAdminNotes ? "translate-x-[14px]" : ""}`} />
               </span>
             </button>
+          )}
+            </div>
           )}
         </div>
 

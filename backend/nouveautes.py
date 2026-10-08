@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82.4", "date": "2026-10-08",
+        "titre": "🧩 Contrats : un contrat par plateforme",
+        "description": "Chaque plateforme garde son propre contrat, même si plusieurs sont rattachées au même client SAWALI (ALBARKA et Ster ne s'écrasent plus).",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "82.3", "date": "2026-10-08",
         "titre": "📅 Contrats : la date de début ne déplace plus l'échéance",
         "description": "Modifier le début du contrat garde l'échéance saisie ; seule une durée en jours recalcule l'échéance.",

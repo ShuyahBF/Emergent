@@ -42,7 +42,59 @@ function Jauge({ total, limite, seuil, niveau }) {
   );
 }
 
+// Lot 85 — contenu d'une base (collections + documents) et suppression d'une base OBSOLÈTE, nom à retaper.
+// Les bases en service (SAWALI, ALBARKA, Ster, adLyn…) sont protégées par le serveur.
+function DetailBase({ nom, onSupprimee }) {
+  const [detail, setDetail] = useState(null);
+  const [saisie, setSaisie] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    apiClient.get(`/admin/atlas/bases/${encodeURIComponent(nom)}`).then((r) => setDetail(r.data))
+      .catch((e) => setMessage(e?.response?.data?.detail || "Contenu illisible"));
+  }, [nom]);
+  const supprimer = async () => {
+    setEnCours(true); setMessage("Patientez…");
+    try {
+      const r = await apiClient.post(`/admin/atlas/bases/${encodeURIComponent(nom)}/supprimer`, { confirmation: saisie });
+      setMessage(`Base supprimée : ${r.data.collections_liberees} collections libérées.`);
+      onSupprimee(r.data.mesure);
+    } catch (e) {
+      setMessage(e?.response?.data?.detail || "Suppression impossible");
+    } finally { setEnCours(false); }
+  };
+  if (!detail) return <p className="text-xs text-slate-500 pl-2">{message || "Patientez…"}</p>;
+  return (
+    <div className="ml-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs" data-testid={`detail-base-${nom}`}>
+      <p><b>{detail.collections.length}</b> collections · <b>{detail.documents.toLocaleString("fr-FR")}</b> documents au total</p>
+      <div className="max-h-48 overflow-y-auto">
+        <table className="w-full">
+          <tbody>
+            {detail.collections.map((c) => (
+              <tr key={c.nom} className="border-t border-slate-200"><td className="py-0.5 font-mono">{c.nom}</td>
+                <td className="text-right tabular-nums">{c.documents ?? "?"}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {detail.protegee ? (
+        <p className="text-slate-600">🔒 Base en service : elle ne peut pas être supprimée.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2">
+          <span className="text-red-700">Supprimer définitivement cette base : retapez son nom</span>
+          <input value={saisie} onChange={(e) => setSaisie(e.target.value)} placeholder={nom}
+            className="w-40 rounded border border-slate-300 px-2 py-1 font-mono" />
+          <button type="button" disabled={enCours || saisie !== nom} onClick={supprimer}
+            className="rounded bg-red-600 px-2 py-1 font-semibold text-white disabled:opacity-40">Supprimer la base</button>
+        </div>
+      )}
+      {message && <p className="text-slate-700">{message}</p>}
+    </div>
+  );
+}
+
 export default function QuotaAtlasSection({ reglages, maj }) {
+  const [ouverte, setOuverte] = useState(null);   // lot 85 : base dont on affiche le contenu
   const [mesure, setMesure] = useState(null);
   const [erreur, setErreur] = useState("");
 
@@ -87,7 +139,8 @@ export default function QuotaAtlasSection({ reglages, maj }) {
       {/* Détail par base : barres proportionnelles */}
       <div className="space-y-1.5" data-testid="bases-atlas">
         {mesure.bases.map((b) => (
-          <div key={b.nom} className="grid grid-cols-[9rem_1fr_3rem] items-center gap-2 text-xs">
+          <React.Fragment key={b.nom}>
+          <div className="grid grid-cols-[9rem_1fr_3rem_4rem] items-center gap-2 text-xs">
             <span className={`truncate ${b.sawali ? "font-semibold text-slate-900" : "text-slate-600"}`} title={b.nom}>
               {b.nom}{b.sawali ? " (SAWALI)" : ""}
             </span>
@@ -96,7 +149,12 @@ export default function QuotaAtlasSection({ reglages, maj }) {
                 background: b.sawali ? "#1d4ed8" : "#94a3b8" }} />
             </span>
             <span className="text-right tabular-nums text-slate-700">{b.collections}</span>
+            {/* Lot 85 : voir le contenu (et supprimer une base obsolète) */}
+            <button type="button" onClick={() => setOuverte(ouverte === b.nom ? null : b.nom)}
+              className="rounded border border-slate-300 px-1.5 py-0.5 hover:bg-slate-50">{ouverte === b.nom ? "Fermer" : "Contenu"}</button>
           </div>
+          {ouverte === b.nom && <DetailBase nom={b.nom} onSupprimee={(m) => { setOuverte(null); if (m) setMesure(m); }} />}
+          </React.Fragment>
         ))}
       </div>
 

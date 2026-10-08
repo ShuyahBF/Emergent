@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "85", "date": "2026-10-08",
+        "titre": "🗑️ Base Atlas : contenu des bases et purge d'une base obsolète",
+        "description": "Bouton « Contenu » sur chaque base (collections et documents) ; une base obsolète (ex. smartsystems) peut être supprimée en retapant son nom.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "84", "date": "2026-10-08",
         "titre": "🔕 Transmission WA : réponses des clients transmises ou non, par plateforme",
         "description": "Pour chaque plateforme (ALBARKA, Ster…), choisissez si les réponses de ses clients lui sont transmises ; sinon ses messages portent « merci de ne pas y répondre ».",

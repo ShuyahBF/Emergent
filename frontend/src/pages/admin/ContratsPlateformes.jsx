@@ -238,8 +238,10 @@ export default function ContratsPlateformes() {
                 {/* Lot 82 : services cochés, suspendus ou à suspendre */}
                 {(c.services_a_suspendre || []).length > 0 && (
                   <p className={`rounded-lg p-2 text-xs ${(c.services_suspendus || []).length ? "bg-rose-50 text-rose-800" : "bg-slate-50 text-slate-700"}`}>
-                    {(c.services_suspendus || []).length ? "⛔ Suspendus depuis le " : "Suspendus automatiquement à partir du "}
-                    <b>{jour(c.suspension_le)}</b> si le contrat n'est pas renouvelé :{" "}
+                    {/* Lot 82.2 : libellé selon l'état — déjà suspendus (échéance dépassée) ou suspension à venir */}
+                    {(c.services_suspendus || []).length
+                      ? <>⛔ Suspendus depuis le <b>{jour(c.suspension_le)}</b> (échéance du {jour(c.fin)} dépassée de plus de {c.alerte_apres_jours} jours) — repoussez l'échéance pour les rétablir :{" "}</>
+                      : <>Suspendus automatiquement à partir du <b>{jour(c.suspension_le)}</b> si le contrat n'est pas renouvelé :{" "}</>}
                     {c.services_a_suspendre.map((code) => catalogue.find((s) => s.code === code)?.libelle || code).join(", ")}
                   </p>
                 )}

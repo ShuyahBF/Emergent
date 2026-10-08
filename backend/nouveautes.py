@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82.2", "date": "2026-10-08",
+        "titre": "⛔ Contrats : services suspendus mieux signalés",
+        "description": "Quand des services sont déjà suspendus, la carte du contrat rappelle l'échéance dépassée et comment les rétablir.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "82.1", "date": "2026-10-08",
         "titre": "📅 Contrats : échéance calculée en jours",
         "description": "Tapez ou choisissez une durée (30, 90, 180, 365, 730 jours) : l'échéance du contrat est calculée depuis la date de début.",

@@ -783,6 +783,11 @@ export default function AdminSettings() {
       <SettingsToolbar />
       {/* Lot 64 — nouveautés de la semaine : cartes cliquables */}
       <CartesNouveautes />
+      {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) —
+          lot 79.8.1 : affichée juste sous la carte « Nouveautés », en haut de la page */}
+      <Filterable title="🗄️ Base Atlas — collections du cluster" anchorId="s-quota-atlas" category="diagnostics">
+        <QuotaAtlasSection reglages={s} maj={upd} />
+      </Filterable>
       {/* Lot 64.1 — bulles flottantes : haut / bas de la page */}
       <BullesDefilement />
       {/* Lot 49 — alerte si la sauvegarde automatique hors serveur est désactivée ou trop ancienne */}
@@ -1223,10 +1228,6 @@ export default function AdminSettings() {
       </Filterable>
 
       {/* Lot 71.3 — santé du serveur : blocages notés par la sentinelle (lots 71.1 et 71.2) */}
-      {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) */}
-      <Filterable title="🗄️ Base Atlas — collections du cluster" anchorId="s-quota-atlas" category="diagnostics">
-        <QuotaAtlasSection reglages={s} maj={upd} />
-      </Filterable>
       <Filterable title="⚡ Santé du serveur — blocages" anchorId="s-sante-serveur" category="diagnostics">
         <SanteServeurSection />
       </Filterable>

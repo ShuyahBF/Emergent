@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "83", "date": "2026-10-08",
+        "titre": "↪ Transmission WA : seules les réponses citées vont à la plateforme",
+        "description": "Seule une réponse faite avec « Répondre » sur le message d'ALBARKA, Ster… lui est transmise ; elle reste dans SAWALI avec l'étiquette « Relayé à … ».",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "82.5", "date": "2026-10-08",
         "titre": "🧩 Contrats : services suspendables propres à chaque plateforme",
         "description": "Chaque plateforme (ALBARKA, Ster…) déclare elle-même les services qu'elle sait suspendre ; le contrat n'affiche que les siens.",

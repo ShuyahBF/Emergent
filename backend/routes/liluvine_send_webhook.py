@@ -58,6 +58,12 @@ LONGUEUR_MAX_TEXTE = 4096        # message texte libre
 LONGUEUR_MAX_MODELE = 900        # message passé en variable du modèle (limite Meta ~1 024 avec le gabarit)
 
 
+
+def _aide_reponse(source: str) -> str:
+    """Lot 83 : rappel ajouté sous les messages des plateformes — seule une réponse faite avec
+    « Répondre » sur CE message est transmise à la plateforme (les autres messages restent à SAWALI)."""
+    return f"\n\n↩️ Pour répondre à {source}, faites « Répondre » sur ce message."
+
 class LiluvineSendPayload(BaseModel):
     message: str
     to: Optional[str] = None       # numéro WhatsApp du destinataire (facultatif en ancien mode)
@@ -194,7 +200,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             # a) média direct (dans la fenêtre de 24 h)
             if wa_send_media:
                 result = await wa_send_media(destinataire, type_media, public_url=lien,
-                                             caption=f"📨 {source} — {quand}\n{legende}" if code else legende,
+                                             caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source)}" if code else legende,
                                              filename=nom_fichier if type_media == "document" else None)
                 if result.get("ok"):
                     media_mode = "direct"
@@ -228,7 +234,8 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             ]}]
             result = await wa_send_template(destinataire, modele, langue, composants)
         else:
-            result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}" if code else message)
+            result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source)}"
+                                        if code else message)
 
         # 8) Journal (sans le texte du message)
         try:

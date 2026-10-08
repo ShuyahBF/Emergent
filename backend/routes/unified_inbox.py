@@ -382,7 +382,8 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                  # 2026-02 fork (Delete WA) — surface recall + timing metadata
                  "is_recalled": 1, "recalled_at": 1, "sent_at": 1,
                  "delivered_at": 1, "read_at": 1,
-                 "wa_numero_id": 1},   # Lot 59.1 — numéro SAWALI qui a reçu le message
+                 "wa_numero_id": 1,   # Lot 59.1 — numéro SAWALI qui a reçu le message
+                 "relaye_a": 1},      # Lot 83 — réponse relayée à une plateforme (ALBARKA…)
             ).sort("created_at", -1).limit(limit).to_list(limit)))
             # Lot 59.1 — pastille de la ligne WhatsApp sur chaque message reçu
             from routes.numeros_wa import annoter_messages
@@ -401,6 +402,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "ai_generated": bool(m.get("ai_generated")),
                     "ai_source": m.get("ai_source"),
                     "wa_ligne": m.get("wa_ligne"),   # Lot 59.1 — pastille de la ligne (messages reçus)
+                    "relaye_a": m.get("relaye_a"),   # Lot 83 — « Relayé à ALBARKA »
                     # 2026-02 fork (Delete WA)
                     "is_recalled": bool(m.get("is_recalled")),
                     "recalled_at": m.get("recalled_at"),

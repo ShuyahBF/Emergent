@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "85.1", "date": "2026-10-08",
+        "titre": "🗑️ Base Atlas : purge collection par collection",
+        "description": "La purge d'une base obsolète supprime ses collections une à une (le compte Atlas n'a pas le droit de supprimer une base entière).",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "85", "date": "2026-10-08",
         "titre": "🗑️ Base Atlas : contenu des bases et purge d'une base obsolète",
         "description": "Bouton « Contenu » sur chaque base (collections et documents) ; une base obsolète (ex. smartsystems) peut être supprimée en retapant son nom.",

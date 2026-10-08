@@ -57,7 +57,8 @@ function DetailBase({ nom, onSupprimee }) {
     setEnCours(true); setMessage("Patientez…");
     try {
       const r = await apiClient.post(`/admin/atlas/bases/${encodeURIComponent(nom)}/supprimer`, { confirmation: saisie });
-      setMessage(`Base supprimée : ${r.data.collections_liberees} collections libérées.`);
+      setMessage(`Base purgée : ${r.data.collections_liberees} collections libérées`
+        + ((r.data.refusees || []).length ? ` (${r.data.refusees.length} refusées : ${r.data.refusees.join(", ")})` : "") + ".");
       onSupprimee(r.data.mesure);
     } catch (e) {
       setMessage(e?.response?.data?.detail || "Suppression impossible");

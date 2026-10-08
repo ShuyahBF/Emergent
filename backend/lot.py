@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.7"
-LOT_LIBELLE = "Retards de paiement : un récapitulatif numéroté par jour, réponse « ok 1,2,5 » pour relancer les clients choisis ; appels de Liluvine : son transmis mesuré au journal, ElevenLabs mis de côté si crédits épuisés"
+LOT = "79.8"
+LOT_LIBELLE = "Jauge des collections du cluster Atlas (limite 500) dans les Paramètres, alerte WhatsApp au-delà du seuil (450)"

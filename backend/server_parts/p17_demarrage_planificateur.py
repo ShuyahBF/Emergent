@@ -517,6 +517,18 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
     # Dispatch alerts (idempotent per-day).
     dispatched = 0
     recipient_email = (settings_doc.get("health_email_to") or SUPER_ADMIN_EMAIL or "").strip().lower()
+    # Lot 79.7 — mode des alertes : « recap » (défaut) = UN message numéroté au propriétaire, qui répond
+    # « ok 1,2,5 » pour relancer ces clients ; « detail » = ancien envoi (un message par client) ; « off » = rien.
+    from routes import retards_paiement as _retards
+    _mode_alertes = _retards.mode_alertes(settings_doc)
+    if _mode_alertes != "detail":
+        recap = None
+        if _mode_alertes == "recap":
+            recap = await _retards.envoyer_recap(db, settings_doc, overdue_tenants, envoyer_email=send_email,
+                                                 email_proprio=recipient_email)
+        return {"scanned": len(overdue_tenants), "dispatched": 1 if (recap or {}).get("envoye") else 0,
+                "mode": _mode_alertes, "recap": recap, "threshold_default": default_threshold,
+                "suspended": len(suspended_tenants), "suspended_details": suspended_tenants}
     for tenant in overdue_tenants:
         alert_key = f"{tenant['id']}::{today.isoformat()}"
         try:

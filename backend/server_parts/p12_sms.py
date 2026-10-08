@@ -1774,6 +1774,18 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue
                         except Exception:  # noqa: BLE001
                             logger.warning("[linkedin.autopost] WA reply hook failed", exc_info=True)
+                        # Lot 79.7 — réponse du propriétaire au récapitulatif des retards de paiement
+                        # (« ok 1,2,5 » / « ok tous ») : relance des clients choisis, confirmation, puis fin.
+                        try:
+                            from routes.retards_paiement import traiter_reponse as _retards_reponse
+                            s_retards = await db.settings.find_one({"_id": "global"}) or {}
+                            confirmation = await _retards_reponse(db, s_retards, digits_only, text_body,
+                                                                  envoyer_email=send_email)
+                            if confirmation:
+                                await _wa_send_text(from_num, confirmation)
+                                continue
+                        except Exception:  # noqa: BLE001 — ne bloque jamais la réception
+                            logger.warning("[retards] réponse « ok » non traitée", exc_info=True)
                         # Lot 79 — accord WhatsApp donné ou retiré par la personne elle-même
                         # (« OUI NOUVEAUTES » via le lien / QR code, ou « STOP ») : noté, confirmé, puis fin.
                         # Placé APRÈS le cockpit admin et la validation LinkedIn (qui ont leur propre « STOP »).

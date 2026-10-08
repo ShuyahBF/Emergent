@@ -389,3 +389,41 @@ def creer_piste_voix(prechargement_ms: int = PRECHARGEMENT_MS):
             return construire_trame(self.lecteur.prochaine_trame(), self.horloge.pts)
 
     return PisteVoix()
+
+
+# ---------------------------------------------------------------------------
+# Lot 79.7 — mesure du son RÉELLEMENT transmis pendant un appel (diagnostic « je décroche et elle ne dit rien »)
+# ---------------------------------------------------------------------------
+async def mesures_rtp(pc) -> dict:
+    """(boucle média) Paquets audio envoyés / reçus et état de la connexion d'un appel WebRTC.
+    → {"etat", "ice", "envoyes", "octets_envoyes", "recus", "octets_recus"} (jamais d'exception)."""
+    mesures = {"etat": getattr(pc, "connectionState", None), "ice": getattr(pc, "iceConnectionState", None),
+               "envoyes": 0, "octets_envoyes": 0, "recus": 0, "octets_recus": 0}
+    try:
+        rapport = await pc.getStats()
+        for stat in rapport.values():
+            if getattr(stat, "type", "") == "outbound-rtp":
+                mesures["envoyes"] += int(getattr(stat, "packetsSent", 0) or 0)
+                mesures["octets_envoyes"] += int(getattr(stat, "bytesSent", 0) or 0)
+            elif getattr(stat, "type", "") == "inbound-rtp":
+                mesures["recus"] += int(getattr(stat, "packetsReceived", 0) or 0)
+                mesures["octets_recus"] += int(getattr(stat, "bytesReceived", 0) or 0)
+    except Exception as exc:  # noqa: BLE001 — la mesure ne doit jamais gêner la fin d'appel
+        mesures["erreur"] = type(exc).__name__
+    return mesures
+
+
+async def fermer_avec_mesures(pc, etiquette: str) -> dict:
+    """(boucle média) Écrit au journal le son transmis pendant l'appel, puis ferme la connexion.
+    Lecture du journal : « envoyés 0 » = le serveur n'a rien émis ; « envoyés > 0, reçus 0 » = le son part
+    mais rien ne revient (réseau / TURN) ; les deux > 0 = le transport audio fonctionne."""
+    mesures = await mesures_rtp(pc)
+    logger.info("[appel-audio] %s : connexion=%s ice=%s · envoyés %s paquets (%s octets) · reçus %s paquets (%s octets)%s",
+                etiquette, mesures["etat"], mesures["ice"], mesures["envoyes"], mesures["octets_envoyes"],
+                mesures["recus"], mesures["octets_recus"],
+                f" · mesure impossible ({mesures['erreur']})" if mesures.get("erreur") else "")
+    try:
+        await pc.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return mesures

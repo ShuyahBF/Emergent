@@ -558,6 +558,17 @@ async def _voix_openai(texte: str, s: Dict[str, Any], cfg: Optional[Dict[str, An
     raise RuntimeError(erreur)
 
 
+# Lot 79.7 — crédits ElevenLabs épuisés (HTTP 402) ou clé refusée (401) : ElevenLabs est mis de côté pendant
+# une heure. Avant, CHAQUE phrase d'un appel retentait ElevenLabs avant de se replier : du temps perdu en ligne.
+PAUSE_ELEVENLABS_S = 3600
+_elevenlabs_en_pause: Dict[str, float] = {"jusqu_a": 0.0}
+
+
+def elevenlabs_en_pause() -> bool:
+    """Vrai si ElevenLabs a refusé récemment (crédits épuisés / clé refusée) : on passe à la voix suivante."""
+    return time.monotonic() < _elevenlabs_en_pause["jusqu_a"]
+
+
 async def _voix_elevenlabs(texte: str, cfg: Dict[str, Any]) -> bytes:
     """Synthèse ElevenLabs (voix choisie dans les réglages) en PCM 24 kHz (rendu en WAV).
     Lot 69.2 : modèle au choix, eleven_flash_v2_5 par défaut (le plus rapide pour le téléphone).
@@ -573,6 +584,13 @@ async def _voix_elevenlabs(texte: str, cfg: Dict[str, Any]) -> bytes:
         r = await http.post(f"https://api.elevenlabs.io/v1/text-to-speech/{cfg['voix_elevenlabs']}",
                             params={"output_format": f"pcm_{FREQUENCE_VOIX}"}, json=corps,
                             headers={"xi-api-key": cle})
+    if r.status_code in (401, 402):
+        # Crédits épuisés ou clé refusée : pause d'une heure, signalée une seule fois au journal
+        if not elevenlabs_en_pause():
+            logger.warning("[voix] ElevenLabs HTTP %s (%s) : voix ElevenLabs mise de côté pendant %d min, "
+                           "repli sur la voix suivante", r.status_code,
+                           "crédits épuisés" if r.status_code == 402 else "clé refusée", PAUSE_ELEVENLABS_S // 60)
+        _elevenlabs_en_pause["jusqu_a"] = time.monotonic() + PAUSE_ELEVENLABS_S
     if r.status_code >= 300 or not r.content:
         raise RuntimeError(f"ElevenLabs HTTP {r.status_code}")
     return _wav(r.content, FREQUENCE_VOIX)
@@ -628,6 +646,9 @@ async def synthetiser(texte: str, s: Dict[str, Any], cfg: Dict[str, Any]) -> Tup
     """Fabrique l'audio (WAV pour OpenAI / ElevenLabs, MP3 pour Google) du message ; renvoie (octets, fournisseur). Lève RuntimeError si tout échoue."""
     erreurs = []
     for f in fournisseurs_voix(s, cfg):
+        if f == "elevenlabs" and elevenlabs_en_pause():
+            erreurs.append("elevenlabs : en pause (crédits épuisés ou clé refusée)")   # lot 79.7
+            continue
         try:
             if f == "openai":
                 return await _voix_openai(texte, s, cfg), f
@@ -827,6 +848,8 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
                 return "failed"
             return "ok" if pc.connectionState == "connected" else None
         cnx = await _attendre(connecte, 12, 0.2)
+        logger.info("[appel_proprietaire] décroché : connexion audio %s (état %s)", cnx or "en attente",
+                    pc.connectionState)   # lot 79.7 : diagnostic
         if cnx != "ok":
             raison = ("connexion audio impossible (ICE/DTLS) — l'UDP sortant est peut-être bloqué "
                       "par l'hébergeur : configurez un serveur TURN (APPEL_TURN_URL)")
@@ -861,7 +884,9 @@ async def appeler_et_parler(db, s: Dict[str, Any], cfg: Dict[str, Any], *, numer
     finally:
         try:
             if pc is not None:
-                await sur_media(pc.close)
+                # Lot 79.7 — son réellement transmis (paquets envoyés / reçus) écrit au journal, puis fermeture
+                from routes.audio_appel import fermer_avec_mesures
+                await sur_media(lambda: fermer_avec_mesures(pc, "alerte propriétaire"))
         except Exception:  # noqa: BLE001
             pass
 

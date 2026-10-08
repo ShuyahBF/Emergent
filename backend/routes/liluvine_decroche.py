@@ -758,6 +758,7 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
 
         @connexion.on("connectionstatechange")
         async def sur_etat():
+            logger.info("[appel-audio] Liluvine décroche : connexion %s", connexion.connectionState)   # lot 79.7 : diagnostic
             if connexion.connectionState in ("failed", "closed"):
                 signaler_raccroche()
 
@@ -770,7 +771,9 @@ async def _decrocher_et_converser(db, call_id: str, *, attendre_s: float = 0) ->
         """(boucle média) Arrête l'écoute et ferme la connexion."""
         for t in lecteurs:
             t.cancel()
-        await pc.close()
+        # Lot 79.7 — son réellement transmis (paquets envoyés / reçus) écrit au journal, puis fermeture
+        from routes.audio_appel import fermer_avec_mesures
+        await fermer_avec_mesures(pc, "Liluvine décroche")
 
     pc = None
     try:

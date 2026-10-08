@@ -123,6 +123,13 @@ GARDE_COLLECTION = "migration_garde"
 MESSAGE_CIBLE_PRODUCTION = (
     "La base cible est la base en service du site : sauvegarde refusée (le mode « Remplacer » la viderait, "
     "et une copie sur elle-même ne protège rien). Indiquez un autre cluster Atlas ou un autre nom de base.")
+# Lot 79.12 — 08/10/2026 : une sauvegarde lancée avec l'URI de Cluster0 (base « Clusterbkp » sur le cluster de
+# PRODUCTION) a rempli le quota de 500 collections de tout le cluster et bloqué toutes les plateformes.
+MESSAGE_MEME_CLUSTER = (
+    "La cible est sur le MÊME cluster Atlas que la production ({hote}) : sauvegarde refusée. Sur un cluster Flex / M0, "
+    "les collections de toutes les bases comptent dans la même limite de 500 : une copie ici bloquerait SAWALI, "
+    "ALBARKA, DentalCare et adLyn. Collez l'URI du cluster de sauvegarde (ex. « clusterbkp.xxxxx.mongodb.net »), "
+    "pas celle de Cluster0 avec un autre nom de base.")
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
@@ -237,6 +244,36 @@ def _hote(uri: str) -> str:
         return urlparse(uri).hostname or "?"
     except Exception:  # noqa: BLE001
         return "?"
+
+
+def meme_cluster(hote_production: str, hote_cible: str, set_production: Optional[str], set_cible: Optional[str]) -> bool:
+    """Lot 79.12 — vrai si la cible est sur le cluster de production : même hôte d'URI, ou même nom de jeu de
+    réplicas Atlas (« setName », qui identifie le cluster même derrière un autre alias). Logique pure, testée."""
+    h1, h2 = (hote_production or "").strip().lower(), (hote_cible or "").strip().lower()
+    if h1 and h2 and h1 not in ("?",) and h1 == h2:
+        return True
+    return bool(set_production) and set_production == set_cible
+
+
+async def _nom_jeu_replicas(client) -> Optional[str]:
+    """« setName » renvoyé par la commande hello (None si indisponible)."""
+    try:
+        reponse = await client.admin.command("hello")
+        return reponse.get("setName") or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def verifier_cluster_different(client, uri_cible: str) -> None:
+    """Lot 79.12 — GARDE-FOU : refuse une cible située sur le MÊME cluster Atlas que la production (quota de
+    collections partagé). HTTPException 400 avec un message clair, AVANT toute écriture."""
+    hote_production = _hote(os.environ.get("MONGO_URL") or "")
+    hote_cible = _hote(uri_cible or "")
+    set_production = await _nom_jeu_replicas(db.client)
+    set_cible = await _nom_jeu_replicas(client)
+    if meme_cluster(hote_production, hote_cible, set_production, set_cible):
+        logger.warning("[migration] cible refusée : même cluster que la production (%s)", hote_cible)
+        raise HTTPException(400, MESSAGE_MEME_CLUSTER.format(hote=hote_cible))
 
 
 async def verifier_cible_differente(client, mongo_db: str) -> None:
@@ -669,7 +706,9 @@ async def _demarrer(cible: Cible, lance_par: str, programmee: bool = False) -> D
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(400, f"Connexion à MongoDB Atlas impossible : {str(exc)[:200]}")
         # Lot 57.10 — jamais la base en service comme cible (bouton « Lancer » ET sauvegardes programmées)
+        # Lot 79.12 — jamais le même CLUSTER que la production (quota de 500 collections partagé)
         try:
+            await verifier_cluster_different(client, cible.mongo_uri)
             await verifier_cible_differente(client, cible.mongo_db)
         except HTTPException:
             client.close()

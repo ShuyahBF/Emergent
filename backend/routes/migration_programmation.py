@@ -788,6 +788,8 @@ async def enregistrer_identifiants(corps: IdentifiantsIn, admin: dict = Depends(
             client = mr._client_cible(corps.mongo_uri)
             await client.admin.command("ping")
             # Lot 57.10 — refus d'enregistrer la base en service comme cible des sauvegardes programmées
+            # Lot 79.12 — jamais le même cluster que la production (quota de 500 collections partagé)
+            await mr.verifier_cluster_different(client, corps.mongo_uri)
             await mr.verifier_cible_differente(client, corps.mongo_db)
         except HTTPException:
             raise

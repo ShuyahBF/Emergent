@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.11"
-LOT_LIBELLE = "Mots de passe HFSQL saisis dans SAWALI (chiffrés) et remis à Loois avec sa clé client : plus aucun mot de passe en clair sur les postes"
+LOT = "79.12"
+LOT_LIBELLE = "Sauvegarde : refus de toute cible située sur le même cluster Atlas que la production (quota de 500 collections partagé)"

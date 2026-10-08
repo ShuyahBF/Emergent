@@ -10,7 +10,12 @@ import { libelleVersion } from "@/components/EtatConnexion";
 */
 const SIZE_PX = { xs: 10, sm: 12, md: 14, lg: 16 };
 
-export default function VersionStamp() {
+// Lot 79.13 — sur téléphone, le libellé flottant (position fixe en bas à gauche) passait PAR-DESSUS le contenu
+// (tableaux, boutons). Deux variantes :
+//   - « flottant » (par défaut) : position fixe, seulement sur grand écran (lg et plus) ;
+//   - « pied » : ligne normale en bas de la page, seulement sur petit écran — à placer à la fin du contenu.
+// La règle 2 (version et date toujours affichées) est donc respectée partout, sans rien masquer.
+export default function VersionStamp({ variante = "flottant" }) {
   const [info, setInfo] = useState(null);
   const [style, setStyle] = useState({
     color: null,
@@ -62,8 +67,10 @@ export default function VersionStamp() {
 
   return (
     <div
-      className="fixed bottom-2 left-3 z-30 select-none pointer-events-none tracking-wide"
-      data-testid="version-stamp"
+      className={variante === "pied"
+        ? "lg:hidden block w-full text-center py-2 select-none tracking-wide"
+        : "hidden lg:block fixed bottom-2 left-3 z-30 select-none pointer-events-none tracking-wide"}
+      data-testid={variante === "pied" ? "version-stamp-pied" : "version-stamp"}
       title={texte}
       style={{
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",

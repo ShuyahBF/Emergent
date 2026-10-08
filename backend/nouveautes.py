@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.13", "date": "2026-10-08",
+        "titre": "📱 Version lisible sur téléphone",
+        "description": "Sur téléphone, la version s'affiche en bas de page au lieu de passer par-dessus les tableaux.",
+        "rubrique": "🏷️ Version affichée (pied de page)",
+    },
+    {
         "lot": "79.12", "date": "2026-10-08",
         "titre": "🛡️ Sauvegarde : jamais sur le cluster de production",
         "description": "Une cible sur le même cluster Atlas que la production est refusée avant toute copie (quota de 500 partagé).",

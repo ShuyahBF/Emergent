@@ -1116,6 +1116,8 @@ function PortalLayoutInner({ admin = false }) {
         </main>
         {/* Lot 50 — date de la dernière sauvegarde générale (discret) */}
         <DerniereSauvegarde variante="pied" />
+        {/* Lot 79.13 — sur téléphone : version en bas de page (plus de libellé flottant sur le contenu) */}
+        <VersionStamp variante="pied" />
       </div>
       <VersionStamp tone="dark" />
       {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} isComptaStrict={isComptaStrict} />}

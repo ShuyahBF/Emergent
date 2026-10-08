@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.12", "date": "2026-10-08",
+        "titre": "🛡️ Sauvegarde : jamais sur le cluster de production",
+        "description": "Une cible sur le même cluster Atlas que la production est refusée avant toute copie (quota de 500 partagé).",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "79.11", "date": "2026-10-08",
         "titre": "🔐 Mots de passe HFSQL de Loois gardés par SAWALI",
         "description": "Saisis une fois ici, chiffrés, remis à Loois avec sa clé client : plus rien en clair sur les postes.",

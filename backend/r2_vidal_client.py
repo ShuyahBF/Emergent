@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 import boto3
@@ -41,6 +42,13 @@ def _get_client():
     if not account_id or not access_key or not secret_key:
         raise RuntimeError(
             "R2 VIDAL non configuré (R2_VIDAL_ACCOUNT_ID/ACCESS_KEY_ID/SECRET_ACCESS_KEY manquants)."
+        )
+    # Lot 79.2 — l'identifiant de compte Cloudflare fait 32 caractères hexadécimaux. Une autre valeur (ex. un
+    # jeton d'API « cfat_… » collé par erreur) est refusée SANS être recopiée dans le journal (c'est un secret).
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", account_id):
+        raise RuntimeError(
+            "R2_VIDAL_ACCOUNT_ID invalide : identifiant de compte Cloudflare attendu (32 caractères hexadécimaux, "
+            "visible dans Cloudflare → R2 → « Account ID »), pas un jeton d'API."
         )
     _client = boto3.client(
         "s3",

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.1"
-LOT_LIBELLE = "Carrousel partagé : cartes « Produit » de l'espace d'origine transformées en cartes libres (envoi possible par le destinataire) ; motif d'un envoi refusé affiché sous le bouton et écrit dans le journal"
+LOT = "79.2"
+LOT_LIBELLE = "Abonnements Liluvine VIDAL : identifiant de compte Cloudflare R2 vérifié (message clair si une autre valeur est saisie) ; jetons Cloudflare, Meta et IA masqués dans les journaux"

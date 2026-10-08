@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.2", "date": "2026-10-08",
+        "titre": "📱 Abonnements Liluvine VIDAL : stockage R2 vérifié",
+        "description": "Un identifiant de compte Cloudflare R2 mal saisi est signalé clairement ; aucun jeton n'apparaît plus dans les journaux.",
+        "rubrique": "📱 S058f — Abonnements Liluvine VIDAL (essai, quota, formules)",
+    },
+    {
         "lot": "79.1", "date": "2026-10-08",
         "titre": "🔗 Carrousel partagé : envoi corrigé",
         "description": "Les cartes produit d'un carrousel partagé deviennent des cartes libres ; un envoi refusé affiche son motif.",

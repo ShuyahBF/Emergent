@@ -15,9 +15,15 @@ _SENSIBLES = re.compile(
     r"(?i)\b(access_token|input_token|client_secret|appsecret_proof|api_key|apikey|token|key|password|secret)=([^&\s\"']+)")
 
 
+# Lot 79.2 — jetons reconnaissables à leur forme, où qu'ils apparaissent (ex. dans une adresse mal construite) :
+# jetons d'API Cloudflare (cfat_…, cfut_…), jetons Meta / WhatsApp (EAA…), clés OpenAI / Anthropic (sk-…).
+_FORMES = re.compile(r"\b(cfat_|cfut_|EAA|sk-ant-|sk-)[A-Za-z0-9_\-]{16,}")
+
+
 def masquer(texte: str) -> str:
-    """Remplace la valeur des paramètres sensibles par *** (ex. access_token=*** )."""
-    return _SENSIBLES.sub(lambda m: f"{m.group(1)}=***", texte or "")
+    """Remplace la valeur des paramètres sensibles par *** (ex. access_token=*** ) et masque les jetons connus."""
+    texte = _SENSIBLES.sub(lambda m: f"{m.group(1)}=***", texte or "")
+    return _FORMES.sub(lambda m: f"{m.group(1)}***", texte)
 
 
 class FiltreJetons(logging.Filter):

@@ -22,6 +22,7 @@ import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSectio
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
+import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
@@ -86,6 +87,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📑 Contrats des plateformes": "81",   // lot 81 : contrat de chaque plateforme cliente
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "79.8",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
@@ -113,6 +115,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "📑 Contrats des plateformes": "2026-10-08",   // lot 81
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
@@ -1229,6 +1232,11 @@ export default function AdminSettings() {
       {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
       <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
         <LooisSecretsHfsqlSection />
+      </Filterable>
+
+      {/* Lot 81 — contrats des plateformes clientes (état, montant dû) et lien vers « Plateformes en temps réel » */}
+      <Filterable title="📑 Contrats des plateformes" anchorId="s-contrats-plateformes" category="modules">
+        <ContratsPlateformesSection />
       </Filterable>
 
       {/* Lot 80 — Équipements : découverte du réseau des clients par Loois (réglages, état, lien vers l'écran) */}

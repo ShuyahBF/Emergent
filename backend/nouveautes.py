@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "81", "date": "2026-10-08",
+        "titre": "📑 Contrats des plateformes",
+        "description": "N° de contrat, prestations et services, paiements et montant dû de chaque plateforme ; bandeau orange/rouge chez son DG.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "80", "date": "2026-10-08",
         "titre": "🛰️ Équipements : découverte du réseau",
         "description": "Menu « Équipements » ; Loois recense tous les appareils du réseau (SNMP en lecture seule), à valider avant d'entrer au parc.",

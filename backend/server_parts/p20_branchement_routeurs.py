@@ -240,6 +240,9 @@ _setup_loois_secrets_hfsql(db=db, api=api, get_current_user=get_current_user)
 # Lot 80 — Équipements : découverte du réseau des clients par Loois (appareils « À valider », alertes, réglages)
 from routes.decouverte_reseau import setup_decouverte_reseau_routes as _setup_decouverte_reseau  # noqa: E402
 _setup_decouverte_reseau(db=db, api=api, get_current_user=get_current_user)
+# Lot 81 — contrat de chaque plateforme cliente (ALBARKA…) : suivi, paiements, état lu par la plateforme
+from routes.contrats_plateformes import setup_contrats_plateformes_routes as _setup_contrats_plateformes  # noqa: E402
+_setup_contrats_plateformes(db=db, api=api, get_current_user=get_current_user)
 # Lot 68.3 — cartes « Nouveautés » de la page Paramètres (source unique : backend/nouveautes.py)
 from routes.nouveautes_route import setup_nouveautes_routes as _setup_nouveautes  # noqa: E402
 _setup_nouveautes(api=api, get_current_user=get_current_user)

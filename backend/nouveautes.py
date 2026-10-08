@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82.1", "date": "2026-10-08",
+        "titre": "📅 Contrats : échéance calculée en jours",
+        "description": "Tapez ou choisissez une durée (30, 90, 180, 365, 730 jours) : l'échéance du contrat est calculée depuis la date de début.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "82", "date": "2026-10-08",
         "titre": "⛔ Contrats : services suspendus automatiquement",
         "description": "Cochez les services (WA, e-mails, comptes rendus…) suspendus chez la plateforme dès que son contrat est échu ; bandeau du DG limité à ± 5 jours de l'échéance.",

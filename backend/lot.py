@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.2"
-LOT_LIBELLE = "Abonnements Liluvine VIDAL : identifiant de compte Cloudflare R2 vérifié (message clair si une autre valeur est saisie) ; jetons Cloudflare, Meta et IA masqués dans les journaux"
+LOT = "79.3"
+LOT_LIBELLE = "Cohérence multi-utilisateurs : « Tout réaligner » rattache aussi les admins et superviseurs secondaires au premier admin de l'entreprise (même règle que la détection) ; comptes de démonstration toujours isolés"

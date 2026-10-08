@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.3", "date": "2026-10-08",
+        "titre": "🔧 « Tout réaligner » traite enfin tous les comptes",
+        "description": "Les admins et superviseurs secondaires rejoignent le périmètre de leur entreprise ; les comptes démo restent isolés.",
+        "rubrique": "Cohérence multi-utilisateurs (panoramique)",
+    },
+    {
         "lot": "79.2", "date": "2026-10-08",
         "titre": "📱 Abonnements Liluvine VIDAL : stockage R2 vérifié",
         "description": "Un identifiant de compte Cloudflare R2 mal saisi est signalé clairement ; aucun jeton n'apparaît plus dans les journaux.",

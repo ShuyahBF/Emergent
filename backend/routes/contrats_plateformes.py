@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import hmac
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -105,17 +106,46 @@ def date_suspension(fin: Any, apres: int = APRES_DEFAUT) -> Optional[str]:
     return (d_fin + timedelta(days=max(1, apres) + 1)).isoformat() if d_fin else None
 
 
-def nettoyer_services(services: Any) -> List[str]:
-    """Lot 82 : codes cochés, connus du catalogue, sans doublon, dans l'ordre du catalogue ; ValueError sinon."""
+def nettoyer_catalogue(services: Any) -> List[Dict[str, str]]:
+    """Lot 82.5 : services qu'une plateforme DÉCLARE savoir suspendre (chacune a les siens : ALBARKA, Ster…).
+    Liste de {code, libelle, description} validée ; ValueError avec message clair sinon."""
+    import re
+    if not isinstance(services, list) or len(services) > 40:
+        raise ValueError("services : liste de 40 éléments au plus attendue")
+    propres, vus = [], set()
+    for i, sv in enumerate(services, 1):
+        if not isinstance(sv, dict):
+            raise ValueError(f"service {i} illisible")
+        code = str(sv.get("code") or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_]{1,40}", code):
+            raise ValueError(f"service {i} : code « {code} » invalide (a-z, 0-9, _)")
+        if code in vus:
+            continue
+        vus.add(code)
+        propres.append({"code": code, "libelle": str(sv.get("libelle") or code).strip()[:80],
+                        "description": str(sv.get("description") or "").strip()[:200]})
+    return propres
+
+
+def catalogue_de(emetteur: Dict[str, Any]) -> Optional[List[Dict[str, str]]]:
+    """Lot 82.5 : catalogue déclaré par la plateforme, ou None si elle ne l'a pas encore déclaré."""
+    cat = emetteur.get("services_catalogue")
+    return cat if isinstance(cat, list) and cat else None
+
+
+def nettoyer_services(services: Any, codes_permis: Optional[List[str]] = None) -> List[str]:
+    """Lot 82 : codes cochés, connus du catalogue, sans doublon, dans l'ordre du catalogue ; ValueError sinon.
+    Lot 82.5 : `codes_permis` = codes du catalogue de LA plateforme (défaut : catalogue générique)."""
+    ordre = codes_permis if codes_permis is not None else CODES_SERVICES
     if services in (None, ""):
         return []
     if not isinstance(services, list):
         raise ValueError("services suspendus : liste de codes attendue")
     codes = {str(c or "").strip().lower() for c in services}
-    inconnus = sorted(codes - set(CODES_SERVICES) - {""})
+    inconnus = sorted(codes - set(ordre) - {""})
     if inconnus:
         raise ValueError(f"service(s) inconnu(s) : {', '.join(inconnus)}")
-    return [c for c in CODES_SERVICES if c in codes]
+    return [c for c in ordre if c in codes]
 
 
 def services_suspendus(etat: Dict[str, Any], coches: List[str]) -> List[str]:
@@ -222,7 +252,9 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
     async def _contrat(emetteur: Dict[str, Any], avec_paiements: bool = True) -> Dict[str, Any]:
         """Vue complète du contrat d'une plateforme (client rattaché, état, finances, historique des paiements)."""
         base = {"code": emetteur.get("code"), "nom": emetteur.get("nom") or emetteur.get("code"),
-                "client_id": emetteur.get("client_id")}
+                "client_id": emetteur.get("client_id"),
+                # Lot 82.5 : services que CETTE plateforme sait suspendre (déclarés par elle ; None = pas encore)
+                "services_catalogue": catalogue_de(emetteur), "services_declares_le": emetteur.get("services_declares_le")}
         client = await db.users.find_one({"id": emetteur.get("client_id")}, CHAMPS_CLIENT) \
             if emetteur.get("client_id") else None
         if not client:
@@ -317,7 +349,9 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
                 champs[champ] = n
         if "services_suspendus" in corps:   # lot 82 : cases cochées
             try:
-                champs["contract_services_suspendus"] = nettoyer_services(corps.get("services_suspendus"))
+                cat = catalogue_de(emetteur) or SERVICES_SUSPENDABLES   # lot 82.5 : catalogue de la plateforme
+                champs["contract_services_suspendus"] = nettoyer_services(corps.get("services_suspendus"),
+                                                                          [x["code"] for x in cat])
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
         maintenant = datetime.now(timezone.utc).isoformat()
@@ -340,6 +374,21 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
         if not signature_valide(emetteur.get("secret") or "", request.headers.get("X-Timestamp") or "", corps,
                                 request.headers.get("X-Signature") or "", datetime.now(timezone.utc)):
             raise HTTPException(status_code=401, detail="Signature refusée")
+        # Lot 82.5 : la plateforme déclare au passage les services qu'ELLE sait suspendre (corps {"services": [...]})
+        try:
+            donnees = json.loads(corps.decode("utf-8") or "{}") if corps else {}
+        except ValueError:
+            donnees = {}
+        if isinstance(donnees, dict) and "services" in donnees:
+            try:
+                catalogue = nettoyer_catalogue(donnees.get("services"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if catalogue != emetteur.get("services_catalogue"):
+                maintenant = datetime.now(timezone.utc).isoformat()
+                await db.liluvine_emetteurs.update_one({"code": emetteur["code"]}, {"$set": {
+                    "services_catalogue": catalogue, "services_declares_le": maintenant}})
+                emetteur["services_catalogue"] = catalogue
         c = await _contrat(emetteur, avec_paiements=False)
         f = c.get("finances") or {}
         # Ce que la plateforme affiche à son DG : jamais les autres clients, ni l'historique détaillé
@@ -351,4 +400,5 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
                 "services_a_suspendre": c.get("services_a_suspendre") or [],
                 "services_suspendus": c.get("services_suspendus") or [],
                 "suspension_le": c.get("suspension_le"),
-                "services_catalogue": [{"code": s["code"], "libelle": s["libelle"]} for s in SERVICES_SUSPENDABLES]}
+                "services_catalogue": [{"code": x["code"], "libelle": x["libelle"]}
+                                       for x in (catalogue_de(emetteur) or SERVICES_SUSPENDABLES)]}

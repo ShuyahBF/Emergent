@@ -43,7 +43,9 @@ function Etat({ etat }) {
 }
 
 // Formulaire du contrat d'une plateforme (rattachement client + paramètres + lignes)
-function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnuler }) {
+function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
+  // Lot 82.5 : chaque plateforme déclare SES services suspendables (ALBARKA, Ster… n'ont pas les mêmes)
+  const catalogue = contrat.services_catalogue || [];
   const [f, setF] = useState({
     client_id: contrat.client?.id || "", numero: contrat.numero || "", devise: contrat.devise || "XOF",
     debut: (contrat.debut || "2026-10-15").slice(0, 10), fin: (contrat.fin || "").slice(0, 10),
@@ -138,6 +140,12 @@ function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnule
       {/* Lot 82 : services suspendus automatiquement chez la plateforme une fois le contrat échu (après J+jours) */}
       <div data-testid={`contrat-services-${contrat.code}`}>
         <p className="text-xs font-semibold">Services suspendus automatiquement (contrat échu depuis plus de {f.alerte_apres_jours} jours)</p>
+        {catalogue.length === 0 && (
+          <p className="mt-1 rounded bg-amber-50 p-2 text-xs text-amber-800">
+            {contrat.nom} n'a pas encore déclaré les services qu'elle sait suspendre : aucune suspension n'y est possible
+            pour l'instant. La liste apparaîtra ici dès que la plateforme sera mise à jour et aura lu son contrat.
+          </p>
+        )}
         <div className="mt-1 grid gap-1 sm:grid-cols-2">
           {catalogue.map((s) => (
             <label key={s.code} className="flex cursor-pointer items-start gap-2 text-xs" title={s.description}>
@@ -188,13 +196,12 @@ function NouveauPaiement({ contrat, onEnregistre }) {
 
 export default function ContratsPlateformes() {
   const [contrats, setContrats] = useState(null);
-  const [catalogue, setCatalogue] = useState([]);    // lot 82 : services pouvant être suspendus
   const [clients, setClients] = useState([]);
   const [edition, setEdition] = useState(null);       // code de la plateforme en cours de modification
   const [selection, setSelection] = useState(null);   // ligne de paiement sélectionnée (règle 3)
 
   const charger = useCallback(() => {
-    apiClient.get("/admin/plateformes/contrats").then((r) => { setContrats(r.data.contrats); setCatalogue(r.data.services_catalogue || []); }).catch(() => setContrats([]));
+    apiClient.get("/admin/plateformes/contrats").then((r) => setContrats(r.data.contrats)).catch(() => setContrats([]));
   }, []);
   useEffect(() => {
     charger();
@@ -224,7 +231,7 @@ export default function ContratsPlateformes() {
               </div>
             </div>
             {edition === c.code && (
-              <FormulaireContrat contrat={c} clients={clients} catalogue={catalogue} onAnnuler={() => setEdition(null)}
+              <FormulaireContrat contrat={c} clients={clients} onAnnuler={() => setEdition(null)}
                 onEnregistre={() => { setEdition(null); charger(); }} />
             )}
             {c.client && (
@@ -244,7 +251,7 @@ export default function ContratsPlateformes() {
                     {(c.services_suspendus || []).length
                       ? <>⛔ Suspendus depuis le <b>{jour(c.suspension_le)}</b> (échéance du {jour(c.fin)} dépassée de plus de {c.alerte_apres_jours} jours) — repoussez l'échéance pour les rétablir :{" "}</>
                       : <>Suspendus automatiquement à partir du <b>{jour(c.suspension_le)}</b> si le contrat n'est pas renouvelé :{" "}</>}
-                    {c.services_a_suspendre.map((code) => catalogue.find((s) => s.code === code)?.libelle || code).join(", ")}
+                    {c.services_a_suspendre.map((code) => (c.services_catalogue || []).find((s) => s.code === code)?.libelle || code).join(", ")}
                   </p>
                 )}
                 {(c.lignes || []).length > 0 && (

@@ -95,3 +95,29 @@ def test_deux_plateformes_meme_client_ne_s_ecrasent_plus():
     assert contrats["albarka"]["fin"] == "2027-10-15" and contrats["albarka"]["numero"] == "ANCIEN"
     assert contrats["albarka"]["alerte_apres_jours"] == 0          # 0 jour gardé (plus remplacé par 5)
     assert contrats["ster"]["fin"] == "2026-09-06" and contrats["ster"]["numero"] == "STER-1"
+
+
+def test_chaque_plateforme_declare_ses_services():
+    """Lot 82.5 : la plateforme déclare ses services suspendables en lisant son contrat ; le formulaire n'accepte
+    que ceux-là. Une plateforme qui n'a rien déclaré n'a pas de cases à cocher."""
+    import json as _json
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot82_5"]
+    boucle = asyncio.new_event_loop()
+    for code in ("albarka", "ster"):
+        boucle.run_until_complete(db.liluvine_emetteurs.insert_one({"code": code, "nom": code.upper(), "secret": "cle-albarka", "actif": True}))
+    boucle.run_until_complete(db.users.insert_one({"id": "t1", "company": "Client", "role": "client"}))
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    cp.setup_contrats_plateformes_routes(db=db, api=api, get_current_user=lambda: {"role": "admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    corps = _json.dumps({"services": [{"code": "ordonnances", "libelle": "Ordonnances", "description": "Lecture"},
+                                      {"code": "wa", "libelle": "WhatsApp"}]}).encode()
+    r = c.post("/api/webhook/plateforme-contrat", content=corps, headers=_signer("cle-albarka", corps))
+    assert r.status_code == 200 and [x["code"] for x in r.json()["services_catalogue"]] == ["ordonnances", "wa"]
+    contrats = {x["code"]: x for x in c.get("/api/admin/plateformes/contrats").json()["contrats"]}
+    assert contrats["albarka"]["services_catalogue"][0]["libelle"] == "Ordonnances"
+    assert contrats["ster"]["services_catalogue"] is None                 # rien déclaré : pas de cases
+    assert c.put("/api/admin/plateformes/albarka/contrat", json={"client_id": "t1", "services_suspendus": ["cr"]}).status_code == 422
+    assert c.put("/api/admin/plateformes/albarka/contrat", json={"client_id": "t1", "services_suspendus": ["ordonnances"]}).status_code == 200
+    mauvais = _json.dumps({"services": [{"code": "Pas bon !"}]}).encode()
+    assert c.post("/api/webhook/plateforme-contrat", content=mauvais, headers=_signer("cle-albarka", mauvais)).status_code == 422

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.8.1"
-LOT_LIBELLE = "Jauge des collections du cluster Atlas affichée en haut des Paramètres, juste sous la carte Nouveautés"
+LOT = "79.9"
+LOT_LIBELLE = "Jauge Atlas dans la barre latérale de l'administrateur (détail par base au clic) ; couleurs : orange dès 45 %, rouge quand il reste 10 % ou moins"

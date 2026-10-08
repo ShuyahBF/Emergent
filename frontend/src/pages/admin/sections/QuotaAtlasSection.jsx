@@ -3,7 +3,7 @@
 // Un cluster Atlas Flex (ou M0) accepte au plus 500 collections pour TOUT le cluster, toutes bases confondues
 // (SAWALI, ALBARKA, DentalCare, adLyn… partagent Cluster0). Au-delà, plus aucune plateforme ne peut créer
 // de collection. Cette rubrique affiche :
-//   • une jauge circulaire : collections utilisées / limite (vert < seuil, orange ≥ seuil, rouge = plein) ;
+//   • une jauge circulaire : collections utilisées / limite (lot 79.9 : vert < 45 %, orange ≥ 45 %, rouge ≥ 90 %) ;
 //   • le détail par base (barres horizontales, la base de SAWALI signalée) ;
 //   • la limite et le seuil d'alerte, réglables (alerte WhatsApp au super-admin une fois par jour au-delà du seuil).
 import React, { useCallback, useEffect, useState } from "react";
@@ -12,8 +12,8 @@ import { apiClient } from "@/lib/api";
 // Couleurs par niveau (vert, orange, rouge)
 const COULEURS = {
   ok: { arc: "#059669", fond: "bg-emerald-50", texte: "text-emerald-800", libelle: "Marge confortable" },
-  attention: { arc: "#d97706", fond: "bg-amber-50", texte: "text-amber-800", libelle: "Seuil d'alerte atteint" },
-  plein: { arc: "#dc2626", fond: "bg-red-50", texte: "text-red-800", libelle: "Limite atteinte : création bloquée" },
+  attention: { arc: "#d97706", fond: "bg-amber-50", texte: "text-amber-800", libelle: "Plus de 45 % utilisés" },   // lot 79.9
+  plein: { arc: "#dc2626", fond: "bg-red-50", texte: "text-red-800", libelle: "Il reste 10 % ou moins : à libérer vite" },   // lot 79.9
 };
 
 // Jauge circulaire (SVG) : arc proportionnel au taux d'occupation, repère du seuil d'alerte

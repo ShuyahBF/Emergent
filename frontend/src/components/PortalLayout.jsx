@@ -20,6 +20,7 @@ import TicketsBubble from "@/components/TicketsBubble";
 import AppelsWhatsApp from "@/components/AppelsWhatsApp";   // Lot 60
 import VeilleStatsPlateformes from "@/components/VeilleStatsPlateformes";   // Lot 64.9
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
+import JaugeAtlasSidebar from "@/components/JaugeAtlasSidebar";   // Lot 79.9 : jauge Atlas (administrateur)
 import AlertesAppelsLiluvine from "@/components/AlertesAppelsLiluvine";   // Lot 72 : toast persistant « Liluvine appelle … »
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
@@ -967,6 +968,9 @@ function PortalLayoutInner({ admin = false }) {
             </button>
           )}
         </div>
+
+        {/* Lot 79.9 — jauge des collections du cluster Atlas (administrateur), sous « Alerte WhatsApp » */}
+        {user?.role === "admin" && <JaugeAtlasSidebar />}
 
         {/* Portage site-meetafrican — Réglages : thème (tous) + Notes VIDAL
             admin (admin/superviseur uniquement). */}

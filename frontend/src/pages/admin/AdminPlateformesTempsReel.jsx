@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import VersionsDeployees from "./VersionsDeployees";
+import ContratsPlateformes from "./ContratsPlateformes";   // lot 81 : contrat de chaque plateforme cliente
 
 const INTERVALLE_MS = 30000;
 
@@ -170,6 +171,8 @@ export default function AdminPlateformesTempsReel() {
       </div>
 
       {/* Lot 65 — versions déployées (SAWALI, plateformes, postes Loois) */}
+      {/* Lot 81 — contrat de chaque plateforme (n°, montant, paiements, montant dû, état) */}
+      <div id="contrats-plateformes"><ContratsPlateformes /></div>
       <VersionsDeployees />
     </div>
   );

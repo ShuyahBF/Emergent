@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.5", "date": "2026-10-08",
+        "titre": "💾 Sauvegarde complète R2 : erreur expliquée",
+        "description": "Si R2 est illisible, la raison s'affiche clairement (identifiant de compte, accès…) sans jamais montrer de jeton.",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "79.4", "date": "2026-10-08",
         "titre": "🔧 « Tout réaligner » : comptes rattachés par un parent",
         "description": "Les comptes liés à un ancien membre de l'entreprise rejoignent eux aussi le premier admin : plus aucun reste.",

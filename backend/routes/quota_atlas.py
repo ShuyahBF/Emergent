@@ -39,11 +39,19 @@ def reglages_quota(s: Dict[str, Any]) -> Dict[str, int]:
     return {"limite": limite, "seuil": seuil}
 
 
-def niveau(total: int, limite: int, seuil: int) -> str:
-    """Couleur de la jauge : ok (vert), attention (orange, seuil atteint), plein (rouge, limite atteinte)."""
-    if total >= limite:
+# Lot 79.9 — couleurs de la jauge selon le taux d'occupation (demande du propriétaire) :
+#   vert sous 45 % ; orange à partir de 45 % ; rouge quand il ne reste que 10 % ou moins (≥ 90 %).
+PART_ORANGE = 0.45
+PART_ROUGE = 0.90
+
+
+def niveau(total: int, limite: int, seuil: int = 0) -> str:
+    """Couleur de la jauge : ok (vert), attention (orange, ≥ 45 %), plein (rouge, ≥ 90 % : 10 % ou moins restant).
+    `seuil` (alerte WhatsApp) est accepté pour compatibilité ; la couleur dépend du taux d'occupation."""
+    part = total / limite if limite else 1
+    if part >= PART_ROUGE:
         return "plein"
-    if total >= seuil:
+    if part >= PART_ORANGE:
         return "attention"
     return "ok"
 
@@ -83,7 +91,7 @@ async def mesurer(db, client, base_courante: str) -> Dict[str, Any]:
 def texte_alerte(m: Dict[str, Any]) -> str:
     """Message d'alerte au propriétaire (une seule ligne : utilisable dans un modèle Meta)."""
     principales = ", ".join(f"{b['nom']} {b['collections']}" for b in m["bases"][:4])
-    etat = "LIMITE ATTEINTE : plus aucune collection ne peut être créée" if m["niveau"] == "plein" else \
+    etat = "LIMITE ATTEINTE : plus aucune collection ne peut être créée" if m["total"] >= m["limite"] else \
         f"plus que {m['restantes']} avant le blocage"
     return (f"🗄️ Cluster Atlas : {m['total']} collections sur {m['limite']} ({m['pourcentage']} %) — {etat}. "
             f"Principales bases : {principales}. Supprimez les copies inutiles ou utilisez un autre cluster.")
@@ -92,7 +100,7 @@ def texte_alerte(m: Dict[str, Any]) -> str:
 async def surveiller(db, client, base_courante: str, maintenant: Optional[datetime] = None) -> Dict[str, Any]:
     """Tâche horaire : mesure, et au-delà du seuil, avertissement au journal + WhatsApp une fois par jour."""
     m = await mesurer(db, client, base_courante)
-    if m["niveau"] == "ok":
+    if m["total"] < m["seuil"]:                  # alerte WhatsApp seulement au-delà du seuil (450 par défaut)
         return {"mesure": m, "alerte": False}
     logger.warning("[quota_atlas] %s/%s collections sur le cluster (seuil %s)", m["total"], m["limite"], m["seuil"])
     maintenant = maintenant or datetime.now(timezone.utc)
@@ -124,8 +132,20 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
     from fastapi import Depends, HTTPException
 
     @api.get("/admin/atlas/quota", tags=["Admin — Santé"])
-    async def quota(user: dict = Depends(get_current_user)):
-        """Nombre de collections du cluster Atlas par rapport à sa limite (jauge des Paramètres)."""
+    async def quota(recente: bool = False, user: dict = Depends(get_current_user)):
+        """Nombre de collections du cluster Atlas par rapport à sa limite (jauge des Paramètres et de la barre latérale).
+        Lot 79.9 — `recente=true` (barre latérale) : la dernière mesure si elle a moins de 15 minutes, sans recompter."""
         if user.get("role") not in ("admin", "super_admin") and user.get("tracked_role") != "Administrateur":
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        if recente:
+            suivi = await db.settings.find_one({"_id": DOC_ID}) or {}
+            m = suivi.get("derniere_mesure") or {}
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(m.get("le"))).total_seconds()
+            except (TypeError, ValueError):
+                age = None
+            if age is not None and age < 15 * 60:
+                # Couleur recalculée avec la règle en vigueur (une ancienne mesure peut dater d'avant le lot 79.9)
+                m["niveau"] = niveau(int(m.get("total") or 0), int(m.get("limite") or LIMITE_DEFAUT))
+                return m
         return await mesurer(db, client, base_courante)

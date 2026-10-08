@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.9", "date": "2026-10-08",
+        "titre": "🗄️ Jauge Atlas dans la barre latérale",
+        "description": "Sous « Alerte WhatsApp » : orange dès 45 %, rouge quand il reste 10 % ; un clic déplie le détail par base.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "79.8.1", "date": "2026-10-08",
         "titre": "🗄️ Jauge Atlas en haut des Paramètres",
         "description": "La jauge des collections du cluster s'affiche juste sous les Nouveautés.",

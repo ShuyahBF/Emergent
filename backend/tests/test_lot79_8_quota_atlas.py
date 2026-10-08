@@ -37,8 +37,9 @@ def client():
 def test_reglages_et_niveaux():
     assert qa.reglages_quota({}) == {"limite": 500, "seuil": 450}
     assert qa.reglages_quota({"atlas_limite_collections": 300, "atlas_seuil_alerte": 900}) == {"limite": 300, "seuil": 300}
-    assert qa.niveau(100, 500, 450) == "ok" and qa.niveau(450, 500, 450) == "attention"
-    assert qa.niveau(500, 500, 450) == "plein"
+    # Lot 79.9 : orange dès 45 %, rouge quand il ne reste que 10 % (≥ 90 %)
+    assert qa.niveau(224, 500) == "ok" and qa.niveau(225, 500) == "attention"
+    assert qa.niveau(449, 500) == "attention" and qa.niveau(450, 500) == "plein" and qa.niveau(500, 500) == "plein"
 
 
 def test_compte_toutes_les_bases_sauf_internes(client):
@@ -53,7 +54,7 @@ def test_mesure_gardee_et_pourcentage(client):
     lancer(db.settings.insert_one({"_id": "global", "atlas_limite_collections": 20, "atlas_seuil_alerte": 15}))
     m = lancer(qa.mesurer(db, client, "sawali"))
     # la mesure compte aussi la collection settings créée ci-dessus (sawali : 6 collections)
-    assert m["total"] == 11 and m["limite"] == 20 and m["restantes"] == 9 and m["niveau"] == "ok"
+    assert m["total"] == 11 and m["limite"] == 20 and m["restantes"] == 9 and m["niveau"] == "attention"   # 55 %
     assert lancer(db.settings.find_one({"_id": qa.DOC_ID}))["derniere_mesure"]["total"] == 11
 
 

@@ -89,7 +89,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 const NEW_LOTS = {
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
-  "🗄️ Base Atlas — collections du cluster": "79.8",   // lot 79.8
+  "🗄️ Base Atlas — collections du cluster": "85",   // lots 79.8-85 : jauge, contenu et purge des bases
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
@@ -117,7 +117,7 @@ const NEW_LOTS = {
 const NEW_SECTIONS = {
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
-  "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lot 79.8
+  "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lots 79.8-85
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage

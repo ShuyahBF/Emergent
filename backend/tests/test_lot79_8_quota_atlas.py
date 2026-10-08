@@ -84,3 +84,14 @@ def test_base_seule_si_liste_refusee(client):
             return client[nom]
     m = lancer(qa.compter(Refus(), "sawali"))
     assert m["methode"] == "base seule" and m["total"] == 5
+
+
+def test_lot85_bases_protegees():
+    """Lot 85 : les bases en service ne sont jamais supprimables ; une base obsolète l'est."""
+    from routes import quota_atlas as qa
+    for nom in ("sawali", "albarka", "sawali_dentalcare", "telecom_boutique", "admin"):
+        assert qa.base_protegee(nom, "sawali")
+    assert qa.base_protegee("autre", "autre")                      # base courante de SAWALI
+    assert qa.base_protegee("beauthentik", "sawali", ["beauthentik"])  # réglage atlas_bases_protegees
+    assert not qa.base_protegee("smartsystems", "sawali")
+    assert not qa.base_protegee("multiplatforms", "sawali")

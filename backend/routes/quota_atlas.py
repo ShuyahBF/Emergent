@@ -127,6 +127,17 @@ async def surveiller(db, client, base_courante: str, maintenant: Optional[dateti
     return {"mesure": m, "alerte": envoye}
 
 
+# Lot 85 (08/10/2026) — purge d'une base OBSOLÈTE du cluster pour libérer des collections (ex. « smartsystems »,
+# créée par erreur lors du passage de SAWALI sur Render). Les bases en service sont PROTÉGÉES : jamais supprimables.
+BASES_PROTEGEES = {"sawali", "albarka", "sawali_dentalcare", "telecom_boutique", "site_meetafrican",
+                   "admin", "local", "config"}
+
+
+def base_protegee(nom: str, base_courante: str, autres: Optional[List[str]] = None) -> bool:
+    """Vrai si la base ne doit jamais être supprimée (base de SAWALI, bases des plateformes, bases internes)."""
+    return nom in BASES_PROTEGEES or nom == base_courante or nom in set(autres or [])
+
+
 def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante: str) -> None:
     """Route de la jauge (administrateurs)."""
     from fastapi import Depends, HTTPException
@@ -149,3 +160,50 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
                 m["niveau"] = niveau(int(m.get("total") or 0), int(m.get("limite") or LIMITE_DEFAUT))
                 return m
         return await mesurer(db, client, base_courante)
+
+
+    def _admin_strict(user: dict) -> None:
+        """Lot 85 : contenu et suppression d'une base — administrateur SAWALI seulement."""
+        if user.get("role") not in ("admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+
+    async def _protegees() -> List[str]:
+        """Bases protégées en plus de la liste fixe (réglage atlas_bases_protegees, séparées par des virgules)."""
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "atlas_bases_protegees": 1}) or {}
+        return [x.strip() for x in str(s.get("atlas_bases_protegees") or "").split(",") if x.strip()]
+
+    @api.get("/admin/atlas/bases/{nom}", tags=["Admin — Santé"])
+    async def contenu_base(nom: str, user: dict = Depends(get_current_user)):
+        """Lot 85 : collections d'une base avec leur nombre de documents (pour juger si elle est encore utile)."""
+        _admin_strict(user)
+        if nom in BASES_IGNOREES or nom not in await client.list_database_names():
+            raise HTTPException(status_code=404, detail="Base introuvable")
+        lignes, total = [], 0
+        for c in sorted(await client[nom].list_collection_names()):
+            try:
+                n = await client[nom][c].estimated_document_count()
+            except Exception:  # noqa: BLE001
+                n = None
+            total += n or 0
+            lignes.append({"nom": c, "documents": n})
+        lignes.sort(key=lambda x: -(x["documents"] or 0))
+        return {"base": nom, "collections": lignes, "documents": total,
+                "protegee": base_protegee(nom, base_courante, await _protegees())}
+
+    @api.post("/admin/atlas/bases/{nom}/supprimer", tags=["Admin — Santé"])
+    async def supprimer_base(nom: str, corps: dict, user: dict = Depends(get_current_user)):
+        """Lot 85 : supprime une base OBSOLÈTE (le nom doit être retapé ; bases en service refusées)."""
+        _admin_strict(user)
+        if base_protegee(nom, base_courante, await _protegees()):
+            raise HTTPException(status_code=409, detail=f"La base « {nom} » est en service : suppression refusée")
+        if (corps or {}).get("confirmation") != nom:
+            raise HTTPException(status_code=422, detail="Retapez exactement le nom de la base pour confirmer")
+        if nom not in await client.list_database_names():
+            raise HTTPException(status_code=404, detail="Base introuvable")
+        nb = len(await client[nom].list_collection_names())
+        await client.drop_database(nom)
+        logger.warning("[quota_atlas] base %s supprimée par %s (%s collections)", nom, user.get("email"), nb)
+        await db.settings.update_one({"_id": DOC_ID}, {"$push": {"purges": {
+            "base": nom, "collections": nb, "par": user.get("email"), "le": datetime.now(timezone.utc).isoformat()}}},
+            upsert=True)
+        return {"ok": True, "base": nom, "collections_liberees": nb, "mesure": await mesurer(db, client, base_courante)}

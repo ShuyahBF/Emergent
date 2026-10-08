@@ -125,3 +125,26 @@ def test_partage_admin_vers_un_client(env):
     # L'admin voit à qui il a partagé
     adm = client.get("/api/admin/whatsapp/carrousel/brouillons", headers=h("admin")).json()["carrousels"]
     assert adm[0]["partages"][0]["email"] == "a@x.bf"
+
+
+# --- Lot 79.1 : carrousel partagé avec des cartes « Produit » de l'espace d'origine ---------------
+def test_cartes_produit_figees_pour_le_destinataire(env):
+    client, db, envois = env
+    # Produit de l'espace admin (aucun client)
+    client.portal.call(db.products.insert_one, {"id": "padm", "name": "Formulaires SAWALI", "unit_price_ht": 25000,
+                                                "image_url": "/api/files/prod/padm.png", "deleted_at": None})
+    cartes = [{"source": "produit", "produit_id": "padm"}, CARTES[1]]
+    bid = client.post("/api/admin/whatsapp/carrousel/brouillons", headers=h("admin"),
+                      json={"nom": "Offre produits", "message": "M", "cartes": cartes}).json()["id"]
+    client.put(f"/api/admin/whatsapp/carrousel/brouillons/{bid}/partages", headers=h("admin"), json={"emails": ["a@x.bf"]})
+    vu = client.get("/api/me/whatsapp/carrousel/brouillons", headers=h("cli_a")).json()["carrousels"][0]
+    c0 = vu["cartes"][0]
+    assert c0["source"] == "libre" and c0["titre"] == "Formulaires SAWALI" and c0["texte"] == "25 000 FCFA"
+    assert c0["image_url"].startswith("https://") and c0["lien"].endswith("/api/public/og/product/padm")
+    # La copie du destinataire contient aussi des cartes libres, et l'envoi est accepté
+    copie = client.post(f"/api/me/whatsapp/carrousel/brouillons/{bid}/dupliquer", headers=h("cli_a")).json()
+    assert [c["source"] for c in copie["cartes"]] == ["libre", "libre"]
+    client.put("/api/me/whatsapp/carrousel/consentements", headers=h("cli_a"), json={"ids": ["c1"], "accepte": True})
+    r = client.post("/api/me/whatsapp/carrousel/envoyer", headers=h("cli_a"),
+                    json={"message": "M", "cartes": vu["cartes"], "ids": ["c1"]})
+    assert r.status_code == 202, r.text

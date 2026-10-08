@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.1", "date": "2026-10-08",
+        "titre": "🔗 Carrousel partagé : envoi corrigé",
+        "description": "Les cartes produit d'un carrousel partagé deviennent des cartes libres ; un envoi refusé affiche son motif.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "79", "date": "2026-10-08",
         "titre": "✅ Carrousel : accord WhatsApp demandé d'un clic",
         "description": "Boutons Oui / Non envoyés au contact, accord noté dès qu'il clique ; lien et QR code d'accord à afficher.",

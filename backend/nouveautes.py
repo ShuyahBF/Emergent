@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.10", "date": "2026-10-08",
+        "titre": "📐 Barre latérale compacte et menu « Plateformes »",
+        "description": "Une ligne d'icônes (Notif, Son, Atlas, Réglages) qui se déplie ; Plateformes et Loois regroupés comme Liluvine.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "79.9", "date": "2026-10-08",
         "titre": "🗄️ Jauge Atlas dans la barre latérale",
         "description": "Sous « Alerte WhatsApp » : orange dès 45 %, rouge quand il reste 10 % ; un clic déplie le détail par base.",

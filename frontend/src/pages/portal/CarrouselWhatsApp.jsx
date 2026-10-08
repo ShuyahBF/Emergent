@@ -731,9 +731,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
     return annuaire.contacts.filter((c) => ids.has(c.id) && c.accepte && c.telephone);
   }, [choisis, groupes, annuaire]);
 
+  const [envoiErreur, setEnvoiErreur] = useState("");   // lot 79.1 : motif d'un refus, affiché sous le bouton
   const envoyer = async () => {
     if (!window.confirm(`Envoyer ce carrousel de ${cartes.length} cartes à ${retenus.length} destinataire(s) ?`)) return;
     setEnvoi(true);
+    setEnvoiErreur("");
     try {
       const corps = {
         message,
@@ -744,7 +746,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
       toast.success(`Envoi lancé vers ${data.destinataires} destinataire(s) (modèle ${data.modele})`);
       setTimeout(charger, 3000);
     } catch (e) {
-      toast.error(erreur(e, "Envoi refusé"));
+      const motif = erreur(e, "Envoi refusé");
+      toast.error(motif, { duration: 10000 });
+      setEnvoiErreur(motif);   // reste affiché sous le bouton tant qu'on ne relance pas l'envoi
     } finally {
       setEnvoi(false);
     }
@@ -963,6 +967,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
           </Button>
           {!envoi && manques.length > 0 && (
             <span className="w-full text-xs text-amber-700">Pour envoyer, il manque : {manques.join(" · ")}.</span>
+          )}
+          {!envoi && envoiErreur && (
+            <div role="alert" className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <XCircle className="mr-1 inline h-4 w-4" /> Envoi refusé : {envoiErreur}
+            </div>
           )}
         </div>
       </section>

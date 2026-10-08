@@ -29,6 +29,7 @@ GET /api/public/carrousel/l/{code} qui compte les clics puis redirige vers le li
 from __future__ import annotations
 
 import base64
+import logging
 import re
 import time
 import secrets
@@ -41,6 +42,8 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from routes.whatsapp_helpers import _normalize_wa_phone
+
+logger = logging.getLogger("sawali.carrousel")
 
 CLE_FONCTION = "whatsapp_carrousel"
 CARTES_MIN, CARTES_MAX = 2, 10          # limites Meta d'un carrousel
@@ -381,6 +384,30 @@ def attach_carrousel_whatsapp_routes(
     def _filtre_brouillons(perimetre: str, tenant_id: Optional[str]) -> dict:
         return {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
 
+    async def _figer_cartes(cartes: List[dict], tenant_source: Optional[str]) -> List[dict]:
+        """Lot 79.1 — un carrousel partagé peut contenir des cartes « Produit » de l'espace qui partage : le
+        destinataire n'a pas accès à ces produits. Elles sont donc transformées en cartes libres (photo, nom,
+        prix et page du produit), lues dans l'espace d'origine."""
+        base = base_publique()
+        sortie = []
+        for c in cartes or []:
+            if c.get("source") != "produit" or not c.get("produit_id"):
+                sortie.append(c)
+                continue
+            q: Dict[str, Any] = {"id": c["produit_id"], "deleted_at": None}
+            if tenant_source:
+                q["$or"] = [{"client_id": tenant_source}, {"tenant_id": tenant_source}]
+            p = await db.products.find_one(q, {"_id": 0, "id": 1, "name": 1, "image_url": 1, "unit_price_ht": 1})
+            if not p:
+                sortie.append(c)
+                continue
+            sortie.append({"source": "libre", "produit_id": None,
+                           "image_url": url_absolue(c.get("image_url") or p.get("image_url"), base),
+                           "titre": (c.get("titre") or p.get("name") or "")[:60],
+                           "texte": (c.get("texte") or prix_affiche(p.get("unit_price_ht")))[:80],
+                           "lien": c.get("lien") or f"{base.rstrip('/')}/api/public/og/product/{p['id']}"})
+        return sortie
+
     def _filtre_partages(perimetre: str, tenant_id: Optional[str]) -> dict:
         """Lot 79 — carrousels d'un AUTRE espace partagés avec cet espace (admin, ou client = tenant)."""
         cible = {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
@@ -466,6 +493,7 @@ def attach_carrousel_whatsapp_routes(
         # Lot 79 — carrousels partagés AVEC ce périmètre (lecture seule : ouvrir, dupliquer, envoyer à ses contacts)
         async for b in db.carrousel_brouillons.find({**_filtre_partages(perimetre, tenant_id), "auto": {"$ne": True}},
                                                     {"_id": 0, "partages": 0}).sort("modifie_le", -1):
+            b["cartes"] = await _figer_cartes(b.get("cartes") or [], b.get("tenant_id"))   # lot 79.1
             n = len(b.get("cartes") or [])
             lignes.append({**b, "nb_cartes": n, "modele": f"{meta['prefixe']}_{n}" if meta["prefixe"] else None,
                            "statut_meta": statut_pour_cartes(n, meta["statuts"]), "partage": True,
@@ -526,8 +554,11 @@ def attach_carrousel_whatsapp_routes(
             {"id": bid, "$or": [_filtre_brouillons(perimetre, tenant_id), _filtre_partages(perimetre, tenant_id)]}, {"_id": 0})
         if not src:
             raise HTTPException(status_code=404, detail="Carrousel introuvable")
+        cartes_src = src.get("cartes") or []
+        if src.get("perimetre") != perimetre or src.get("tenant_id") != (tenant_id if perimetre == "client" else None):
+            cartes_src = await _figer_cartes(cartes_src, src.get("tenant_id"))   # lot 79.1 : copie d'un carrousel partagé
         copie = BrouillonIn(nom=f"Copie de {src['nom']}"[:80], message=src.get("message") or "",
-                            cartes=[CarteIn(**c) for c in (src.get("cartes") or [])])
+                            cartes=[CarteIn(**c) for c in cartes_src])
         return await _enregistrer_brouillon(copie, perimetre, tenant_id, user)
 
     async def _supprimer_brouillon(bid: str, perimetre: str, tenant_id: Optional[str]) -> dict:
@@ -725,9 +756,15 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=400, detail="Modèles de carrousel non renseignés : voir les réglages "
                                                         "de l'administration SAWALI")
         prefs = await _preferences(perimetre, tenant_id)
-        cartes = await _preparer_cartes(envoi.cartes, tenant_id if perimetre == "client" else None, prefs["lien_defaut"])
+        try:
+            cartes = await _preparer_cartes(envoi.cartes, tenant_id if perimetre == "client" else None, prefs["lien_defaut"])
+        except HTTPException as exc:
+            # Lot 79.1 — motif du refus gardé dans le journal (aide au diagnostic d'un « rien ne se passe »)
+            logger.info("[carrousel] envoi refusé (%s, %s) : %s", perimetre, tenant_id, exc.detail)
+            raise
         destinataires = _dedoublonner(personnes)
         if not destinataires:
+            logger.info("[carrousel] envoi refusé (%s, %s) : aucun destinataire consentant", perimetre, tenant_id)
             raise HTTPException(status_code=400, detail="Aucun destinataire n'a accepté de recevoir vos messages "
                                                         "WhatsApp (ou aucun numéro valable)")
         if len(destinataires) > DESTINATAIRES_MAX:

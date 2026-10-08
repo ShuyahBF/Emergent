@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79"
-LOT_LIBELLE = "Carrousel WhatsApp : demande d'accord par boutons Oui / Non (noté dès le clic), lien et QR code d'accord « OUI NOUVEAUTES » / STOP, journal des accords ; partage des carrousels par e-mail (admin et superviseurs vers comptes et clients)"
+LOT = "79.1"
+LOT_LIBELLE = "Carrousel partagé : cartes « Produit » de l'espace d'origine transformées en cartes libres (envoi possible par le destinataire) ; motif d'un envoi refusé affiché sous le bouton et écrit dans le journal"

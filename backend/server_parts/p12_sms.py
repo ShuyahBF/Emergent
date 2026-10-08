@@ -1774,6 +1774,17 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue
                         except Exception:  # noqa: BLE001
                             logger.warning("[linkedin.autopost] WA reply hook failed", exc_info=True)
+                        # Lot 79 — accord WhatsApp donné ou retiré par la personne elle-même
+                        # (« OUI NOUVEAUTES » via le lien / QR code, ou « STOP ») : noté, confirmé, puis fin.
+                        # Placé APRÈS le cockpit admin et la validation LinkedIn (qui ont leur propre « STOP »).
+                        try:
+                            from routes.accord_whatsapp import traiter_message_entrant as _accord_wa
+                            accord = await _accord_wa(db, digits_only, text_body, None, numero_recu)
+                            if accord:
+                                await _wa_send_text(from_num, accord[0], tenant_id=accord[1])
+                                continue
+                        except Exception:  # noqa: BLE001 — ne bloque jamais la réception
+                            logger.warning("[accord_wa] mot-clé non traité", exc_info=True)
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
                         # Iter35l — Try to download the binary from Meta Graph
                         # (URL expires ~5min) and persist it locally so the chat
@@ -1828,6 +1839,16 @@ async def whatsapp_webhook_incoming(request: Request):
                         # VIDAL riche — clic sur le bouton "Équivalences" affiché
                         # après une réponse `!doc`/`!rech` (voir vidal_riche.py).
                         btn_id = reply.get("id") or ""
+                        # Lot 79 — réponse à la demande d'accord (« Oui, j'accepte » / « Non merci »)
+                        if btn_id.startswith("accord_wa:"):
+                            try:
+                                from routes.accord_whatsapp import traiter_message_entrant as _accord_wa
+                                accord = await _accord_wa(db, digits_only, None, btn_id, numero_recu)
+                                if accord:
+                                    await _wa_send_text(from_num, accord[0], tenant_id=accord[1])
+                            except Exception:  # noqa: BLE001
+                                logger.warning("[accord_wa] bouton non traité", exc_info=True)
+                            continue
                         if btn_id.startswith("vidal_equiv:"):
                             try:
                                 parts = btn_id.split(":", 2)

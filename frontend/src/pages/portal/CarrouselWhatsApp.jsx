@@ -14,8 +14,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Copy, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
-  RefreshCw, Save, Send, Settings, Sparkles, Trash2, Users, XCircle,
+  MessageSquareReply, RefreshCw, Save, Send, Settings, Share2, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
+import QRCode from "qrcode";                                  // lot 79 : QR code du lien d'accord
+import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle (partage réservé admin / superviseur)
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -319,6 +321,42 @@ function Reglages({ etat, onEnregistre }) {
   );
 }
 
+// Lot 79 — lien et QR code d'accord : la personne envoie elle-même « OUI NOUVEAUTES » (STOP pour arrêter)
+function LienAccord({ base }) {
+  const [info, setInfo] = useState(null);
+  const [qr, setQr] = useState("");
+  useEffect(() => {
+    apiClient.get(`${base}/lien-accord`).then(async ({ data }) => {
+      setInfo(data);
+      if (data.lien) setQr(await QRCode.toDataURL(data.lien, { errorCorrectionLevel: "M", width: 240, margin: 1 }));
+    }).catch(() => setInfo({ lien: "", erreur: "Lien d'accord indisponible" }));
+  }, [base]);
+  if (!info) return null;
+  const copier = async () => {
+    try { await navigator.clipboard.writeText(info.lien); toast.success("Lien copié"); } catch { toast.error("Copie impossible"); }
+  };
+  return (
+    <details className="rounded-md border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700">
+      <summary className="cursor-pointer font-medium text-emerald-800">Lien et QR code d'accord (pour ceux qui ne vous ont pas écrit récemment)</summary>
+      {info.lien ? (
+        <div className="mt-2 flex flex-wrap items-start gap-4">
+          {qr && <img src={qr} alt="QR code d'accord WhatsApp" className="h-32 w-32 rounded bg-white p-1" />}
+          <div className="min-w-0 flex-1 space-y-2">
+            <p>À afficher au comptoir, sur une affiche ou sur vos réseaux. La personne scanne ou touche le lien : WhatsApp s'ouvre
+              avec <b>« {info.mot_cle} »</b> déjà écrit vers le {info.numero}. Dès qu'elle l'envoie, son accord est noté
+              automatiquement (avec la date). « STOP » le retire à tout moment.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="break-all rounded bg-white px-2 py-1">{info.lien}</code>
+              <Button type="button" size="sm" variant="outline" onClick={copier}><Copy className="mr-1 h-4 w-4" /> Copier le lien</Button>
+              {qr && <a href={qr} download="qr-accord-whatsapp.png" className="text-emerald-700 underline">Télécharger le QR code</a>}
+            </div>
+          </div>
+        </div>
+      ) : <p className="mt-2 text-amber-700">{info.erreur || "Lien d'accord indisponible"}</p>}
+    </details>
+  );
+}
+
 // Lot 77 — pastille du statut chez Meta du modèle utilisé (selon le nombre de cartes)
 const STATUTS_META = {
   APPROVED: ["bg-emerald-500", "Approuvé par Meta : prêt à envoyer"],
@@ -344,7 +382,7 @@ function PastilleMeta({ statut, modele }) {
 }
 
 // Lot 77 — carrousels enregistrés sous un nom : liste, ouvrir, dupliquer, supprimer
-function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onComposer }) {
+function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onComposer, peutPartager }) {
   const [liste, setListe] = useState({ carrousels: [], erreur_meta: null });
   const [meta, setMeta] = useState({ prefixe: "", statuts: {} });   // lot 78.1 : modèles déposés chez Meta
   const charger = useCallback(async (relireMeta = false) => {
@@ -376,6 +414,20 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
       charger();
     } catch (e) {
       toast.error(erreur(e, "Duplication impossible"));
+    }
+  };
+  // Lot 79 — partage : adresses e-mail des comptes (admin, superviseur, client) qui verront ce carrousel
+  const partager = async (b) => {
+    const actuels = (b.partages || []).map((x) => x.email).join(", ");
+    const saisie = window.prompt(`Partager « ${b.nom} » avec (adresses e-mail séparées par des virgules ; vide = ne plus partager) :`, actuels);
+    if (saisie === null) return;
+    try {
+      const emails = saisie.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+      const { data } = await apiClient.put(`${base}/brouillons/${b.id}/partages`, { emails });
+      toast.success(data.partages.length ? `Partagé avec ${data.partages.map((x) => x.nom).join(", ")}` : "Ce carrousel n'est plus partagé");
+      charger();
+    } catch (e) {
+      toast.error(erreur(e, "Partage impossible"));
     }
   };
   const supprimer = async (b) => {
@@ -431,20 +483,38 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
                 <tr key={b.id} aria-selected={courant?.id === b.id ? "true" : "false"}
                     className={`border-t border-slate-100 ${courant?.id === b.id ? "ligne-selectionnee" : ""}`}>
                   <td className="py-1.5 pr-2"><PastilleMeta statut={b.statut_meta} modele={b.modele} /></td>
-                  <td className="font-medium">{b.nom}</td>
+                  <td className="font-medium">
+                    {b.nom}
+                    {b.partage && <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-normal text-sky-800">partagé par {b.partage_par}</span>}
+                    {!b.partage && (b.partages || []).length > 0 && (
+                      <span className="ml-2 text-[10px] font-normal text-slate-500" title={(b.partages || []).map((x) => x.email).join(", ")}>
+                        partagé avec {(b.partages || []).length}
+                      </span>
+                    )}
+                  </td>
                   <td className="tabular-nums">{b.nb_cartes}</td>
                   <td className="font-mono text-xs">{b.modele || "—"}</td>
                   <td className="text-xs">{dateFr(b.modifie_le)}</td>
                   <td className="whitespace-nowrap text-right">
-                    <Button type="button" size="sm" variant="outline" className="mr-1" onClick={() => onOuvrir(b)} title="Afficher ce carrousel dans l'éditeur">
+                    <Button type="button" size="sm" variant="outline" className="mr-1" title="Afficher ce carrousel dans l'éditeur"
+                            onClick={() => (b.partage
+                              ? (onOuvrir({ ...b, id: null, nom: "" }), toast.info("Carrousel partagé : enregistrez-le sous un nom pour le garder dans votre espace"))
+                              : onOuvrir(b))}>
                       <FolderOpen className="h-4 w-4" />
                     </Button>
                     <Button type="button" size="sm" variant="outline" className="mr-1" onClick={() => dupliquer(b)} title="Dupliquer pour en créer un nouveau">
                       <Copy className="h-4 w-4" />
                     </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => supprimer(b)} title="Supprimer">
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
+                    {peutPartager && !b.partage && (
+                      <Button type="button" size="sm" variant="outline" className="mr-1" onClick={() => partager(b)} title="Partager avec d'autres comptes (e-mail)">
+                        <Share2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {!b.partage && (
+                      <Button type="button" size="sm" variant="outline" onClick={() => supprimer(b)} title="Supprimer">
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -462,6 +532,8 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
 
 export default function CarrouselWhatsApp({ admin = false }) {
   const base = admin ? "/admin/whatsapp/carrousel" : "/me/whatsapp/carrousel";
+  const { user } = useAuth();
+  const peutPartager = admin || ["admin", "superviseur"].includes(user?.role);   // lot 79
   const [etat, setEtat] = useState(null);
   const [refus, setRefus] = useState("");
   const [produits, setProduits] = useState([]);
@@ -620,6 +692,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
     setter(s);
   };
   const consentement = async (ids, accepte) => {
+    // Lot 79 — l'accord noté à la main doit avoir été réellement donné (oral, écrit) : confirmation explicite
+    if (accepte && !window.confirm("Cette personne vous a-t-elle réellement donné son accord (de vive voix ou par écrit) ?\n"
+      + "Ne notez jamais un accord qui n'a pas été donné : utilisez plutôt « Demander l'accord » ou le lien d'accord.")) return;
     try {
       await apiClient.put(`${base}/consentements`, { ids, accepte });
       toast.success(accepte ? "Consentement noté" : "Consentement retiré");
@@ -627,6 +702,26 @@ export default function CarrouselWhatsApp({ admin = false }) {
       setAnnuaire(data);
     } catch (e) {
       toast.error(erreur(e, "Modification refusée"));
+    }
+  };
+  // Lot 79 — demande d'accord : message WhatsApp à 2 boutons ; l'accord est noté dès que la personne touche « Oui »
+  const [demande, setDemande] = useState(false);
+  const demanderAccord = async () => {
+    const ids = new Set(choisis);
+    annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
+    const cibles = annuaire.contacts.filter((c) => ids.has(c.id) && !c.accepte && c.telephone);
+    if (!cibles.length) { toast.info("Cochez d'abord des personnes qui n'ont pas encore donné leur accord."); return; }
+    if (!window.confirm(`Envoyer la demande d'accord (boutons « Oui, j'accepte » / « Non merci ») à ${cibles.length} personne(s) ?`)) return;
+    setDemande(true);
+    try {
+      const { data } = await apiClient.post(`${base}/demande-accord`, { ids: cibles.map((c) => c.id) });
+      if (data.envoyees) toast.success(`${data.envoyees} demande(s) envoyée(s) : l'accord sera noté dès que la personne touchera « Oui ».`);
+      if (data.fenetre_fermee.length) toast.warning(`${data.fenetre_fermee.length} personne(s) ne vous ont pas écrit depuis 24 h : WhatsApp interdit de leur écrire en premier. Donnez-leur le lien ou le QR code d'accord : ${data.fenetre_fermee.slice(0, 5).join(", ")}${data.fenetre_fermee.length > 5 ? "…" : ""}`, { duration: 12000 });
+      if (data.erreurs.length) toast.error(data.erreurs.slice(0, 3).join(" · "));
+    } catch (e) {
+      toast.error(erreur(e, "Demande d'accord impossible"));
+    } finally {
+      setDemande(false);
     }
   };
   // Destinataires réels : contacts cochés + membres des groupes, qui ont accepté
@@ -700,7 +795,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
 
       {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
-      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} rafraichir={rafraichirListe} onComposer={composer}
+      <MesCarrousels base={base} courant={courant} onOuvrir={ouvrirCarrousel} rafraichir={rafraichirListe} onComposer={composer} peutPartager={peutPartager}
                      onEnregistre={(b) => { setCourant(b ? { id: b.id, nom: b.nom } : null); if (!b) setNom(""); }} />
 
       {/* 1. Message et cartes */}
@@ -802,8 +897,10 @@ export default function CarrouselWhatsApp({ admin = false }) {
         <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Users className="h-4 w-4" /> 2. Destinataires</h2>
         <p className="text-xs text-slate-600">
           Seules les personnes qui ont <b>accepté</b> de recevoir vos messages WhatsApp reçoivent le carrousel (règle de
-          WhatsApp). Notez l'accord quand la personne vous l'a donné ; retirez-le si elle ne veut plus rien recevoir.
+          WhatsApp et loi sur les données personnelles). Pour obtenir l'accord : cochez les personnes puis
+          « Demander l'accord » (boutons Oui / Non, noté automatiquement), ou donnez-leur le lien / QR code ci-dessous.
         </p>
+        <LienAccord base={base} />
         {annuaire.groupes.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {annuaire.groupes.map((g) => (
@@ -821,6 +918,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
             Cocher ceux qui ont accepté
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={() => setChoisis(new Set())}>Tout décocher</Button>
+          <Button type="button" size="sm" variant="outline" disabled={demande} onClick={demanderAccord}
+                  title="Envoie « Souhaitez-vous recevoir nos nouveautés ? » avec les boutons Oui / Non aux personnes cochées sans accord">
+            {demande ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MessageSquareReply className="mr-1 h-4 w-4" />}
+            Demander l'accord (boutons Oui / Non)
+          </Button>
         </div>
         <div className="max-h-80 overflow-y-auto rounded-md border border-slate-200">
           <table className="w-full text-sm">
@@ -831,7 +933,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               {contactsFiltres.map((c) => (
                 <tr key={c.id} className="border-t border-slate-100">
                   <td className="p-2">
-                    <input type="checkbox" disabled={!c.accepte || !c.telephone} checked={choisis.has(c.id)}
+                    <input type="checkbox" disabled={!c.telephone} checked={choisis.has(c.id)}
                            onChange={() => basculer(choisis, setChoisis, c.id)} />
                   </td>
                   <td className="p-2">{c.nom}<span className="text-xs text-slate-500"> {c.societe}</span></td>
@@ -840,10 +942,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     {c.accepte ? (
                       <button type="button" className="text-xs text-emerald-700" title="Retirer l'accord" onClick={() => consentement([c.id], false)}>
                         <CheckCircle2 className="mr-1 inline h-4 w-4" />accepté {c.accepte_le ? `le ${dateFr(c.accepte_le)}` : ""}
+                        {c.moyen && <span className="ml-1 text-slate-500">({c.moyen})</span>}
                       </button>
                     ) : (
                       <button type="button" className="text-xs text-slate-600 underline" onClick={() => consentement([c.id], true)}>
-                        Noter son accord
+                        Noter son accord (donné de vive voix ou par écrit)
                       </button>
                     )}
                   </td>

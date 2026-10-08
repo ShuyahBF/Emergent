@@ -188,6 +188,22 @@ def signature_valide(secret: str, timestamp: str, corps: bytes, signature: str, 
 # Routes
 # =====================================================================================
 
+# Lot 82.4 : champs du contrat. Ils sont désormais rangés PAR PLATEFORME (db.liluvine_emetteurs.contrat) et non plus
+# sur la fiche du client : deux plateformes rattachées au même client (ex. ALBARKA et Ster) s'écrasaient l'une
+# l'autre. La fiche du client ne sert plus que de valeur de départ (anciens contrats) et pour les paiements.
+CLES_CONTRAT = ("contract_number", "contract_amount", "contract_currency", "contract_signed_at", "contract_start_at",
+                "contract_end_at", "contract_lignes", "contract_alerte_avant_jours", "contract_alerte_apres_jours",
+                "contract_services_suspendus")
+
+
+def contrat_de(emetteur: Dict[str, Any], client: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Champs du contrat d'une plateforme : ceux rangés sur la plateforme, sinon (ancien contrat) ceux de la fiche client."""
+    propre = emetteur.get("contrat")
+    if isinstance(propre, dict):
+        return propre
+    return {k: (client or {}).get(k) for k in CLES_CONTRAT if (client or {}).get(k) is not None}
+
+
 CHAMPS_CLIENT = {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
                  "contract_number": 1, "contract_amount": 1, "contract_currency": 1, "contract_signed_at": 1,
                  "contract_start_at": 1, "contract_end_at": 1, "contract_lignes": 1,
@@ -213,24 +229,26 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
             return {**base, "client": None, "etat": etat_contrat(None, None, date.today())}
         paiements = [p async for p in db.tenant_payments.find({"tenant_id": client["id"]}, {"_id": 0})
                      .sort("payment_date", -1).limit(500)]
-        lignes = client.get("contract_lignes") or []
-        avant = int(client.get("contract_alerte_avant_jours") or AVANT_DEFAUT)
-        apres = int(client.get("contract_alerte_apres_jours") or APRES_DEFAUT)
-        etat = etat_contrat(client.get("contract_start_at"), client.get("contract_end_at"), date.today(), avant, apres)
-        coches = client.get("contract_services_suspendus") or []
+        k = contrat_de(emetteur, client)   # lot 82.4 : contrat propre à la plateforme
+        lignes = k.get("contract_lignes") or []
+        # 0 est une valeur permise (alerte le jour même) : seul « absent » prend la valeur par défaut
+        avant = int(k["contract_alerte_avant_jours"]) if k.get("contract_alerte_avant_jours") is not None else AVANT_DEFAUT
+        apres = int(k["contract_alerte_apres_jours"]) if k.get("contract_alerte_apres_jours") is not None else APRES_DEFAUT
+        etat = etat_contrat(k.get("contract_start_at"), k.get("contract_end_at"), date.today(), avant, apres)
+        coches = k.get("contract_services_suspendus") or []
         return {
             **base,
             "client": {"id": client["id"], "nom": client.get("company") or client.get("full_name") or client.get("email"),
                        "code": client.get("client_code")},
-            "numero": client.get("contract_number"), "devise": client.get("contract_currency") or "XOF",
-            "signe_le": client.get("contract_signed_at"), "debut": client.get("contract_start_at"),
-            "fin": client.get("contract_end_at"), "lignes": lignes,
+            "numero": k.get("contract_number"), "devise": k.get("contract_currency") or "XOF",
+            "signe_le": k.get("contract_signed_at"), "debut": k.get("contract_start_at"),
+            "fin": k.get("contract_end_at"), "lignes": lignes,
             "alerte_avant_jours": avant, "alerte_apres_jours": apres,
-            "finances": resume_financier(client.get("contract_amount"), lignes, paiements, client.get("contract_start_at")),
+            "finances": resume_financier(k.get("contract_amount"), lignes, paiements, k.get("contract_start_at")),
             "etat": etat,
             # Lot 82 : services cochés, ceux suspendus aujourd'hui et la date de début de suspension
             "services_a_suspendre": coches, "services_suspendus": services_suspendus(etat, coches),
-            "suspension_le": date_suspension(client.get("contract_end_at"), apres) if coches else None,
+            "suspension_le": date_suspension(k.get("contract_end_at"), apres) if coches else None,
             "paiements": paiements if avec_paiements else None,
         }
 
@@ -270,7 +288,8 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
                     raise HTTPException(status_code=422, detail=f"Date « {cle} » invalide (AAAA-MM-JJ)")
                 champs[champ] = str(valeur)[:10] if valeur else None
         # Cohérence des dates, y compris avec celles déjà enregistrées sur la fiche du client
-        existant = await db.users.find_one({"id": client_id}, {"_id": 0, "contract_start_at": 1, "contract_end_at": 1}) or {}
+        client_doc = await db.users.find_one({"id": client_id}, {"_id": 0, **{c: 1 for c in CLES_CONTRAT}}) or {}
+        existant = contrat_de(emetteur, client_doc)   # lot 82.4 : contrat de CETTE plateforme
         debut_final = champs.get("contract_start_at", existant.get("contract_start_at"))
         fin_finale = champs.get("contract_end_at", existant.get("contract_end_at"))
         if _jour(debut_final) and _jour(fin_finale) and _jour(fin_finale) <= _jour(debut_final):
@@ -302,10 +321,12 @@ def setup_contrats_plateformes_routes(*, db, api, get_current_user) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
         maintenant = datetime.now(timezone.utc).isoformat()
-        if champs:
-            await db.users.update_one({"id": client_id}, {"$set": {**champs, "updated_at": maintenant}})
-        await db.liluvine_emetteurs.update_one({"code": emetteur["code"]}, {"$set": {"client_id": client_id}})
+        # Lot 82.4 : enregistré sur la PLATEFORME (jamais sur la fiche client, partagée par d'autres plateformes)
+        contrat = {**existant, **champs, "maj_le": maintenant}
+        await db.liluvine_emetteurs.update_one({"code": emetteur["code"]},
+                                               {"$set": {"client_id": client_id, "contrat": contrat}})
         emetteur["client_id"] = client_id
+        emetteur["contrat"] = contrat
         return await _contrat(emetteur)
 
     @api.post("/webhook/plateforme-contrat", tags=["Plateformes — contrats"])

@@ -72,3 +72,26 @@ def test_lot_et_carte():
     import nouveautes
     assert int(lot.LOT.split(".")[0]) >= 82
     assert any(str(n.get("lot")) == "82" for n in nouveautes.NOUVEAUTES)
+
+
+def test_deux_plateformes_meme_client_ne_s_ecrasent_plus():
+    """Lot 82.4 : ALBARKA et Ster rattachées au même client gardent chacune LEUR contrat."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot82_4"]
+    boucle = asyncio.new_event_loop()
+    for code in ("albarka", "ster"):
+        boucle.run_until_complete(db.liluvine_emetteurs.insert_one({"code": code, "nom": code.upper(), "secret": "s", "actif": True}))
+    # Ancien contrat rangé sur la fiche client : repris comme valeur de départ
+    boucle.run_until_complete(db.users.insert_one({"id": "t1", "company": "Client commun", "role": "client",
+                                                   "contract_number": "ANCIEN", "contract_end_at": "2027-01-01"}))
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    cp.setup_contrats_plateformes_routes(db=db, api=api, get_current_user=lambda: {"role": "admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    assert c.put("/api/admin/plateformes/albarka/contrat", json={"client_id": "t1", "debut": "2026-10-15", "fin": "2027-10-15",
+                                                                 "alerte_apres_jours": 0}).status_code == 200
+    assert c.put("/api/admin/plateformes/ster/contrat", json={"client_id": "t1", "debut": "2026-08-05", "fin": "2026-09-06",
+                                                              "numero": "STER-1"}).status_code == 200
+    contrats = {x["code"]: x for x in c.get("/api/admin/plateformes/contrats").json()["contrats"]}
+    assert contrats["albarka"]["fin"] == "2027-10-15" and contrats["albarka"]["numero"] == "ANCIEN"
+    assert contrats["albarka"]["alerte_apres_jours"] == 0          # 0 jour gardé (plus remplacé par 5)
+    assert contrats["ster"]["fin"] == "2026-09-06" and contrats["ster"]["numero"] == "STER-1"

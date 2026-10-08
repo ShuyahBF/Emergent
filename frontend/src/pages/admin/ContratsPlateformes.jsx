@@ -53,16 +53,18 @@ function FormulaireContrat({ contrat, clients, catalogue, onEnregistre, onAnnule
     lignes: (contrat.lignes || []).length ? contrat.lignes : [{ type: "prestation", libelle: "Développement", montant: "" }],
   });
   const [enCours, setEnCours] = useState(false);
-  // Lot 82.1 : durée en jours ↔ échéance (l'une calcule l'autre ; un changement de début recalcule l'échéance)
+  // Lot 82.1 : durée en jours ↔ échéance (l'une calcule l'autre) ; lot 82.3 : le début ne déplace plus l'échéance
   const [duree, setDuree] = useState(ecartJours((contrat.debut || "2026-10-15").slice(0, 10), (contrat.fin || "").slice(0, 10)));
   const changerDuree = (valeur) => {
     setDuree(valeur);
     const n = parseInt(valeur, 10);
     if (Number.isFinite(n) && n > 0) setF((avant) => ({ ...avant, fin: ajouterJours(avant.debut, n) }));
   };
+  // Lot 82.3 : changer le début ne déplace JAMAIS l'échéance (seule la saisie d'une durée la calcule) ;
+  // la durée affichée est simplement recalculée
   const changerDebut = (valeur) => {
-    const n = parseInt(duree, 10);
-    setF((avant) => ({ ...avant, debut: valeur, fin: Number.isFinite(n) && n > 0 && valeur ? ajouterJours(valeur, n) : avant.fin }));
+    setF((avant) => ({ ...avant, debut: valeur }));
+    setDuree(ecartJours(valeur, f.fin));
   };
   const changerFin = (valeur) => { setF((avant) => ({ ...avant, fin: valeur })); setDuree(ecartJours(f.debut, valeur)); };
   const total = f.lignes.reduce((s, l) => s + (Number(l.montant) || 0), 0);

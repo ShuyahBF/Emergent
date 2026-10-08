@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "82.3", "date": "2026-10-08",
+        "titre": "📅 Contrats : la date de début ne déplace plus l'échéance",
+        "description": "Modifier le début du contrat garde l'échéance saisie ; seule une durée en jours recalcule l'échéance.",
+        "rubrique": "📑 Contrats des plateformes",
+    },
+    {
         "lot": "82.2", "date": "2026-10-08",
         "titre": "⛔ Contrats : services suspendus mieux signalés",
         "description": "Quand des services sont déjà suspendus, la carte du contrat rappelle l'échéance dépassée et comment les rétablir.",

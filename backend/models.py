@@ -1084,6 +1084,9 @@ class SettingsUpdate(BaseModel):
     # Lot 79.7 — modèle Meta de la relance au client (4 variables : nom, jours, n° contrat, montant)
     contract_relance_wa_template: Optional[str] = None
     contract_relance_wa_language: Optional[str] = None
+    # Lot 79.8 — limite de collections du cluster Atlas (Flex / M0 : 500) et seuil d'alerte WhatsApp
+    atlas_limite_collections: Optional[int] = None
+    atlas_seuil_alerte: Optional[int] = None
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
     openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)

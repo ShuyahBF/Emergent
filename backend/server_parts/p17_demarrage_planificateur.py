@@ -1303,6 +1303,22 @@ async def _start_scheduler():
                         logger.info("Ad banner reminders sent: %s", len(res["sent"]))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Ad banner reminders cron failed: %s", exc)
+            # Lot 79.8 — surveillance horaire du nombre de collections du cluster Atlas (limite 500) :
+            # au-delà du seuil (450 par défaut), avertissement au journal + WhatsApp au super-admin (1 fois par jour)
+            async def _scheduled_quota_atlas():
+                try:
+                    from routes.quota_atlas import surveiller as _surveiller_quota
+                    from db import client as _client_mongo
+                    await _surveiller_quota(db, _client_mongo, db.name)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[quota_atlas] surveillance en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_quota_atlas,
+                CronTrigger(minute=7, timezone="Africa/Abidjan"),
+                id="quota_atlas_horaire",
+                replace_existing=True,
+                misfire_grace_time=1800,
+            )
             _safe_add_job(
                 _scheduled_ad_banner_reminders,
                 CronTrigger(hour=9, minute=30, timezone="Africa/Abidjan"),

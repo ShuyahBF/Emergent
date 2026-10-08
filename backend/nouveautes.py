@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.8", "date": "2026-10-08",
+        "titre": "🗄️ Jauge des collections Atlas (500 par cluster)",
+        "description": "Collections utilisées par base sur le cluster partagé, alerte WhatsApp avant le blocage.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "79.7", "date": "2026-10-08",
         "titre": "💰 Retards de paiement : un récapitulatif, vous choisissez qui relancer",
         "description": "Une liste numérotée chaque matin ; répondez « ok 1,2,5 » sur WhatsApp et Liluvine relance ces clients.",

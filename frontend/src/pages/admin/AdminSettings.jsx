@@ -22,6 +22,7 @@ import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSectio
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
+import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
@@ -83,6 +84,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🗄️ Base Atlas — collections du cluster": "79.8",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
@@ -108,6 +110,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
@@ -1220,6 +1223,10 @@ export default function AdminSettings() {
       </Filterable>
 
       {/* Lot 71.3 — santé du serveur : blocages notés par la sentinelle (lots 71.1 et 71.2) */}
+      {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) */}
+      <Filterable title="🗄️ Base Atlas — collections du cluster" anchorId="s-quota-atlas" category="diagnostics">
+        <QuotaAtlasSection reglages={s} maj={upd} />
+      </Filterable>
       <Filterable title="⚡ Santé du serveur — blocages" anchorId="s-sante-serveur" category="diagnostics">
         <SanteServeurSection />
       </Filterable>

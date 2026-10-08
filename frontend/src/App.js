@@ -169,6 +169,8 @@ import OrdonnancesStock from "@/pages/portal/OrdonnancesStock";   // lot 39
 import CarrouselWhatsApp from "@/pages/portal/CarrouselWhatsApp";   // lot 40
 import MaintenanceEquipements from "@/pages/portal/MaintenanceEquipements";   // lot 41
 import ParcInformatique from "@/pages/portal/ParcInformatique";   // lot 47
+import DecouverteReseau from "@/pages/admin/DecouverteReseau";   // lot 80 : appareils découverts par Loois
+import VersionsDeployees from "@/pages/admin/VersionsDeployees";   // lot 80 : « Postes et serveurs » dans « Équipements »
 import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
 import OfficineOrdonnance from "@/pages/public/OfficineOrdonnance";   // lot 57 : délivrance en officine (QR de l'ordonnance)
 import Restauration from "@/pages/public/Restauration";   // lot 49 : restauration initiale d'un site neuf
@@ -476,6 +478,8 @@ export default function App() {
             <Route path="whatsapp-carrousel" element={<CarrouselWhatsApp admin />} />   {/* lot 40 */}
             <Route path="maintenance" element={<MaintenanceEquipements />} />   {/* lot 41 */}
             <Route path="parc" element={<ParcInformatique />} />   {/* lot 47 */}
+            <Route path="decouverte-reseau" element={<DecouverteReseau />} />   {/* lot 80 */}
+            <Route path="postes-serveurs" element={<div className="p-4"><VersionsDeployees /></div>} />   {/* lot 80 */}
             <Route path="automations" element={<AdminAutomations />} />
             <Route path="whatsapp-templates" element={<AdminWaTemplates />} />
             <Route path="policies" element={<AdminPolicies />} />

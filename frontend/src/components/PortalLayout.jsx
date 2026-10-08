@@ -5,6 +5,7 @@ import {
   Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor, PhoneCall,
 } from "lucide-react";
 import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
+import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -131,9 +132,10 @@ const clientLinks = [
   // Lot 39 — photo d'ordonnance → disponibilité dans le stock du client (fonction activable).
   { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
   // Lot 41 — matériel confié pour réparation (fonction activable).
-  { to: "/portal/maintenance", label: "Maintenance des équipements", icon: Wrench, featureGate: "maintenance_equipements" },
+  { to: "/portal/maintenance", label: "Maintenance des équipements", icon: Wrench, featureGate: "maintenance_equipements", groupe: "equipements" },
   // Lot 47 — parc informatique du client : équipements, interventions, rapports signés (fonction activable).
-  { to: "/portal/parc", label: "Parc informatique", icon: Monitor, featureGate: "parc_informatique" },
+  // Lot 80 — regroupés avec la maintenance dans le menu dépliable « Équipements »
+  { to: "/portal/parc", label: "Parc informatique", icon: Monitor, featureGate: "parc_informatique", groupe: "equipements" },
 ];
 
 const adminLinks = [
@@ -193,8 +195,11 @@ const adminLinks = [
   // évaluation 1-5 étoiles, tableau de bord par modèle.
   { to: "/admin/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
   { to: "/admin/ordonnances-stock", label: "Ordonnances et stock", icon: Pill },   // lot 39
-  { to: "/admin/maintenance", label: "Maintenance des équipements", icon: Wrench },   // lot 41
-  { to: "/admin/parc", label: "Parc informatique", icon: Monitor },   // lot 47
+  // Lot 80 — menu dépliable « Équipements » : parc, maintenance, découverte du réseau, postes et serveurs
+  { to: "/admin/parc", label: "Parc informatique", icon: Monitor, groupe: "equipements" },   // lot 47
+  { to: "/admin/maintenance", label: "Maintenance des équipements", icon: Wrench, groupe: "equipements" },   // lot 41
+  { to: "/admin/decouverte-reseau", label: "Découverte du réseau", icon: Radar, groupe: "equipements" },   // lot 80
+  { to: "/admin/postes-serveurs", label: "Postes et serveurs", icon: Server, groupe: "equipements" },   // lot 80
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
@@ -249,6 +254,10 @@ function PortalLayoutInner({ admin = false }) {
   // Lot 79.10 — groupe « Plateformes » (temps réel, Loois → Synchro) dépliable comme « Liluvine »
   const [plateformesOuvert, setPlateformesOuvert] = useState(() => {
     try { return localStorage.getItem("sawali.menu.plateformes") === "1"; } catch { return false; }
+  });
+  // Lot 80 — groupe « Équipements » (parc, maintenance, découverte du réseau, postes) dépliable
+  const [equipementsOuvert, setEquipementsOuvert] = useState(() => {
+    try { return localStorage.getItem("sawali.menu.equipements") === "1"; } catch { return false; }
   });
   // Lot 79.10 — bas de la barre latérale compact : panneau déplié (null, "atlas" ou "reglages")
   const [panneauBas, setPanneauBas] = useState(null);
@@ -702,6 +711,7 @@ function PortalLayoutInner({ admin = false }) {
   const GROUPES = {
     liluvine: { libelle: "Liluvine", icone: Bot, ouvert: liluvineOuvert, cle: "sawali.menu.liluvine", changer: setLiluvineOuvert },
     plateformes: { libelle: "Plateformes", icone: Globe2, ouvert: plateformesOuvert, cle: "sawali.menu.plateformes", changer: setPlateformesOuvert },
+    equipements: { libelle: "Équipements", icone: Cpu, ouvert: equipementsOuvert, cle: "sawali.menu.equipements", changer: setEquipementsOuvert },   // lot 80
   };
   const basculerGroupe = (g) => GROUPES[g].changer((avant) => {
     try { localStorage.setItem(GROUPES[g].cle, avant ? "0" : "1"); } catch { /* ignore */ }

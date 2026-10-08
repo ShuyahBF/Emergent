@@ -245,6 +245,7 @@ export default function DetailsPoste({ machine, application, onClose }) {
                     <Ligne libelle="Windows" valeur={[systeme.nom, systeme.version].filter(Boolean).join(" ")} />
                     <Ligne libelle="Architecture" valeur={systeme.architecture} />
                     <Ligne libelle="Fabricant / modèle" valeur={[systeme.fabricant, systeme.modele].filter(Boolean).join(" · ")} />
+                    <Ligne libelle="N° de série" valeur={systeme.numero_serie} />   {/* lot 80 : lu dans le BIOS */}
                     <Ligne libelle="Allumé depuis" valeur={duree(systeme.demarre_depuis_min)} />
                     <Ligne libelle={systeme.domaine ? "Domaine" : "Groupe de travail"} valeur={systeme.domaine || systeme.groupe_travail} />
                     <Ligne libelle="Dossier de Loois" valeur={systeme.dossier_loois} />
@@ -321,6 +322,33 @@ export default function DetailsPoste({ machine, application, onClose }) {
                     </table>
                   </div>
                 </Bloc>
+
+                {/* ---- Lot 80 : logiciels installés (nom, version, éditeur), filtrés par la même recherche ---- */}
+                {(inv.logiciels || []).length > 0 && (
+                  <Bloc titre={`Logiciels installés (${(inv.logiciels || []).length})`}>
+                    <div className="max-h-72 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+                          <tr><th className="px-2 py-1.5">Logiciel</th><th className="px-2 py-1.5">Version</th><th className="px-2 py-1.5">Éditeur</th></tr>
+                        </thead>
+                        <tbody>
+                          {(inv.logiciels || [])
+                            .filter((l) => !recherche || `${l.nom} ${l.editeur || ""}`.toLowerCase().includes(recherche.toLowerCase()))
+                            .map((l, i) => {
+                              const cle = `l:${i}`;
+                              return (
+                                <tr key={cle} className={selection === cle ? "ligne-selectionnee" : ""} onClick={() => setSelection(cle)}>
+                                  <td className="px-2 py-1.5">{l.nom}</td>
+                                  <td className="px-2 py-1.5 font-mono text-xs">{l.version || "—"}</td>
+                                  <td className="px-2 py-1.5 text-xs text-slate-600">{l.editeur || "—"}</td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Bloc>
+                )}
 
                 {/* ---- Tâches en cours : recherche + tri ---- */}
                 <Bloc titre={`Tâches en cours (${(inv.processus || []).length} affichées sur ${nombre(inv.processus_total)}, les plus gourmandes en mémoire)`}>

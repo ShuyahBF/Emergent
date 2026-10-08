@@ -21,6 +21,7 @@ import LiluvineDecrocheSection from "@/pages/admin/sections/LiluvineDecrocheSect
 import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSection";   // Lot 71.3
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
+import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
@@ -85,6 +86,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "79.8",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
@@ -111,6 +113,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lot 79.8
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
@@ -1226,6 +1229,11 @@ export default function AdminSettings() {
       {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
       <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
         <LooisSecretsHfsqlSection />
+      </Filterable>
+
+      {/* Lot 80 — Équipements : découverte du réseau des clients par Loois (réglages, état, lien vers l'écran) */}
+      <Filterable title="🛰️ Équipements — découverte du réseau" anchorId="s-decouverte-reseau" category="modules">
+        <DecouverteReseauSection />
       </Filterable>
 
       {/* Lot 71.3 — signal de présence des postes et serveurs (lots 65 et 66) */}

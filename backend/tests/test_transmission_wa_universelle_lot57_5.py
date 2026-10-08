@@ -163,3 +163,22 @@ def test_alerte_email_apres_serie_de_signatures_refusees(monkeypatch):
     for i in range(6):
         assert _envoyer(client, "mauvaise-cle", {"id": f"s{i}", "to": "+22670000006", "message": "x"}).status_code == 401
     assert len(mails) == 1 and mails[0][0] == "alerte@test.bf" and "ster" in mails[0][1]
+
+
+def test_reponses_non_transmises_lot84(monkeypatch):
+    """Lot 84 : plateforme réglée sur « réponses non transmises » — la réponse citée reste à SAWALI,
+    rien n'est envoyé à la plateforme, et la ligne d'aide devient « merci de ne pas y répondre »."""
+    client, db, envois, cle = _app()
+    retours = []
+
+    async def faux_retour(db_, emetteur, corps):
+        retours.append(corps)
+        return True
+    monkeypatch.setattr(relais, "_poster_retour", faux_retour)
+    _run(db.liluvine_emetteurs.update_one({}, {"$set": {"reponses_transmises": False}}))
+    r = _envoyer(client, cle, {"id": "n1", "to": "+22670000009", "message": "Votre facture"})
+    mid = r.json()["message_id"]
+    assert any("merci de ne pas y répondre" in str(e) for e in envois)
+    rep = _run(relais.traiter_message_entrant(db, de="22670000009", type_message="text", texte="Merci",
+                                              cite_message_id=mid, send_text=None))
+    assert rep["action"] == "reponse_non_transmise" and not [c for c in retours if c["type"] == "reponse"]

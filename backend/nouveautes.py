@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "84", "date": "2026-10-08",
+        "titre": "🔕 Transmission WA : réponses des clients transmises ou non, par plateforme",
+        "description": "Pour chaque plateforme (ALBARKA, Ster…), choisissez si les réponses de ses clients lui sont transmises ; sinon ses messages portent « merci de ne pas y répondre ».",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "83", "date": "2026-10-08",
         "titre": "↪ Transmission WA : seules les réponses citées vont à la plateforme",
         "description": "Seule une réponse faite avec « Répondre » sur le message d'ALBARKA, Ster… lui est transmise ; elle reste dans SAWALI avec l'étiquette « Relayé à … ».",

@@ -59,9 +59,12 @@ LONGUEUR_MAX_MODELE = 900        # message passé en variable du modèle (limite
 
 
 
-def _aide_reponse(source: str) -> str:
+def _aide_reponse(source: str, transmises: bool = True) -> str:
     """Lot 83 : rappel ajouté sous les messages des plateformes — seule une réponse faite avec
-    « Répondre » sur CE message est transmise à la plateforme (les autres messages restent à SAWALI)."""
+    « Répondre » sur CE message est transmise à la plateforme (les autres messages restent à SAWALI).
+    Lot 84 : plateforme réglée sur « réponses non transmises » → message automatique, ne pas répondre."""
+    if not transmises:
+        return f"\n\nℹ️ Message automatique de {source} : merci de ne pas y répondre."
     return f"\n\n↩️ Pour répondre à {source}, faites « Répondre » sur ce message."
 
 class LiluvineSendPayload(BaseModel):
@@ -138,6 +141,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
 
         nom_emetteur = (emetteur or {}).get("nom") or code or "liluvine"
         source = (payload.source or "").strip()[:60] or nom_emetteur
+        transmises = (emetteur or {}).get("reponses_transmises") is not False   # lot 84 : ligne d'aide adaptée
         id_externe = (payload.id or "").strip()[:80] or None
 
         # 3) Idempotence : même émetteur + même id déjà envoyé avec succès -> pas de nouvel envoi
@@ -200,7 +204,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             # a) média direct (dans la fenêtre de 24 h)
             if wa_send_media:
                 result = await wa_send_media(destinataire, type_media, public_url=lien,
-                                             caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source)}" if code else legende,
+                                             caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises)}" if code else legende,
                                              filename=nom_fichier if type_media == "document" else None)
                 if result.get("ok"):
                     media_mode = "direct"
@@ -234,7 +238,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             ]}]
             result = await wa_send_template(destinataire, modele, langue, composants)
         else:
-            result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source)}"
+            result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises)}"
                                         if code else message)
 
         # 8) Journal (sans le texte du message)

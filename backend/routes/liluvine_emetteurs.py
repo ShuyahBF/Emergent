@@ -39,6 +39,8 @@ class ModifEmetteur(BaseModel):
     quota_jour: Optional[int] = None
     url_retour: Optional[str] = None
     url_stats: Optional[str] = None    # lot 62
+    # Lot 84 : réponses des clients (« Répondre » sur un message de la plateforme) transmises ou non
+    reponses_transmises: Optional[bool] = None
 
 
 def _url_retour_valide(url: Optional[str]) -> str:
@@ -112,6 +114,8 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["url_retour"] = _url_retour_valide(donnees.url_retour)
         if donnees.url_stats is not None:   # lot 62 — adresse des statistiques internes
             changements["url_stats"] = _url_retour_valide(donnees.url_stats)
+        if donnees.reponses_transmises is not None:   # lot 84
+            changements["reponses_transmises"] = bool(donnees.reponses_transmises)
         if not changements:
             return {"ok": True}
         r = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": changements})

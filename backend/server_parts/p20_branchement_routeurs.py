@@ -237,6 +237,9 @@ _setup_loois_cles_clients(db=db, api=api, get_current_user=get_current_user)
 # Lot 79.11 — mots de passe HFSQL saisis dans SAWALI (chiffrés) et remis à Loois avec sa clé client
 from routes.loois_secrets_hfsql import setup_loois_secrets_hfsql_routes as _setup_loois_secrets_hfsql  # noqa: E402
 _setup_loois_secrets_hfsql(db=db, api=api, get_current_user=get_current_user)
+# Lot 80 — Équipements : découverte du réseau des clients par Loois (appareils « À valider », alertes, réglages)
+from routes.decouverte_reseau import setup_decouverte_reseau_routes as _setup_decouverte_reseau  # noqa: E402
+_setup_decouverte_reseau(db=db, api=api, get_current_user=get_current_user)
 # Lot 68.3 — cartes « Nouveautés » de la page Paramètres (source unique : backend/nouveautes.py)
 from routes.nouveautes_route import setup_nouveautes_routes as _setup_nouveautes  # noqa: E402
 _setup_nouveautes(api=api, get_current_user=get_current_user)

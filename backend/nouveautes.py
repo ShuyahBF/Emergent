@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "80", "date": "2026-10-08",
+        "titre": "🛰️ Équipements : découverte du réseau",
+        "description": "Menu « Équipements » ; Loois recense tous les appareils du réseau (SNMP en lecture seule), à valider avant d'entrer au parc.",
+        "rubrique": "🛰️ Équipements — découverte du réseau",
+    },
+    {
         "lot": "79.13", "date": "2026-10-08",
         "titre": "📱 Version lisible sur téléphone",
         "description": "Sur téléphone, la version s'affiche en bas de page au lieu de passer par-dessus les tableaux.",

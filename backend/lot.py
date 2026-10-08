@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "79.13"
-LOT_LIBELLE = "Téléphone : la version s’affiche en bas de page au lieu de flotter sur le contenu (tableaux, boutons)"
+LOT = "80"
+LOT_LIBELLE = "Menu « Équipements » et découverte du réseau des clients par Loois (appareils à valider, SNMP, alertes)"

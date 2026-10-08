@@ -66,7 +66,21 @@ _INV_MAX_LISTE = 300              # nombre maximal d'éléments par liste
 _INV_MAX_TEXTE = 300              # longueur maximale d'un texte
 _CLE_INVENTAIRE = re.compile(r"^[A-Za-z0-9_]{1,40}$")   # clés sûres pour MongoDB (ni « $ » ni « . »)
 # Champs de la fiche du parc remplis automatiquement (jamais s'ils ont été modifiés à la main)
-CHAMPS_PARC_AUTO = ("nom_hote", "systeme_exploitation", "fabricant", "modele", "adresse_mac", "adresse_ip", "site")
+CHAMPS_PARC_AUTO = ("nom_hote", "systeme_exploitation", "fabricant", "modele", "adresse_mac", "adresse_ip", "site",
+                    "numero_serie")   # lot 80 : n° de série lu dans le BIOS (SMBIOS) par Loois
+# Lot 80 — n° de série « de remplissage » laissés par les fabricants : ignorés (ils ne désignent aucune machine)
+_SERIES_BIDON = {"", "0", "NONE", "N/A", "NA", "DEFAULT", "DEFAULTSTRING", "TOBEFILLEDBYO.E.M.", "TOBEFILLEDBYOEM",
+                 "SYSTEMSERIALNUMBER", "CHASSISSERIALNUMBER", "123456789", "0123456789", "XXXXXXXXXX", "NOTAPPLICABLE",
+                 "NOTSPECIFIED", "OEM", "INVALID"}
+
+
+def serie_valable(valeur: Any) -> Optional[str]:
+    """Lot 80 — n° de série du BIOS gardé seulement s'il est réel (pas « To be filled by O.E.M. », « Default string »…)."""
+    texte = str(valeur or "").strip()[:120]
+    cle = re.sub(r"\s+", "", texte).upper()
+    if cle in _SERIES_BIDON or set(cle) <= {"0", "F", "X", "-", "."}:
+        return None
+    return texte
 CATEGORIES_PARC = {"serveur": "Serveur", "portable": "PC portable", "poste": "PC de bureau"}
 
 
@@ -191,6 +205,7 @@ def champs_parc_auto(fiche: Dict[str, Any], inventaire: Dict[str, Any], maintena
         "adresse_mac": cartes[0]["mac"] if cartes else None,
         "adresse_ip": next((c["ip"] for c in cartes if c["ip"]), None),
         "site": (fiche.get("site") or "")[:120] or None,
+        "numero_serie": serie_valable(systeme.get("numero_serie")),   # lot 80
     }
     type_poste = inventaire.get("type_poste") if inventaire.get("type_poste") in CATEGORIES_PARC else "poste"
     disques = [{"lettre": d.get("lettre"), "total_go": d.get("total_go"), "libre_go": d.get("libre_go"),
@@ -203,6 +218,7 @@ def champs_parc_auto(fiche: Dict[str, Any], inventaire: Dict[str, Any], maintena
         "processeur": processeur.get("nom"),
         "coeurs_logiques": processeur.get("coeurs_logiques"),
         "ram_go": memoire.get("totale_go"),
+        "logiciels": len(inventaire.get("logiciels") or []),   # lot 80 : nombre de logiciels installés relevés
         "disques": disques,
         "macs": [c["mac"] for c in cartes][:16],
         "ips": [c["ip"] for c in cartes if c["ip"]][:16],
@@ -316,6 +332,16 @@ async def synchroniser_parc(db, fiche: Dict[str, Any], inventaire: Dict[str, Any
                  "id": {"$ne": existant["id"]}}, {"_id": 1}):
             a_ecrire.pop("adresse_mac")
             a_ecrire["loois_auto"].pop("adresse_mac", None)
+        # Lot 80 : n° de série unique dans le parc d'un client (clé de comparaison comme au lot 47)
+        if a_ecrire.get("numero_serie"):
+            from routes.parc_informatique import cle_serie   # import tardif (évite une boucle d'imports)
+            a_ecrire["numero_serie_cle"] = cle_serie(a_ecrire["numero_serie"])
+            if await db.parc_equipements.find_one(
+                    {"tenant_id": existant.get("tenant_id"), "numero_serie_cle": a_ecrire["numero_serie_cle"],
+                     "id": {"$ne": existant["id"]}}, {"_id": 1}):
+                a_ecrire.pop("numero_serie")
+                a_ecrire.pop("numero_serie_cle")
+                a_ecrire["loois_auto"].pop("numero_serie", None)
         await db.parc_equipements.update_one({"id": existant["id"]}, {"$set": {
             **a_ecrire, "loois": auto["loois"], "loois_machine": cle_machine, "maj_le": maintenant}})
         return existant["id"]
@@ -323,6 +349,11 @@ async def synchroniser_parc(db, fiche: Dict[str, Any], inventaire: Dict[str, Any
     if await db.parc_equipements.count_documents({"loois_machine": {"$exists": True}}) >= MAX_POSTES:
         return None
     champs = {k: v for k, v in auto["champs"].items() if v not in (None, "")}
+    if champs.get("numero_serie"):   # lot 80 : clé de comparaison du n° de série (lot 47)
+        from routes.parc_informatique import cle_serie   # import tardif (évite une boucle d'imports)
+        champs_cle = {"numero_serie_cle": cle_serie(champs["numero_serie"])}
+    else:
+        champs_cle = {}
     doc = {
         "id": secrets.token_hex(8), "tenant_id": None, "client_nom": "",
         "numero_inventaire": await _numero_inventaire_loois(db), "categorie": auto["categorie"],
@@ -331,7 +362,7 @@ async def synchroniser_parc(db, fiche: Dict[str, Any], inventaire: Dict[str, Any
         "adresse_mac": None, "nom_hote": None, "systeme_exploitation": None, "utilisateur_affecte": None,
         "site": None, "service": None, "bureau": None, "date_achat": None, "fin_garantie": None,
         "fournisseur": None, "etat": "en_service", "notes": None, "photos": [],
-        **champs, "loois_auto": champs, "loois": auto["loois"], "loois_machine": cle_machine,
+        **champs, **champs_cle, "loois_auto": champs, "loois": auto["loois"], "loois_machine": cle_machine,
         "source": "loois", "cree_par": "Loois (automatique)", "cree_le": maintenant, "maj_le": maintenant,
     }
     await db.parc_equipements.insert_one(dict(doc))

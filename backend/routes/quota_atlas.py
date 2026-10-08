@@ -200,10 +200,25 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
             raise HTTPException(status_code=422, detail="Retapez exactement le nom de la base pour confirmer")
         if nom not in await client.list_database_names():
             raise HTTPException(status_code=404, detail="Base introuvable")
-        nb = len(await client[nom].list_collection_names())
-        await client.drop_database(nom)
-        logger.warning("[quota_atlas] base %s supprimée par %s (%s collections)", nom, user.get("email"), nb)
+        # Lot 85.1 : le compte Atlas de SAWALI n'a pas le droit « dropDatabase » (constaté le 08/10/2026) mais peut
+        # supprimer les collections une à une ; une base sans collection disparaît d'elle-même.
+        noms = await client[nom].list_collection_names()
+        supprimees, refusees = 0, []
+        for c in noms:
+            try:
+                await client[nom].drop_collection(c)
+                supprimees += 1
+            except Exception as exc:  # noqa: BLE001 — on continue avec les autres, refus listés à la fin
+                refusees.append(f"{c} ({getattr(exc, 'code', None) or type(exc).__name__})")
+        nb = supprimees
+        logger.warning("[quota_atlas] base %s purgée par %s : %s collections supprimées, %s refusées",
+                       nom, user.get("email"), supprimees, len(refusees))
+        if refusees and not supprimees:
+            raise HTTPException(status_code=403, detail=(
+                "Le compte Atlas de SAWALI n'a pas le droit de supprimer ces collections. Supprimez la base depuis "
+                f"le site MongoDB Atlas (Browse Collections → {nom} → Drop Database)."))
         await db.settings.update_one({"_id": DOC_ID}, {"$push": {"purges": {
             "base": nom, "collections": nb, "par": user.get("email"), "le": datetime.now(timezone.utc).isoformat()}}},
             upsert=True)
-        return {"ok": True, "base": nom, "collections_liberees": nb, "mesure": await mesurer(db, client, base_courante)}
+        return {"ok": True, "base": nom, "collections_liberees": nb, "refusees": refusees,
+                "mesure": await mesurer(db, client, base_courante)}

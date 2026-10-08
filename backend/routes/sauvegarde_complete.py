@@ -266,7 +266,7 @@ def _lancer(tache_id: str, coro) -> None:
             await coro
         except Exception as exc:  # noqa: BLE001
             logger.exception("[sauvegarde-complete] tâche %s en échec", tache_id)
-            await _maj(tache_id, f"Échec : {str(exc)[:300]}", statut="ECHEC", erreur=str(exc)[:500],
+            await _maj(tache_id, f"Échec : {_motif(exc)}", statut="ECHEC", erreur=_motif(exc, 500),
                        termine_le=_iso())
         finally:
             _TACHES.pop(tache_id, None)
@@ -645,7 +645,22 @@ def config_r2() -> Optional[Dict[str, str]]:
             "bucket": lire("R2_SAUVEGARDES_BUCKET") or "sawali-sauvegardes", "prefixe": prefixe + "/"}
 
 
+def _motif(exc: BaseException, longueur: int = 300) -> str:
+    """Lot 79.5 — motif d'une erreur, sans aucun jeton (une adresse R2 mal construite peut en contenir un)."""
+    try:
+        from masque_jetons import masquer
+        return masquer(str(exc))[:longueur]
+    except Exception:  # noqa: BLE001
+        return type(exc).__name__
+
+
 def _client_r2(cfg: Dict[str, str]):
+    # Lot 79.5 — l'identifiant de compte Cloudflare fait 32 caractères hexadécimaux ; une autre valeur (souvent un
+    # jeton d'API collé par erreur) est signalée clairement, sans être recopiée.
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", cfg.get("compte") or ""):
+        variable = "R2_SAUVEGARDES_ACCOUNT_ID" if cfg.get("source") == "R2_SAUVEGARDES_*" else "R2_STOCKS_ACCOUNT_ID"
+        raise RuntimeError(f"{variable} invalide : identifiant de compte Cloudflare attendu (32 caractères "
+                           "hexadécimaux, visible dans Cloudflare → R2 → « Account ID »), pas un jeton d'API.")
     import boto3
     from botocore.config import Config as BotoConfig
     return boto3.client("s3", endpoint_url=f"https://{cfg['compte']}.r2.cloudflarestorage.com",
@@ -827,12 +842,12 @@ async def sauvegarde_automatique(declencheur: str = "cron:quotidienne-03h") -> D
         return {"statut": "TERMINE", **details}
     except Exception as exc:  # noqa: BLE001
         logger.exception("[sauvegarde-complete] sauvegarde automatique en échec")
-        details.update(erreur=str(exc)[:300], duree_s=(_maintenant() - debut).total_seconds())
+        details.update(erreur=_motif(exc), duree_s=(_maintenant() - debut).total_seconds())
         await db[SUIVI].update_one({"_id": "etat_auto"}, {"$set": {
-            "dernier_echec": {"le": _iso(), "erreur": str(exc)[:300], "declencheur": declencheur},
+            "dernier_echec": {"le": _iso(), "erreur": _motif(exc), "declencheur": declencheur},
             "derniere_tentative": {"le": _iso(debut), "statut": "ECHEC", "declencheur": declencheur}}}, upsert=True)
         details["email_envoye"] = await _rapport_email(False, details)
-        await _maj(tache_id, f"Échec : {str(exc)[:300]}", statut="ECHEC", etape="Échec", erreur=str(exc)[:500],
+        await _maj(tache_id, f"Échec : {_motif(exc)}", statut="ECHEC", etape="Échec", erreur=_motif(exc, 500),
                    termine_le=_iso(), rapport=details)
         return {"statut": "ECHEC", **details}
     finally:
@@ -953,7 +968,9 @@ async def route_r2(_: dict = Depends(get_current_admin)):
     try:
         objets = await asyncio.to_thread(_lister_r2, _FABRIQUE_R2["client"](cfg), cfg)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"Lecture de R2 impossible ({cfg['bucket']}) : {str(exc)[:200]}")
+        motif = _motif(exc, 200)
+        logger.warning("[sauvegarde_complete] lecture R2 impossible (%s, %s) : %s", cfg["bucket"], cfg["source"], motif)
+        raise HTTPException(502, f"Lecture de R2 impossible ({cfg['bucket']}) : {motif}")
     decision = retention([o["cle"] for o in objets])
     elements = []
     for o in objets:

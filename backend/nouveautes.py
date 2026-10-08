@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.8.1", "date": "2026-10-08",
+        "titre": "🗄️ Jauge Atlas en haut des Paramètres",
+        "description": "La jauge des collections du cluster s'affiche juste sous les Nouveautés.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "79.8", "date": "2026-10-08",
         "titre": "🗄️ Jauge des collections Atlas (500 par cluster)",
         "description": "Collections utilisées par base sur le cluster partagé, alerte WhatsApp avant le blocage.",

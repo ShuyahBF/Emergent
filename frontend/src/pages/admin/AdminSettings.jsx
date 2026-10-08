@@ -23,6 +23,7 @@ import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
+import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
@@ -1220,6 +1221,11 @@ export default function AdminSettings() {
       {/* Lot 71.3 — Loois : synchronisation des tables HFSQL et clés par client (lots 68 et 68.1) */}
       <Filterable title="🔄 Loois — synchronisation des tables et clés clients" anchorId="s-loois" category="modules">
         <LooisSection />
+      </Filterable>
+
+      {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
+      <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
+        <LooisSecretsHfsqlSection />
       </Filterable>
 
       {/* Lot 71.3 — signal de présence des postes et serveurs (lots 65 et 66) */}

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "79.11", "date": "2026-10-08",
+        "titre": "🔐 Mots de passe HFSQL de Loois gardés par SAWALI",
+        "description": "Saisis une fois ici, chiffrés, remis à Loois avec sa clé client : plus rien en clair sur les postes.",
+        "rubrique": "🔐 Loois — mots de passe HFSQL",
+    },
+    {
         "lot": "79.10", "date": "2026-10-08",
         "titre": "📐 Barre latérale compacte et menu « Plateformes »",
         "description": "Une ligne d'icônes (Notif, Son, Atlas, Réglages) qui se déplie ; Plateformes et Loois regroupés comme Liluvine.",

@@ -296,6 +296,11 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
             await send_text(de, f"✅ C'est noté : vous recevrez de nouveau les messages de {nom}.")
         return {"traite": bool(r.modified_count), "action": "reinscription", "emetteur": code}
 
+    # Lot 83 (08/10/2026) — « tous mes autres messages à ce numéro sont lus aussi par ALBARKA » :
+    # seule une RÉPONSE CITÉE (« Répondre » sur le message de la plateforme) est relayée. Un message
+    # libre reste à SAWALI, même peu après une transmission (STOP / REPRENDRE restent reconnus ci-dessus).
+    if not cite_message_id or trans.get("message_id") != cite_message_id:
+        return {"traite": False}
     # Réponse du client : relayée à la plateforme (si elle a une URL de retour)
     if not emetteur.get("url_retour"):
         return {"traite": False}
@@ -315,7 +320,7 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
              "texte": texte or "", "media": media, "date": _maintenant().isoformat()}
     await db.liluvine_reponses.insert_one({**corps, "emetteur": code, "relaye_le": _maintenant().isoformat()})
     envoyer_retour(db, emetteur, corps)
-    return {"traite": True, "action": "reponse_relayee", "emetteur": code}
+    return {"traite": True, "action": "reponse_relayee", "emetteur": code, "nom": nom}
 
 
 # ---------------------------------------------------------------------------

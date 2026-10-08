@@ -2480,6 +2480,10 @@ async def whatsapp_webhook_incoming(request: Request):
                                 mime=(media_info or {}).get("mime_type"), nom_fichier=(media_info or {}).get("filename"),
                                 cite_message_id=_ctx.get("id"), send_text=_wa_send_text)
                             relais_plateforme = bool(_rel.get("traite"))
+                            # Lot 83 : la réponse relayée reste visible dans SAWALI, étiquetée « Relayé à … »
+                            if _rel.get("action") == "reponse_relayee" and doc.get("id"):
+                                await db.whatsapp_messages.update_one(
+                                    {"id": doc["id"]}, {"$set": {"relaye_a": _rel.get("nom") or _rel.get("emetteur")}})
                         except Exception:  # noqa: BLE001
                             logger.warning("[liluvine_relais] traitement du message entrant impossible", exc_info=True)
                     if relais_plateforme:

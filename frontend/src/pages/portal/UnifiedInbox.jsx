@@ -378,6 +378,11 @@ export default function UnifiedInbox() {
                         )}
                         <p className="whitespace-pre-wrap break-words">{m.text || <em>(média)</em>}</p>
                         {m.media_url && <a href={m.media_url} target="_blank" rel="noreferrer" className={`text-xs underline mt-1 block ${isOut ? "text-indigo-100" : "text-indigo-600"}`}>📎 Pièce jointe</a>}
+                        {/* Lot 83 : réponse transmise à une plateforme (ALBARKA…) — c'est elle qui y répond */}
+                        {!isOut && m.relaye_a && (
+                          <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                            title="Réponse transmise à la plateforme : c'est elle qui y répond, pas SAWALI">↪ Relayé à {m.relaye_a}</span>
+                        )}
                         <p className={`text-[10px] mt-1 ${isOut ? "text-indigo-200" : "text-slate-400"}`}>{m.at ? new Date(m.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""}</p>
                       </div>
                     </div>

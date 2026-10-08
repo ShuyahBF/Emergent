@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "82.5"
-LOT_LIBELLE = "Contrats des plateformes : services suspendables déclarés par chaque plateforme"
+LOT = "83"
+LOT_LIBELLE = "Transmission WA : seules les réponses citées sont relayées aux plateformes, étiquette « Relayé à … » dans SAWALI"

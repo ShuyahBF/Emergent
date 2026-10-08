@@ -122,9 +122,13 @@ def test_reponse_relayee_stop_reprendre_et_statut(monkeypatch):
         # Statut « lu » renvoyé à la plateforme avec l'id d'origine
         await relais.mettre_a_jour_statut(db, mid, "read")
         await asyncio.sleep(0)
-        # Réponse du client -> relayée (Liluvine ne répond pas)
+        # Lot 83 : message libre (sans « Répondre ») -> reste à SAWALI, rien n'est relayé
+        libre = await relais.traiter_message_entrant(db, de="22670000005", type_message="text", texte="Autre sujet",
+                                                     send_text=None)
+        assert libre == {"traite": False}
+        # Réponse citée du client -> relayée (Liluvine ne répond pas)
         rep = await relais.traiter_message_entrant(db, de="22670000005", type_message="text", texte="Je confirme",
-                                                   send_text=None)
+                                                   cite_message_id=mid, send_text=None)
         await asyncio.sleep(0)
         # STOP -> désinscription + confirmation au client
         confirmations = []

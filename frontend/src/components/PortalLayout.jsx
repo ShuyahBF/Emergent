@@ -23,7 +23,8 @@ import AppelsWhatsApp from "@/components/AppelsWhatsApp";   // Lot 60
 import VeilleStatsPlateformes from "@/components/VeilleStatsPlateformes";   // Lot 64.9
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
 import { useMesureAtlas, PastilleAtlas, DetailAtlas } from "@/components/JaugeAtlasSidebar";   // Lots 79.9 / 79.10 : jauge Atlas (administrateur)
-import AlertesAppelsLiluvine from "@/components/AlertesAppelsLiluvine";   // Lot 72 : toast persistant « Liluvine appelle … »
+import AlertesAppelsLiluvine from "@/components/AlertesAppelsLiluvine";
+import AlertesPostesSansCle from "@/components/AlertesPostesSansCle";   // Lot 89 : postes Loois sans clé client valable   // Lot 72 : toast persistant « Liluvine appelle … »
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
 import BrowserNotifications from "@/components/BrowserNotifications";
@@ -1149,6 +1150,8 @@ function PortalLayoutInner({ admin = false }) {
       {/* Lot 72 — administrateur ou superviseur (y compris utilisateur suivi de ce rôle) : appels de l'agenda */}
       {(isAdminOrSup || ["Administrateur", "Superviseur"].includes(user?.tracked_role))
         && (!partageLiluvine?.restreint || (partageLiluvine.elements || []).includes("alertes")) && <AlertesAppelsLiluvine />}
+      {/* Lot 89 — administrateur et superviseur : postes Loois sans clé client valable (rien n'est affiché sur le poste) */}
+      {isAdminOrSup && <AlertesPostesSansCle admin={user?.role === "admin"} />}
       <BrowserNotifications />
     </div>
   );

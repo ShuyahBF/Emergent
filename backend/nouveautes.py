@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "89", "date": "2026-10-09",
+        "titre": "🔑 Postes Loois sans clé client : alerte",
+        "description": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable.",
+        "rubrique": "🔑 Postes Loois sans clé client (alerte)",
+    },
+    {
         "lot": "88", "date": "2026-10-09",
         "titre": "📋 Évaluations Loois : sondages dans le support",
         "description": "Sondages « Evaluation Loois » numérotés envoyés aux postes, demandes bloquées jusqu'à la réponse, remerciement de Liluvine, fenêtre d'analyse ; un message du support ouvre ticket et fenêtre Loois.",

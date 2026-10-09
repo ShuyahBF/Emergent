@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "97", "date": "2026-10-09",
+        "titre": "📣 Page Facebook propre à l'animation de Liluvine",
+        "description": "La page de la plateforme (ex. beAuthentik) se choisit dans la rubrique de l'animation ; la page active de SAWALI reste celle de SAWALI.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "96", "date": "2026-10-09",
         "titre": "📣 Liluvine anime la page Facebook",
         "description": "Photos de membres consentants de beAuthentik (visage masqué) avec leur bio relue par l'IA, publiées sur la page Facebook après validation ; bouton de remise à zéro aussi dans le tableau de bord Santé.",

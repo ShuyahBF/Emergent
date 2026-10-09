@@ -19,6 +19,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import routes.facebook_animation as fa  # noqa: E402
 
+ORIGINAL_PUBLIER = fa.publier_sur_facebook   # lot 97 : la fixture la remplace, ce test appelle l'original
+
 # m2 d'abord : sa bio est refusée par l'IA, la préparation passe alors au candidat suivant (m1)
 CANDIDATS = [
     {"membre_id": "m2", "prenom": "Ali", "age": 30, "ville": None, "bio": "appelle moi au 70 00 00 00", "photo_url": "https://x/m2.jpg"},
@@ -101,3 +103,40 @@ def test_avis_et_legende_et_planning():
     assert not fa.doit_preparer({**regl, "dernier_jour": "2026-10-08"}, jeudi_11h)
     assert not fa.doit_preparer(regl, jeudi_11h.replace(hour=9))
     assert not fa.doit_preparer({**regl, "actif": False}, jeudi_11h)
+
+
+def test_page_propre_a_l_animation(env, monkeypatch):
+    """Lot 97 — la page de l'animation (ex. beAuthentik) est distincte de la page active de SAWALI ;
+    son jeton reste côté serveur et sert à la publication."""
+    client, db, _, _ = env
+    import routes.facebook as fb
+
+    async def pages(db_):
+        return [{"id": "p_beauth", "nom": "beAuthentik", "jeton": "jeton-beauth"},
+                {"id": "p_sawali", "nom": "SAWALI", "jeton": "jeton-sawali"}]
+
+    vus = []
+
+    async def poster(page_id, jeton, texte, image):
+        vus.append((page_id, jeton))
+        return {"post_id": "123"}
+
+    monkeypatch.setattr(fa, "pages_du_compte", pages)
+    monkeypatch.setattr(fb, "_post_to_page", poster)
+    client.portal.call(lambda: db.settings.update_one({"_id": "global"}, {"$set": {
+        "facebook_page_id": "p_sawali", "facebook_page_access_token": "jeton-sawali", "facebook_page_name": "SAWALI"}},
+        upsert=True))
+
+    liste = client.get("/api/admin/facebook/animation/pages").json()["pages"]
+    assert liste == [{"id": "p_beauth", "nom": "beAuthentik"}, {"id": "p_sawali", "nom": "SAWALI"}]   # jamais de jeton
+    assert client.put("/api/admin/facebook/animation/page", json={"page_id": "p_beauth"}).status_code == 200
+    assert client.get("/api/admin/facebook/animation").json()["page"] == {"connectee": True, "nom": "beAuthentik", "propre": True}
+
+    # La vraie fonction de publication (remplacée par la fixture) utilise la page de l'animation
+    monkeypatch.setattr(fa, "publier_sur_facebook", ORIGINAL_PUBLIER)
+    assert client.portal.call(lambda: fa.publier_sur_facebook(db, "Bonjour", "https://x/m.jpg")) == "123"
+    assert vus[-1] == ("p_beauth", "jeton-beauth")
+    # Retour à la page active de SAWALI
+    client.put("/api/admin/facebook/animation/page", json={"page_id": ""})
+    assert client.portal.call(lambda: fa.publier_sur_facebook(db, "Bonjour", "https://x/m.jpg")) == "123"
+    assert vus[-1] == ("p_sawali", "jeton-sawali")

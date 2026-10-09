@@ -19,6 +19,11 @@ Fonctionnement (pour un développeur WinDev : une « file de publications » ave
 Réglages (settings.global.fb_animation) : actif, plateforme (code de l'émetteur Liluvine), jours (0 = lundi),
 heure « HH:MM » (heure de Ouagadougou = UTC), nombre de membres par préparation, validation manuelle,
 modèle de légende, lien d'inscription.
+
+Lot 97 — PAGE PROPRE À L'ANIMATION (« SAWALI a aussi besoin de sa page FB ») : la page de la plateforme (ex. page
+beAuthentik) est choisie ici parmi les pages du compte Facebook connecté et rangée à part
+(settings.global.fb_animation_page = {id, nom, jeton}) ; la « page active » de SAWALI reste celle de SAWALI.
+Le jeton de la page n'est jamais renvoyé au navigateur.
 """
 from __future__ import annotations
 
@@ -100,13 +105,15 @@ async def moderer_bio(bio: str) -> Dict[str, Any]:
 
 
 async def publier_sur_facebook(db, texte: str, image_url: str) -> str:
-    """Publication photo + légende sur la Page Facebook active ; renvoie l'identifiant du post."""
+    """Publication photo + légende sur la page de l'animation (lot 97), à défaut sur la page active de SAWALI ;
+    renvoie l'identifiant du post."""
     from routes.facebook import _post_to_page
     s = await db.settings.find_one({"_id": "global"}) or {}
-    pid = (s.get("facebook_page_id") or "").strip()
-    jeton = (s.get("facebook_page_access_token") or "").strip()
+    page = s.get("fb_animation_page") or {}
+    pid = (page.get("id") or s.get("facebook_page_id") or "").strip()
+    jeton = (page.get("jeton") or s.get("facebook_page_access_token") or "").strip()
     if not pid or not jeton:
-        raise RuntimeError("aucune Page Facebook connectée (Paramètres → Facebook)")
+        raise RuntimeError("aucune page Facebook choisie pour l'animation (rubrique « 📣 Page Facebook animée par Liluvine »)")
     r = await _post_to_page(pid, jeton, texte, image_url)
     return str(r.get("post_id") or r.get("id") or "")
 
@@ -137,6 +144,20 @@ def legende(modele: str, cand: Dict[str, Any], bio: str, lien: str) -> str:
         return (modele or LEGENDE_DEFAUT).format(**valeurs)[:2000]
     except (KeyError, ValueError, IndexError):
         return LEGENDE_DEFAUT.format(**valeurs)
+
+
+async def pages_du_compte(db) -> List[Dict[str, Any]]:
+    """Pages Facebook gérées par le compte connecté dans SAWALI (avec leur jeton : usage serveur uniquement)."""
+    from routes.facebook import DEFAULT_TIMEOUT, FB_API_BASE
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    jeton_utilisateur = (s.get("facebook_user_access_token") or "").strip()
+    if not jeton_utilisateur:
+        raise HTTPException(status_code=400, detail="Connectez d'abord le compte Facebook (rubrique Facebook des Paramètres)")
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as http:
+        r = await http.get(f"{FB_API_BASE}/me/accounts", params={"access_token": jeton_utilisateur, "fields": "id,name,access_token"})
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Lecture des pages Facebook impossible ({r.status_code})")
+    return [{"id": p.get("id"), "nom": p.get("name"), "jeton": p.get("access_token")} for p in r.json().get("data", [])]
 
 
 async def reglages(db) -> Dict[str, Any]:
@@ -238,9 +259,32 @@ def attach_facebook_animation_routes(*, api, db, get_current_admin):
         s = await db.settings.find_one({"_id": "global"}) or {}
         filtre = {"statut": statut} if statut in STATUTS else {}
         pubs = await db.fb_publications.find(filtre, {"_id": 0}).sort("cree_le", -1).to_list(50)
-        return {"reglages": await reglages(db), "publications": pubs,
-                "page": {"connectee": bool(s.get("facebook_page_access_token")), "nom": s.get("facebook_page_name") or ""},
+        propre = s.get("fb_animation_page") or {}
+        page = ({"connectee": True, "nom": propre.get("nom") or propre.get("id"), "propre": True} if propre.get("jeton") else
+                {"connectee": bool(s.get("facebook_page_access_token")), "nom": s.get("facebook_page_name") or "", "propre": False})
+        return {"reglages": await reglages(db), "publications": pubs, "page": page,
                 "plateformes": [e["code"] async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1})]}
+
+    @api.get("/admin/facebook/animation/pages", tags=["Admin — Facebook"])
+    async def lister_pages(_: dict = Depends(get_current_admin)):
+        """Lot 97 — pages du compte Facebook connecté (identifiant et nom seulement : jamais les jetons)."""
+        return {"pages": [{"id": p["id"], "nom": p["nom"]} for p in await pages_du_compte(db)]}
+
+    @api.put("/admin/facebook/animation/page", tags=["Admin — Facebook"])
+    async def choisir_page(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        """Lot 97 — page de l'animation (ex. page beAuthentik), distincte de la page active de SAWALI.
+        Le serveur relit le jeton de la page auprès de Facebook (le navigateur ne le voit jamais)."""
+        pid = str(corps.get("page_id") or "").strip()
+        if not pid:   # page_id vide : retour à la page active de SAWALI
+            await db.settings.update_one({"_id": "global"}, {"$unset": {"fb_animation_page": ""}})
+            return {"ok": True, "page": None}
+        page = next((p for p in await pages_du_compte(db) if p["id"] == pid), None)
+        if not page or not page.get("jeton"):
+            raise HTTPException(status_code=404, detail="Page introuvable dans le compte Facebook connecté")
+        await db.settings.update_one({"_id": "global"}, {"$set": {"fb_animation_page": {
+            "id": page["id"], "nom": page["nom"], "jeton": page["jeton"], "choisie_le": _iso(), "choisie_par": user.get("email")}}},
+            upsert=True)
+        return {"ok": True, "page": {"id": page["id"], "nom": page["nom"]}}
 
     @api.put("/admin/facebook/animation/reglages", tags=["Admin — Facebook"])
     async def enregistrer(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):

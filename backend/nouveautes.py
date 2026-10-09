@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "87.1", "date": "2026-10-09",
+        "titre": "📅 Chat de support : partager mes disponibilités",
+        "description": "Bouton 📅 du chat et « Joindre mes disponibilités » de l'image IA : le lien de l'agenda (créneaux libres) part dans le message, comme dans la discussion WhatsApp.",
+        "rubrique": "🎨 Images IA du chat de support",
+    },
+    {
         "lot": "87", "date": "2026-10-09",
         "titre": "🎨 Image IA dans le chat de support",
         "description": "Bouton 🎨 du chat : l'IA dessine une image, on l'annote, l'envoie dans la discussion ou la transfère (chat, WhatsApp, e-mail), maintenant ou planifiée.",

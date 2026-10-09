@@ -40,7 +40,8 @@ export default function ImagesIaChatSection() {
         fenêtre où l'on décrit l'image voulue : l'IA la dessine, on peut l'<b>annoter</b> (flèches, cercles, texte, flou), puis
         l'<b>envoyer dans la discussion</b> ou la <b>transférer</b> à n'importe qui (autre discussion, WhatsApp, e-mail),
         tout de suite ou à une <b>date et une heure planifiées</b>. Toute image du chat peut aussi être transférée depuis son
-        agrandissement (« ↪ Transférer »). Réservé à l'administration, aux superviseurs et au compte du support.
+        agrandissement (« ↪ Transférer »). Le bouton <b>📅</b> du chat (et « Joindre mes disponibilités » de la fenêtre 🎨)
+        ajoute le lien de votre agenda (créneaux libres, sans détail) au message, comme dans la discussion WhatsApp. Réservé à l'administration, aux superviseurs et au compte du support.
       </p>
       <div className="grid gap-3 text-sm sm:grid-cols-3">
         <label className="flex items-center gap-2">

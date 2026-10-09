@@ -16,7 +16,7 @@ import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'on
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft, Palette, CalendarDays } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft, Palette, CalendarDays, Paperclip } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 // Lot 57.13 — annotation des images avant envoi (même outil que la discussion WhatsApp)
 import ImageAnnotator from "@/components/ImageAnnotator";
@@ -168,6 +168,7 @@ export default function InternalChatPanel() {
   const [uploadProgress, setUploadProgress] = useState(0); // 0..100
   const [lightbox, setLightbox] = useState(null); // {url, filename} when zoomed
   const cameraInputRef = useRef(null);
+  const fichierInputRef = useRef(null);   // lot 87.3 : trombone (documents, vidéos)
   const galleryInputRef = useRef(null);
 
   // Iter36q — One-time tutorial popover next to the microphone button.
@@ -696,6 +697,44 @@ export default function InternalChatPanel() {
     handlePhotoFile(new File([f], `capture-${Date.now()}.png`, { type: f.type || "image/png" }));
   };
 
+  // Lot 87.3 — trombone : document (PDF, Word, Excel…) ou vidéo. Une image passe par l'annotateur comme une photo.
+  // Fil d'un poste Loois : route du Support Loois (le poste reçoit le fichier dans Loois) ; ailleurs : route du chat.
+  const envoyerFichier = async (file) => {
+    if (fichierInputRef.current) fichierInputRef.current.value = "";
+    if (!file || !activeClientId || !activeThreadKey) return;
+    if (file.type.startsWith("image/")) { handlePhotoFile(file); return; }
+    const attente = toast.loading(`Patientez… envoi de ${file.name}`);
+    setUploadingPhoto(true);
+    setUploadProgress(0);
+    try {
+      const form = new FormData();
+      form.append("fichier", file, file.name);
+      if (text.trim()) form.append("caption", text.trim());
+      const vers = activeClientId === "support-loois" && activeThreadKey !== "general"
+        ? `/support-loois/postes/${activeThreadKey}/fichier`
+        : `/me/chat/${activeClientId}/messages/fichier`;
+      if (!vers.startsWith("/support-loois")) {
+        if (activeThreadKey !== "general") form.append("recipient_id", activeThreadKey);
+        if (replyTo?.id) form.append("reply_to_id", replyTo.id);
+      }
+      await apiClient.post(vers, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 180000,
+        onUploadProgress: (e) => { if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total)); },
+      });
+      setText("");
+      setReplyTo(null);
+      await loadMessages(activeClientId, activeThreadKey);
+      requestAnimationFrame(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; });
+      toast.success("Fichier envoyé", { id: attente });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Envoi du fichier impossible", { id: attente });
+    } finally {
+      setUploadingPhoto(false);
+      setUploadProgress(0);
+    }
+  };
+
   const envoyerPhoto = async (file) => {
     if (!file || !activeClientId || !activeThreadKey) return;
     setUploadingPhoto(true);
@@ -1180,7 +1219,7 @@ export default function InternalChatPanel() {
                 {uploadingPhoto && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 px-3 py-2 text-xs text-emerald-800" data-testid="internal-chat-uploading-indicator">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Envoi de la photo… {uploadProgress > 0 && `${uploadProgress}%`}
+                    Envoi en cours… {uploadProgress > 0 && `${uploadProgress}%`}
                     <span className="ml-auto inline-block h-1 w-24 rounded-full bg-emerald-200 overflow-hidden">
                       <span
                         className="block h-full bg-emerald-500 transition-all"
@@ -1230,6 +1269,24 @@ export default function InternalChatPanel() {
                       title="Choisir une photo (galerie / disque)"
                     >
                       {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+                    </button>
+                    {/* Lot 87.3 — 📎 trombone : documents (PDF, Word, Excel, PowerPoint, texte, CSV) et vidéos */}
+                    <input
+                      ref={fichierInputRef}
+                      type="file"
+                      accept="image/*,video/mp4,video/webm,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                      onChange={(e) => envoyerFichier(e.target.files?.[0])}
+                      className="hidden"
+                      data-testid="internal-chat-fichier-input"
+                    />
+                    <button
+                      onClick={() => fichierInputRef.current?.click()}
+                      disabled={sending || uploadingPhoto || recState !== "idle"}
+                      className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-testid="internal-chat-fichier"
+                      title="Joindre un document ou une vidéo (PDF, Word, Excel, PowerPoint, texte, CSV, MP4)"
+                    >
+                      <Paperclip className="h-4 w-4" />
                     </button>
                     {/* Lot 87 — 🎨 image illustrative générée par l'IA (support et administration seulement) */}
                     {imageIaAutorisee && (

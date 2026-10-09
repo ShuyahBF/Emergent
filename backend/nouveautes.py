@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "86.2", "date": "2026-10-09",
+        "titre": "📨 Requêtes : modèles WhatsApp Meta du lien",
+        "description": "Le lien des requêtes part par modèle Meta (bouton « Ouvrir mes requêtes »), même si le client n'a pas écrit depuis 24 h.",
+        "rubrique": "🧾 Requêtes des clients",
+    },
+    {
         "lot": "86.1", "date": "2026-10-09",
         "titre": "🔗 Requêtes : lien WhatsApp et images",
         "description": "Chaque client reçoit par WhatsApp un lien sans mot de passe pour déposer ses requêtes, avec photos, captures d'écran ou images.",

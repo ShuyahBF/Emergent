@@ -22,6 +22,14 @@
 #   - LIEN PERSONNEL du client (db.requetes_liens, jeton aléatoire, révocable) : page publique /requete/<jeton>, SANS
 #     mot de passe, pour déposer, suivre et évaluer ses requêtes. SAWALI l'envoie par WhatsApp (et e-mail) ; le client
 #     le retrouve aussi dans « Mes requêtes ». Les messages de suivi (requête traitée, lot déployé) le rappellent.
+#
+# Lot 86.2 (09/10/2026) — MODÈLES WHATSAPP META : un message libre n'est accepté par Meta que si le client a écrit
+# dans les 24 h. Deux modèles « Utilitaire » (langue fr), créés chez Meta depuis l'onglet « Liens clients » :
+#   - sawali_lien_requetes  : envoi du lien personnel, bouton « Ouvrir mes requêtes » ;
+#   - sawali_suivi_requetes : suivi (requête traitée, lot déployé), même bouton.
+#   Le bouton est une URL dynamique « <site>/requete/{{1}} » : on ne transmet que le jeton.
+#   Envoi : modèle d'abord (fonctionne à tout moment une fois approuvé), sinon message libre (fenêtre de 24 h).
+#   Envoi TOUJOURS depuis le numéro WhatsApp de SAWALI (jamais celui du client).
 from __future__ import annotations
 
 import logging
@@ -59,6 +67,9 @@ TAILLE_MAX_IMAGE = 8 * 1024 * 1024    # 8 Mo par image (lot 86.1)
 MAX_IMAGES = 6                        # images par requête
 MAX_REQUETES_LIEN_PAR_JOUR = 30       # protection du lien public contre les envois en rafale
 URL_SITE_DEFAUT = "https://sawalismartsystems.com"
+MODELE_LIEN = "sawali_lien_requetes"     # lot 86.2 : modèle Meta d'envoi du lien
+MODELE_SUIVI = "sawali_suivi_requetes"   # lot 86.2 : modèle Meta des messages de suivi
+LANGUE_MODELES = "fr"
 
 
 def _maintenant() -> str:
@@ -156,12 +167,43 @@ def message_lien(client_nom: str, url: str) -> str:
             f"captures d'écran), puis suivre et évaluer vos requêtes : {url}\nGardez ce lien : il est propre à votre structure.")
 
 
+def definitions_modeles(base: Optional[str]) -> List[Dict[str, Any]]:
+    """Corps envoyés à Meta (POST /{waba}/message_templates) pour les deux modèles du lot 86.2."""
+    site = (base or URL_SITE_DEFAUT).rstrip("/")
+    bouton = {"type": "BUTTONS", "buttons": [{
+        "type": "URL", "text": "Ouvrir mes requêtes", "url": f"{site}/requete/{{{{1}}}}", "example": [f"{site}/requete/Ab12Cd34Ef56"]}]}
+    pied = {"type": "FOOTER", "text": "SAWALI Smart Systems"}
+    return [
+        {"name": MODELE_LIEN, "language": LANGUE_MODELES, "category": "UTILITY", "components": [
+            {"type": "BODY",
+             "text": ("Bonjour {{1}}, voici votre lien personnel SAWALI pour nous signaler un dysfonctionnement, une "
+                      "remarque ou un souci de logiciel ou d'équipement (texte, message vocal, photos ou captures "
+                      "d'écran), puis suivre et évaluer vos requêtes. Ce lien est propre à votre structure : "
+                      "partagez-le seulement avec vos agents."),
+             "example": {"body_text": [["AL BARKA"]]}},
+            pied, bouton]},
+        {"name": MODELE_SUIVI, "language": LANGUE_MODELES, "category": "UTILITY", "components": [
+            {"type": "BODY",
+             "text": "Bonjour, suivi de vos requêtes SAWALI : {{1}} Ouvrez votre lien personnel pour consulter le détail et l'évaluer.",
+             "example": {"body_text": [["votre requête REQ-ALBRK-0003 est « Terminée »."]]}},
+            pied, bouton]},
+    ]
+
+
+def composants_modele(texte: str, jeton: str) -> List[Dict[str, Any]]:
+    """Paramètres d'envoi : {{1}} du corps (une seule ligne) et jeton du bouton URL."""
+    propre = re.sub(r"\s+", " ", str(texte or "")).strip()[:900] or "-"
+    return [{"type": "body", "parameters": [{"type": "text", "text": propre}]},
+            {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": jeton}]}]
+
+
 # =====================================================================================
 # Routes
 # =====================================================================================
 
 def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None, wa_send_text=None,
-                                  transcrire=None, upload_dir=None, base_url=None) -> None:
+                                  transcrire=None, upload_dir=None, base_url=None, wa_send_template=None,
+                                  meta_http=None) -> None:
     """Branche les routes du lot 86 (appelée depuis server_parts/p20)."""
     import secrets
     from datetime import timedelta
@@ -277,10 +319,31 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         except Exception:  # noqa: BLE001 — la transcription est un plus, jamais bloquante
             return None
 
+    async def _envoyer_wa(numero: str, modele: str, valeur: str, jeton: Optional[str], texte_libre: str) -> Optional[str]:
+        """Lot 86.2 : modèle Meta d'abord (à tout moment), sinon message libre (fenêtre de 24 h).
+        Depuis le numéro de SAWALI (aucun tenant_id). Renvoie "modele", "texte" ou None (échec)."""
+        if wa_send_template and jeton:
+            try:
+                res = await wa_send_template(numero, modele, LANGUE_MODELES, composants_modele(valeur, jeton))
+                if not isinstance(res, dict) or res.get("ok"):
+                    return "modele"
+                logger.info("[requetes] modèle %s non envoyé (%s) : repli message libre", modele, res.get("error"))
+            except Exception:  # noqa: BLE001
+                logger.warning("[requetes] envoi du modèle %s impossible", modele, exc_info=True)
+        if wa_send_text:
+            try:
+                res = await wa_send_text(numero, texte_libre)
+                if not isinstance(res, dict) or res.get("ok", True):
+                    return "texte"
+            except Exception:  # noqa: BLE001
+                logger.warning("[requetes] message libre non envoyé", exc_info=True)
+        return None
+
     async def _prevenir_client(tenant_id: str, texte: str, sujet: str) -> None:
         """Prévient le client (e-mail + WhatsApp), au mieux : une panne n'empêche jamais la mise à jour."""
         client = await _client_doc(tenant_id)
         lien = await _lien_actif(tenant_id)
+        resume_suivi = texte.replace("SAWALI : ", "", 1)
         if lien:   # lot 86.1 : le message rappelle le lien personnel (évaluation sans se connecter)
             texte = f"{texte}\nVotre lien : {url_lien(base, lien['jeton'])}"
         if send_email and client.get("email"):
@@ -289,11 +352,8 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
             except Exception:  # noqa: BLE001
                 logger.warning("[requetes] e-mail au client non envoyé", exc_info=True)
         numero = client.get("whatsapp_number") or client.get("phone")
-        if wa_send_text and numero:
-            try:
-                await wa_send_text(str(numero), texte, tenant_id=tenant_id)
-            except Exception:  # noqa: BLE001
-                logger.warning("[requetes] WhatsApp au client non envoyé", exc_info=True)
+        if numero:   # lot 86.2 : modèle « suivi » (bouton vers le lien), sinon message libre
+            await _envoyer_wa(str(numero), MODELE_SUIVI, resume_suivi, (lien or {}).get("jeton"), texte)
 
     def _public(r: dict) -> dict:
         """Fiche renvoyée (sans le chemin interne du fichier audio)."""
@@ -503,12 +563,11 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         if corps.get("envoyer", True):
             texte = message_lien(client.get("company") or client.get("full_name") or "", url)
             numero = str(corps.get("numero") or client.get("whatsapp_number") or client.get("phone") or "").strip()
-            if wa_send_text and numero:
-                try:
-                    await wa_send_text(numero, texte, tenant_id=tenant_id)
-                    envoye["whatsapp"] = True
-                except Exception:  # noqa: BLE001
-                    logger.warning("[requetes] lien non envoyé par WhatsApp", exc_info=True)
+            if numero:   # lot 86.2 : modèle « lien » (bouton « Ouvrir mes requêtes »), sinon message libre
+                mode = await _envoyer_wa(numero, MODELE_LIEN, client.get("company") or client.get("full_name") or "",
+                                         lien["jeton"], texte)
+                envoye["whatsapp"] = bool(mode)
+                envoye["mode"] = mode
             if send_email and client.get("email"):
                 try:
                     await send_email(client["email"], "SAWALI — votre lien pour nous soumettre vos requêtes",
@@ -519,6 +578,61 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
             if envoye["whatsapp"] or envoye["email"]:
                 await db.requetes_liens.update_one({"jeton": lien["jeton"]}, {"$set": {"envoye_le": _maintenant()}})
         return {"url": url, "envoye": envoye}
+
+    # ------------------------------------------------------------------ modèles WhatsApp Meta (lot 86.2)
+    async def _meta() -> tuple:
+        """Jeton et compte WhatsApp Business (WABA) de SAWALI ; HTTPException si WhatsApp n'est pas configuré."""
+        g = await db.settings.find_one({"_id": "global"}) or {}
+        jeton, waba = (g.get("wa_access_token") or "").strip(), (g.get("wa_business_account_id") or "").strip()
+        if not jeton or not waba:
+            raise HTTPException(status_code=400, detail="WhatsApp non configuré (WABA ID et Access Token dans les Paramètres)")
+        return jeton, waba
+
+    def _client_http():
+        if meta_http:
+            return meta_http()
+        import httpx
+        return httpx.AsyncClient(timeout=15)
+
+    @api.get("/admin/requetes-modeles-meta", tags=["Requêtes clients"])
+    async def etat_modeles(user: dict = Depends(get_current_user)):
+        """État des deux modèles chez Meta : absent, PENDING (en revue), APPROVED, REJECTED…"""
+        _admin(user)
+        jeton, waba = await _meta()
+        etats = {}
+        async with _client_http() as http:
+            for d in definitions_modeles(base):
+                rep = await http.get(f"https://graph.facebook.com/v21.0/{waba}/message_templates",
+                                     params={"name": d["name"], "fields": "name,status,language,rejected_reason"},
+                                     headers={"Authorization": f"Bearer {jeton}"})
+                donnees = (rep.json() or {}).get("data") if rep.status_code < 300 else None
+                trouve = next((m for m in donnees or [] if m.get("language") == LANGUE_MODELES), None)
+                etats[d["name"]] = (trouve or {}).get("status") or ("ABSENT" if donnees is not None else "INCONNU")
+        return {"modeles": [{"nom": d["name"], "etat": etats[d["name"]],
+                             "texte": d["components"][0]["text"]} for d in definitions_modeles(base)]}
+
+    @api.post("/admin/requetes-modeles-meta", tags=["Requêtes clients"])
+    async def creer_modeles(user: dict = Depends(get_current_user)):
+        """Soumet les deux modèles à Meta (approbation en général en quelques minutes). Déjà existant = sans effet."""
+        _admin(user)
+        jeton, waba = await _meta()
+        resultats = []
+        async with _client_http() as http:
+            for d in definitions_modeles(base):
+                rep = await http.post(f"https://graph.facebook.com/v21.0/{waba}/message_templates", json=d,
+                                      headers={"Authorization": f"Bearer {jeton}", "Content-Type": "application/json"})
+                try:
+                    brut = rep.json()
+                except Exception:  # noqa: BLE001
+                    brut = {}
+                if rep.status_code < 300:
+                    resultats.append({"nom": d["name"], "ok": True, "etat": brut.get("status") or "PENDING"})
+                else:
+                    msg = ((brut.get("error") or {}).get("error_user_msg") or (brut.get("error") or {}).get("message")
+                           or f"HTTP {rep.status_code}")
+                    existe = "already" in msg.lower() or "existe" in msg.lower()
+                    resultats.append({"nom": d["name"], "ok": existe, "etat": "EXISTANT" if existe else "ERREUR", "erreur": None if existe else msg})
+        return {"resultats": resultats}
 
     @api.delete("/admin/requetes-liens/{tenant_id}", tags=["Requêtes clients"])
     async def revoquer_lien(tenant_id: str, user: dict = Depends(get_current_user)):

@@ -73,7 +73,7 @@ def test_images_et_lien_personnel():
     liste = c.get("/api/admin/requetes-liens").json()["clients"]
     assert liste[0]["id"] == "t1" and liste[0]["url"] is None
     envoi = c.post("/api/admin/requetes-liens", json={"tenant_id": "t1"}).json()
-    assert envoi["envoye"] == {"whatsapp": True, "email": True}
+    assert envoi["envoye"] == {"whatsapp": True, "email": True, "mode": "texte"}   # sans modèle : message libre
     url = envoi["url"]
     assert url.startswith("https://ex.com/requete/") and any(e[0] == "wa" and url in e[2] for e in envois)
     jeton = url.rsplit("/", 1)[1]

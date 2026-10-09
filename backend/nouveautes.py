@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "87.2", "date": "2026-10-09",
+        "titre": "📱 Chat : saisie confortable sur téléphone",
+        "description": "Boutons (photo, galerie, 🎨, 📅, micro) au-dessus du champ de saisie, qui prend toute la largeur ; la place vient de la zone des messages.",
+        "rubrique": "🎨 Images IA du chat de support",
+    },
+    {
         "lot": "87.1", "date": "2026-10-09",
         "titre": "📅 Chat de support : partager mes disponibilités",
         "description": "Bouton 📅 du chat et « Joindre mes disponibilités » de l'image IA : le lien de l'agenda (créneaux libres) part dans le message, comme dans la discussion WhatsApp.",

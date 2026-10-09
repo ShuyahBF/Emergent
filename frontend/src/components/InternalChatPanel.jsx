@@ -1137,7 +1137,7 @@ export default function InternalChatPanel() {
 
             {/* Composer */}
             {activeThreadKey && (
-              <div className="border-t border-slate-200 bg-white p-3">
+              <div className="border-t border-slate-200 bg-white p-2">   {/* lot 87.2 : marge réduite (place verticale) */}
                 {/* Iter36s — Reply quote preview */}
                 {replyTo && (
                   <div className="mb-2 flex items-start gap-2 rounded-lg bg-sky-50 ring-1 ring-sawali-blue/30 border-l-4 border-sawali-blue px-3 py-2 text-xs" data-testid="internal-chat-reply-preview">
@@ -1189,7 +1189,11 @@ export default function InternalChatPanel() {
                     </span>
                   </div>
                 )}
-                <div className="flex items-end gap-2">
+                {/* Lot 87.2 — barre d'outils AU-DESSUS du champ de saisie (photo, galerie, 🎨, 📅, micro) :
+                    le champ de saisie prend ensuite TOUTE la largeur (confort sur téléphone) ;
+                    boutons plus compacts (h-8) : la hauteur prise vient de la zone des messages. */}
+                <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-1" data-testid="internal-chat-barre-outils">
                   {/* Iter36n — Camera capture (mobile-native via capture="environment") */}
                   <input
                     ref={cameraInputRef}
@@ -1212,7 +1216,7 @@ export default function InternalChatPanel() {
                     <button
                       onClick={() => cameraInputRef.current?.click()}
                       disabled={sending || uploadingPhoto || recState !== "idle"}
-                      className="lg:hidden inline-flex items-center justify-center h-10 w-10 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="lg:hidden inline-flex items-center justify-center h-8 w-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
                       data-testid="internal-chat-camera"
                       title="Prendre une photo"
                     >
@@ -1221,7 +1225,7 @@ export default function InternalChatPanel() {
                     <button
                       onClick={() => galleryInputRef.current?.click()}
                       disabled={sending || uploadingPhoto || recState !== "idle"}
-                      className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
                       data-testid="internal-chat-gallery"
                       title="Choisir une photo (galerie / disque)"
                     >
@@ -1232,7 +1236,7 @@ export default function InternalChatPanel() {
                       <button
                         onClick={() => setImageIa({})}
                         disabled={sending || uploadingPhoto || recState !== "idle"}
-                        className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-40 disabled:cursor-not-allowed"
                         data-testid="internal-chat-image-ia"
                         title="Générer une image illustrative (IA)"
                       >
@@ -1244,7 +1248,7 @@ export default function InternalChatPanel() {
                       <button
                         onClick={() => setCalendrierOuvert(true)}
                         disabled={sending || uploadingPhoto || recState !== "idle"}
-                        className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
                         data-testid="internal-chat-calendrier"
                         title="Calendrier : partager mes disponibilités"
                       >
@@ -1256,7 +1260,7 @@ export default function InternalChatPanel() {
                     <button
                       onClick={recState === "recording" ? stopRecording : startRecording}
                       disabled={sending || uploadingPhoto || recState === "transcribing"}
-                      className={`inline-flex items-center justify-center h-10 w-10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      className={`inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                         recState === "recording"
                           ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
                           : recState === "transcribing"
@@ -1315,6 +1319,8 @@ export default function InternalChatPanel() {
                       </div>
                     )}
                   </div>
+                </div>
+                <div className="flex items-end gap-2">
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
@@ -1337,7 +1343,7 @@ export default function InternalChatPanel() {
                     /* Iter36p — Resizable vertically by user (min = 1 line, max = 3 lines).
                        Crucial on mobile where a long message would otherwise be cramped
                        to a single visible line. resize-y enables the native drag handle. */
-                    className="flex-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30 min-h-[40px] max-h-[120px]"
+                    className="flex-1 w-full min-w-0 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30 min-h-[40px] max-h-[120px]"
                     data-testid="internal-chat-input"
                     disabled={sending || recState !== "idle"}
                   />
@@ -1349,6 +1355,7 @@ export default function InternalChatPanel() {
                   >
                     {sending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
+                </div>
                 </div>
               </div>
             )}

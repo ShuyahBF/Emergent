@@ -23,6 +23,7 @@ import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
+import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
@@ -87,6 +88,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🧾 Requêtes des clients": "86",   // lot 86 : requêtes écrites ou vocales, lots, évaluation
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "85",   // lots 79.8-85 : jauge, contenu et purge des bases
@@ -115,6 +117,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🧾 Requêtes des clients": "2026-10-09",   // lot 86
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lots 79.8-85
@@ -1232,6 +1235,11 @@ export default function AdminSettings() {
       {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
       <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
         <LooisSecretsHfsqlSection />
+      </Filterable>
+
+      {/* Lot 86 — requêtes des clients : état du module et lien vers l'écran de traitement */}
+      <Filterable title="🧾 Requêtes des clients" anchorId="s-requetes-clients" category="modules">
+        <RequetesClientsSection />
       </Filterable>
 
       {/* Lot 81 — contrats des plateformes clientes (état, montant dû) et lien vers « Plateformes en temps réel » */}

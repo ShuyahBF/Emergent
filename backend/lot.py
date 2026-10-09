@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "85.1"
-LOT_LIBELLE = "Base Atlas : purge d’une base obsolète collection par collection"
+LOT = "86"
+LOT_LIBELLE = "Requêtes des clients : écrites ou vocales, numérotées par client, traitées par lots, évaluées après déploiement"

@@ -243,6 +243,10 @@ _setup_decouverte_reseau(db=db, api=api, get_current_user=get_current_user)
 # Lot 81 — contrat de chaque plateforme cliente (ALBARKA…) : suivi, paiements, état lu par la plateforme
 from routes.contrats_plateformes import setup_contrats_plateformes_routes as _setup_contrats_plateformes  # noqa: E402
 _setup_contrats_plateformes(db=db, api=api, get_current_user=get_current_user)
+# Lot 86 — requêtes des clients (écrites ou vocales, numérotées par client, lots de correction, évaluation)
+from routes.requetes_clients import setup_requetes_clients_routes as _setup_requetes_clients  # noqa: E402
+_setup_requetes_clients(db=db, api=api, get_current_user=get_current_user, send_email=send_email,
+                        wa_send_text=_wa_send_text, transcrire=_wa_transcribe_audio_file, upload_dir=UPLOAD_DIR)
 # Lot 68.3 — cartes « Nouveautés » de la page Paramètres (source unique : backend/nouveautes.py)
 from routes.nouveautes_route import setup_nouveautes_routes as _setup_nouveautes  # noqa: E402
 _setup_nouveautes(api=api, get_current_user=get_current_user)

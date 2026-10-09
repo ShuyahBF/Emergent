@@ -78,6 +78,7 @@ import AdminDocuments from "@/pages/admin/AdminDocuments";
 import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
+import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
 import MessagesBloquesWa from "@/pages/admin/MessagesBloquesWa";   // Lot 79.6 — messages retenus par la barrière WA
@@ -143,6 +144,7 @@ import Disponibilites from "@/pages/public/Disponibilites";   // lot 41
 import PortfolioInvoices from "@/pages/portal/PortfolioInvoices";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
+import MesRequetes from "@/pages/portal/MesRequetes";   // Lot 86 : requêtes des clients
 import CashBilling from "@/pages/portal/CashBilling";
 import HumanResources from "@/pages/portal/HumanResources";
 // Iter43-fix24az-f (2026-02-26) — Production module (Fabricant tenants)
@@ -399,6 +401,7 @@ export default function App() {
             <Route path="catalog-stats" element={<CatalogStats />} />
             <Route path="payments/return" element={<PaymentReturn />} />
             <Route path="tickets" element={<Tickets />} />
+            <Route path="requetes" element={<MesRequetes />} />
             {/* Iter38r-fix6 — Liluvine PRO assistant interne */}
             <Route path="liluvine" element={<LiluvinePro />} />
             {/* Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes) */}
@@ -493,6 +496,7 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             {/* Lot 63 — suivi en temps réel des plateformes (administrateur) */}
             <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
+            <Route path="requetes" element={<AdminRequetes />} />
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
             {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}

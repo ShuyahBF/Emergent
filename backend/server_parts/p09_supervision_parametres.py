@@ -256,7 +256,7 @@ async def _run_auth_check(triggered_by: str = "manual") -> dict:
         if not admin_info:
             raise RuntimeError("Étape précédente échouée")
         token = create_access_token(admin_info["id"], admin_info["role"])
-        async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+        async with httpx.AsyncClient(timeout=5.0, base_url=_url_locale_sondes()) as http:
             r = await http.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
             if r.status_code != 200:
                 raise RuntimeError(f"/auth/me HTTP {r.status_code}: {r.text[:200]}")
@@ -269,7 +269,7 @@ async def _run_auth_check(triggered_by: str = "manual") -> dict:
 
     # Step 4 — POST /api/auth/login with empty payload should return 4xx (proves wiring)
     async def _check_login_endpoint_responsive():
-        async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+        async with httpx.AsyncClient(timeout=5.0, base_url=_url_locale_sondes()) as http:
             r = await http.post("/api/auth/login", json={})
             if r.status_code >= 500:
                 raise RuntimeError(f"/auth/login HTTP {r.status_code}: {r.text[:200]}")
@@ -370,6 +370,11 @@ UPTIME_PROBES = [
 ]
 
 
+def _url_locale_sondes() -> str:
+    """Adresse locale du serveur pour les sondes HTTP (lot 95) : port réel du processus."""
+    return f"http://127.0.0.1:{os.environ.get('PORT') or '8001'}"
+
+
 async def _probe_one(probe: dict) -> dict:
     """Execute a single probe. Returns {key, label, ok, duration_ms, error, status}."""
     started = datetime.now(timezone.utc)
@@ -379,7 +384,10 @@ async def _probe_one(probe: dict) -> dict:
             duration = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
             return {"key": probe["key"], "label": probe["label"], "ok": True, "duration_ms": duration, "error": None, "status": "OK"}
         elif probe["kind"] == "http":
-            async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+            # Lot 95 — le serveur s'interroge lui-même sur SON port réel : $PORT sur Render (10000 par défaut),
+            # 8001 chez Emergent. L'ancien 8001 figé faisait échouer ces sondes depuis la bascule vers Render
+            # (03/10/2026) : « All connection attempts failed », d'où 13 % et « Incident en cours » sur /uptime.
+            async with httpx.AsyncClient(timeout=5.0, base_url=_url_locale_sondes()) as http:
                 if probe["method"] == "GET":
                     r = await http.get(probe["path"])
                 else:
@@ -518,11 +526,37 @@ async def admin_health_uptime_run_now(user: dict = Depends(get_current_user)):
     return await _run_uptime_probes(triggered_by=f"manual:{user['email']}")
 
 
+@api.post("/admin/health/uptime/reset", tags=["Admin"])
+async def admin_health_uptime_reset(payload: dict = Body(default={}), user: dict = Depends(get_current_user)):
+    """Lot 95 — « remettre à zéro le journal pour que les anciens historiques ne soient plus présents ».
+    Efface le journal des sondes (pourcentages et barres de /uptime) ; avec {"incidents": true}, efface aussi
+    l'historique des incidents (sauf l'incident en cours si le bandeau d'incident est encore activé).
+    Une nouvelle série de sondes est lancée aussitôt pour que la page ne reste pas vide. Super-admin seulement."""
+    _ensure_super_admin(user)
+    sondes = (await db.uptime_checks.delete_many({})).deleted_count
+    incidents = 0
+    if payload.get("incidents"):
+        reglages = await db.settings.find_one({"_id": "global"}, {"incident_banner_enabled": 1}) or {}
+        filtre = {"status": {"$ne": "ongoing"}} if reglages.get("incident_banner_enabled") else {}
+        incidents = (await db.incidents.delete_many(filtre)).deleted_count
+    await db.settings.update_one(
+        {"_id": "global"}, {"$set": {"uptime_reset_at": _now(), "uptime_reset_by": user.get("email")}}, upsert=True
+    )
+    premiere = await _run_uptime_probes(triggered_by=f"remise_a_zero:{user.get('email')}")
+    return {"ok": True, "sondes_effacees": sondes, "incidents_effaces": incidents,
+            "remise_a_zero_le": _now(), "premiere_serie": premiere}
+
+
 @api.get("/admin/health/uptime/stats", tags=["Admin"])
 async def admin_health_uptime_stats(window_hours: int = 168, user: dict = Depends(get_current_user)):
     _ensure_super_admin(user)
     window_hours = max(1, min(int(window_hours or 168), 24 * 30))
-    return await _build_uptime_stats(window_hours, public_only=False)
+    stats = await _build_uptime_stats(window_hours, public_only=False)
+    # Lot 95 — date de la dernière remise à zéro du journal (affichée dans l'admin)
+    reglages = await db.settings.find_one({"_id": "global"}, {"uptime_reset_at": 1, "uptime_reset_by": 1}) or {}
+    stats["remise_a_zero_le"] = reglages.get("uptime_reset_at")
+    stats["remise_a_zero_par"] = reglages.get("uptime_reset_by")
+    return stats
 
 
 @api.get("/public/status", tags=["Public"])

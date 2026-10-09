@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "91.1", "date": "2026-10-09",
+        "titre": "🎫 Support Loois : fin de session même poste hors ligne",
+        "description": "Une session dont la durée maximale est atteinte est terminée (ticket clôturé, intervention créée) même si le poste Loois est hors ligne : plus de bandeau « Terminer la session » à 00:00.",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "91", "date": "2026-10-09",
         "titre": "🧠 Avis Claude sur les demandes de fonctionnalités",
         "description": "Liluvine fait patienter le client, Claude évalue la faisabilité en lisant le code, vous décidez des demandes approuvées ; emojis dans le chat, liste du support réduite aux applis.",

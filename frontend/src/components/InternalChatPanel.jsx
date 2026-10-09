@@ -59,7 +59,10 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", deverrouiller);
 }
 
+// Lot 90.1 — heure du dernier son (évite deux sons pour le même message : WebSocket + relecture des non-lus)
+let dernierSon = 0;
 function playChatBlip() {
+  dernierSon = Date.now();
   try {
     const ctx = contexteAudio();
     if (!ctx) return;
@@ -372,10 +375,19 @@ export default function InternalChatPanel() {
     } catch { /* noop */ }
   }, [activeClientId]);
 
+  // Lot 90.1 — total des non-lus à la lecture précédente : s'il augmente sans que le WebSocket ait sonné
+  // (connexion coupée, onglet endormi…), le son est joué quand même (chat interne ET espaces du support)
+  const totalPrecedentRef = useRef(null);
   const loadUnreadCount = useCallback(async () => {
     try {
       const r = await apiClient.get("/me/chat/unread-count");
-      setUnreadTotal(r.data?.total || 0);
+      const total = r.data?.total || 0;
+      if (totalPrecedentRef.current !== null && total > totalPrecedentRef.current && Date.now() - dernierSon > 5000) {
+        playChatBlip();
+        signalerDansLeTitre("💬 Nouveau message");
+      }
+      totalPrecedentRef.current = total;
+      setUnreadTotal(total);
       setUnreadPerClient(r.data?.per_client || {});
     } catch { /* noop */ }
   }, []);
@@ -1199,7 +1211,13 @@ export default function InternalChatPanel() {
                         {m.text && (
                           <p className="whitespace-pre-wrap break-words">{m.text}</p>
                         )}
-                        <p className={`text-[9px] mt-1 text-right ${mine ? "text-white/70" : "text-slate-400"}`}>
+                        <p className={`text-[9px] mt-1 flex items-center justify-end gap-2 ${mine ? "text-white/70" : "text-slate-400"}`}>
+                          {/* Lot 90.1 — « Répondre » toujours visible (aussi sur téléphone et dans les espaces du support) */}
+                          <button type="button" onClick={() => replyToMessage(m)} title="Répondre à ce message"
+                                  className={`inline-flex items-center gap-0.5 font-semibold underline-offset-2 hover:underline ${mine ? "text-white/90" : "text-sawali-blue"}`}
+                                  data-testid={`chat-repondre-${m.id}`}>
+                            <Reply className="h-2.5 w-2.5" /> Répondre
+                          </button>
                           {fmtTime(m.created_at)}
                         </p>
                         {/* Iter36s — Reply button (visible on hover desktop, always-on mobile via swipe) */}

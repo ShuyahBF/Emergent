@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "89"
-LOT_LIBELLE = "Postes Loois sans clé client valable : alerte de l'administrateur et du superviseur (aucun message sur le poste)"
+LOT = "90"
+LOT_LIBELLE = "Support SAWALI dans les plateformes web (sTer, bfmobility, adLyn, beAuthentik) : « <plateforme> - Support », requêtes numérotées, demandes en attente"

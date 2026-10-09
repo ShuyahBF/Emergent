@@ -55,7 +55,7 @@ class _FauxMeta:
 
     async def post(self, url, json=None, headers=None):
         _FauxMeta.appels.append(("POST", json["name"]))
-        if json["name"] == "sawali_suivi_requetes":
+        if json["name"] == "sawali_requete_etat":
             return _Rep(400, {"error": {"message": "Content in this language already exists"}})
         return _Rep(200, {"id": "1", "status": "PENDING"})
 
@@ -87,7 +87,7 @@ def test_envoi_par_modele_et_repli():
     res = c.post("/api/admin/requetes-modeles-meta").json()["resultats"]
     assert [r["ok"] for r in res] == [True, True] and res[1]["etat"] == "EXISTANT"
     etat = c.get("/api/admin/requetes-modeles-meta").json()["modeles"]
-    assert {m["nom"]: m["etat"] for m in etat} == {"sawali_lien_requetes": "APPROVED", "sawali_suivi_requetes": "APPROVED"}
+    assert {m["nom"]: m["etat"] for m in etat} == {"sawali_lien_requetes": "APPROVED", "sawali_requete_etat": "APPROVED"}
 
     # Envoi du lien : par le modèle, depuis le numéro de SAWALI (aucun tenant_id), jeton dans le bouton
     r = c.post("/api/admin/requetes-liens", json={"tenant_id": "t1"}).json()

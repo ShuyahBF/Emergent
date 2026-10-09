@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "90.3", "date": "2026-10-09",
+        "titre": "🧾 Requêtes : modèle WhatsApp de suivi utilitaire",
+        "description": "Nouveau modèle « sawali_requete_etat » (Utilitaire) à créer depuis la rubrique : l'ancien modèle de suivi a été reclassé Marketing par Meta.",
+        "rubrique": "🧾 Requêtes des clients",
+    },
+    {
         "lot": "90.2", "date": "2026-10-09",
         "titre": "📋 Évaluations Loois : sondages disponibles",
         "description": "La fenêtre d'évaluation liste aussi les sondages « Evaluation Loois » jamais envoyés (questions, envois, réponses, analyse).",

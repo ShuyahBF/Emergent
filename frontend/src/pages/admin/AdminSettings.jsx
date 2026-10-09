@@ -88,7 +88,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🧾 Requêtes des clients": "86.1",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
+  "🧾 Requêtes des clients": "86.2",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "85",   // lots 79.8-85 : jauge, contenu et purge des bases

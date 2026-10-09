@@ -58,6 +58,52 @@ function Detail({ r, etats, lots, onMaj }) {
   );
 }
 
+// Lot 86.2 — modèles WhatsApp Meta du lien (envoi possible à tout moment, hors fenêtre de 24 h)
+const LIBELLE_ETAT_MODELE = {
+  APPROVED: ["Approuvé", "bg-emerald-100 text-emerald-800"], PENDING: ["En revue chez Meta", "bg-amber-100 text-amber-800"],
+  REJECTED: ["Refusé", "bg-rose-100 text-rose-800"], ABSENT: ["Pas encore créé", "bg-slate-100 text-slate-700"],
+  EXISTANT: ["Déjà créé", "bg-slate-100 text-slate-700"],
+};
+function ModelesMeta() {
+  const [modeles, setModeles] = useState(null);
+  const charger = useCallback(() => {
+    apiClient.get("/admin/requetes-modeles-meta").then((r) => setModeles(r.data.modeles)).catch((e) => setModeles({ erreur: erreur(e, "État des modèles indisponible") }));
+  }, []);
+  useEffect(() => { charger(); }, [charger]);
+  const creer = async () => {
+    const attente = toast.loading("Patientez… envoi des modèles à Meta");
+    try {
+      const r = await apiClient.post("/admin/requetes-modeles-meta");
+      const ko = r.data.resultats.filter((x) => !x.ok);
+      if (ko.length) toast.error(ko.map((x) => `${x.nom} : ${x.erreur}`).join(" · "), { id: attente });
+      else toast.success("Modèles soumis à Meta — approbation en général en quelques minutes", { id: attente });
+      charger();
+    } catch (e) { toast.error(erreur(e, "Création impossible"), { id: attente }); }
+  };
+  if (!modeles) return <p className="text-xs text-slate-500">Patientez… état des modèles Meta</p>;
+  if (modeles.erreur) return <p className="text-xs text-rose-700">{modeles.erreur}</p>;
+  const tousApprouves = modeles.every((m) => m.etat === "APPROVED");
+  return (
+    <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-xs" data-testid="modeles-meta-requetes">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">Modèles WhatsApp Meta</span>
+        <span className="text-slate-600">— permettent d'envoyer le lien à tout moment (sans attendre que le client ait écrit dans les 24 h), avec un bouton « Ouvrir mes requêtes ».</span>
+        {!tousApprouves && <button type="button" onClick={creer} className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">Créer les modèles chez Meta</button>}
+        <button type="button" onClick={charger} className="rounded border border-slate-300 bg-white px-2 py-0.5">Actualiser</button>
+      </div>
+      {modeles.map((m) => {
+        const [libelle, couleur] = LIBELLE_ETAT_MODELE[m.etat] || [m.etat, "bg-slate-100 text-slate-700"];
+        return (
+          <div key={m.nom} className="rounded border border-slate-200 bg-white p-2">
+            <p><span className="font-mono">{m.nom}</span> <span className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${couleur}`}>{libelle}</span></p>
+            <p className="mt-1 text-slate-600">{m.texte}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Lot 86.1 — liens personnels des clients : envoi par WhatsApp / e-mail, renouvellement, révocation
 function LiensClients() {
   const [clients, setClients] = useState(null);
@@ -72,7 +118,7 @@ function LiensClients() {
     try {
       const r = await apiClient.post("/admin/requetes-liens", { tenant_id: c.id, renouveler, numero: numeros[c.id] || undefined });
       const e = r.data.envoye;
-      toast.success(e.whatsapp || e.email ? `Lien envoyé${e.whatsapp ? " par WhatsApp" : ""}${e.email ? `${e.whatsapp ? " et" : ""} par e-mail` : ""}`
+      toast.success(e.whatsapp || e.email ? `Lien envoyé${e.whatsapp ? (e.mode === "modele" ? " par WhatsApp (modèle Meta)" : " par WhatsApp") : ""}${e.email ? `${e.whatsapp ? " et" : ""} par e-mail` : ""}`
         : "Lien créé (aucun numéro WhatsApp ni e-mail : copiez-le)", { id: attente });
       charger();
     } catch (e) { toast.error(erreur(e, "Envoi impossible"), { id: attente }); }
@@ -91,6 +137,7 @@ function LiensClients() {
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3" data-testid="liens-clients">
       <p className="text-xs text-slate-600">Chaque client reçoit un lien personnel <b>sans mot de passe</b> : ses agents l'ouvrent depuis WhatsApp pour déposer une requête (texte, vocal, photos, captures), la suivre et l'évaluer. Les messages de suivi rappellent ce lien.</p>
+      <ModelesMeta />
       <input value={filtre} onChange={(e) => setFiltre(e.target.value)} placeholder="Rechercher un client…" className="w-64 rounded border border-slate-300 px-2 py-1 text-sm" />
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-slate-500"><tr><th className="py-1">Client</th><th>WhatsApp</th><th>Lien</th><th>Envoyé le</th><th></th></tr></thead>

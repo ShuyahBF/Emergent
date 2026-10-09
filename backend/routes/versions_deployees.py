@@ -386,7 +386,7 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
         except Exception:  # noqa: BLE001 — corps illisible
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         cle = {"application": fiche["application"], "machine": fiche["machine"], "composant": fiche["composant"]}
-        existe = await db.presences_logiciels.find_one(cle, {"_id": 1})
+        existe = await db.presences_logiciels.find_one(cle, {"_id": 1, "cle_statut": 1, "cle_statut_depuis": 1})
         if not existe and await db.presences_logiciels.count_documents({}) >= MAX_POSTES:
             raise HTTPException(status_code=429, detail="trop de postes enregistrés")
         maintenant = _maintenant().isoformat()
@@ -395,12 +395,18 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
         identite = await cles.identifier_cle(db, request.headers.get("X-Cle-Loois"), machine=fiche["machine"])
         verifie = bool(identite)
         verifie_client = cles.libelle_identite(identite)
+        # Lot 89 : état de la clé des postes Loois (client / commune / absente / refusée) pour l'alerte admin + superviseur
+        etat_cle: Dict[str, Any] = {}
+        from routes import loois_postes_sans_cle as sans_cle   # import tardif (même raison)
+        if sans_cle.est_application_loois(fiche["application"]):
+            etat_cle = sans_cle.champs_presence(sans_cle.statut_cle(request.headers.get("X-Cle-Loois"), identite),
+                                                existe, maintenant)
         # Lot 66 : inventaire facultatif (ignoré s'il est trop gros ou illisible ; le signal reste accepté)
         inventaire = nettoyer_inventaire(corps.get("inventaire"))
         en_plus: Dict[str, Any] = {"inventaire_le": maintenant} if inventaire else {}
         await db.presences_logiciels.update_one(cle, {
             "$set": {**fiche, "vu_le": maintenant, "verifie": verifie, "verifie_client": verifie_client,
-                     "adresse_ip": (request.client.host if request.client else None), **en_plus},
+                     "adresse_ip": (request.client.host if request.client else None), **en_plus, **etat_cle},
             "$setOnInsert": {"premiere_fois": maintenant},
         }, upsert=True)
         if inventaire:

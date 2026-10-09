@@ -25,6 +25,7 @@ import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSect
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
 import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
 import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSection";   // Lot 88
+import PostesSansCleSection from "@/pages/admin/sections/PostesSansCleSection";   // Lot 89
 import ImagesIaChatSection from "@/pages/admin/sections/ImagesIaChatSection";   // Lot 87
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
@@ -90,6 +91,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🔑 Postes Loois sans clé client (alerte)": "89",   // lot 89 : alerte admin + superviseur, aucun message sur le poste
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
@@ -121,6 +123,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🔑 Postes Loois sans clé client (alerte)": "2026-10-09",   // lot 89
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
@@ -196,6 +199,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",
@@ -1246,6 +1250,11 @@ export default function AdminSettings() {
       {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}
       <Filterable title="📋 Évaluations Loois (sondages du support)" anchorId="s-evaluations-loois" category="modules">
         <EvaluationsLooisSection />
+      </Filterable>
+
+      {/* Lot 89 — postes Loois sans clé client valable : réglage de l'alerte (admin + superviseur) et liste des postes */}
+      <Filterable title="🔑 Postes Loois sans clé client (alerte)" anchorId="s-postes-sans-cle" category="modules">
+        <PostesSansCleSection />
       </Filterable>
 
       {/* Lot 87 — images IA du chat de support : réglages (activé, limite par heure, style) et état sur 7 jours */}

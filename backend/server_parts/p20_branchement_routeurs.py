@@ -234,6 +234,9 @@ _setup_loois_synchro(db=db, api=api, get_current_user=get_current_user)
 # Lot 68.1 — clés clients Loois (une clé par client ; page Plateformes → Loois → Synchro → onglet « Clés clients »)
 from routes.loois_cles_clients import setup_loois_cles_clients_routes as _setup_loois_cles_clients  # noqa: E402
 _setup_loois_cles_clients(db=db, api=api, get_current_user=get_current_user)
+# Lot 89 — alerte administrateur + superviseur : postes Loois sans clé client valable (aucun message sur le poste)
+from routes.loois_postes_sans_cle import setup_loois_postes_sans_cle_routes as _setup_loois_postes_sans_cle  # noqa: E402
+_setup_loois_postes_sans_cle(db=db, api=api, get_current_user=get_current_user)
 # Lot 79.11 — mots de passe HFSQL saisis dans SAWALI (chiffrés) et remis à Loois avec sa clé client
 from routes.loois_secrets_hfsql import setup_loois_secrets_hfsql_routes as _setup_loois_secrets_hfsql  # noqa: E402
 _setup_loois_secrets_hfsql(db=db, api=api, get_current_user=get_current_user)

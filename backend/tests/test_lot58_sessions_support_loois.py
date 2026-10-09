@@ -422,3 +422,22 @@ def test_historique_du_poste_garde_le_ticket_apres_une_nouvelle_demande(env):
         assert ss.duree_session_secondes({"acceptee_le": "2026-10-05T05:23:52+00:00",
                                           "terminee_le": "2026-10-05T05:35:02+00:00"}) == 670
         assert ss.duree_session_secondes({"statut": "attente"}) is None
+
+
+def test_duree_depassee_poste_hors_ligne_session_terminee(env, monkeypatch):
+    """Lot 91.1 — poste Loois HORS LIGNE et durée maximale dépassée : la session est terminée dès que l'équipe
+    affiche le fil (avant : restait « active » à 00:00 indéfiniment)."""
+    client, db = env
+    with client.websocket_connect(URL_WS, headers={"X-Loois-Cle": "cle-de-test"}) as ws:
+        pid, etat = ouvrir(ws)
+        sid = etat["session_id"]
+        assert client.post(f"/api/support-loois/sessions/{sid}/accepter", headers=H_ADMIN,
+                           json={"client_id": "cli-ecole"}).status_code == 200
+        attendre(ws, "session", statut="active")
+    # Le poste s'est déconnecté : la session reste active tant que la durée n'est pas dépassée
+    assert client.get(f"/api/support-loois/postes/{pid}/session", headers=H_ADMIN).json()["session"]["statut"] == "active"
+    monkeypatch.setenv("LOOIS_SUPPORT_SESSION_MINUTES", "0.01")   # 0,6 s
+    time.sleep(0.8)
+    s = client.get(f"/api/support-loois/postes/{pid}/session", headers=H_ADMIN).json()["session"]
+    assert s["statut"] == "terminee" and s["fin_raison"] == "duree"
+    assert client.get("/api/support-loois/sessions", headers=H_ADMIN).json()["en_cours"] == []

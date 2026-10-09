@@ -92,6 +92,17 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
     return () => clearInterval(t);
   }, [session?.statut]);
 
+  // ---- Lot 91.1 — temps écoulé : le serveur termine la session (même poste hors ligne) ; relecture une fois ----
+  const expireeRef = useRef(null);
+  useEffect(() => {
+    if (session?.statut !== "active" || !session?.acceptee_le) return;
+    const reste = dureeMax - (maintenant - new Date(session.acceptee_le).getTime()) / 1000;
+    if (reste <= 0 && expireeRef.current !== session.id) {
+      expireeRef.current = session.id;
+      charger();
+    }
+  }, [maintenant, session, dureeMax, charger]);
+
   // ---- Appel d'une action avec toast « Patientez… » ----
   const agir = async (chemin, corps, succes) => {
     setOccupe(true);
@@ -219,7 +230,14 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
         </div>
       )}
 
-      {statut === "active" && (
+      {statut === "active" && restant !== null && restant <= 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-slate-600">
+          <span className="font-semibold text-slate-800">✅ Durée maximale atteinte</span>
+          <span>Ticket {session.ticket_number} : clôture en cours…</span>
+        </div>
+      )}
+
+      {statut === "active" && !(restant !== null && restant <= 0) && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-slate-800">🎫 Ticket {session.ticket_number}</span>
           <span className="text-slate-500">{session.client_nom} · {session.acceptee_par_nom}</span>

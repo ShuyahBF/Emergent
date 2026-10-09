@@ -716,15 +716,33 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         """Demandes en attente, sessions actives et dernières sessions closes (bandeau du chat)."""
         en_cours = [s async for s in db.support_loois_sessions.find({"en_cours": True}, {"_id": 0})
                     .sort("demande_le", 1)]
+        # Lot 91.1 — sessions dont la durée est dépassée (poste hors ligne) : terminées au passage
+        en_cours = [x for x in [await expirer_si_depassee(s) for s in en_cours] if x and x.get("statut") != "terminee"]
         recentes = [s async for s in db.support_loois_sessions.find({"en_cours": False}, {"_id": 0})
                     .sort("demande_le", -1).limit(30)]
         return {"en_cours": en_cours, "recentes": recentes, "liluvine": sessions.liluvine_active(),
                 "duree_max_s": int(sessions.duree_max_secondes())}
 
+    async def expirer_si_depassee(session: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Lot 91.1 — session active dont la durée maximale est dépassée : terminée tout de suite (ticket clôturé,
+        intervention créée), même si le poste Loois est HORS LIGNE. Avant, la fin automatique n'avait lieu que
+        dans la connexion du poste : poste déconnecté → session « active » à 00:00 indéfiniment."""
+        if not session or session.get("statut") != "active":
+            return session
+        restant = sessions.restant_secondes(session)
+        if restant is None or restant > 0:
+            return session
+        try:
+            fin = await sessions.terminer(db, session["id"], None, now_iso, raison="duree", tickets=tickets)
+            await apres_fin(fin)
+            return fin
+        except sessions.ErreurSession:
+            return await sessions.lire(db, session["id"]) or session
+
     @router.get("/support-loois/postes/{pid}/session")
     async def session_du_poste(pid: str, user: dict = Depends(equipe)):
         """Session en cours (ou la dernière) d'un poste + client retenu pour ce poste."""
-        session = await sessions.session_en_cours(db, pid) or await db.support_loois_sessions.find_one(
+        session = await expirer_si_depassee(await sessions.session_en_cours(db, pid)) or await db.support_loois_sessions.find_one(
             {"poste_id": pid}, {"_id": 0}, sort=[("demande_le", -1)])
         poste = await db.support_loois_postes.find_one({"id": pid}, {"_id": 0}) or {}
         return {"session": session, "client_id_suggere": poste.get("client_id"),

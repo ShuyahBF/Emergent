@@ -347,6 +347,23 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         except Exception:  # noqa: BLE001
             log.warning("[support_loois] réponse Liluvine impossible", exc_info=True)
 
+    async def apres_message_poste(pid: str, session: Dict[str, Any], nom: str, texte: str) -> None:
+        """Lot 91 — message d'un poste : avis de Claude si c'est une demande d'ajout / de correction de
+        fonctionnalité (Liluvine fait patienter puis rend la réponse) ; sinon réponse habituelle de Liluvine."""
+        from routes import avis_claude
+        pris = False
+        try:
+            recents = await sessions.conversation(db, pid, limite=6)
+            contexte = sessions.transcrire(recents, pid)[-1500:]
+            pris = await avis_claude.traiter(
+                db, source="loois", espace=ESPACE_ID, fil=pid, plateforme="loois",
+                plateforme_nom="Loois" + (f" ({session.get('client_nom')})" if session.get("client_nom") else ""),
+                demandeur_nom=nom, texte=texte, contexte=contexte)
+        except Exception:  # noqa: BLE001 — l'avis Claude ne bloque jamais le support
+            log.warning("[support_loois] avis Claude impossible", exc_info=True)
+        if not pris and session.get("statut") == "attente" and sessions.liluvine_active():
+            await repondre_liluvine(pid, session["id"])
+
     async def details_liluvine(session: Dict[str, Any]) -> None:
         """En fin de session, Liluvine résume l'assistance (« Détails du Support »)."""
         try:
@@ -537,9 +554,9 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
                     "recipient_id": admin_id, "text": texte, "created_at": now_iso(), "read_by": [pid],
                     "session_id": session["id"]})
                 await db.support_loois_postes.update_one({"id": pid}, {"$set": {"dernier_contact": now_iso()}})
-                # Lot 58 — en attente d'un agent, Liluvine répond
-                if session.get("statut") == "attente" and sessions.liluvine_active():
-                    lancer(repondre_liluvine(pid, session["id"]))
+                # Lot 91 — demande de fonctionnalité ? Liluvine la transmet à Claude (avis de faisabilité) ;
+                # sinon (lot 58), en attente d'un agent, Liluvine répond comme d'habitude
+                lancer(apres_message_poste(pid, dict(session), nom, texte))
         finally:
             await manager.disconnect(pid, websocket)
             # Le poste ferme sa fenêtre avant d'être pris en charge : la demande est retirée

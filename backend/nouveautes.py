@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "91", "date": "2026-10-09",
+        "titre": "🧠 Avis Claude sur les demandes de fonctionnalités",
+        "description": "Liluvine fait patienter le client, Claude évalue la faisabilité en lisant le code, vous décidez des demandes approuvées ; emojis dans le chat, liste du support réduite aux applis.",
+        "rubrique": "🧠 Avis Claude sur les demandes",
+    },
+    {
         "lot": "90.3", "date": "2026-10-09",
         "titre": "🧾 Requêtes : modèle WhatsApp de suivi utilitaire",
         "description": "Nouveau modèle « sawali_requete_etat » (Utilitaire) à créer depuis la rubrique : l'ancien modèle de suivi a été reclassé Marketing par Meta.",

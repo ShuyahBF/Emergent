@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,8 @@ MAX_FIL = 200                            # messages renvoyés au plus par lectur
 INACTIVITE_CLOTURE = timedelta(hours=12) # requête close d'elle-même après 12 h sans message
 STATUTS_EN_COURS = ("attente", "active")
 LIBELLES_STATUT = {"attente": "En attente", "active": "En cours", "terminee": "Terminée"}
+
+log = logging.getLogger("sawali.support_plateformes")
 
 
 def _maintenant() -> datetime:
@@ -275,6 +278,7 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
     from fastapi import Depends, HTTPException
     from routes import support_loois
     from routes.contrats_plateformes import signature_valide
+    from routes import avis_claude  # lot 91 : avis de Claude sur les demandes de fonctionnalités
 
     async def equipe(user: dict = Depends(get_current_user)) -> dict:
         """Équipe du support : administrateurs + comptes de LOOIS_SUPPORT_ADMIN_EMAIL."""
@@ -316,6 +320,15 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         return {"numero": r["numero"], "statut": r["statut"], "libelle": LIBELLES_STATUT.get(r["statut"], r["statut"]),
                 "ouverte_le": r["ouverte_le"], "prise_par": r.get("prise_par")}
 
+    async def avis_pour_plateforme(emetteur: Dict[str, Any], d: Dict[str, Any], texte: str) -> None:
+        """Lot 91 — avis de Claude sur une demande d'ajout / de correction de fonctionnalité de la plateforme."""
+        try:
+            code = emetteur["code"]
+            await avis_claude.traiter(db, source="plateforme", espace=espace_id(code), fil=d["id"], plateforme=code,
+                                      plateforme_nom=emetteur.get("nom") or code, demandeur_nom=d["nom"], texte=texte)
+        except Exception:  # noqa: BLE001
+            log.warning("[support_plateformes] avis Claude impossible", exc_info=True)
+
     @router.post("/support-plateforme/messages", tags=["Support des plateformes"])
     async def message_utilisateur(request: Request):
         """Message d'un utilisateur de la plateforme vers le support SAWALI (requête signée)."""
@@ -341,6 +354,8 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         if r["statut"] == "attente":
             await diffuser_equipe({"type": "support_plateforme_requete", "client_id": espace_id(code),
                                    "requete": {**r, "espace_nom": libelle_espace(emetteur)}})
+        # Lot 91 — demande de fonctionnalité : Liluvine la transmet à Claude (tâche de fond, jamais bloquante)
+        avis_claude.lancer(avis_pour_plateforme(emetteur, d, texte))
         return {"ok": True, "message": {"id": doc["id"], "texte": texte, "le": doc["created_at"], "de": "moi"},
                 "requete": vue_requete(r)}
 

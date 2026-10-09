@@ -1031,6 +1031,22 @@ async def _start_scheduler():
                 misfire_grace_time=300,
             )
 
+            # Lot 87 — images IA du chat de support : envois planifiés (date et heure choisies), chaque minute
+            async def _scheduled_images_ia_chat():
+                try:
+                    traiter = globals().get("_traiter_images_ia_planifiees")   # défini dans p20 (branchement)
+                    if traiter:
+                        await traiter()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[scheduler:images_ia_chat] %s", exc)
+            _safe_add_job(
+                _scheduled_images_ia_chat,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="images_ia_chat_planifiees_1min",
+                replace_existing=True,
+                misfire_grace_time=120,
+            )
+
             # Iter43-fix3 (2026-03) — Surveillance quotidienne du token WhatsApp.
             # Alerte par email les admins quand le token expire dans <7 jours ou
             # quand le test fonctionnel échoue (token révoqué, phone suspendu…).

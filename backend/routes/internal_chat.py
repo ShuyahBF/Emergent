@@ -497,6 +497,17 @@ def make_router(*, db, get_current_user, decode_token):
             raise HTTPException(status_code=400, detail="Fichier vide.")
         if len(data) > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="Image trop volumineuse (>10 Mo).")
+        return await _poster_image(user, client_id, data, mime, recipient_id=recipient_id,
+                                   caption=caption, reply_to_id=reply_to_id)
+
+    # --------------------------------------------------------------
+    # Lot 87 — dépôt d'une image dans une discussion (fonction commune) :
+    # utilisée par l'envoi de photo ci-dessus ET par l'image générée par l'IA
+    # (routes/image_ia_chat.py) : stockage, message, diffusion temps réel.
+    # --------------------------------------------------------------
+    async def _poster_image(user: dict, client_id: str, data: bytes, mime: str, *,
+                            recipient_id: Optional[str] = None, caption: Optional[str] = None,
+                            reply_to_id: Optional[str] = None, extra: Optional[dict] = None) -> dict:
         # Validate recipient if DM
         recipient = (recipient_id or "").strip() or None
         if recipient:
@@ -542,6 +553,8 @@ def make_router(*, db, get_current_user, decode_token):
             "created_at": _now_iso(),
             "read_by": [user["id"]],
         }
+        if extra:
+            doc.update(extra)   # lot 87 : marque « image IA » (prompt, auteur)
         if reply_to:
             doc["reply_to"] = reply_to
         await db.internal_chat_messages.insert_one(doc.copy())
@@ -916,4 +929,10 @@ def make_router(*, db, get_current_user, decode_token):
     support_loois.installer(router=router, db=db, manager=manager, now_iso=_now_iso,
                             get_current_user=get_current_user)
 
+    # Lot 87 — fonctions exposées au module « image IA du chat » (routes/image_ia_chat.py)
+    router.poster_image = _poster_image
+    router.verifier_membre = _ensure_member
+    router.espaces_visibles = _user_visible_clients
+    router.membres = _list_member_user_ids
+    router.nom_affiche = _resolve_display_name
     return router

@@ -16,12 +16,14 @@ import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'on
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft, Palette } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 // Lot 57.13 — annotation des images avant envoi (même outil que la discussion WhatsApp)
 import ImageAnnotator from "@/components/ImageAnnotator";
 // Lot 58 — sessions d'assistance Loois (bandeau) et fichiers (vidéos, documents) dans les bulles
 import { SupportLooisBandeau, ChatFichier } from "@/components/SupportLooisSession";
+// Lot 87 — image illustrative générée par l'IA (équipe SAWALI) : générer, annoter, envoyer, transférer, planifier
+import ImageIaChatModal from "@/components/ImageIaChatModal";
 
 /*
  * Son de réception d'un message du chat interne.
@@ -284,6 +286,14 @@ export default function InternalChatPanel() {
 
   // Iter36s — Reply-to state (WhatsApp-style quoted reply)
   const [replyTo, setReplyTo] = useState(null); // {id, text, sender_name, media_kind, is_mine}
+  // Lot 87 — image IA : droit de l'utilisateur (équipe SAWALI) et modale ouverte ({ messageId } = transfert d'une image du chat)
+  const [imageIaAutorisee, setImageIaAutorisee] = useState(false);
+  const [imageIa, setImageIa] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    apiClient.get("/me/chat/image-ia/etat").then((r) => setImageIaAutorisee(Boolean(r.data?.autorise)))
+      .catch(() => setImageIaAutorisee(false));
+  }, [open]);
   const cancelReply = () => setReplyTo(null);
 
   // Iter36s — Swipe-right detection on message bubbles → quick reply (mobile)
@@ -1090,6 +1100,12 @@ export default function InternalChatPanel() {
                             <ChatMediaThumb src={`${process.env.REACT_APP_BACKEND_URL}${m.media_url}`} />
                           </button>
                         )}
+                        {/* Lot 87 — marque des images générées par l'IA / transférées */}
+                        {hasMedia && (m.ia || m.transfere) && (
+                          <p className={`text-[10px] mb-0.5 ${mine ? "text-white/80" : "text-violet-700"}`} title={m.ia_prompt || ""}>
+                            {m.ia ? "🎨 Image IA" : ""}{m.ia_annotee ? " · annotée" : ""}{m.transfere ? (m.ia ? " · ↪ transférée" : "↪ Transférée") : ""}
+                          </p>
+                        )}
                         {(m.media_kind === "video" || m.media_kind === "document") && m.media_url && (
                           <ChatFichier message={m} mine={mine} />
                         )}
@@ -1208,6 +1224,18 @@ export default function InternalChatPanel() {
                     >
                       {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
                     </button>
+                    {/* Lot 87 — 🎨 image illustrative générée par l'IA (support et administration seulement) */}
+                    {imageIaAutorisee && (
+                      <button
+                        onClick={() => setImageIa({})}
+                        disabled={sending || uploadingPhoto || recState !== "idle"}
+                        className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                        data-testid="internal-chat-image-ia"
+                        title="Générer une image illustrative (IA)"
+                      >
+                        <Palette className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                   <div className="relative shrink-0">
                     <button
@@ -1343,7 +1371,33 @@ export default function InternalChatPanel() {
               ✏️ Annoter et renvoyer
             </button>
           )}
+          {/* Lot 87 — transférer cette image à n'importe qui (discussion, WhatsApp, e-mail) : équipe SAWALI */}
+          {imageIaAutorisee && lightbox.msgId && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); const id = lightbox.msgId; setLightbox(null); setImageIa({ messageId: id }); }}
+              className="absolute bottom-6 right-6 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold px-5 py-2 shadow-lg cursor-pointer"
+              data-testid="chat-media-transferer"
+            >
+              ↪ Transférer
+            </button>
+          )}
         </div>
+      )}
+      {/* Lot 87 — modale « image IA » : générer / annoter / envoyer / transférer / planifier */}
+      {imageIa && (
+        <ImageIaChatModal
+          clientId={activeClientId}
+          threadKey={activeThreadKey}
+          nomDiscussion={activeThreadKey === "general" ? "# Général" : (activeMember?.name || activeThread?.label)}
+          messageId={imageIa.messageId || null}
+          onClose={() => setImageIa(null)}
+          onEnvoye={async () => {
+            setImageIa(null);
+            await loadMessages(activeClientId, activeThreadKey);
+            requestAnimationFrame(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; });
+          }}
+        />
       )}
       {/* Lot 57.13 — annotateur d'image (avant envoi, ou image reçue à renvoyer annotée) */}
       {aAnnoter && (

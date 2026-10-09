@@ -541,13 +541,15 @@ class OpenAIImageGeneration:
         return sortie
 
     async def generate_images(self, prompt: str, model: str = "gpt-image-1", number_of_images: int = 1,
-                              quality: str = "low") -> List[bytes]:
+                              quality: str = "low", size: Optional[str] = None) -> List[bytes]:
         self._verifier()
         await _sdk_pret("openai")   # lot 71.2
         from openai import AsyncOpenAI
         params: Dict[str, Any] = {"model": model, "prompt": prompt, "n": number_of_images}
         if model in ("dall-e-3", "gpt-image-1"):
             params["quality"] = self._qualite(model, quality)
+        if size:
+            params["size"] = size   # lot 87 : format de l'image (ex. "1536x1024" paysage), sinon celui du modèle
         async with AsyncOpenAI(api_key=self.api_key, timeout=DELAI_SECONDES) as client:
             reponse = await client.images.generate(**params)
         return self._octets(reponse)

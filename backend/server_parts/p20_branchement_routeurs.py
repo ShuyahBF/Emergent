@@ -248,6 +248,15 @@ from routes.requetes_clients import setup_requetes_clients_routes as _setup_requ
 _setup_requetes_clients(db=db, api=api, get_current_user=get_current_user, send_email=send_email,
                         wa_send_text=_wa_send_text, transcrire=_wa_transcribe_audio_file, upload_dir=UPLOAD_DIR,
                         wa_send_template=_wa_send_template)   # lot 86.2 : modèles Meta du lien des requêtes
+# Lot 87 — image illustrative générée par l'IA dans la fenêtre de support (chat interne) : générer, annoter,
+# envoyer dans la discussion, transférer (chat, WhatsApp, e-mail), maintenant ou à une heure planifiée.
+from routes.image_ia_chat import setup_image_ia_chat_routes as _setup_image_ia_chat  # noqa: E402
+import object_storage as _obj_storage_ia_chat  # noqa: E402
+_image_ia_chat = _setup_image_ia_chat(db=db, api=api, get_current_user=get_current_user, chat=_chat_router,
+                                      save_and_log=_obj_storage_ia_chat.save_and_log, wa_send_media=_wa_send_media,
+                                      send_email=send_email,
+                                      base_publique=lambda: _public_base_url() or _PUBLIC_BASE_URL)
+_traiter_images_ia_planifiees = _image_ia_chat["traiter_planifies"]   # appelé chaque minute (p17)
 # Lot 68.3 — cartes « Nouveautés » de la page Paramètres (source unique : backend/nouveautes.py)
 from routes.nouveautes_route import setup_nouveautes_routes as _setup_nouveautes  # noqa: E402
 _setup_nouveautes(api=api, get_current_user=get_current_user)

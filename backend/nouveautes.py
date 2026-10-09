@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "96", "date": "2026-10-09",
+        "titre": "📣 Liluvine anime la page Facebook",
+        "description": "Photos de membres consentants de beAuthentik (visage masqué) avec leur bio relue par l'IA, publiées sur la page Facebook après validation ; bouton de remise à zéro aussi dans le tableau de bord Santé.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "95", "date": "2026-10-09",
         "titre": "📈 /uptime : sondes corrigées et remise à zéro du journal",
         "description": "Les sondes de disponibilité interrogeaient l'ancien port d'Emergent (8001) depuis la bascule vers Render : elles visent maintenant le vrai port ; un bouton efface les anciens historiques.",

@@ -27,6 +27,22 @@ export default function UptimeMonitorSection() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
+  // Lot 96 — remise à zéro du journal (aussi dans Paramètres → « 📈 Disponibilité (/uptime) ») : efface les
+  // anciens relevés (et, sur confirmation, l'historique des incidents) puis relance une série de sondes
+  const [remise, setRemise] = useState(false);
+  const remettreAZero = async () => {
+    if (!window.confirm("Effacer définitivement le journal des sondes ? Les pourcentages de /uptime repartiront de zéro.")) return;
+    const incidents = window.confirm("Effacer aussi l'historique des incidents ? (OK = oui, Annuler = non)");
+    setRemise(true);
+    const attente = toast.loading("Patientez… remise à zéro et nouvelle série de sondes");
+    try {
+      const r = await apiClient.post("/admin/health/uptime/reset", { incidents });
+      toast.success(`Journal remis à zéro (${r.data.sondes_effacees} relevé(s) effacé(s))`, { id: attente });
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Remise à zéro impossible", { id: attente }); }
+    finally { setRemise(false); }
+  };
+
   const runNow = async () => {
     setRunning(true);
     try {
@@ -68,6 +84,15 @@ export default function UptimeMonitorSection() {
           >
             {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Exécuter maintenant
+          </button>
+          <button
+            onClick={remettreAZero}
+            disabled={remise}
+            className="inline-flex items-center gap-2 rounded-lg bg-rose-600 text-white px-3.5 py-2 text-xs hover:bg-rose-700 disabled:opacity-50"
+            data-testid="uptime-remise-a-zero-tableau"
+          >
+            {remise ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Remettre à zéro le journal
           </button>
         </div>
       </div>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "87", "date": "2026-10-09",
+        "titre": "🎨 Image IA dans le chat de support",
+        "description": "Bouton 🎨 du chat : l'IA dessine une image, on l'annote, l'envoie dans la discussion ou la transfère (chat, WhatsApp, e-mail), maintenant ou planifiée.",
+        "rubrique": "🎨 Images IA du chat de support",
+    },
+    {
         "lot": "86.3", "date": "2026-10-09",
         "titre": "➕ Requêtes : superviseurs et saisie pour un client",
         "description": "Les superviseurs de SAWALI accèdent aux requêtes ; « + Nouvelle requête » saisit une requête au nom d'un client.",

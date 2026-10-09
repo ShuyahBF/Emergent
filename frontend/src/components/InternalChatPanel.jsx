@@ -22,6 +22,7 @@ import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import ImageAnnotator from "@/components/ImageAnnotator";
 // Lot 58 — sessions d'assistance Loois (bandeau) et fichiers (vidéos, documents) dans les bulles
 import { SupportLooisBandeau, ChatFichier } from "@/components/SupportLooisSession";
+import { RequetesEnAttente, SupportPlateformeBandeau } from "@/components/SupportPlateformes";   // lot 90
 // Lot 87 — image illustrative générée par l'IA (équipe SAWALI) : générer, annoter, envoyer, transférer, planifier
 import ImageIaChatModal from "@/components/ImageIaChatModal";
 // Lot 87.1 — calendrier des disponibilités (même outil que la discussion WhatsApp du centre de messagerie, lot 41)
@@ -148,6 +149,16 @@ export default function InternalChatPanel() {
   const [threads, setThreads] = useState([]);
   const [members, setMembers] = useState([]);
   const [activeThreadKey, setActiveThreadKey] = useState(null);  // "general" or user_id
+  // Lot 90 — fil à ouvrir après le changement d'espace (clic sur une requête en attente d'un autre espace)
+  const allerVersRef = useRef(null);
+  // Lot 90 — équipe du support : voit au moins un espace « Support Loois » ou « <plateforme> - Support »
+  const estEquipeSupport = clients.some((c) => c.id === "support-loois" || String(c.id).startsWith("support-plat-"));
+  // Lot 90 — ouvre le fil d'une requête en attente (changement d'espace si besoin)
+  const allerAuFil = useCallback((espace, fil) => {
+    if (espace === activeClientId) { setActiveThreadKey(fil); return; }
+    allerVersRef.current = fil;
+    setActiveClientId(espace);
+  }, [activeClientId]);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -418,7 +429,8 @@ export default function InternalChatPanel() {
     if (activeClientId) {
       loadThreads(activeClientId);
       loadMembers(activeClientId);
-      setActiveThreadKey(null);
+      setActiveThreadKey(allerVersRef.current || null);   // lot 90 : fil demandé depuis « requêtes en attente »
+      allerVersRef.current = null;
       setMessages([]);
     }
   }, [activeClientId, loadThreads, loadMembers]);
@@ -459,6 +471,15 @@ export default function InternalChatPanel() {
       if (activeClientId === "support-loois") loadThreads("support-loois");
       return;
     }
+    // Lot 90 — nouvelle requête d'un utilisateur d'une plateforme web (sTer, adLyn…) : son + toast pour l'équipe
+    if (lastEvent.type === "support_plateforme_requete") {
+      const r = lastEvent.requete || {};
+      playChatBlip();
+      signalerDansLeTitre(`🛟 ${r.espace_nom || "Support"}`);
+      toast.warning(`🛟 ${r.espace_nom || "Support"} : nouvelle requête de ${r.demandeur_nom || "un utilisateur"}`, { duration: 8000 });
+      if (activeClientId === lastEvent.client_id) loadThreads(activeClientId);
+      return;
+    }
     // Lot 88 — message mis à jour (ex. sondage passé « répondu ») : remplacé dans le fil affiché
     if (lastEvent.type === "message_maj") {
       const { message } = lastEvent;
@@ -483,7 +504,8 @@ export default function InternalChatPanel() {
       // If currently viewing this thread, append + auto-mark-read
       // Lot 57.15 — « Support Loois » (espace partagé par l'équipe) : le fil d'un poste reçoit TOUS ses
       // messages, quel que soit l'administrateur destinataire (avant : affichés seulement après un rechargement)
-      const filSupport = client_id === "support-loois" && message.recipient_id &&
+      const espaceSupport = client_id === "support-loois" || String(client_id || "").startsWith("support-plat-");
+      const filSupport = espaceSupport && (message.recipient_id || String(message.sender_id || "").startsWith("plat-")) &&
         (activeThreadKey === message.sender_id || activeThreadKey === message.recipient_id);
       if (open && activeClientId === client_id && (
         filSupport ||
@@ -1070,6 +1092,15 @@ export default function InternalChatPanel() {
               </div>
             )}
 
+            {/* Lot 90 — pendant une conversation : les AUTRES requêtes en attente (plateformes web + Support Loois) */}
+            {estEquipeSupport && (
+              <RequetesEnAttente lastEvent={lastEvent} espaceActif={activeClientId} filActif={activeThreadKey}
+                                 onAller={allerAuFil} />
+            )}
+            {/* Lot 90 — fil d'un utilisateur d'une plateforme web : n° de requête, état, Terminer */}
+            {String(activeClientId || "").startsWith("support-plat-") && activeThreadKey && activeThreadKey !== "general" && (
+              <SupportPlateformeBandeau espaceId={activeClientId} filKey={activeThreadKey} lastEvent={lastEvent} />
+            )}
             {/* Lot 58 — session d'assistance du poste Loois affiché (accepter, ticket, terminer, Liluvine) */}
             {activeClientId === "support-loois" && activeThreadKey && activeThreadKey !== "general" && (
               <SupportLooisBandeau posteId={activeThreadKey} lastEvent={lastEvent} onSuggestion={(t) => setText(t)} />

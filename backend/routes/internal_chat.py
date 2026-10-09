@@ -62,6 +62,7 @@ from starlette.websockets import WebSocketState  # lot 26 : état de la connexio
 from pydantic import BaseModel, Field
 from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 from routes import support_loois  # noqa: E402 — lot 57.12 : espace virtuel « Support Loois »
+from routes import support_plateformes  # noqa: E402 — lot 90 : espaces « <plateforme> - Support »
 
 log = logging.getLogger("sawali.internal_chat")
 
@@ -143,6 +144,9 @@ def make_router(*, db, get_current_user, decode_token):
         # Lot 57.12 — espace virtuel « Support Loois » : ouvert si la clé du support est configurée
         if client_id == support_loois.ESPACE_ID:
             return support_loois.actif()
+        # Lot 90 — espace « sTer - Support »… : ouvert si le support est activé pour la plateforme
+        if support_plateformes.est_espace(client_id):
+            return await support_plateformes.espace_actif(db, client_id)
         u = await db.users.find_one({"id": client_id}, {"_id": 0, "features": 1})
         if not u:
             return False
@@ -158,6 +162,9 @@ def make_router(*, db, get_current_user, decode_token):
         if client_id == support_loois.ESPACE_ID:
             # postes Loois + équipe du support (admins + comptes de LOOIS_SUPPORT_ADMIN_EMAIL)
             return set(await support_loois.ids_postes(db)) | set(await support_loois.ids_admins(db))
+        # Lot 90 — espaces des plateformes : utilisateurs de la plateforme + équipe du support
+        if support_plateformes.est_espace(client_id):
+            return set(await support_plateformes.ids_demandeurs(db, client_id)) | set(await support_loois.ids_admins(db))
         members: Set[str] = {client_id}
         cursor = db.tracked_users.find(
             {"client_id": client_id, "status": {"$ne": "archived"}, "user_account_id": {"$ne": None}},
@@ -190,12 +197,18 @@ def make_router(*, db, get_current_user, decode_token):
                 # en TÊTE de liste : c'est l'espace ouvert par défaut dans le chat des administrateurs
                 out.insert(0, {"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
                                "company": support_loois.ESPACE_NOM})
+            # Lot 90 — « sTer - Support », « adLyn - Support »… juste après le Support Loois
+            rang = 1 if support_loois.actif() else 0
+            out[rang:rang] = await support_plateformes.espaces(db)
             return out
 
         # Lot 57.13.1 — compte du support désigné (ex. superviseur) : espace « Support Loois » en tête
         if support_loois.actif() and support_loois.est_compte_support(user):
             out.append({"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
                         "company": support_loois.ESPACE_NOM})
+        # Lot 90 — même équipe pour les espaces des plateformes web
+        if support_loois.est_compte_support(user):
+            out.extend(await support_plateformes.espaces(db))
 
         # Find clients of which user is the client himself
         own = await db.users.find_one(
@@ -236,7 +249,7 @@ def make_router(*, db, get_current_user, decode_token):
 
     async def _resolve_display_name(uid: str) -> str:
         # Lot 57.12 — poste Loois : « École — POSTE (utilisateur) »
-        nom_poste = await support_loois.nom_du_poste(db, uid)
+        nom_poste = await support_loois.nom_du_poste(db, uid) or await support_plateformes.nom_du_demandeur(db, uid)
         if nom_poste:
             return nom_poste
         u = await db.users.find_one({"id": uid}, {"_id": 0, "full_name": 1, "email": 1})
@@ -304,6 +317,8 @@ def make_router(*, db, get_current_user, decode_token):
         # Lot 57.12 — postes Loois de l'espace « Support Loois »
         if client_id == support_loois.ESPACE_ID:
             out.extend(await support_loois.membres_postes(db, manager.is_online))
+        elif support_plateformes.est_espace(client_id):   # lot 90
+            out.extend(await support_plateformes.membres(db, client_id, manager.is_online))
         out.sort(key=lambda x: (not x["online"], x["name"].lower()))
         return out
 
@@ -316,6 +331,8 @@ def make_router(*, db, get_current_user, decode_token):
         # Lot 57.12.1 — « Support Loois » : un fil par poste, visible par TOUS les administrateurs
         if client_id == support_loois.ESPACE_ID:
             return await support_loois.fils(db, user["id"])
+        if support_plateformes.est_espace(client_id):   # lot 90 : un fil par utilisateur de la plateforme
+            return await support_plateformes.fils(db, client_id, user["id"])
         # 1) Collective channel — unread count = messages in #general not read by me
         general_unread = await db.internal_chat_messages.count_documents({
             "client_id": client_id,
@@ -394,6 +411,8 @@ def make_router(*, db, get_current_user, decode_token):
         if client_id == support_loois.ESPACE_ID and with_user != "general":
             # Lot 57.12.1 — tout le fil du poste, quel que soit l'administrateur qui a répondu
             q = support_loois.requete_fil(with_user)
+        elif support_plateformes.est_espace(client_id) and with_user != "general":   # lot 90
+            q = support_plateformes.requete_fil(client_id, with_user)
         elif with_user == "general":
             q["recipient_id"] = None
         else:
@@ -452,7 +471,7 @@ def make_router(*, db, get_current_user, decode_token):
         if recipient_id:
             targets = {user["id"], recipient_id}
             # Lot 57.12.1 — « Support Loois » : la réponse d'un admin s'affiche aussi chez les autres admins
-            if client_id == support_loois.ESPACE_ID:
+            if client_id == support_loois.ESPACE_ID or support_plateformes.est_espace(client_id):
                 targets |= set(await support_loois.ids_admins(db))
         else:
             targets = await _list_member_user_ids(client_id)
@@ -464,6 +483,7 @@ def make_router(*, db, get_current_user, decode_token):
                 pass
         # Lot 88 — agent → poste Loois sans session en cours : session et ticket à l'initiative du support
         await support_loois.signaler_message_agent(user, client_id, recipient_id)
+        await support_plateformes.apres_message_agent(db, user, client_id, recipient_id)   # lot 90 : requête « en cours »
         return doc
 
     # --------------------------------------------------------------
@@ -600,7 +620,7 @@ def make_router(*, db, get_current_user, decode_token):
         if recipient:
             targets = {user["id"], recipient}
             # Lot 57.13 — « Support Loois » : la photo d'un admin s'affiche aussi chez les autres admins
-            if client_id == support_loois.ESPACE_ID:
+            if client_id == support_loois.ESPACE_ID or support_plateformes.est_espace(client_id):
                 targets |= set(await support_loois.ids_admins(db))
         else:
             targets = await _list_member_user_ids(client_id)
@@ -612,6 +632,7 @@ def make_router(*, db, get_current_user, decode_token):
                 pass
         # Lot 88 — agent → poste Loois sans session en cours : session et ticket à l'initiative du support
         await support_loois.signaler_message_agent(user, client_id, recipient)
+        await support_plateformes.apres_message_agent(db, user, client_id, recipient)   # lot 90
         return doc
 
     # --------------------------------------------------------------
@@ -630,7 +651,8 @@ def make_router(*, db, get_current_user, decode_token):
         if m.get("recipient_id") and user["id"] not in (m["sender_id"], m["recipient_id"]):
             # Admins still allowed (they see everything in a client's space) ; lot 57.13.1 : toute l'équipe
             # du support voit les images de l'espace « Support Loois » (membre vérifié juste au-dessus)
-            if user.get("role") != "admin" and m["client_id"] != support_loois.ESPACE_ID:
+            if (user.get("role") != "admin" and m["client_id"] != support_loois.ESPACE_ID
+                    and not support_plateformes.est_espace(m["client_id"])):
                 raise HTTPException(status_code=403, detail="Accès refusé")
         if not m.get("storage_path"):
             raise HTTPException(status_code=404, detail="Média introuvable")
@@ -683,6 +705,8 @@ def make_router(*, db, get_current_user, decode_token):
         if client_id == support_loois.ESPACE_ID and thread_key != "general":
             # Lot 57.12.1 — marque lu tout le fil du poste pour cet administrateur
             q = {**support_loois.requete_fil(thread_key), "read_by": {"$nin": [user["id"]]}}
+        elif support_plateformes.est_espace(client_id) and thread_key != "general":   # lot 90
+            q = {**support_plateformes.requete_fil(client_id, thread_key), "read_by": {"$nin": [user["id"]]}}
         elif thread_key == "general":
             q["recipient_id"] = None
         else:
@@ -706,6 +730,11 @@ def make_router(*, db, get_current_user, decode_token):
             # Lot 57.12.1 — « Support Loois » : messages des postes non lus par cet administrateur
             if c["id"] == support_loois.ESPACE_ID:
                 n = await db.internal_chat_messages.count_documents(support_loois.requete_non_lus(user["id"]))
+                per_client[c["id"]] = int(n)
+                total += int(n)
+                continue
+            if support_plateformes.est_espace(c["id"]):   # lot 90 : messages des utilisateurs non lus par cet agent
+                n = await db.internal_chat_messages.count_documents(support_plateformes.requete_non_lus(c["id"], user["id"]))
                 per_client[c["id"]] = int(n)
                 total += int(n)
                 continue
@@ -967,6 +996,9 @@ def make_router(*, db, get_current_user, decode_token):
     # Lot 57.12 — WebSocket des postes Loois (bouton « Ecrire Support »), même gestionnaire de connexions
     support_loois.installer(router=router, db=db, manager=manager, now_iso=_now_iso,
                             get_current_user=get_current_user)
+    # Lot 90 — support SAWALI des plateformes web (requêtes signées des plateformes + routes de l'équipe)
+    support_plateformes.installer(router=router, db=db, manager=manager, now_iso=_now_iso,
+                                  get_current_user=get_current_user)
 
     # Lot 87 — fonctions exposées au module « image IA du chat » (routes/image_ia_chat.py)
     router.poster_image = _poster_image

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "90", "date": "2026-10-09",
+        "titre": "🛟 Support SAWALI dans les plateformes web",
+        "description": "Pictogramme d'assistance dans sTer, bfmobility, adLyn et beAuthentik ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation.",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "89", "date": "2026-10-09",
         "titre": "🔑 Postes Loois sans clé client : alerte",
         "description": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable.",

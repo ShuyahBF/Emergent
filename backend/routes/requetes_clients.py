@@ -68,7 +68,10 @@ MAX_IMAGES = 6                        # images par requête
 MAX_REQUETES_LIEN_PAR_JOUR = 30       # protection du lien public contre les envois en rafale
 URL_SITE_DEFAUT = "https://sawalismartsystems.com"
 MODELE_LIEN = "sawali_lien_requetes"     # lot 86.2 : modèle Meta d'envoi du lien
-MODELE_SUIVI = "sawali_suivi_requetes"   # lot 86.2 : modèle Meta des messages de suivi
+# Lot 90.3 (09/10/2026) — « sawali_suivi_requetes » a été RECLASSÉ « Marketing » par Meta (texte trop général et
+# invitation à « évaluer » = demande d'avis). Nouveau modèle strictement transactionnel : état d'UNE requête, sans
+# invitation ni avis. L'ancien modèle peut être supprimé dans le WhatsApp Manager une fois le nouveau approuvé.
+MODELE_SUIVI = "sawali_requete_etat"     # lot 90.3 : modèle Meta UTILITAIRE des messages de suivi
 LANGUE_MODELES = "fr"
 
 
@@ -189,9 +192,13 @@ def definitions_modeles(base: Optional[str]) -> List[Dict[str, Any]]:
             pied, bouton]},
         {"name": MODELE_SUIVI, "language": LANGUE_MODELES, "category": "UTILITY", "components": [
             {"type": "BODY",
-             "text": "Bonjour, suivi de vos requêtes SAWALI : {{1}} Ouvrez votre lien personnel pour consulter le détail et l'évaluer.",
-             "example": {"body_text": [["votre requête REQ-ALBRK-0003 est « Terminée »."]]}},
-            pied, bouton]},
+             # Lot 90.3 : notification d'état d'une requête existante (catégorie Utilitaire) — pas d'avis, pas d'offre
+             "text": ("Mise à jour de votre requête SAWALI : {{1}}\n"
+                      "Le détail de la requête est disponible via le bouton ci-dessous."),
+             "example": {"body_text": [["la requête REQ-ALBRK-0003 est passée à l'état « Terminée »."]]}},
+            pied, {"type": "BUTTONS", "buttons": [{
+                "type": "URL", "text": "Voir la requête", "url": f"{site}/requete/{{{{1}}}}",
+                "example": [f"{site}/requete/Ab12Cd34Ef56"]}]}]},
     ]
 
 

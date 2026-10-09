@@ -64,6 +64,7 @@ from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fourn
 from routes import support_loois  # noqa: E402 — lot 57.12 : espace virtuel « Support Loois »
 from routes import support_plateformes  # noqa: E402 — lot 90 : espaces « <plateforme> - Support »
 from routes import avis_claude  # noqa: E402 — lot 91 : avis de Claude sur les demandes de fonctionnalités
+from routes import synthese_support  # noqa: E402 — lot 92 : synthèse du support (admin + superviseur)
 
 log = logging.getLogger("sawali.internal_chat")
 
@@ -1014,6 +1015,8 @@ def make_router(*, db, get_current_user, decode_token):
                                   get_current_user=get_current_user)
     # Lot 91 — avis de Claude (Liluvine transmet les demandes de fonctionnalités, le propriétaire décide)
     avis_claude.installer(router=router, db=db, manager=manager, get_current_user=get_current_user)
+    # Lot 92 — synthèse du support : non répondues, totaux, demandes transmises à Claude (admin + superviseur)
+    synthese_support.installer(router=router, db=db, get_current_user=get_current_user)
 
     # Lot 87 — fonctions exposées au module « image IA du chat » (routes/image_ia_chat.py)
     router.poster_image = _poster_image

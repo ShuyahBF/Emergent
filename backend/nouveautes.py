@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "92", "date": "2026-10-09",
+        "titre": "📊 Synthèse du support",
+        "description": "Demandes au support non répondues (avec l'attente), totaux de la période par espace et demandes transmises à Claude ; menu « Synthèse du support » pour l'administrateur et le superviseur.",
+        "rubrique": "📊 Synthèse du support",
+    },
+    {
         "lot": "91.1", "date": "2026-10-09",
         "titre": "🎫 Support Loois : fin de session même poste hors ligne",
         "description": "Une session dont la durée maximale est atteinte est terminée (ticket clôturé, intervention créée) même si le poste Loois est hors ligne : plus de bandeau « Terminer la session » à 00:00.",

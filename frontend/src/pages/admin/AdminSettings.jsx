@@ -28,6 +28,7 @@ import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSect
 import PostesSansCleSection from "@/pages/admin/sections/PostesSansCleSection";   // Lot 89
 import SupportPlateformesSection from "@/pages/admin/sections/SupportPlateformesSection";   // Lot 90
 import AvisClaudeSection from "@/pages/admin/sections/AvisClaudeSection";   // Lot 91
+import SyntheseSupport from "@/components/SyntheseSupport";   // Lot 92
 import ImagesIaChatSection from "@/pages/admin/sections/ImagesIaChatSection";   // Lot 87
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
@@ -93,6 +94,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "90",   // lot 90 : pictogramme d'assistance dans sTer, bfmobility, adLyn, beAuthentik
   "🔑 Postes Loois sans clé client (alerte)": "89",   // lot 89 : alerte admin + superviseur, aucun message sur le poste
@@ -127,6 +129,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-09",   // lot 90
   "🔑 Postes Loois sans clé client (alerte)": "2026-10-09",   // lot 89
@@ -205,6 +208,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90).",
   "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
@@ -1263,6 +1267,11 @@ export default function AdminSettings() {
       {/* Lot 89 — postes Loois sans clé client valable : réglage de l'alerte (admin + superviseur) et liste des postes */}
       <Filterable title="🔑 Postes Loois sans clé client (alerte)" anchorId="s-postes-sans-cle" category="modules">
         <PostesSansCleSection />
+      </Filterable>
+
+      {/* Lot 92 — synthèse du support : non répondues, totaux, demandes transmises à Claude (aussi au menu, superviseur compris) */}
+      <Filterable title="📊 Synthèse du support" anchorId="s-synthese-support" category="modules">
+        <SyntheseSupport />
       </Filterable>
 
       {/* Lot 91 — avis de Claude sur les demandes de fonctionnalités reçues au support (le propriétaire décide) */}

@@ -7,6 +7,7 @@ import {
 import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
 import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
+import { LifeBuoy } from "lucide-react";   // lot 92 : synthèse du support
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -220,6 +221,7 @@ const adminLinks = [
   // Lot 86 — requêtes de tous les clients, lots de correction, évaluations
   { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOrSup: true },   // lot 86.3 : superviseurs aussi
   { to: "/admin/evaluations-loois", label: "Évaluations Loois", icon: ClipboardList, adminOrSup: true },   // lot 88 : sondages du support
+  { to: "/admin/synthese-support", label: "Synthèse du support", icon: LifeBuoy, adminOrSup: true },   // lot 92 : non répondues, totaux, Claude
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },

@@ -163,6 +163,17 @@ export default function InternalChatPanel() {
     allerVersRef.current = fil;
     setActiveClientId(espace);
   }, [activeClientId]);
+  // Lot 92 — « Ouvrir » depuis la Synthèse du support : événement « sawali:ouvrir-fil-support » {espace, fil}
+  useEffect(() => {
+    const ouvrir = (e) => {
+      const { espace, fil } = e.detail || {};
+      if (!espace) return;
+      setOpen(true);
+      allerAuFil(espace, fil);
+    };
+    window.addEventListener("sawali:ouvrir-fil-support", ouvrir);
+    return () => window.removeEventListener("sawali:ouvrir-fil-support", ouvrir);
+  }, [allerAuFil]);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);

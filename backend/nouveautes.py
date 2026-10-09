@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "90.1", "date": "2026-10-09",
+        "titre": "↩ Répondre à un message et son à chaque arrivée",
+        "description": "« Répondre » visible sous chaque bulle du chat (interne, Support Loois, plateformes) ; son joué à chaque nouveau message, même si le temps réel est coupé.",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "90", "date": "2026-10-09",
         "titre": "🛟 Support SAWALI dans les plateformes web",
         "description": "Pictogramme d'assistance dans sTer, bfmobility, adLyn et beAuthentik ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation.",

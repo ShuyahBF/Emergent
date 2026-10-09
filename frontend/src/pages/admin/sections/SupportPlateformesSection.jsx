@@ -41,6 +41,11 @@ export default function SupportPlateformesSection() {
         (SUP-STER-2026-0001). Pendant une conversation, la barre « ⏳ requêtes en attente » montre les autres demandes.
         La plateforme utilise sa clé d'émetteur (aucune nouvelle clé à saisir).
       </p>
+      <p className="text-xs text-slate-600">
+        Dans le chat, « <b>↩ Répondre</b> » sous chaque bulle cite le message auquel vous répondez ; un <b>son</b> est
+        joué à chaque nouveau message (chat interne, Support Loois et plateformes), même si la connexion en temps réel
+        a été coupée (vérification toutes les 30 secondes). Le son démarre après un premier clic sur la page (règle des navigateurs).
+      </p>
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">

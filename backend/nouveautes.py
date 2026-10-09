@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "87.3", "date": "2026-10-09",
+        "titre": "📎 Chat : trombone toujours visible",
+        "description": "Documents (PDF, Word, Excel, PowerPoint, texte, CSV) et vidéos envoyés depuis la barre d'outils du chat, dans toutes les discussions et aux postes Loois même sans session ouverte.",
+        "rubrique": "🎨 Images IA du chat de support",
+    },
+    {
         "lot": "87.2", "date": "2026-10-09",
         "titre": "📱 Chat : saisie confortable sur téléphone",
         "description": "Boutons (photo, galerie, 🎨, 📅, micro) au-dessus du champ de saisie, qui prend toute la largeur ; la place vient de la zone des messages.",

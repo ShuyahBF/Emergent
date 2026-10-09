@@ -501,13 +501,46 @@ def make_router(*, db, get_current_user, decode_token):
                                    caption=caption, reply_to_id=reply_to_id)
 
     # --------------------------------------------------------------
+    # Lot 87.3 — trombone : envoi d'un DOCUMENT (PDF, Word, Excel, PowerPoint, texte, CSV) ou d'une
+    # VIDÉO (MP4/WebM) dans n'importe quelle discussion du chat. Mêmes types et limites que le Support Loois
+    # (support_loois.type_fichier) ; une image envoyée par le trombone part comme une photo.
+    # --------------------------------------------------------------
+    @router.post("/me/chat/{client_id}/messages/fichier")
+    async def me_chat_send_fichier(
+        client_id: str,
+        fichier: UploadFile = File(...),
+        recipient_id: Optional[str] = Form(None),
+        caption: Optional[str] = Form(None),
+        reply_to_id: Optional[str] = Form(None),
+        user: dict = Depends(get_current_user),
+    ):
+        await _ensure_member(user, client_id)
+        nature = support_loois.type_fichier(fichier.content_type, fichier.filename)
+        if not nature:
+            raise HTTPException(status_code=400, detail="Type de fichier non accepté : images, vidéos MP4/WebM, "
+                                                        "PDF, Word, Excel, PowerPoint, texte ou CSV.")
+        mime, extension, genre, maximum = nature
+        data = await fichier.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if len(data) > maximum:
+            raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (plus de {maximum // (1024 * 1024)} Mo).")
+        return await _poster_image(user, client_id, data, mime, recipient_id=recipient_id, caption=caption,
+                                   reply_to_id=reply_to_id, media_kind=genre, extension=extension,
+                                   file_name=support_loois.nom_fichier_propre(fichier.filename, extension))
+
+    # --------------------------------------------------------------
     # Lot 87 — dépôt d'une image dans une discussion (fonction commune) :
     # utilisée par l'envoi de photo ci-dessus ET par l'image générée par l'IA
     # (routes/image_ia_chat.py) : stockage, message, diffusion temps réel.
     # --------------------------------------------------------------
     async def _poster_image(user: dict, client_id: str, data: bytes, mime: str, *,
                             recipient_id: Optional[str] = None, caption: Optional[str] = None,
-                            reply_to_id: Optional[str] = None, extra: Optional[dict] = None) -> dict:
+                            reply_to_id: Optional[str] = None, extra: Optional[dict] = None,
+                            media_kind: str = "image", extension: Optional[str] = None,
+                            file_name: Optional[str] = None) -> dict:
+        # Lot 87.3 — sert aussi aux documents et vidéos (trombone) : media_kind « document » / « video »,
+        # extension du fichier stocké et nom affiché dans la bulle (file_name).
         # Validate recipient if DM
         recipient = (recipient_id or "").strip() or None
         if recipient:
@@ -519,7 +552,7 @@ def make_router(*, db, get_current_user, decode_token):
         # Upload to Emergent Object Storage
         msg_id = str(uuid.uuid4())
         ext_for_path = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
-                        "image/heic": ".heic", "image/heif": ".heif"}.get(mime, ".bin")
+                        "image/heic": ".heic", "image/heif": ".heif"}.get(mime, extension or ".bin")
         storage_path = None
         try:
             from storage import aupload_bytes, astorage_available  # lot 26 : non bloquant
@@ -548,11 +581,13 @@ def make_router(*, db, get_current_user, decode_token):
             "media_url": f"/api/me/chat/media/{msg_id}",
             "media_mime": mime,
             "media_size": len(data),
-            "media_kind": "image",
+            "media_kind": media_kind,
             "storage_path": storage_path,
             "created_at": _now_iso(),
             "read_by": [user["id"]],
         }
+        if file_name:
+            doc["file_name"] = file_name   # lot 87.3 : nom du document affiché dans la bulle
         if extra:
             doc.update(extra)   # lot 87 : marque « image IA » (prompt, auteur)
         if reply_to:

@@ -24,6 +24,8 @@ export default function AdminEvaluationsLoois() {
   const [sondage, setSondage] = useState("");
   const [recherche, setRecherche] = useState(params.get("numero") || "");
   const [selection, setSelection] = useState(null);   // ligne sélectionnée (détail des réponses)
+  // Lot 90.2 — sondages « Evaluation Loois… » du module Sondages, MÊME s'ils n'ont encore jamais été envoyés
+  const [disponibles, setDisponibles] = useState([]);
 
   // Chargement de la liste (toast « Patientez… » pendant l'attente)
   const charger = useCallback(async () => {
@@ -38,6 +40,10 @@ export default function AdminEvaluationsLoois() {
     }
   }, [statut, sondage]);
   useEffect(() => { charger(); }, [charger]);
+  // Lot 90.2 — lecture des sondages disponibles (avant : un sondage jamais envoyé n'apparaissait nulle part)
+  useEffect(() => {
+    apiClient.get("/support-loois/sondages-disponibles").then((r) => setDisponibles(r.data?.sondages || [])).catch(() => setDisponibles([]));
+  }, []);
 
   // Filtre texte (numéro, poste, école, ticket)
   const lignes = useMemo(() => {
@@ -45,11 +51,22 @@ export default function AdminEvaluationsLoois() {
     return (donnees?.envois || []).filter((e) => !q ||
       [e.numero, e.poste, e.ecole, e.ticket_number, e.titre].some((v) => (v || "").toLowerCase().includes(q)));
   }, [donnees, recherche]);
-  // Sondages présents dans la liste (filtre)
+  // Sondages du filtre : tous les sondages « Evaluation Loois » disponibles + ceux déjà envoyés (même clôturés)
   const sondages = useMemo(() => {
     const m = new Map();
+    disponibles.forEach((d) => m.set(d.id, d.titre));
     (donnees?.envois || []).forEach((e) => m.set(e.survey_id, e.titre));
     return [...m.entries()];
+  }, [donnees, disponibles]);
+  // Nombre d'envois et de réponses par sondage (cartes des sondages disponibles)
+  const compteurs = useMemo(() => {
+    const c = {};
+    (donnees?.envois || []).forEach((e) => {
+      c[e.survey_id] = c[e.survey_id] || { envoyes: 0, repondus: 0 };
+      c[e.survey_id].envoyes += 1;
+      if (e.statut === "repondu") c[e.survey_id].repondus += 1;
+    });
+    return c;
   }, [donnees]);
   // Sélection automatique quand on arrive avec ?numero=
   useEffect(() => {
@@ -74,6 +91,35 @@ export default function AdminEvaluationsLoois() {
         <p className="text-sm text-slate-600">
           Sondages « Evaluation Loois » envoyés aux postes depuis le Support Loois, numérotés ; leurs réponses s'analysent aussi
           dans la page Résultats de chaque sondage (graphiques, export CSV).
+        </p>
+      </div>
+
+      {/* Lot 90.2 — sondages « Evaluation Loois » disponibles (créés dans le menu Sondages), envoyés ou non */}
+      <div className="rounded-xl border border-violet-200 bg-white p-3" data-testid="evaluations-disponibles">
+        <p className="text-sm font-semibold text-violet-900">Sondages « Evaluation Loois » disponibles ({disponibles.length})</p>
+        {disponibles.length === 0 ? (
+          <p className="mt-1 text-xs text-slate-500">
+            Aucun sondage dont le titre commence par « Evaluation Loois » (menu Sondages ; un sondage clôturé n'est pas proposé).
+          </p>
+        ) : (
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {disponibles.map((d) => {
+              const c = compteurs[d.id] || { envoyes: 0, repondus: 0 };
+              return (
+                <div key={d.id} className="rounded-lg border border-slate-200 p-2 text-xs">
+                  <p className="font-semibold text-slate-800">{d.titre}</p>
+                  <p className="text-slate-500">{d.questions} question(s) · {c.envoyes ? `${c.envoyes} envoi(s), ${c.repondus} réponse(s)` : "jamais envoyé"}</p>
+                  <div className="mt-1 flex gap-3">
+                    <button onClick={() => setSondage(d.id)} className="text-violet-700 underline">Filtrer</button>
+                    <Link to={`/admin/surveys/${d.id}/results`} className="text-violet-700 underline">📊 Analyse</Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-slate-500">
+          Pour l'envoyer : chat → « Support Loois » → fil du poste → « 📋 Envoyer le sondage ». Il apparaît alors dans le tableau ci-dessous, numéroté (EVL-AAAA-NNNN).
         </p>
       </div>
 

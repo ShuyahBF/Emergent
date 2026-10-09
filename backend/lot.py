@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "94"
-LOT_LIBELLE = "Son des appels WhatsApp sortants (centre de messagerie) et page de présentation des cartes de carrousel sans lien"
+LOT = "95"
+LOT_LIBELLE = "Page /uptime : sondes de disponibilité corrigées (port Render) et remise à zéro du journal"

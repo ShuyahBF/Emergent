@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "95", "date": "2026-10-09",
+        "titre": "📈 /uptime : sondes corrigées et remise à zéro du journal",
+        "description": "Les sondes de disponibilité interrogeaient l'ancien port d'Emergent (8001) depuis la bascule vers Render : elles visent maintenant le vrai port ; un bouton efface les anciens historiques.",
+        "rubrique": "📈 Disponibilité (/uptime) — journal des sondes",
+    },
+    {
         "lot": "94", "date": "2026-10-09",
         "titre": "🖼️ Cartes de carrousel sans lien : page de présentation",
         "description": "Une carte sans lien (ou une carte produit) mène à sa page de présentation sur le site (photo, titre, prix, description) au lieu d'une erreur ; et le son des appels WhatsApp sortants passe enfin côté PC.",

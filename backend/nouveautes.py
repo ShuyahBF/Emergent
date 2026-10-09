@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "86.3", "date": "2026-10-09",
+        "titre": "➕ Requêtes : superviseurs et saisie pour un client",
+        "description": "Les superviseurs de SAWALI accèdent aux requêtes ; « + Nouvelle requête » saisit une requête au nom d'un client.",
+        "rubrique": "🧾 Requêtes des clients",
+    },
+    {
         "lot": "86.2", "date": "2026-10-09",
         "titre": "📨 Requêtes : modèles WhatsApp Meta du lien",
         "description": "Le lien des requêtes part par modèle Meta (bouton « Ouvrir mes requêtes »), même si le client n'a pas écrit depuis 24 h.",

@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import AudioRequete from "@/components/AudioRequete";
-import { ImagesRequete } from "@/components/RequeteOutils";
+import { Enregistreur, ImagesRequete, SelecteurImages } from "@/components/RequeteOutils";
 
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
@@ -32,7 +32,7 @@ function Detail({ r, etats, lots, onMaj }) {
   };
   return (
     <div className="space-y-2 bg-slate-50 p-3 text-xs" data-testid={`detail-${r.numero}`}>
-      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom}){r.origine === "lien" ? " · via le lien personnel" : ""}</p>
+      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom}){r.origine === "lien" ? " · via le lien personnel" : r.origine === "sawali" ? " · saisie par SAWALI" : ""}</p>
       {r.texte && <p className="whitespace-pre-wrap text-sm">{r.texte}</p>}
       {r.a_audio && <AudioRequete id={r.id} />}
       <ImagesRequete images={r.images} charger={(img) => apiClient.get(`/requetes/${r.id}/images/${img.id}`, { responseType: "blob" }).then((x) => x.data)} />
@@ -53,6 +53,62 @@ function Detail({ r, etats, lots, onMaj }) {
           {lots.filter((l) => l.etat !== "deploye" || l.id === r.lot_id).map((l) => <option key={l.id} value={l.id}>Lot {l.numero} — {l.titre}</option>)}
         </select>
         <button type="button" onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1 font-semibold text-white">Enregistrer</button>
+      </div>
+    </div>
+  );
+}
+
+// Lot 86.3 — saisie d'une requête AU NOM d'un client (appel téléphonique, visite, message reçu ailleurs)
+function NouvelleRequeteAdmin({ categories, onCree, onFermer }) {
+  const [clients, setClients] = useState([]);
+  const [f, setF] = useState({ tenant_id: "", categorie: "dysfonctionnement", titre: "", texte: "", logiciel: "", equipement: "" });
+  const [audio, setAudio] = useState(null);
+  const [images, setImages] = useState([]);
+  const [envoi, setEnvoi] = useState(false);
+  // Liste de tous les clients de SAWALI (même source que l'onglet « Liens clients »)
+  useEffect(() => { apiClient.get("/admin/requetes-liens").then((r) => setClients(r.data.clients || [])).catch(() => {}); }, []);
+  const enregistrer = async () => {
+    setEnvoi(true);
+    const attente = toast.loading("Patientez… enregistrement de la requête");
+    try {
+      const fd = new FormData();
+      Object.entries(f).forEach(([k, v]) => fd.append(k, v));
+      if (audio) fd.append("audio", audio);
+      images.forEach((img) => fd.append("images", img, img.name));
+      const r = await apiClient.post("/admin/requetes", fd);
+      toast.success(`Requête ${r.data.numero} enregistrée pour ${r.data.client_nom}`, { id: attente });
+      onCree();
+    } catch (e) { toast.error(erreur(e, "Requête non enregistrée"), { id: attente }); }
+    finally { setEnvoi(false); }
+  };
+  const champ = "mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm";
+  return (
+    <div className="mb-3 space-y-2 rounded-xl border border-sky-200 bg-sky-50/60 p-3" data-testid="nouvelle-requete-admin">
+      <p className="text-sm font-semibold">Nouvelle requête au nom d'un client</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="text-xs"><span className="font-semibold">Client</span>
+          <select value={f.tenant_id} onChange={(e) => setF({ ...f, tenant_id: e.target.value })} className={champ}>
+            <option value="">— choisir —</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+          </select></label>
+        <label className="text-xs"><span className="font-semibold">Catégorie</span>
+          <select value={f.categorie} onChange={(e) => setF({ ...f, categorie: e.target.value })} className={champ}>
+            {Object.entries(categories || {}).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></label>
+        {f.categorie === "logiciel" && <label className="text-xs"><span className="font-semibold">Logiciel</span>
+          <input value={f.logiciel} onChange={(e) => setF({ ...f, logiciel: e.target.value })} className={champ} /></label>}
+        {f.categorie === "equipement" && <label className="text-xs"><span className="font-semibold">Équipement</span>
+          <input value={f.equipement} onChange={(e) => setF({ ...f, equipement: e.target.value })} className={champ} /></label>}
+        <label className="text-xs sm:col-span-3"><span className="font-semibold">Titre</span>
+          <input value={f.titre} onChange={(e) => setF({ ...f, titre: e.target.value })} className={champ} /></label>
+        <label className="text-xs sm:col-span-3"><span className="font-semibold">Description</span>
+          <textarea rows={3} value={f.texte} onChange={(e) => setF({ ...f, texte: e.target.value })} className={champ} /></label>
+      </div>
+      <Enregistreur audio={audio} onAudio={setAudio} />
+      <SelecteurImages images={images} onImages={setImages} />
+      <div className="flex gap-2">
+        <button type="button" disabled={!f.tenant_id || envoi} onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Enregistrer la requête</button>
+        <button type="button" onClick={onFermer} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm">Annuler</button>
       </div>
     </div>
   );
@@ -171,6 +227,7 @@ export default function AdminRequetes() {
   const [filtres, setFiltres] = useState({ etat: "", tenant_id: "", lot_id: "" });
   const [ouverte, setOuverte] = useState(null);
   const [nouveauLot, setNouveauLot] = useState({ titre: "", description: "" });
+  const [saisie, setSaisie] = useState(false);   // lot 86.3 : formulaire « Nouvelle requête » ouvert
 
   const charger = useCallback(() => {
     apiClient.get("/admin/requetes", { params: filtres }).then((r) => setDonnees(r.data)).catch(() => setDonnees(null));
@@ -217,7 +274,9 @@ export default function AdminRequetes() {
 
       {onglet === "requetes" ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
+          {saisie && <NouvelleRequeteAdmin categories={donnees.categories} onFermer={() => setSaisie(false)} onCree={() => { setSaisie(false); charger(); }} />}
           <div className="mb-2 flex flex-wrap gap-2">
+            {!saisie && <button type="button" onClick={() => setSaisie(true)} className="rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white">+ Nouvelle requête</button>}
             <select value={filtres.etat} onChange={(e) => setFiltres({ ...filtres, etat: e.target.value })} className={choix}>
               <option value="">Tous les états</option>
               {Object.entries(donnees.etats).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -231,7 +290,13 @@ export default function AdminRequetes() {
               {lots.map((l) => <option key={l.id} value={l.id}>Lot {l.numero}</option>)}
             </select>
           </div>
-          {donnees.requetes.length === 0 ? <p className="text-sm text-slate-500">Aucune requête.</p> : (
+          {donnees.requetes.length === 0 ? (
+            <div className="space-y-1 text-sm text-slate-500">
+              <p>Aucune requête{filtres.etat || filtres.tenant_id || filtres.lot_id ? " avec ces filtres" : ""}.</p>
+              <p className="text-xs">Les clients déposent leurs requêtes depuis le <b>lien reçu sur WhatsApp</b> (onglet « Liens clients ») ou leur portail (« Mes requêtes »).
+                Vous pouvez aussi en saisir une pour un client avec <b>« + Nouvelle requête »</b>. Les lots se créent dans l'onglet « Lots ».</p>
+            </div>
+          ) : (
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-slate-500"><tr><th className="py-1">N°</th><th>Client</th><th>Déposée le</th><th>Catégorie</th><th>Titre</th><th>Lot</th><th>État</th><th>Note</th></tr></thead>
               <tbody>

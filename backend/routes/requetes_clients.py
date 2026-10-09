@@ -104,8 +104,13 @@ def tenant_de(user: Dict[str, Any]) -> str:
 
 
 def est_admin_sawali(user: Dict[str, Any]) -> bool:
-    """Administrateur de SAWALI (traite les requêtes de tous les clients)."""
-    return user.get("role") == "admin" and not user.get("parent_client_id")
+    """Équipe SAWALI qui traite les requêtes de tous les clients : administrateur ET, depuis le lot 86.3,
+    superviseur (compte « superviseur » ou utilisateur suivi « Administrateur » / « Superviseur »).
+    Jamais un utilisateur rattaché à un client (parent_client_id)."""
+    if user.get("parent_client_id"):
+        return False
+    return (user.get("role") in ("admin", "super_admin", "superviseur")
+            or user.get("tracked_role") in ("Administrateur", "Superviseur"))
 
 
 def nettoyer_requete(categorie: Any, titre: Any, texte: Any, a_audio: bool) -> Dict[str, str]:
@@ -215,7 +220,7 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
 
     def _admin(user: dict) -> None:
         if not est_admin_sawali(user):
-            raise HTTPException(status_code=403, detail="Réservé à l'administrateur de SAWALI")
+            raise HTTPException(status_code=403, detail="Réservé à l'équipe SAWALI (administrateur ou superviseur)")
 
     async def _client_doc(tenant_id: str) -> dict:
         return await db.users.find_one({"id": tenant_id}, {"_id": 0, "id": 1, "client_code": 1, "company": 1,
@@ -421,6 +426,19 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         return await _creer(tenant_de(user), user.get("id"), user.get("full_name") or user.get("email") or "", "portail",
                             categorie, titre, texte, logiciel, equipement, audio, await _images_du_formulaire(request),
                             user.get("company") or "")
+
+    @api.post("/admin/requetes", tags=["Requêtes clients"])
+    async def requete_pour_client(tenant_id: str = Form(...), categorie: str = Form(...), titre: str = Form(""),
+                                  texte: str = Form(""), logiciel: str = Form(""), equipement: str = Form(""),
+                                  audio: Optional[UploadFile] = File(None), request: Request = None,
+                                  user: dict = Depends(get_current_user)):
+        """Lot 86.3 — l'équipe SAWALI saisit une requête AU NOM d'un client (appel, visite, message reçu ailleurs)."""
+        _admin(user)
+        if not await _client_doc(tenant_id):
+            raise HTTPException(status_code=404, detail="Client introuvable")
+        auteur = f"{user.get('full_name') or user.get('email') or 'SAWALI'} (SAWALI)"
+        return await _creer(tenant_id, user.get("id"), auteur, "sawali", categorie, titre, texte, logiciel, equipement,
+                            audio, await _images_du_formulaire(request))
 
     @api.get("/me/requetes-lien", tags=["Requêtes clients"])
     async def mon_lien(user: dict = Depends(get_current_user)):

@@ -217,7 +217,7 @@ const adminLinks = [
   // Lot 63 — activité des plateformes (adLyn, Ster, beAuthentik…) en temps réel
   { to: "/admin/plateformes-temps-reel", label: "Temps réel", icon: Activity, adminOnly: true, groupe: "plateformes" },   // lot 79.10 : groupe « Plateformes »
   // Lot 86 — requêtes de tous les clients, lots de correction, évaluations
-  { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOnly: true },
+  { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOrSup: true },   // lot 86.3 : superviseurs aussi
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },

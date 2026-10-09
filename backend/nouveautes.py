@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "90.2", "date": "2026-10-09",
+        "titre": "📋 Évaluations Loois : sondages disponibles",
+        "description": "La fenêtre d'évaluation liste aussi les sondages « Evaluation Loois » jamais envoyés (questions, envois, réponses, analyse).",
+        "rubrique": "📋 Évaluations Loois (sondages du support)",
+    },
+    {
         "lot": "90.1", "date": "2026-10-09",
         "titre": "↩ Répondre à un message et son à chaque arrivée",
         "description": "« Répondre » visible sous chaque bulle du chat (interne, Support Loois, plateformes) ; son joué à chaque nouveau message, même si le temps réel est coupé.",

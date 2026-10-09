@@ -24,6 +24,7 @@ import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection"
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
 import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
+import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSection";   // Lot 88
 import ImagesIaChatSection from "@/pages/admin/sections/ImagesIaChatSection";   // Lot 87
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
@@ -89,6 +90,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
@@ -119,6 +121,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
@@ -1238,6 +1241,11 @@ export default function AdminSettings() {
       {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
       <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
         <LooisSecretsHfsqlSection />
+      </Filterable>
+
+      {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}
+      <Filterable title="📋 Évaluations Loois (sondages du support)" anchorId="s-evaluations-loois" category="modules">
+        <EvaluationsLooisSection />
       </Filterable>
 
       {/* Lot 87 — images IA du chat de support : réglages (activé, limite par heure, style) et état sur 7 jours */}

@@ -79,6 +79,7 @@ import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
 import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
+import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
 import MessagesBloquesWa from "@/pages/admin/MessagesBloquesWa";   // Lot 79.6 — messages retenus par la barrière WA
@@ -499,6 +500,7 @@ export default function App() {
             {/* Lot 63 — suivi en temps réel des plateformes (administrateur) */}
             <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
             <Route path="requetes" element={<AdminRequetes />} />
+            <Route path="evaluations-loois" element={<AdminEvaluationsLoois />} />
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
             {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}

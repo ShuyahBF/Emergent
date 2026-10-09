@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "87.3"
-LOT_LIBELLE = "Chat : trombone 📎 pour envoyer documents et vidéos dans toutes les discussions"
+LOT = "88"
+LOT_LIBELLE = "Support Loois : sondages « Evaluation Loois » (blocage, remerciement Liluvine, analyses) et ticket à l'initiative du support"

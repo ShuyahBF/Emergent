@@ -5,10 +5,13 @@
 //     une OBSERVATION (date et heure automatiques), change l'ÉTAT et range la requête dans un LOT ;
 //   - Lots : création d'un lot de correction (numéro automatique) ; passer un lot à « Déployé » fait passer toutes
 //     ses requêtes à « Déployée » et prévient chaque client (e-mail, WhatsApp) qu'il peut évaluer.
+//   - Liens clients (lot 86.1) : lien personnel SANS mot de passe de chaque client, envoyé par WhatsApp (et e-mail)
+//     en un clic — plus simple pour les utilisateurs que de se connecter au site ; renouvelable et révocable.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import AudioRequete from "@/components/AudioRequete";
+import { ImagesRequete } from "@/components/RequeteOutils";
 
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
@@ -29,9 +32,10 @@ function Detail({ r, etats, lots, onMaj }) {
   };
   return (
     <div className="space-y-2 bg-slate-50 p-3 text-xs" data-testid={`detail-${r.numero}`}>
-      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom})</p>
+      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom}){r.origine === "lien" ? " · via le lien personnel" : ""}</p>
       {r.texte && <p className="whitespace-pre-wrap text-sm">{r.texte}</p>}
       {r.a_audio && <AudioRequete id={r.id} />}
+      <ImagesRequete images={r.images} charger={(img) => apiClient.get(`/requetes/${r.id}/images/${img.id}`, { responseType: "blob" }).then((x) => x.data)} />
       {r.transcription && <p className="italic text-slate-600">Transcription : {r.transcription}</p>}
       {(r.observations || []).length > 0 && (
         <ul className="list-disc pl-5">{r.observations.map((o, i) => <li key={i}>{dateHeure(o.le)} — {o.par} : {o.texte}</li>)}</ul>
@@ -54,8 +58,67 @@ function Detail({ r, etats, lots, onMaj }) {
   );
 }
 
+// Lot 86.1 — liens personnels des clients : envoi par WhatsApp / e-mail, renouvellement, révocation
+function LiensClients() {
+  const [clients, setClients] = useState(null);
+  const [filtre, setFiltre] = useState("");
+  const [numeros, setNumeros] = useState({});   // numéro WhatsApp saisi pour un client sans numéro
+  const charger = useCallback(() => {
+    apiClient.get("/admin/requetes-liens").then((r) => setClients(r.data.clients)).catch(() => setClients([]));
+  }, []);
+  useEffect(() => { charger(); }, [charger]);
+  const envoyer = async (c, renouveler = false) => {
+    const attente = toast.loading("Patientez… envoi du lien");
+    try {
+      const r = await apiClient.post("/admin/requetes-liens", { tenant_id: c.id, renouveler, numero: numeros[c.id] || undefined });
+      const e = r.data.envoye;
+      toast.success(e.whatsapp || e.email ? `Lien envoyé${e.whatsapp ? " par WhatsApp" : ""}${e.email ? `${e.whatsapp ? " et" : ""} par e-mail` : ""}`
+        : "Lien créé (aucun numéro WhatsApp ni e-mail : copiez-le)", { id: attente });
+      charger();
+    } catch (e) { toast.error(erreur(e, "Envoi impossible"), { id: attente }); }
+  };
+  const revoquer = async (c) => {
+    if (!window.confirm(`Révoquer le lien de ${c.nom} ? L'ancien lien ne fonctionnera plus.`)) return;
+    await apiClient.delete(`/admin/requetes-liens/${c.id}`);
+    toast.success("Lien révoqué");
+    charger();
+  };
+  const copier = async (url) => {
+    try { await navigator.clipboard.writeText(url); toast.success("Lien copié"); } catch { toast.error("Copie impossible"); }
+  };
+  if (!clients) return <p className="text-sm text-slate-500">Patientez…</p>;
+  const visibles = clients.filter((c) => !filtre || c.nom.toLowerCase().includes(filtre.toLowerCase()));
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3" data-testid="liens-clients">
+      <p className="text-xs text-slate-600">Chaque client reçoit un lien personnel <b>sans mot de passe</b> : ses agents l'ouvrent depuis WhatsApp pour déposer une requête (texte, vocal, photos, captures), la suivre et l'évaluer. Les messages de suivi rappellent ce lien.</p>
+      <input value={filtre} onChange={(e) => setFiltre(e.target.value)} placeholder="Rechercher un client…" className="w-64 rounded border border-slate-300 px-2 py-1 text-sm" />
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs text-slate-500"><tr><th className="py-1">Client</th><th>WhatsApp</th><th>Lien</th><th>Envoyé le</th><th></th></tr></thead>
+        <tbody>
+          {visibles.map((c) => (
+            <tr key={c.id} className="border-t border-slate-100">
+              <td className="py-1">{c.nom}</td>
+              <td className="text-xs">{c.whatsapp || (
+                <input value={numeros[c.id] || ""} onChange={(e) => setNumeros({ ...numeros, [c.id]: e.target.value })} placeholder="226…"
+                  className="w-32 rounded border border-slate-300 px-1 py-0.5 text-xs" />)}</td>
+              <td className="max-w-xs truncate text-xs">{c.url ? <button type="button" onClick={() => copier(c.url)} title="Copier" className="font-mono text-sky-800 underline">{c.url}</button> : "—"}</td>
+              <td className="text-xs">{dateHeure(c.envoye_le) || "—"}</td>
+              <td className="space-x-1 whitespace-nowrap text-right">
+                <button type="button" onClick={() => envoyer(c)} className="rounded bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">Envoyer par WhatsApp</button>
+                {c.url && <button type="button" onClick={() => envoyer(c, true)} className="rounded border border-slate-300 px-2 py-0.5 text-xs">Renouveler</button>}
+                {c.url && <button type="button" onClick={() => revoquer(c)} className="rounded border border-rose-300 px-2 py-0.5 text-xs text-rose-700">Révoquer</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminRequetes() {
-  const [onglet, setOnglet] = useState("requetes");
+  // Onglet initial : « ?onglet=liens » ouvre directement les liens clients (bouton de la rubrique des Paramètres)
+  const [onglet, setOnglet] = useState(() => new URLSearchParams(window.location.search).get("onglet") || "requetes");
   const [donnees, setDonnees] = useState(null);
   const [lots, setLots] = useState([]);
   const [filtres, setFiltres] = useState({ etat: "", tenant_id: "", lot_id: "" });
@@ -99,7 +162,7 @@ export default function AdminRequetes() {
         </p>
       </div>
       <div className="flex gap-2">
-        {[["requetes", "Requêtes"], ["lots", "Lots"]].map(([k, v]) => (
+        {[["requetes", "Requêtes"], ["lots", "Lots"], ["liens", "Liens clients (WhatsApp)"]].map(([k, v]) => (
           <button key={k} type="button" onClick={() => setOnglet(k)}
             className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${onglet === k ? "bg-sky-700 text-white" : "border border-slate-300"}`}>{v}</button>
         ))}
@@ -131,7 +194,7 @@ export default function AdminRequetes() {
                       <td className="py-1 font-mono text-xs">{r.numero}</td><td className="text-xs">{r.client_nom}</td>
                       <td className="text-xs">{dateHeure(r.cree_le)}</td>
                       <td className="text-xs">{r.libelle_categorie}{r.logiciel ? ` · ${r.logiciel}` : ""}{r.equipement ? ` · ${r.equipement}` : ""}</td>
-                      <td>{r.titre}{r.a_audio ? " 🎤" : ""}</td><td className="text-xs">{r.lot_numero ? `Lot ${r.lot_numero}` : "—"}</td>
+                      <td>{r.titre}{r.a_audio ? " 🎤" : ""}{r.images?.length ? ` 🖼️${r.images.length}` : ""}{r.origine === "lien" ? " 🔗" : ""}</td><td className="text-xs">{r.lot_numero ? `Lot ${r.lot_numero}` : "—"}</td>
                       <td className="text-xs">{r.libelle_etat}</td><td className="text-xs">{r.evaluation ? `${r.evaluation.note}/5` : r.a_evaluer ? "attendue" : "—"}</td>
                     </tr>
                     {ouverte === r.id && <tr><td colSpan={8}><Detail r={r} etats={donnees.etats} lots={lots} onMaj={charger} /></td></tr>}
@@ -141,7 +204,7 @@ export default function AdminRequetes() {
             </table>
           )}
         </div>
-      ) : (
+      ) : onglet === "liens" ? <LiensClients /> : (
         <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs"><span className="font-semibold">Nouveau lot</span>

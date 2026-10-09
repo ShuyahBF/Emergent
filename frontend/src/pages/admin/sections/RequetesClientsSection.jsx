@@ -14,7 +14,8 @@ export default function RequetesClientsSection() {
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="rubrique-requetes-clients">
       <p className="text-xs text-slate-600">
         Vos clients (contractuels ou non) signalent dysfonctionnements, remarques, problèmes de logiciel ou d'équipement
-        depuis leur portail (« Mes requêtes »), par écrit ou par message vocal. Chaque requête est numérotée par client et
+        depuis leur portail (« Mes requêtes ») ou, plus simplement, depuis leur <b>lien personnel reçu sur WhatsApp</b>
+        (sans mot de passe), par écrit, par message vocal, avec photos ou captures d'écran. Chaque requête est numérotée par client et
         horodatée ; vous y ajoutez des observations, changez son état et la rangez dans un lot. Un lot « Déployé » invite
         chaque client concerné à évaluer (note de 1 à 5).
       </p>
@@ -26,7 +27,10 @@ export default function RequetesClientsSection() {
         <div className="rounded-lg bg-emerald-50 p-2"><p className="text-[11px] text-slate-500">Note moyenne</p>
           <p className="font-semibold">{res.moyenne != null ? `${res.moyenne}/5 (${res.evaluees})` : "—"}</p></div>
       </div>
-      <Link to="/admin/requetes" className="inline-block rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white">Traiter les requêtes et les lots</Link>
+      <div className="flex flex-wrap gap-2">
+        <Link to="/admin/requetes" className="inline-block rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white">Traiter les requêtes et les lots</Link>
+        <Link to="/admin/requetes?onglet=liens" className="inline-block rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">Envoyer les liens par WhatsApp</Link>
+      </div>
     </div>
   );
 }

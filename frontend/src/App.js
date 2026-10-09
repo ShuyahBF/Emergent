@@ -174,6 +174,7 @@ import ParcInformatique from "@/pages/portal/ParcInformatique";   // lot 47
 import DecouverteReseau from "@/pages/admin/DecouverteReseau";   // lot 80 : appareils découverts par Loois
 import VersionsDeployees from "@/pages/admin/VersionsDeployees";   // lot 80 : « Postes et serveurs » dans « Équipements »
 import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
+import PublicRequete from "@/pages/public/PublicRequete";   // lot 86.1 : lien personnel des requêtes clients (sans connexion)
 import OfficineOrdonnance from "@/pages/public/OfficineOrdonnance";   // lot 57 : délivrance en officine (QR de l'ordonnance)
 import Restauration from "@/pages/public/Restauration";   // lot 49 : restauration initiale d'un site neuf
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
@@ -314,6 +315,7 @@ export default function App() {
           {/* Lot 41 — disponibilités partagées depuis une discussion WhatsApp */}
           <Route path="/disponibilites/:jeton" element={<Disponibilites />} />
           <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
+          <Route path="/requete/:jeton" element={<PublicRequete />} />   {/* lot 86.1 */}
           <Route path="/officine/ordonnance/:jeton" element={<OfficineOrdonnance />} />   {/* lot 57 : page publique de l'officine */}
           <Route path="/restauration" element={<Restauration />} />   {/* lot 49 */}
           <Route path="/pay/:slug" element={<PayLink />} />

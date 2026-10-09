@@ -46,6 +46,12 @@ export default function SupportPlateformesSection() {
         joué à chaque nouveau message (chat interne, Support Loois et plateformes), même si la connexion en temps réel
         a été coupée (vérification toutes les 30 secondes). Le son démarre après un premier clic sur la page (règle des navigateurs).
       </p>
+      {/* Lot 97 — une plateforme n'apparaît ici que si elle est enregistrée comme émetteur Liluvine */}
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        Une plateforme absente (ex. bfmobility) ? Créez son émetteur dans la rubrique « Liluvine — Transmission WA
+        universelle » avec le code attendu par la plateforme (<b>bfmobility</b>), puis saisissez la clé affichée dans la
+        variable <b>LILUVINE_WA_HMAC</b> du serveur de la plateforme sur Render. Elle apparaît alors ici ; activez son support.
+      </p>
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">

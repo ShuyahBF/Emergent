@@ -19,6 +19,7 @@ export default function FacebookAnimationSection() {
   const [regl, setRegl] = useState(null);       // réglages en cours de modification
   const [occupe, setOccupe] = useState(null);   // action en cours (id de publication ou nom d'action)
   const [textes, setTextes] = useState({});     // légendes retouchées, par publication
+  const [pages, setPages] = useState(null);     // lot 97 : pages du compte Facebook connecté (id, nom)
 
   // Lecture des réglages, de la Page connectée et de la file
   const charger = async () => {
@@ -29,6 +30,23 @@ export default function FacebookAnimationSection() {
     } catch { setEtat({ erreur: true }); }
   };
   useEffect(() => { charger(); }, []);
+
+  // Lot 97 — page propre à l'animation (ex. page beAuthentik) : la page active de SAWALI reste celle de SAWALI
+  const chargerPages = async () => {
+    setOccupe("pages");
+    try { setPages((await apiClient.get("/admin/facebook/animation/pages")).data.pages); }
+    catch (err) { toast.error(err?.response?.data?.detail || "Lecture des pages impossible"); }
+    finally { setOccupe(null); }
+  };
+  const choisirPage = async (pageId) => {
+    setOccupe("pages");
+    try {
+      await apiClient.put("/admin/facebook/animation/page", { page_id: pageId });
+      toast.success(pageId ? "Page de l'animation enregistrée" : "Retour à la page active de SAWALI");
+      await charger();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Choix impossible"); }
+    finally { setOccupe(null); }
+  };
 
   const enregistrer = async () => {
     setOccupe("reglages");
@@ -74,10 +92,32 @@ export default function FacebookAnimationSection() {
       <p className="text-xs text-slate-600">
         Liluvine publie sur la page Facebook des membres <b>qui ont donné leur accord</b> sur beAuthentik : photo avec le
         <b> visage masqué</b>, prénom, âge, ville et bio <b>relue par l'IA</b> (une bio avec coordonnées, lien, propos
-        déplacés… est refusée). Page connectée : {etat.page.connectee
-          ? <b className="text-emerald-700">{etat.page.nom || "oui"}</b>
-          : <b className="text-rose-700">aucune — connectez une Page dans la rubrique Facebook</b>}.
+        déplacés… est refusée).
       </p>
+
+      {/* Lot 97 — page Facebook de la plateforme, distincte de la page active de SAWALI */}
+      <div className="rounded-lg bg-slate-50 p-3 text-sm">
+        Page de publication :{" "}
+        {etat.page.propre
+          ? <b className="text-emerald-700">{etat.page.nom}</b>
+          : etat.page.connectee
+            ? <span className="text-amber-700">aucune page propre — la page active de SAWALI (<b>{etat.page.nom}</b>) serait utilisée</span>
+            : <b className="text-rose-700">aucune — connectez le compte Facebook dans la rubrique Facebook</b>}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {pages === null ? (
+            <button type="button" onClick={chargerPages} disabled={occupe === "pages"} className="rounded border border-slate-300 px-2.5 py-1 text-xs">
+              Choisir la page de la plateforme…
+            </button>
+          ) : (
+            <select defaultValue="" disabled={occupe === "pages"} onChange={(e) => e.target.value !== "" && choisirPage(e.target.value === "-" ? "" : e.target.value)}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs">
+              <option value="">— Choisir une page —</option>
+              {pages.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
+              <option value="-">(utiliser la page active de SAWALI)</option>
+            </select>
+          )}
+        </div>
+      </div>
 
       {/* Réglages */}
       <div className="grid gap-3 sm:grid-cols-2">

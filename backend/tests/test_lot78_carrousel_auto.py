@@ -38,9 +38,11 @@ def test_lien_par_defaut_valide_et_utilise_a_l_envoi(env):
     client, _, envois = env
     client.put(f"{BASE}/consentements", headers=h("cli_a"), json={"ids": ["c1"], "accepte": True})
     corps = {"message": "Promo", "cartes": SANS_LIEN, "ids": ["c1"]}
-    # Sans lien ni lien par défaut : refus explicite
+    # Lot 94 — sans lien ni lien par défaut : accepté, les cartes mèneront à leur page de présentation
     r = client.post(f"{BASE}/envoyer", headers=h("cli_a"), json=corps)
-    assert r.status_code == 400 and "lien par défaut" in r.json()["detail"]
+    assert r.status_code == 202, r.text
+    camp0 = client.get(f"{BASE}/campagnes/{r.json()['id']}", headers=h("cli_a")).json()
+    assert [c["lien"] for c in camp0["cartes"]] == ["", ""]
     # Lien par défaut invalide refusé, valide accepté
     assert client.put(f"{BASE}/preferences", headers=h("cli_a"), json={"lien_defaut": "ftp://x"}).status_code == 400
     assert client.put(f"{BASE}/preferences", headers=h("cli_a"), json={"lien_defaut": "https://boutique.bf"}).status_code == 200

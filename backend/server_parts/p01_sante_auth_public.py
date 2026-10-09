@@ -272,7 +272,9 @@ async def public_og_product(product_id: str, request: Request):
         {"_id": 0, "name": 1, "description": 1, "unit_price_ht": 1, "unit": 1, "image_url": 1, "sku": 1, "tenant_id": 1, "client_id": 1},
     )
     base = _public_base_url(request) or str(request.base_url).rstrip("/")
-    target = f"{base}/catalogue"
+    # Lot 94 — le visiteur part vers le SITE (adresse publique réglée), jamais vers l'adresse de l'API :
+    # https://api…/catalogue n'existe pas (page d'erreur quand on cliquait sur une carte de carrousel)
+    target = f"{(_public_base_url() or base).rstrip('/')}/catalogue"
     if not p:
         # Unknown product → redirect to the generic catalogue
         return HTMLResponse(

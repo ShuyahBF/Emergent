@@ -77,6 +77,8 @@ export default function AppelsWhatsApp() {
   const [occupe, setOccupe] = useState(false);        // décroché / appel sortant en préparation
   const [journal, setJournal] = useState(null);       // {telephone, items, duree_totale_s} ou null
   const [deplie, setDeplie] = useState(null);         // Lot 69 — appel de Liluvine dont la transcription est dépliée
+  const [etatSon, setEtatSon] = useState("");         // Lot 94 — état de la liaison audio (connexion, établie, échec…)
+  const [sonBloque, setSonBloque] = useState(false);  // Lot 94 — le navigateur a bloqué la lecture du son
   const pcRef = useRef(null);                          // connexion WebRTC
   const micRef = useRef(null);                         // flux du micro
   const audioRef = useRef(null);                       // lecteur du son du correspondant
@@ -90,6 +92,8 @@ export default function AppelsWhatsApp() {
     micRef.current?.getTracks().forEach((t) => t.stop());
     micRef.current = null;
     setMuet(false);
+    setEtatSon("");
+    setSonBloque(false);
   }, []);
 
   // Crée la connexion WebRTC avec le micro ; le son reçu est joué dans <audio>
@@ -98,7 +102,19 @@ export default function AppelsWhatsApp() {
     micRef.current = micro;
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     micro.getTracks().forEach((t) => pc.addTrack(t, micro));
-    pc.ontrack = (e) => { if (audioRef.current) audioRef.current.srcObject = e.streams[0]; };
+    // Lot 94 — son du correspondant. Pour un appel SORTANT, la réponse SDP de WhatsApp ne déclare pas toujours
+    // de « flux » (pas de ligne msid) : e.streams est alors VIDE et rien n'était branché sur le haut-parleur
+    // (le contact décrochait mais on n'entendait rien). On crée donc le flux à partir de la piste reçue,
+    // puis on lance la lecture explicitement (si le navigateur la bloque : bouton « Activer le son »).
+    pc.ontrack = (e) => {
+      const lecteur = audioRef.current;
+      if (!lecteur) return;
+      const flux = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+      if (lecteur.srcObject !== flux) lecteur.srcObject = flux;
+      lecteur.play().then(() => setSonBloque(false)).catch(() => setSonBloque(true));
+    };
+    // Lot 94 — état de la liaison audio affiché dans le panneau de l'appel (aide au diagnostic)
+    pc.onconnectionstatechange = () => setEtatSon(pc.connectionState);
     pcRef.current = pc;
     return pc;
   }, []);
@@ -152,7 +168,13 @@ export default function AppelsWhatsApp() {
         if (actif && r.data?.sdp_reponse && pcRef.current && !pcRef.current.remoteDescription) {
           await pcRef.current.setRemoteDescription({ type: "answer", sdp: r.data.sdp_reponse });
         }
-      } catch { /* réessai */ }
+      } catch (err) {
+        // Lot 94 — réponse SDP refusée par le navigateur : signalée (avant, l'erreur était muette)
+        if (err?.name && err.name !== "AxiosError") {
+          console.warn("[appel WhatsApp] réponse SDP refusée :", err);
+          setEtatSon("failed");
+        }
+      }
     }, 1500);
     return () => { actif = false; clearInterval(t); };
   }, [appel]);
@@ -330,9 +352,24 @@ export default function AppelsWhatsApp() {
               <p className="text-xs text-slate-300">
                 {appel.statut === "en_cours" ? `En ligne · ${dureeLisible(secondes)}` : (LIBELLES_STATUT[appel.statut] || "Connexion…")}
               </p>
+              {/* Lot 94 — état de la liaison audio */}
+              {etatSon && (
+                <p className={`text-[11px] ${etatSon === "connected" ? "text-emerald-300" : etatSon === "failed" ? "text-rose-300" : "text-slate-400"}`}>
+                  {{ new: "Son : préparation…", connecting: "Son : connexion…", connected: "Son : établi",
+                     disconnected: "Son : coupé (réseau)", failed: "Son : échec de la liaison audio", closed: "Son : fermé" }[etatSon] || ""}
+                </p>
+              )}
             </div>
             {appel.ligne && <PastilleLigneWa libelle={appel.ligne.libelle} fond={appel.ligne.fond} texte={appel.ligne.texte} />}
           </div>
+          {/* Lot 94 — lecture du son bloquée par le navigateur : un clic la relance */}
+          {sonBloque && (
+            <button type="button"
+              onClick={() => audioRef.current?.play().then(() => setSonBloque(false)).catch(() => toast.error("Son toujours bloqué : vérifiez le volume et la sortie audio du PC."))}
+              className="mt-3 w-full rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold hover:bg-emerald-600">
+              🔊 Activer le son
+            </button>
+          )}
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={basculerMicro}
               className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold ${muet ? "bg-amber-500" : "bg-slate-700 hover:bg-slate-600"}`}>

@@ -1335,6 +1335,20 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=1800,
             )
+            # Lot 96 — page Facebook animée par Liluvine : préparation aux jours et à l'heure choisis
+            async def _scheduled_fb_animation():
+                try:
+                    from routes.facebook_animation import tick as _fb_tick
+                    await _fb_tick(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[fb_animation] tick en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_fb_animation,
+                CronTrigger(minute="*/5", timezone="Africa/Abidjan"),
+                id="facebook_animation_5min",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
             _safe_add_job(
                 _scheduled_ad_banner_reminders,
                 CronTrigger(hour=9, minute=30, timezone="Africa/Abidjan"),

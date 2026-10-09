@@ -15,6 +15,8 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import ImageAnnotator from "@/components/ImageAnnotator";
+// Lot 87.1 — joindre le lien de mes disponibilités (agenda) à la légende de l'image
+import CalendrierModal from "@/components/CalendrierModal";
 
 // Libellés des styles et des formats proposés (mêmes clés que le serveur)
 const STYLES = { illustration: "Illustration", photo: "Photo réaliste", schema: "Schéma / pictogrammes", libre: "Libre (sans consigne)" };
@@ -78,6 +80,7 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
   const [legende, setLegende] = useState("");
   const [quandEnvoi, setQuandEnvoi] = useState(null); // null = maintenant ; "AAAA-MM-JJTHH:MM" = planifié
   const [envoi, setEnvoi] = useState(false);
+  const [calendrier, setCalendrier] = useState(null);   // lot 87.1 : "envoi" ou "transfert" = légende qui reçoit le lien
   // --- Transfert ---
   const [transfert, setTransfert] = useState(modeTransfert);
   const [canal, setCanal] = useState("chat");
@@ -292,6 +295,9 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
               <button onClick={() => setAAnnoter(fichierDepuisDataUrl(apercu.apercu))} disabled={occupe}
                       className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
                       data-testid="image-ia-annoter">✏️ Annoter</button>
+              <button onClick={() => setCalendrier("envoi")} disabled={occupe}
+                      className="rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-100 disabled:opacity-40"
+                      data-testid="image-ia-calendrier">📅 Joindre mes disponibilités</button>
               <button onClick={() => setTransfert((v) => !v)} disabled={occupe}
                       className="rounded-lg bg-sky-100 px-3 py-1.5 text-sm font-semibold text-sky-800 hover:bg-sky-200 disabled:opacity-40"
                       data-testid="image-ia-ouvrir-transfert">↪ Transférer…</button>
@@ -353,6 +359,10 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
             )}
             <input value={legendeT} onChange={(e) => setLegendeT(e.target.value)} maxLength={500} placeholder="Message joint (facultatif)"
                    className="w-full rounded border border-slate-300 px-2 py-1 text-sm" data-testid="image-ia-legende-transfert" />
+            <button onClick={() => setCalendrier("transfert")} disabled={occupe}
+                    className="text-xs font-semibold text-indigo-700 hover:underline" data-testid="image-ia-calendrier-transfert">
+              📅 Joindre mes disponibilités au message
+            </button>
             <ChoixQuand valeur={quandT} onChange={setQuandT} id="transfert" />
             <div className="flex justify-end">
               <button onClick={transferer}
@@ -394,6 +404,17 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
         </div>
       </div>
 
+      {/* Lot 87.1 — calendrier : « Partager » ajoute le lien des disponibilités à la légende (image ou transfert) */}
+      {calendrier && (
+        <CalendrierModal
+          contactNom={nomDiscussion}
+          onClose={() => setCalendrier(null)}
+          onPartager={(t) => {
+            const ajouter = (x) => (x ? `${x} — ${t}` : t).slice(0, 500);   // champ d'une ligne
+            if (calendrier === "transfert") setLegendeT(ajouter); else setLegende(ajouter);
+          }}
+        />
+      )}
       {/* Annotateur (même outil que la discussion WhatsApp) */}
       {aAnnoter && <ImageAnnotator file={aAnnoter} onCancel={() => setAAnnoter(null)} onDone={terminerAnnotation} />}
     </div>

@@ -89,7 +89,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🎨 Images IA du chat de support": "87",   // lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
+  "🎨 Images IA du chat de support": "87.1",   // lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois

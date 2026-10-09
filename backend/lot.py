@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "87"
-LOT_LIBELLE = "Chat de support : image illustrative générée par l'IA (annoter, envoyer, transférer, planifier)"
+LOT = "87.1"
+LOT_LIBELLE = "Chat de support : partager mes disponibilités (agenda) dans la discussion et avec l'image IA"

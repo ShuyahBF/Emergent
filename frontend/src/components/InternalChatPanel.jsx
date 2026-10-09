@@ -16,7 +16,7 @@ import { apiClient, jetonCourant } from "@/lib/api";   // lot 44 : jeton de l'on
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft, Palette } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft, Palette, CalendarDays } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 // Lot 57.13 — annotation des images avant envoi (même outil que la discussion WhatsApp)
 import ImageAnnotator from "@/components/ImageAnnotator";
@@ -24,6 +24,8 @@ import ImageAnnotator from "@/components/ImageAnnotator";
 import { SupportLooisBandeau, ChatFichier } from "@/components/SupportLooisSession";
 // Lot 87 — image illustrative générée par l'IA (équipe SAWALI) : générer, annoter, envoyer, transférer, planifier
 import ImageIaChatModal from "@/components/ImageIaChatModal";
+// Lot 87.1 — calendrier des disponibilités (même outil que la discussion WhatsApp du centre de messagerie, lot 41)
+import CalendrierModal from "@/components/CalendrierModal";
 
 /*
  * Son de réception d'un message du chat interne.
@@ -289,6 +291,7 @@ export default function InternalChatPanel() {
   // Lot 87 — image IA : droit de l'utilisateur (équipe SAWALI) et modale ouverte ({ messageId } = transfert d'une image du chat)
   const [imageIaAutorisee, setImageIaAutorisee] = useState(false);
   const [imageIa, setImageIa] = useState(null);
+  const [calendrierOuvert, setCalendrierOuvert] = useState(false);   // lot 87.1 : agenda des disponibilités
   useEffect(() => {
     if (!open) return;
     apiClient.get("/me/chat/image-ia/etat").then((r) => setImageIaAutorisee(Boolean(r.data?.autorise)))
@@ -1236,6 +1239,18 @@ export default function InternalChatPanel() {
                         <Palette className="h-4 w-4" />
                       </button>
                     )}
+                    {/* Lot 87.1 — 📅 partager mes disponibilités (agenda) : le lien public s'ajoute au message à envoyer */}
+                    {imageIaAutorisee && (
+                      <button
+                        onClick={() => setCalendrierOuvert(true)}
+                        disabled={sending || uploadingPhoto || recState !== "idle"}
+                        className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-indigo-50 text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                        data-testid="internal-chat-calendrier"
+                        title="Calendrier : partager mes disponibilités"
+                      >
+                        <CalendarDays className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                   <div className="relative shrink-0">
                     <button
@@ -1383,6 +1398,14 @@ export default function InternalChatPanel() {
             </button>
           )}
         </div>
+      )}
+      {/* Lot 87.1 — calendrier des disponibilités : « Partager » place le lien dans la zone de saisie (relire puis envoyer) */}
+      {calendrierOuvert && (
+        <CalendrierModal
+          contactNom={activeThreadKey === "general" ? "# Général" : (activeMember?.name || activeThread?.label)}
+          onClose={() => setCalendrierOuvert(false)}
+          onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))}
+        />
       )}
       {/* Lot 87 — modale « image IA » : générer / annoter / envoyer / transférer / planifier */}
       {imageIa && (

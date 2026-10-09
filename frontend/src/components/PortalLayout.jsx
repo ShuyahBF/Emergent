@@ -218,6 +218,7 @@ const adminLinks = [
   { to: "/admin/plateformes-temps-reel", label: "Temps réel", icon: Activity, adminOnly: true, groupe: "plateformes" },   // lot 79.10 : groupe « Plateformes »
   // Lot 86 — requêtes de tous les clients, lots de correction, évaluations
   { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOrSup: true },   // lot 86.3 : superviseurs aussi
+  { to: "/admin/evaluations-loois", label: "Évaluations Loois", icon: ClipboardList, adminOrSup: true },   // lot 88 : sondages du support
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },

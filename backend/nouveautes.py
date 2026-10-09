@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "88", "date": "2026-10-09",
+        "titre": "📋 Évaluations Loois : sondages dans le support",
+        "description": "Sondages « Evaluation Loois » numérotés envoyés aux postes, demandes bloquées jusqu'à la réponse, remerciement de Liluvine, fenêtre d'analyse ; un message du support ouvre ticket et fenêtre Loois.",
+        "rubrique": "📋 Évaluations Loois (sondages du support)",
+    },
+    {
         "lot": "87.3", "date": "2026-10-09",
         "titre": "📎 Chat : trombone toujours visible",
         "description": "Documents (PDF, Word, Excel, PowerPoint, texte, CSV) et vidéos envoyés depuis la barre d'outils du chat, dans toutes les discussions et aux postes Loois même sans session ouverte.",

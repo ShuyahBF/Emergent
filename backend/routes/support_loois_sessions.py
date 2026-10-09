@@ -156,6 +156,28 @@ async def ouvrir_ou_reprendre(db, pid: str, nom: str, now_iso) -> tuple:
     return session, True
 
 
+async def demarrer_par_support(db, pid: str, agent: Dict[str, Any], now_iso) -> tuple:
+    """Lot 88 — un agent écrit à un poste qui n'a pas de session en cours : une session est ouverte À L'INITIATIVE
+    DU SUPPORT et le ticket est créé tout de suite si le client du poste est connu (même si Loois est fermé : le poste
+    verra le message et le ticket à sa prochaine connexion). Client inconnu : la demande reste « en attente » et
+    l'équipe choisit le client dans le bandeau (le ticket est créé à l'acceptation).
+    Renvoie (session, cree) — cree = False si une session était déjà en cours (rien n'est changé)."""
+    existante = await session_en_cours(db, pid)
+    if existante:
+        return existante, False
+    poste = await db.support_loois_postes.find_one({"id": pid}, {"_id": 0}) or {}
+    session, _ = await ouvrir_ou_reprendre(db, pid, poste.get("nom") or pid, now_iso)
+    await db.support_loois_sessions.update_one({"id": session["id"]}, {"$set": {"initiee_par_support": True}})
+    client_id = session.get("client_id_suggere")
+    if client_id:
+        try:
+            session = await accepter(db, session["id"], client_id, agent, now_iso,
+                                     motif=f"Contact à l'initiative du support SAWALI — {poste.get('nom') or pid}")
+        except ErreurSession:
+            session = await lire(db, session["id"]) or session
+    return session, True
+
+
 def _normaliser(nom: Optional[str]) -> str:
     """« École des Métiers » → « ecole des metiers » (sans accents, ponctuation ni espaces multiples)."""
     t = unicodedata.normalize("NFKD", nom or "")

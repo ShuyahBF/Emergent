@@ -26,6 +26,8 @@ import { SupportLooisBandeau, ChatFichier } from "@/components/SupportLooisSessi
 import ImageIaChatModal from "@/components/ImageIaChatModal";
 // Lot 87.1 — calendrier des disponibilités (même outil que la discussion WhatsApp du centre de messagerie, lot 41)
 import CalendrierModal from "@/components/CalendrierModal";
+// Lot 88 — sondages « Evaluation Loois » : envoi depuis le fil d'un poste, carte dans les bulles
+import { EnvoiSondageLoois, CarteSondage } from "@/components/SondagesLoois";
 
 /*
  * Son de réception d'un message du chat interne.
@@ -455,6 +457,12 @@ export default function InternalChatPanel() {
         toast.warning(`🆘 Demande d'assistance Loois : ${s.poste_nom || ""}`, { duration: 8000 });
       }
       if (activeClientId === "support-loois") loadThreads("support-loois");
+      return;
+    }
+    // Lot 88 — message mis à jour (ex. sondage passé « répondu ») : remplacé dans le fil affiché
+    if (lastEvent.type === "message_maj") {
+      const { message } = lastEvent;
+      if (message?.id) setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, ...message } : m)));
       return;
     }
     if (lastEvent.type === "message") {
@@ -1066,6 +1074,10 @@ export default function InternalChatPanel() {
             {activeClientId === "support-loois" && activeThreadKey && activeThreadKey !== "general" && (
               <SupportLooisBandeau posteId={activeThreadKey} lastEvent={lastEvent} onSuggestion={(t) => setText(t)} />
             )}
+            {/* Lot 88 — envoi d'un sondage « Evaluation Loois » au poste (bloque ses demandes jusqu'à la réponse) */}
+            {activeClientId === "support-loois" && activeThreadKey && activeThreadKey !== "general" && (
+              <EnvoiSondageLoois posteId={activeThreadKey} />
+            )}
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
               {!activeThreadKey ? (
@@ -1148,6 +1160,8 @@ export default function InternalChatPanel() {
                             {m.ia ? "🎨 Image IA" : ""}{m.ia_annotee ? " · annotée" : ""}{m.transfere ? (m.ia ? " · ↪ transférée" : "↪ Transférée") : ""}
                           </p>
                         )}
+                        {/* Lot 88 — carte du sondage d'évaluation (numéro, statut) */}
+                        {m.sondage && <CarteSondage sondage={m.sondage} mine={mine} />}
                         {(m.media_kind === "video" || m.media_kind === "document") && m.media_url && (
                           <ChatFichier message={m} mine={mine} />
                         )}

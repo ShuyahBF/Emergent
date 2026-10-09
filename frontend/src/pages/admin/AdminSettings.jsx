@@ -96,7 +96,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 const NEW_LOTS = {
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
-  "🛟 Support des plateformes web": "90",   // lot 90 : pictogramme d'assistance dans sTer, bfmobility, adLyn, beAuthentik
+  "🛟 Support des plateformes web": "93",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale
   "🔑 Postes Loois sans clé client (alerte)": "89",   // lot 89 : alerte admin + superviseur, aucun message sur le poste
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
@@ -131,7 +131,7 @@ const NEW_LOTS = {
 const NEW_SECTIONS = {
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
-  "🛟 Support des plateformes web": "2026-10-09",   // lot 90
+  "🛟 Support des plateformes web": "2026-10-09",   // lot 90, lot 93
   "🔑 Postes Loois sans clé client (alerte)": "2026-10-09",   // lot 89
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
@@ -210,7 +210,7 @@ const NEW_SECTIONS = {
 const NEW_DESCRIPTIONS = {
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
-  "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90).",
+  "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93).",
   "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",

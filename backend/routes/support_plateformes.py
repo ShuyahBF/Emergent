@@ -14,6 +14,10 @@
 #     « <ts>.<corps> » avec la clé de l'émetteur — la même que pour les contrats et la transmission WhatsApp) ;
 #       POST /api/support-plateforme/messages  {utilisateur:{id, nom, role, contexte}, texte}  → message envoyé ;
 #       POST /api/support-plateforme/fil       {utilisateur:{id}, depuis}                    → réponses du support ;
+#     Lot 93 (pictogrammes de la fenêtre de chat, comme dans SAWALI : image, trombone, note vocale) :
+#       POST /api/support-plateforme/fichier     {utilisateur, fichier (base64), nom, legende} → photo / document / vidéo ;
+#       POST /api/support-plateforme/transcrire  {utilisateur, audio (base64), nom}            → texte de la note vocale ;
+#       POST /api/support-plateforme/media       {utilisateur, message_id}                     → fichier d'un message du fil ;
 #   - dans SAWALI, chaque plateforme est un ESPACE du chat interne : identifiant « support-plat-<code> », libellé
 #     « <nom> - Support » (ex. « sTer - Support »), visible par l'équipe du support (administrateurs + comptes de
 #     LOOIS_SUPPORT_ADMIN_EMAIL, comme le Support Loois). Un fil par utilisateur de la plateforme (« demandeur ») ;
@@ -23,8 +27,12 @@
 #     (Support Loois compris) : le chat l'affiche pendant une conversation.
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
+import os
+import tempfile
 import logging
 import re
 import uuid
@@ -40,6 +48,9 @@ PREFIXE_ESPACE = "support-plat-"        # identifiant d'espace : « support-plat
 PREFIXE_DEMANDEUR = "plat-"              # identifiant d'un utilisateur de plateforme : « plat-ster-1a2b… »
 MAX_TEXTE = 2000
 MAX_FIL = 200                            # messages renvoyés au plus par lecture du fil
+MO = 1024 * 1024
+MAX_FICHIER_PLATEFORME = 15 * MO         # lot 93 : fichier relayé par une plateforme (JSON base64)
+MAX_AUDIO = 25 * MO                      # lot 93 : note vocale (limite de Whisper)
 INACTIVITE_CLOTURE = timedelta(hours=12) # requête close d'elle-même après 12 h sans message
 STATUTS_EN_COURS = ("attente", "active")
 LIBELLES_STATUT = {"attente": "En attente", "active": "En cours", "terminee": "Terminée"}
@@ -60,6 +71,27 @@ def nettoyer(texte: Any, longueur: int) -> str:
 # ---------------------------------------------------------------------------
 # Espaces (une plateforme = un espace du chat interne)
 # ---------------------------------------------------------------------------
+def decoder_base64(valeur: Any) -> tuple:
+    """Lot 93 — « data:<type>;base64,<…> » ou base64 seul → (octets, type annoncé). ValueError si illisible."""
+    texte = str(valeur or "").strip()
+    annonce = ""
+    if texte.startswith("data:"):
+        entete, _, texte = texte.partition(",")
+        annonce = entete[5:].split(";")[0].strip().lower()
+    try:
+        return base64.b64decode(texte, validate=True), annonce
+    except (binascii.Error, ValueError):
+        raise ValueError("Fichier illisible (base64 attendu)")
+
+
+def vue_media(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Lot 93 — pièce jointe d'un message telle que la plateforme la montre (jamais le chemin de stockage)."""
+    if not m.get("media_url"):
+        return None
+    return {"id": m["id"], "type": m.get("media_mime") or "application/octet-stream",
+            "genre": m.get("media_kind") or "image", "nom": m.get("file_name") or "", "taille": m.get("media_size") or 0}
+
+
 def espace_id(code: str) -> str:
     return f"{PREFIXE_ESPACE}{code}"
 
@@ -384,10 +416,123 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         messages = [{"id": m["id"], "texte": m.get("text") or "", "le": m["created_at"],
                      "de": "moi" if m.get("sender_id") == did else "support",
                      "auteur": None if m.get("sender_id") == did else (m.get("sender_name") or "Support SAWALI"),
-                     "systeme": bool(m.get("systeme"))} for m in lignes]
+                     "systeme": bool(m.get("systeme")),
+                     "media": vue_media(m)} for m in lignes]   # lot 93 : photo, document, vidéo
         r = await requete_en_cours(db, did)
         return {"messages": messages, "non_lus": int(non_lus), "requete": vue_requete(r),
                 "plateforme": libelle_espace(emetteur)}
+
+    # ------------------------------------------------------------------------------------------------------------
+    # Lot 93 — pictogrammes de la fenêtre de chat des plateformes : image, trombone (document / vidéo), note vocale
+    # ------------------------------------------------------------------------------------------------------------
+    @router.post("/support-plateforme/fichier", tags=["Support des plateformes"])
+    async def fichier_utilisateur(request: Request):
+        """Photo, document ou vidéo d'un utilisateur de la plateforme vers le support (requête signée)."""
+        emetteur, corps = await plateforme_signee(request)
+        try:
+            u = nettoyer_utilisateur(corps.get("utilisateur"))
+            data, annonce = decoder_base64(corps.get("fichier"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if not data:
+            raise HTTPException(status_code=422, detail="Fichier vide")
+        nature = support_loois.type_fichier(corps.get("type") or annonce, corps.get("nom"))
+        if not nature:
+            raise HTTPException(status_code=415, detail="Type de fichier non accepté : images, vidéos MP4/WebM, "
+                                                        "PDF, Word, Excel, PowerPoint, texte ou CSV.")
+        mime, extension, genre, maximum = nature
+        if len(data) > min(maximum, MAX_FICHIER_PLATEFORME):
+            raise HTTPException(status_code=413, detail=f"Fichier trop volumineux ({min(maximum, MAX_FICHIER_PLATEFORME) // MO} Mo au plus)")
+        code = emetteur["code"]
+        d = await enregistrer_demandeur(db, code, u)
+        r = await ouvrir_ou_reprendre(db, code, d["id"], d["nom"])
+        msg_id = str(uuid.uuid4())
+        try:
+            from storage import aupload_bytes, astorage_available
+            if not await astorage_available():
+                raise HTTPException(status_code=503, detail="Stockage indisponible — réessayez plus tard")
+            chemin = await aupload_bytes(f"chat/{espace_id(code)}/{msg_id}{extension}", data, mime)
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("[support_plateformes] envoi du fichier impossible")
+            raise HTTPException(status_code=502, detail="Envoi du fichier impossible")
+        legende = nettoyer(corps.get("legende"), 500)
+        doc = {"id": msg_id, "client_id": espace_id(code), "sender_id": d["id"], "sender_name": d["nom"],
+               "recipient_id": None, "text": legende, "created_at": now_iso(), "read_by": [d["id"]],
+               "requete_numero": r["numero"], "media_url": f"/api/me/chat/media/{msg_id}", "media_mime": mime,
+               "media_size": len(data), "media_kind": genre, "storage_path": chemin,
+               "file_name": support_loois.nom_fichier_propre(corps.get("nom"), extension)}
+        await db.internal_chat_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        await db.support_plateformes_requetes.update_one({"id": r["id"]}, {"$set": {
+            "dernier_message_le": _maintenant().isoformat(), "demandeur_nom": d["nom"]}})
+        await diffuser_equipe({"type": "message", "client_id": espace_id(code), "message": doc})
+        if r["statut"] == "attente":
+            await diffuser_equipe({"type": "support_plateforme_requete", "client_id": espace_id(code),
+                                   "requete": {**r, "espace_nom": libelle_espace(emetteur)}})
+        return {"ok": True, "message": {"id": msg_id, "texte": legende, "le": doc["created_at"], "de": "moi",
+                                        "media": vue_media(doc)}, "requete": vue_requete(r)}
+
+    @router.post("/support-plateforme/transcrire", tags=["Support des plateformes"])
+    async def transcrire_utilisateur(request: Request):
+        """Note vocale → texte (Whisper), placé dans la zone de saisie de l'utilisateur avant l'envoi."""
+        _emetteur, corps = await plateforme_signee(request)
+        try:
+            nettoyer_utilisateur(corps.get("utilisateur"))
+            data, _annonce = decoder_base64(corps.get("audio"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if not data:
+            raise HTTPException(status_code=422, detail="Note vocale vide")
+        if len(data) > MAX_AUDIO:
+            raise HTTPException(status_code=413, detail="Note vocale trop longue (25 Mo au plus)")
+        ext = os.path.splitext(str(corps.get("nom") or ""))[1].lower()
+        if ext not in {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".ogg"}:
+            ext = ".webm"   # MediaRecorder des navigateurs : webm par défaut
+        chemin = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+                f.write(data)
+                chemin = f.name
+            from ia_client import OpenAISpeechToText, cle_ia
+            stt = OpenAISpeechToText(api_key=cle_ia("openai"))
+            with open(chemin, "rb") as fh:
+                resp = await stt.transcribe(file=fh, model="whisper-1", response_format="json",
+                                            language=str(corps.get("langue") or "fr")[:5])
+            return {"ok": True, "texte": (getattr(resp, "text", None) or "").strip()}
+        except Exception:  # noqa: BLE001
+            log.exception("[support_plateformes] transcription impossible")
+            raise HTTPException(status_code=502, detail="Transcription impossible pour le moment")
+        finally:
+            if chemin and os.path.exists(chemin):
+                try:
+                    os.unlink(chemin)
+                except OSError:
+                    pass
+
+    @router.post("/support-plateforme/media", tags=["Support des plateformes"])
+    async def media_utilisateur(request: Request):
+        """Fichier d'un message du fil de l'utilisateur (le sien ou une réponse du support), en base64."""
+        emetteur, corps = await plateforme_signee(request)
+        try:
+            u = nettoyer_utilisateur(corps.get("utilisateur"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        did = demandeur_id(emetteur["code"], u["id"])
+        m = await db.internal_chat_messages.find_one(
+            {"id": nettoyer(corps.get("message_id"), 80), "client_id": espace_id(emetteur["code"]),
+             "$or": [{"sender_id": did}, {"recipient_id": did}]}, {"_id": 0})
+        if not m or not m.get("storage_path"):
+            raise HTTPException(status_code=404, detail="Fichier introuvable")
+        try:
+            from storage import afetch_bytes
+            data, ct = await afetch_bytes(m["storage_path"])
+        except Exception:  # noqa: BLE001
+            log.exception("[support_plateformes] lecture du fichier impossible")
+            raise HTTPException(status_code=502, detail="Fichier indisponible")
+        return {"type": ct or m.get("media_mime") or "application/octet-stream", "nom": m.get("file_name") or "",
+                "contenu": base64.b64encode(data).decode("ascii")}
 
     @router.get("/support/en-attente", tags=["Support des plateformes"])
     async def demandes_en_attente(user: dict = Depends(equipe)):

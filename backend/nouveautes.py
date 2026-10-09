@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "93", "date": "2026-10-09",
+        "titre": "🛟 Pictogrammes du chat dans les plateformes",
+        "description": "La fenêtre d'assistance des plateformes (bfmobility, ALBARKA, adLyn, sTer, beAuthentik) a les pictogrammes du chat SAWALI : emojis, photo, trombone (documents, vidéos) et note vocale transcrite ; les fichiers arrivent dans « <plateforme> - Support ».",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "92", "date": "2026-10-09",
         "titre": "📊 Synthèse du support",
         "description": "Demandes au support non répondues (avec l'attente), totaux de la période par espace et demandes transmises à Claude ; menu « Synthèse du support » pour l'administrateur et le superviseur.",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "86.1", "date": "2026-10-09",
+        "titre": "🔗 Requêtes : lien WhatsApp et images",
+        "description": "Chaque client reçoit par WhatsApp un lien sans mot de passe pour déposer ses requêtes, avec photos, captures d'écran ou images.",
+        "rubrique": "🧾 Requêtes des clients",
+    },
+    {
         "lot": "86", "date": "2026-10-09",
         "titre": "🧾 Requêtes des clients",
         "description": "Vos clients signalent dysfonctionnements et remarques (écrits ou vocaux, numérotés) ; vous les traitez par lots et ils évaluent après déploiement.",

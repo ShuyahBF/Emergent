@@ -15,6 +15,13 @@
 #   - SAWALI (administrateur) : ajoute des observations datées, change l'état, range la requête dans un lot ; quand un
 #     lot passe à « Déployé », toutes ses requêtes passent à « Déployée » et chaque client est prévenu (e-mail et
 #     WhatsApp, au mieux) qu'il peut évaluer.
+#
+# Lot 86.1 (09/10/2026) — « Le client reçoit-il par WA un lien public pour fournir ces requêtes ? Donnons aussi la
+# possibilité de soumettre photos, captures ou charger des images » :
+#   - IMAGES : jusqu'à 6 images par requête (photo prise au téléphone, capture collée, fichier chargé), 8 Mo chacune ;
+#   - LIEN PERSONNEL du client (db.requetes_liens, jeton aléatoire, révocable) : page publique /requete/<jeton>, SANS
+#     mot de passe, pour déposer, suivre et évaluer ses requêtes. SAWALI l'envoie par WhatsApp (et e-mail) ; le client
+#     le retrouve aussi dans « Mes requêtes ». Les messages de suivi (requête traitée, lot déployé) le rappellent.
 from __future__ import annotations
 
 import logging
@@ -26,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import File, Form, UploadFile   # au niveau du module : annotations des routes résolues (from __future__)
+from fastapi import File, Form, Request, UploadFile   # au niveau du module : annotations des routes résolues (from __future__)
 
 logger = logging.getLogger("sawali.requetes_clients")
 
@@ -48,6 +55,10 @@ ETATS = {
 ETATS_A_EVALUER = {"terminee", "deployee", "rejetee"}   # le client peut alors évaluer
 ETATS_LOT = {"ouvert": "Ouvert", "en_cours": "En cours", "deploye": "Déployé"}
 TAILLE_MAX_AUDIO = 15 * 1024 * 1024   # 15 Mo
+TAILLE_MAX_IMAGE = 8 * 1024 * 1024    # 8 Mo par image (lot 86.1)
+MAX_IMAGES = 6                        # images par requête
+MAX_REQUETES_LIEN_PAR_JOUR = 30       # protection du lien public contre les envois en rafale
+URL_SITE_DEFAUT = "https://sawalismartsystems.com"
 
 
 def _maintenant() -> str:
@@ -122,15 +133,43 @@ def resume(requetes: List[Dict[str, Any]]) -> Dict[str, Any]:
             "a_evaluer": sum(1 for r in requetes if r.get("a_evaluer"))}
 
 
+def images_valides(fichiers: List[Dict[str, Any]]) -> None:
+    """Contrôle des images jointes (nom, mime, taille) ; ValueError avec message clair."""
+    if len(fichiers) > MAX_IMAGES:
+        raise ValueError(f"{MAX_IMAGES} images au plus par requête")
+    for f in fichiers:
+        if not str(f.get("mime") or "").startswith("image/"):
+            raise ValueError(f"« {f.get('nom') or 'fichier'} » n'est pas une image")
+        if int(f.get("taille") or 0) > TAILLE_MAX_IMAGE:
+            raise ValueError(f"Image « {f.get('nom') or ''} » trop lourde (8 Mo au plus)")
+
+
+def url_lien(base: Optional[str], jeton: str) -> str:
+    """Adresse de la page publique des requêtes d'un client : <site>/requete/<jeton>."""
+    return f"{(base or URL_SITE_DEFAUT).rstrip('/')}/requete/{jeton}"
+
+
+def message_lien(client_nom: str, url: str) -> str:
+    """Message WhatsApp / e-mail d'envoi du lien personnel."""
+    return (f"SAWALI : bonjour{(' ' + client_nom) if client_nom else ''}. Voici votre lien personnel pour nous signaler "
+            f"un dysfonctionnement, une remarque, un souci de logiciel ou d'équipement (texte, message vocal, photos ou "
+            f"captures d'écran), puis suivre et évaluer vos requêtes : {url}\nGardez ce lien : il est propre à votre structure.")
+
+
 # =====================================================================================
 # Routes
 # =====================================================================================
 
 def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None, wa_send_text=None,
-                                  transcrire=None, upload_dir=None) -> None:
+                                  transcrire=None, upload_dir=None, base_url=None) -> None:
     """Branche les routes du lot 86 (appelée depuis server_parts/p20)."""
+    import secrets
+    from datetime import timedelta
+
     from fastapi import Depends, HTTPException
     from fastapi.responses import Response
+
+    base = (base_url or os.environ.get("SAWALI_SITE_URL") or URL_SITE_DEFAUT).rstrip("/")
 
     def _admin(user: dict) -> None:
         if not est_admin_sawali(user):
@@ -147,20 +186,82 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         seq = (doc or {}).get("seq") or 1
         return numero_requete(code_client(client), seq)
 
-    async def _stocker_audio(req_id: str, data: bytes, mime: str, nom: str) -> dict:
-        """Enregistre le message vocal (stockage R2 si disponible, sinon dossier local)."""
-        ext = os.path.splitext(nom or "")[1] or ".webm"
+    async def _stocker(cle: str, data: bytes, mime: str, nom: str, ext_defaut: str) -> dict:
+        """Enregistre un fichier joint (vocal ou image) : stockage R2 si disponible, sinon dossier local."""
+        ext = os.path.splitext(nom or "")[1][:8] or ext_defaut
         try:
             from storage import aupload_bytes, astorage_available
             if await astorage_available():
-                chemin = await aupload_bytes(f"requetes/{req_id}{ext}", data, mime)
+                chemin = await aupload_bytes(f"requetes/{cle}{ext}", data, mime)
                 return {"storage_path": chemin, "mime": mime, "taille": len(data)}
         except Exception:  # noqa: BLE001 — repli sur le disque local
             logger.warning("[requetes] stockage R2 indisponible, enregistrement local", exc_info=True)
         dossier = Path(upload_dir or tempfile.gettempdir()) / "requetes"
         dossier.mkdir(parents=True, exist_ok=True)
-        (dossier / f"{req_id}{ext}").write_bytes(data)
-        return {"local": f"requetes/{req_id}{ext}", "mime": mime, "taille": len(data)}
+        (dossier / f"{cle}{ext}").write_bytes(data)
+        return {"local": f"requetes/{cle}{ext}", "mime": mime, "taille": len(data)}
+
+    async def _stocker_audio(req_id: str, data: bytes, mime: str, nom: str) -> dict:
+        return await _stocker(req_id, data, mime, nom, ".webm")
+
+    async def _servir(fichier: dict, defaut_mime: str) -> Response:
+        """Renvoie le contenu d'un fichier joint (R2 ou disque local)."""
+        if fichier.get("storage_path"):
+            from storage import afetch_bytes
+            data, ct = await afetch_bytes(fichier["storage_path"])
+        else:
+            chemin = Path(upload_dir or tempfile.gettempdir()) / fichier.get("local", "")
+            if not fichier.get("local") or not chemin.is_file():
+                raise HTTPException(status_code=404, detail="Fichier introuvable")
+            data, ct = chemin.read_bytes(), fichier.get("mime")
+        return Response(content=data, media_type=ct or fichier.get("mime") or defaut_mime,
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+    async def _images_du_formulaire(request: Optional[Request]) -> List[UploadFile]:
+        """Champs « images » du formulaire multipart (plusieurs fichiers possibles, lus directement dans la requête)."""
+        if request is None:
+            return []
+        formulaire = await request.form()
+        return [f for f in formulaire.getlist("images") if hasattr(f, "read")]
+
+    async def _lire_images(images: Optional[List[UploadFile]]) -> List[Dict[str, Any]]:
+        """Lit les images envoyées et les contrôle (nombre, type, taille)."""
+        lues = []
+        for f in images or []:
+            if f is None or not getattr(f, "filename", None):
+                continue
+            data = await f.read()
+            if not data:
+                continue
+            lues.append({"nom": f.filename, "mime": f.content_type or "", "taille": len(data), "data": data})
+        try:
+            images_valides(lues)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return lues
+
+    # ------------------------------------------------------------------ lien personnel (lot 86.1)
+    async def _lien_actif(tenant_id: str) -> Optional[dict]:
+        return await db.requetes_liens.find_one({"tenant_id": tenant_id, "actif": True}, {"_id": 0})
+
+    async def _lien(tenant_id: str, par: str = "", renouveler: bool = False) -> dict:
+        """Lien personnel actif du client ; créé au besoin (renouveler = l'ancien est révoqué)."""
+        actuel = await _lien_actif(tenant_id)
+        if actuel and not renouveler:
+            return actuel
+        if actuel:
+            await db.requetes_liens.update_many({"tenant_id": tenant_id, "actif": True},
+                                                {"$set": {"actif": False, "revoque_le": _maintenant()}})
+        doc = {"jeton": secrets.token_urlsafe(18), "tenant_id": tenant_id, "actif": True,
+               "cree_le": _maintenant(), "cree_par": par, "envoye_le": None}
+        await db.requetes_liens.insert_one(dict(doc))
+        return doc
+
+    async def _tenant_du_jeton(jeton: str) -> str:
+        lien = await db.requetes_liens.find_one({"jeton": str(jeton or ""), "actif": True}, {"_id": 0, "tenant_id": 1})
+        if not lien:
+            raise HTTPException(status_code=404, detail="Lien invalide ou révoqué — demandez un nouveau lien à SAWALI")
+        return lien["tenant_id"]
 
     async def _transcrire(data: bytes, nom: str) -> Optional[str]:
         if not transcrire:
@@ -179,6 +280,9 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
     async def _prevenir_client(tenant_id: str, texte: str, sujet: str) -> None:
         """Prévient le client (e-mail + WhatsApp), au mieux : une panne n'empêche jamais la mise à jour."""
         client = await _client_doc(tenant_id)
+        lien = await _lien_actif(tenant_id)
+        if lien:   # lot 86.1 : le message rappelle le lien personnel (évaluation sans se connecter)
+            texte = f"{texte}\nVotre lien : {url_lien(base, lien['jeton'])}"
         if send_email and client.get("email"):
             try:
                 await send_email(client["email"], sujet, f"<p>{texte}</p>", texte)
@@ -197,6 +301,7 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         r.pop("_id", None)
         audio = r.pop("audio", None)
         r["a_audio"] = bool(audio)
+        r["images"] = [{"id": i.get("id"), "nom": i.get("nom")} for i in (r.get("images") or [])]
         r["libelle_etat"] = ETATS.get(r.get("etat"), r.get("etat"))
         r["libelle_categorie"] = CATEGORIES.get(r.get("categorie"), r.get("categorie"))
         return r
@@ -210,37 +315,58 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         return {"requetes": [_public(r) for r in lignes], "categories": CATEGORIES, "etats": ETATS,
                 "resume": resume(lignes)}
 
-    @api.post("/me/requetes", tags=["Requêtes clients"])
-    async def nouvelle_requete(categorie: str = Form(...), titre: str = Form(""), texte: str = Form(""),
-                               logiciel: str = Form(""), equipement: str = Form(""),
-                               audio: Optional[UploadFile] = File(None), user: dict = Depends(get_current_user)):
-        """Dépôt d'une requête écrite et/ou vocale : numérotée par client et horodatée automatiquement."""
+    async def _creer(tenant_id: str, auteur_id: Optional[str], auteur_nom: str, origine: str, categorie: str,
+                     titre: str, texte: str, logiciel: str, equipement: str, audio: Optional[UploadFile],
+                     images: Optional[List[UploadFile]], repli_nom: str = "") -> dict:
+        """Création commune (portail connecté ou lien personnel) : contrôles, numéro, fichiers joints."""
         data = await audio.read() if audio is not None else b""
         if len(data) > TAILLE_MAX_AUDIO:
             raise HTTPException(status_code=413, detail="Message vocal trop long (15 Mo au plus)")
+        lues = await _lire_images(images)
         try:
-            champs = nettoyer_requete(categorie, titre, texte, bool(data))
+            champs = nettoyer_requete(categorie, titre, texte, bool(data) or bool(lues))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        tenant_id = tenant_de(user)
+        if champs["titre"] == "Message vocal" and lues and not data:
+            champs["titre"] = "Images jointes"
         client = await _client_doc(tenant_id)
         req_id = str(uuid.uuid4())
         maintenant = _maintenant()
         doc = {
             "id": req_id, "numero": await _prochain_numero(tenant_id, client), "tenant_id": tenant_id,
-            "client_nom": client.get("company") or client.get("full_name") or user.get("company") or "",
-            "auteur_id": user.get("id"), "auteur_nom": user.get("full_name") or user.get("email"),
+            "client_nom": client.get("company") or client.get("full_name") or repli_nom or "",
+            "auteur_id": auteur_id, "auteur_nom": auteur_nom, "origine": origine,
             **champs, "logiciel": str(logiciel or "").strip()[:120], "equipement": str(equipement or "").strip()[:120],
             "cree_le": maintenant, "etat": "nouvelle", "lot_id": None, "lot_numero": None,
-            "observations": [], "historique": [{"etat": "nouvelle", "le": maintenant, "par": user.get("full_name")}],
-            "evaluation": None, "a_evaluer": False,
+            "observations": [], "historique": [{"etat": "nouvelle", "le": maintenant, "par": auteur_nom}],
+            "evaluation": None, "a_evaluer": False, "images": [],
         }
         if data:
             mime = audio.content_type or "audio/webm"
             doc["audio"] = await _stocker_audio(req_id, data, mime, audio.filename or "")
             doc["transcription"] = await _transcrire(data, audio.filename or "")
+        for img in lues:   # lot 86.1 : photos, captures, images chargées
+            img_id = uuid.uuid4().hex[:12]
+            stocke = await _stocker(f"{req_id}-{img_id}", img["data"], img["mime"], img["nom"], ".png")
+            doc["images"].append({"id": img_id, "nom": str(img["nom"])[:120], **stocke})
         await db.requetes_clients.insert_one(dict(doc))
         return _public(doc)
+
+    @api.post("/me/requetes", tags=["Requêtes clients"])
+    async def nouvelle_requete(categorie: str = Form(...), titre: str = Form(""), texte: str = Form(""),
+                               logiciel: str = Form(""), equipement: str = Form(""),
+                               audio: Optional[UploadFile] = File(None), request: Request = None,
+                               user: dict = Depends(get_current_user)):
+        """Dépôt d'une requête écrite, vocale et/ou en images : numérotée par client et horodatée automatiquement."""
+        return await _creer(tenant_de(user), user.get("id"), user.get("full_name") or user.get("email") or "", "portail",
+                            categorie, titre, texte, logiciel, equipement, audio, await _images_du_formulaire(request),
+                            user.get("company") or "")
+
+    @api.get("/me/requetes-lien", tags=["Requêtes clients"])
+    async def mon_lien(user: dict = Depends(get_current_user)):
+        """Lien personnel du client (créé au premier appel) : à partager avec ses agents."""
+        lien = await _lien(tenant_de(user), user.get("full_name") or "")
+        return {"url": url_lien(base, lien["jeton"]), "cree_le": lien["cree_le"]}
 
     @api.post("/me/requetes/{req_id}/evaluation", tags=["Requêtes clients"])
     async def evaluer(req_id: str, corps: dict, user: dict = Depends(get_current_user)):
@@ -264,19 +390,144 @@ def setup_requetes_clients_routes(*, db, api, get_current_user, send_email=None,
         r = await db.requetes_clients.find_one({"id": req_id}, {"_id": 0, "audio": 1, "tenant_id": 1})
         if not r or not r.get("audio") or not (est_admin_sawali(user) or r.get("tenant_id") == tenant_de(user)):
             raise HTTPException(status_code=404, detail="Message vocal introuvable")
-        a = r["audio"]
-        if a.get("storage_path"):
-            from storage import afetch_bytes
-            data, ct = await afetch_bytes(a["storage_path"])
-        else:
-            chemin = Path(upload_dir or tempfile.gettempdir()) / a.get("local", "")
-            if not chemin.is_file():
-                raise HTTPException(status_code=404, detail="Message vocal introuvable")
-            data, ct = chemin.read_bytes(), a.get("mime")
-        return Response(content=data, media_type=ct or a.get("mime") or "audio/webm",
-                        headers={"Cache-Control": "private, max-age=86400"})
+        return await _servir(r["audio"], "audio/webm")
+
+    @api.get("/requetes/{req_id}/images/{img_id}", tags=["Requêtes clients"])
+    async def voir_image(req_id: str, img_id: str, user: dict = Depends(get_current_user)):
+        """Image jointe à une requête (le client concerné ou l'administrateur de SAWALI)."""
+        r = await db.requetes_clients.find_one({"id": req_id}, {"_id": 0, "images": 1, "tenant_id": 1})
+        if not r or not (est_admin_sawali(user) or r.get("tenant_id") == tenant_de(user)):
+            raise HTTPException(status_code=404, detail="Image introuvable")
+        image = next((i for i in r.get("images") or [] if i.get("id") == img_id), None)
+        if not image:
+            raise HTTPException(status_code=404, detail="Image introuvable")
+        return await _servir(image, "image/png")
+
+    # ------------------------------------------------------------------ lien personnel : pages publiques (lot 86.1)
+    @api.get("/public/requetes/{jeton}", tags=["Requêtes clients"])
+    async def public_liste(jeton: str):
+        """Page du lien personnel : nom du client, catégories et suivi de ses requêtes (sans connexion)."""
+        tenant_id = await _tenant_du_jeton(jeton)
+        client = await _client_doc(tenant_id)
+        lignes = [r async for r in db.requetes_clients.find({"tenant_id": tenant_id}, {"_id": 0})
+                  .sort("cree_le", -1).limit(200)]
+        publiques = []
+        for r in lignes:
+            p = _public(r)
+            p.pop("auteur_id", None)
+            publiques.append(p)
+        return {"client_nom": client.get("company") or client.get("full_name") or "", "requetes": publiques,
+                "categories": CATEGORIES, "etats": ETATS, "resume": resume(lignes)}
+
+    @api.post("/public/requetes/{jeton}", tags=["Requêtes clients"])
+    async def public_deposer(jeton: str, categorie: str = Form(...), titre: str = Form(""), texte: str = Form(""),
+                             logiciel: str = Form(""), equipement: str = Form(""), auteur_nom: str = Form(""),
+                             audio: Optional[UploadFile] = File(None), request: Request = None):
+        """Dépôt par le lien personnel (sans connexion), limité à 30 requêtes par 24 h et par client."""
+        tenant_id = await _tenant_du_jeton(jeton)
+        depuis = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        recentes = await db.requetes_clients.count_documents({"tenant_id": tenant_id, "origine": "lien",
+                                                              "cree_le": {"$gte": depuis}})
+        if recentes >= MAX_REQUETES_LIEN_PAR_JOUR:
+            raise HTTPException(status_code=429, detail="Trop de requêtes aujourd'hui par ce lien — réessayez demain")
+        nom = str(auteur_nom or "").strip()[:80] or "Lien personnel"
+        return await _creer(tenant_id, None, nom, "lien", categorie, titre, texte, logiciel, equipement, audio,
+                            await _images_du_formulaire(request))
+
+    @api.post("/public/requetes/{jeton}/{req_id}/evaluation", tags=["Requêtes clients"])
+    async def public_evaluer(jeton: str, req_id: str, corps: dict):
+        """Évaluation par le lien personnel d'une requête terminée, déployée ou rejetée."""
+        tenant_id = await _tenant_du_jeton(jeton)
+        r = await db.requetes_clients.find_one({"id": req_id, "tenant_id": tenant_id}, {"_id": 0})
+        if not r:
+            raise HTTPException(status_code=404, detail="Requête introuvable")
+        if r.get("etat") not in ETATS_A_EVALUER:
+            raise HTTPException(status_code=409, detail="La requête n'est pas encore traitée")
+        try:
+            ev = evaluation_valide((corps or {}).get("note"), (corps or {}).get("commentaire"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        ev.update(le=_maintenant(), par=str((corps or {}).get("auteur_nom") or "Lien personnel")[:80])
+        await db.requetes_clients.update_one({"id": req_id}, {"$set": {"evaluation": ev, "a_evaluer": False}})
+        return {"ok": True, "evaluation": ev}
+
+    @api.get("/public/requetes/{jeton}/{req_id}/audio", tags=["Requêtes clients"])
+    async def public_audio(jeton: str, req_id: str):
+        tenant_id = await _tenant_du_jeton(jeton)
+        r = await db.requetes_clients.find_one({"id": req_id, "tenant_id": tenant_id}, {"_id": 0, "audio": 1})
+        if not r or not r.get("audio"):
+            raise HTTPException(status_code=404, detail="Message vocal introuvable")
+        return await _servir(r["audio"], "audio/webm")
+
+    @api.get("/public/requetes/{jeton}/{req_id}/images/{img_id}", tags=["Requêtes clients"])
+    async def public_image(jeton: str, req_id: str, img_id: str):
+        tenant_id = await _tenant_du_jeton(jeton)
+        r = await db.requetes_clients.find_one({"id": req_id, "tenant_id": tenant_id}, {"_id": 0, "images": 1})
+        image = next((i for i in (r or {}).get("images") or [] if i.get("id") == img_id), None)
+        if not image:
+            raise HTTPException(status_code=404, detail="Image introuvable")
+        return await _servir(image, "image/png")
 
     # ------------------------------------------------------------------ côté SAWALI (administrateur)
+    @api.get("/admin/requetes-liens", tags=["Requêtes clients"])
+    async def liens_clients(user: dict = Depends(get_current_user)):
+        """Clients de SAWALI avec leur lien personnel (actif ou non) et la date du dernier envoi."""
+        _admin(user)
+        clients = [c async for c in db.users.find(
+            {"role": "client", "$or": [{"parent_client_id": None}, {"parent_client_id": ""},
+                                       {"parent_client_id": {"$exists": False}}]},
+            {"_id": 0, "id": 1, "company": 1, "full_name": 1, "whatsapp_number": 1, "phone": 1, "email": 1}).limit(2000)]
+        liens = {l["tenant_id"]: l async for l in db.requetes_liens.find({"actif": True}, {"_id": 0})}
+        sortie = []
+        for c in clients:
+            l = liens.get(c["id"])
+            sortie.append({"id": c["id"], "nom": c.get("company") or c.get("full_name") or c["id"],
+                           "whatsapp": c.get("whatsapp_number") or c.get("phone") or "", "email": c.get("email") or "",
+                           "url": url_lien(base, l["jeton"]) if l else None,
+                           "envoye_le": (l or {}).get("envoye_le")})
+        sortie.sort(key=lambda x: x["nom"].lower())
+        return {"clients": sortie}
+
+    @api.post("/admin/requetes-liens", tags=["Requêtes clients"])
+    async def envoyer_lien(corps: dict, user: dict = Depends(get_current_user)):
+        """Crée (ou renouvelle) le lien personnel d'un client et l'envoie par WhatsApp et e-mail si demandé."""
+        _admin(user)
+        corps = corps or {}
+        tenant_id = str(corps.get("tenant_id") or "")
+        client = await _client_doc(tenant_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable")
+        lien = await _lien(tenant_id, user.get("full_name") or "", renouveler=bool(corps.get("renouveler")))
+        url = url_lien(base, lien["jeton"])
+        envoye = {"whatsapp": False, "email": False}
+        if corps.get("envoyer", True):
+            texte = message_lien(client.get("company") or client.get("full_name") or "", url)
+            numero = str(corps.get("numero") or client.get("whatsapp_number") or client.get("phone") or "").strip()
+            if wa_send_text and numero:
+                try:
+                    await wa_send_text(numero, texte, tenant_id=tenant_id)
+                    envoye["whatsapp"] = True
+                except Exception:  # noqa: BLE001
+                    logger.warning("[requetes] lien non envoyé par WhatsApp", exc_info=True)
+            if send_email and client.get("email"):
+                try:
+                    await send_email(client["email"], "SAWALI — votre lien pour nous soumettre vos requêtes",
+                                     f"<p>{texte.replace(chr(10), '<br>')}</p><p><a href=\"{url}\">{url}</a></p>", texte)
+                    envoye["email"] = True
+                except Exception:  # noqa: BLE001
+                    logger.warning("[requetes] lien non envoyé par e-mail", exc_info=True)
+            if envoye["whatsapp"] or envoye["email"]:
+                await db.requetes_liens.update_one({"jeton": lien["jeton"]}, {"$set": {"envoye_le": _maintenant()}})
+        return {"url": url, "envoye": envoye}
+
+    @api.delete("/admin/requetes-liens/{tenant_id}", tags=["Requêtes clients"])
+    async def revoquer_lien(tenant_id: str, user: dict = Depends(get_current_user)):
+        """Révoque le lien personnel d'un client (l'ancien lien ne fonctionne plus)."""
+        _admin(user)
+        res = await db.requetes_liens.update_many({"tenant_id": tenant_id, "actif": True},
+                                                  {"$set": {"actif": False, "revoque_le": _maintenant()}})
+        return {"ok": True, "revoques": res.modified_count}
+
     @api.get("/admin/requetes", tags=["Requêtes clients"])
     async def toutes(etat: str = "", tenant_id: str = "", lot_id: str = "", user: dict = Depends(get_current_user)):
         """Requêtes de tous les clients (filtres : état, client, lot)."""

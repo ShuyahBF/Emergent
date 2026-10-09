@@ -29,6 +29,7 @@ import ImageIaChatModal from "@/components/ImageIaChatModal";
 import CalendrierModal from "@/components/CalendrierModal";
 // Lot 88 — sondages « Evaluation Loois » : envoi depuis le fil d'un poste, carte dans les bulles
 import { EnvoiSondageLoois, CarteSondage } from "@/components/SondagesLoois";
+import SelecteurEmojis from "@/components/SelecteurEmojis";   // lot 91 : emojis dans le chat
 
 /*
  * Son de réception d'un message du chat interne.
@@ -1441,6 +1442,18 @@ export default function InternalChatPanel() {
                   </div>
                 </div>
                 <div className="flex items-end gap-2">
+                  {/* Lot 91 — emojis : insertion à la position du curseur dans la zone de saisie */}
+                  <SelecteurEmojis
+                    disabled={sending || recState !== "idle"}
+                    onChoisir={(emoji) => {
+                      const zone = document.querySelector('[data-testid="internal-chat-input"]');
+                      const debut = zone ? zone.selectionStart ?? text.length : text.length;
+                      const fin = zone ? zone.selectionEnd ?? text.length : text.length;
+                      setText((t) => (t.slice(0, debut) + emoji + t.slice(fin)).slice(0, 2000));
+                      // Le curseur est replacé juste après l'emoji inséré
+                      setTimeout(() => { if (zone) { zone.focus(); zone.setSelectionRange(debut + emoji.length, debut + emoji.length); } }, 0);
+                    }}
+                  />
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}

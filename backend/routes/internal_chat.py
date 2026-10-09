@@ -63,6 +63,7 @@ from pydantic import BaseModel, Field
 from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fournisseur IA
 from routes import support_loois  # noqa: E402 — lot 57.12 : espace virtuel « Support Loois »
 from routes import support_plateformes  # noqa: E402 — lot 90 : espaces « <plateforme> - Support »
+from routes import avis_claude  # noqa: E402 — lot 91 : avis de Claude sur les demandes de fonctionnalités
 
 log = logging.getLogger("sawali.internal_chat")
 
@@ -186,6 +187,15 @@ def make_router(*, db, get_current_user, decode_token):
         # Admin → every client with internal_chat ON
         # Regular user → only the clients they belong to (as member or tracked_user)
         if user.get("role") == "admin":
+            # Lot 91 — demande du propriétaire : la liste déroulante n'affiche QUE les applis
+            # (Support Loois, « sTer - Support »…), plus les clients / tenants. S'il n'y a aucune appli active,
+            # les espaces des clients restent proposés pour que le chat ne disparaisse pas.
+            applis = await support_plateformes.espaces(db)
+            if support_loois.actif():
+                applis.insert(0, {"id": support_loois.ESPACE_ID, "full_name": support_loois.ESPACE_NOM,
+                                  "company": support_loois.ESPACE_NOM})
+            if applis:
+                return applis
             cursor = db.users.find(
                 {"role": {"$in": ["client", "superviseur"]}, "features.internal_chat": True},
                 {"_id": 0, "id": 1, "full_name": 1, "company": 1},
@@ -209,6 +219,9 @@ def make_router(*, db, get_current_user, decode_token):
         # Lot 90 — même équipe pour les espaces des plateformes web
         if support_loois.est_compte_support(user):
             out.extend(await support_plateformes.espaces(db))
+            # Lot 91 — équipe du support : seulement les applis dans la liste déroulante
+            if out:
+                return out
 
         # Find clients of which user is the client himself
         own = await db.users.find_one(
@@ -999,6 +1012,8 @@ def make_router(*, db, get_current_user, decode_token):
     # Lot 90 — support SAWALI des plateformes web (requêtes signées des plateformes + routes de l'équipe)
     support_plateformes.installer(router=router, db=db, manager=manager, now_iso=_now_iso,
                                   get_current_user=get_current_user)
+    # Lot 91 — avis de Claude (Liluvine transmet les demandes de fonctionnalités, le propriétaire décide)
+    avis_claude.installer(router=router, db=db, manager=manager, get_current_user=get_current_user)
 
     # Lot 87 — fonctions exposées au module « image IA du chat » (routes/image_ia_chat.py)
     router.poster_image = _poster_image

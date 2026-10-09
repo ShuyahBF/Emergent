@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "90.3"
-LOT_LIBELLE = "Requêtes clients : nouveau modèle WhatsApp de suivi « sawali_requete_etat » (catégorie Utilitaire), l'ancien ayant été reclassé Marketing par Meta"
+LOT = "91"
+LOT_LIBELLE = "Avis de Claude sur les demandes de fonctionnalités du support (Liluvine transmet, le propriétaire décide), emojis dans le chat, liste déroulante du support réduite aux applis"

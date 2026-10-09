@@ -462,6 +462,8 @@ def make_router(*, db, get_current_user, decode_token):
                 await manager.send_to_user(uid, broadcast_payload)
             except Exception:
                 pass
+        # Lot 88 — agent → poste Loois sans session en cours : session et ticket à l'initiative du support
+        await support_loois.signaler_message_agent(user, client_id, recipient_id)
         return doc
 
     # --------------------------------------------------------------
@@ -608,6 +610,8 @@ def make_router(*, db, get_current_user, decode_token):
                 await manager.send_to_user(uid, broadcast_payload)
             except Exception:
                 pass
+        # Lot 88 — agent → poste Loois sans session en cours : session et ticket à l'initiative du support
+        await support_loois.signaler_message_agent(user, client_id, recipient)
         return doc
 
     # --------------------------------------------------------------

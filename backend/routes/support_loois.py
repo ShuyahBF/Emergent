@@ -51,10 +51,25 @@ from fastapi import Body, Depends, File, Form, HTTPException, Request, Response,
 from starlette.websockets import WebSocketState
 
 from routes import support_loois_sessions as sessions  # lot 58 : sessions, ticket, intervention, Liluvine
+from routes import support_loois_sondages as sondages  # lot 88 : sondages « Evaluation Loois » dans le support
 
 log = logging.getLogger("sawali.support_loois")
 # Tâches de fond en cours (réponses et résumés de Liluvine)
 _taches: set = set()
+# Lot 88 — branché par installer() : appelé quand un agent écrit à un poste (session/ticket à l'initiative du support)
+_apres_message_agent: Optional[Callable] = None
+
+
+async def signaler_message_agent(user: Dict[str, Any], client_id: str, destinataire: Optional[str]) -> None:
+    """Lot 88 — appelé par le chat interne après un message (texte, image, fichier) d'un agent vers un poste Loois :
+    s'il n'y a pas de session en cours, une session est ouverte à l'initiative du support et le ticket est créé.
+    Jamais bloquant pour l'envoi du message."""
+    if client_id != ESPACE_ID or not destinataire or not str(destinataire).startswith("loois-") or not _apres_message_agent:
+        return
+    try:
+        await _apres_message_agent(user, str(destinataire))
+    except Exception:  # noqa: BLE001
+        log.warning("[support_loois] session à l'initiative du support impossible", exc_info=True)
 # Lot 58 — intervalle de relecture de l'état de la session par le WebSocket du poste (secondes)
 VERIFICATION_S = 1.0
 
@@ -355,6 +370,34 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         if sessions.liluvine_active():
             lancer(details_liluvine(session))
 
+    async def attendre_sondage(websocket: WebSocket, pid: str) -> bool:
+        """Lot 88 — poste bloqué par un sondage : la connexion reste ouverte (il reçoit les messages du support et
+        peut répondre au sondage), ses messages sont refusés ; dès la réponse, la demande d'assistance part.
+        Renvoie False si le poste s'est déconnecté entre-temps."""
+        while True:
+            if websocket.application_state != WebSocketState.CONNECTED or \
+                    websocket.client_state != WebSocketState.CONNECTED:
+                return False
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=2.0)
+            except asyncio.TimeoutError:
+                if not await sondages.en_attente(db, pid) or await sessions.session_en_cours(db, pid):
+                    await websocket.send_json({"type": "sondage_debloque",
+                                               "detail": "Merci ! Votre demande est transmise au support."})
+                    return True
+                continue
+            except (WebSocketDisconnect, RuntimeError):
+                return False
+            except Exception:
+                continue
+            genre = (data or {}).get("type")
+            if genre == "ping":
+                await websocket.send_json({"type": "pong", "ts": now_iso()})
+            elif genre == "message":
+                bloquants = await sondages.en_attente(db, pid)
+                if bloquants:
+                    await websocket.send_json({"type": "erreur", "detail": sondages.trame_requis(bloquants)["detail"]})
+
     @router.websocket("/ws/support-loois")
     async def ws_support_loois(websocket: WebSocket):
         await websocket.accept()
@@ -397,6 +440,18 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
             historique = [m async for m in curseur]
             historique.reverse()
             await websocket.send_json({"type": "historique", "messages": historique})
+            # Lot 88 — le poste a reçu son fil : les messages du support sont marqués lus (icône Loois : rien à ouvrir)
+            await db.internal_chat_messages.update_many(
+                {"client_id": ESPACE_ID, "recipient_id": pid, "read_by": {"$ne": pid}}, {"$addToSet": {"read_by": pid}})
+
+            # Lot 88 — sondage d'évaluation non répondu : AUCUNE nouvelle demande tant qu'il n'est pas rempli
+            # (une session déjà en cours, ex. ouverte par le support, continue normalement)
+            if not await sessions.session_en_cours(db, pid):
+                bloquants = await sondages.en_attente(db, pid)
+                if bloquants:
+                    await websocket.send_json(sondages.trame_requis(bloquants))
+                    if not await attendre_sondage(websocket, pid):
+                        return
 
             # Lot 58 — session : reprise (coupure réseau) ou nouvelle DEMANDE en attente d'un agent
             session, nouvelle = await sessions.ouvrir_ou_reprendre(db, pid, nom, now_iso)
@@ -770,6 +825,29 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         """L'agent envoie un document (ou une image, une vidéo) au poste."""
         if not await db.support_loois_postes.find_one({"id": pid}, {"_id": 0, "id": 1}):
             raise HTTPException(status_code=404, detail="Poste Loois inconnu.")
-        return await stocker_fichier(pid=pid, expediteur=user["id"],
-                                     nom_expediteur=user.get("full_name") or user.get("email") or user["id"],
-                                     destinataire=pid, fichier=fichier, legende=caption, lus=[user["id"]])
+        doc = await stocker_fichier(pid=pid, expediteur=user["id"],
+                                    nom_expediteur=user.get("full_name") or user.get("email") or user["id"],
+                                    destinataire=pid, fichier=fichier, legende=caption, lus=[user["id"]])
+        await signaler_message_agent(user, ESPACE_ID, pid)   # lot 88 : session/ticket à l'initiative du support
+        return doc
+
+    # ------------------------------------------------------------------
+    # Lot 88 — SESSION À L'INITIATIVE DU SUPPORT + SONDAGES D'ÉVALUATION
+    # ------------------------------------------------------------------
+    async def apres_message_agent(user: Dict[str, Any], pid: str) -> None:
+        """Un agent a écrit au poste : pas de session en cours → session ouverte par le support, ticket créé
+        (client connu), fil et équipe prévenus. Le poste verra tout à sa prochaine connexion (icône Loois)."""
+        session, cree = await sessions.demarrer_par_support(db, pid, user, now_iso)
+        if not cree:
+            return
+        if session.get("ticket_number"):
+            await message_systeme(pid, f"🎫 Ticket n° {session['ticket_number']} ouvert par le support SAWALI "
+                                       f"({session.get('acceptee_par_nom') or 'agent'}).")
+        await diffuser_equipe({"type": "support_loois_session", "session": session})
+
+    global _apres_message_agent
+    _apres_message_agent = apres_message_agent
+
+    sondages.installer(router=router, db=db, manager=manager, equipe=equipe, poste_de_la_requete=_poste_de_la_requete,
+                       enregistrer_message=enregistrer_message, message_systeme=message_systeme,
+                       diffuser_equipe=diffuser_equipe, espace_id=ESPACE_ID)

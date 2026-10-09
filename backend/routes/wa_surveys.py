@@ -792,12 +792,14 @@ def attach_wa_survey_routes(
             # Lot 41 — nouvel essai pour les invitations en échec ou non envoyées (ex. erreur
             # Meta #132000 corrigée, fenêtre de 24 h fermée : cette fois avec un modèle).
             invites = await db.wa_survey_invites.find(
-                {"survey_id": sid, "answered_at": None, "status": {"$in": ["failed", "skipped"]}},
+                {"survey_id": sid, "answered_at": None, "status": {"$in": ["failed", "skipped"]},
+                 "canal": {"$ne": "loois"}},   # lot 88 : les sondages envoyés dans Loois ne partent pas sur WhatsApp
                 {"_id": 0}).to_list(MAX_RECIPIENTS + 1)
             if not invites:
                 raise HTTPException(status_code=400, detail="Aucune invitation en échec à renvoyer")
         elif payload.reminder:
-            iq: Dict[str, Any] = {"survey_id": sid, "answered_at": None, "status": "sent"}
+            iq: Dict[str, Any] = {"survey_id": sid, "answered_at": None, "status": "sent",
+                                  "canal": {"$ne": "loois"}}   # lot 88 : pas de relance WhatsApp des postes Loois
             if payload.reminder_campaign_id:
                 iq["campaign_ids"] = payload.reminder_campaign_id
             invites = await db.wa_survey_invites.find(iq, {"_id": 0}).to_list(MAX_RECIPIENTS + 1)

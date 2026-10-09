@@ -94,6 +94,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "94",   // lot 94 : carte sans lien → page de présentation du site ; son des appels sortants
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "93",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale
@@ -129,6 +130,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-09",   // lot 94
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-09",   // lot 90, lot 93
@@ -208,6 +210,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Une carte sans lien (ou une carte produit) mène à sa page de présentation sur le site (photo, titre, prix, description) au lieu d'une erreur ; son des appels WhatsApp sortants rétabli côté PC (lot 94).",
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93).",

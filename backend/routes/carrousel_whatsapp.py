@@ -25,6 +25,11 @@ modèle Meta sert aux deux : il en faut un par nombre de cartes, `<nom>_2` à `<
 (message : {{1}} expéditeur, {{2}} texte ; carte : image en en-tête, corps {{1}} titre et
 {{2}} texte, bouton URL `<site>/api/public/carrousel/l/{{1}}`). Le bouton passe par
 GET /api/public/carrousel/l/{code} qui compte les clics puis redirige vers le lien.
+
+Lot 94 — carte SANS lien (carte produit sans lien saisi, carte libre sans lien ni « lien par défaut ») :
+le bouton mène à la PAGE DE PRÉSENTATION du site, <site>/presentation/{code} (photo, titre, texte,
+prix et description du produit), au lieu d'une page d'erreur. Données lues par
+GET /api/public/carrousel/carte/{code} (public, sans compter de clic).
 """
 from __future__ import annotations
 
@@ -54,6 +59,15 @@ LANGUE_DEFAUT = "fr"
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 CHEMIN_LIEN = "/api/public/carrousel/l/"
+CHEMIN_PRESENTATION = "/presentation/"   # lot 94 : page du site qui présente une carte sans lien
+CHEMIN_OG_PRODUIT = "/api/public/og/product/"   # ancien lien automatique des cartes produit
+
+
+def doit_presenter(cible: Optional[str]) -> bool:
+    """Lot 94 — le bouton d'une carte mène-t-il à la page de présentation du site ? Oui si la carte n'a
+    pas de lien, ou si son lien est l'ancien lien automatique d'un produit (il finissait sur une erreur)."""
+    cible = (cible or "").strip()
+    return not cible or CHEMIN_OG_PRODUIT in cible
 INDICATIF_DEFAUT = "226"                # numéro local à 8 chiffres : Burkina Faso (pays par défaut)
 # Lot 75 — image d'une carte générée par l'IA (gpt-image-1) à partir d'une description
 IA_PROMPT_MAX = 1000                    # longueur maximale de la description
@@ -636,7 +650,8 @@ def attach_carrousel_whatsapp_routes(
                 image = url_absolue(c.image_url or p.get("image_url"), base)
                 titre = (c.titre or p.get("name") or "").strip()
                 texte = (c.texte or prix_affiche(p.get("unit_price_ht"))).strip()
-                lien = (c.lien or f"{base.rstrip('/')}/api/public/og/product/{p['id']}").strip()
+                # Lot 94 — sans lien saisi : page de présentation du site (lien vide, voir doit_presenter)
+                lien = (c.lien or "").strip()
                 produit_id = p["id"]
             else:
                 image, titre = url_absolue(c.image_url, base), (c.titre or "").strip()
@@ -646,9 +661,10 @@ def attach_carrousel_whatsapp_routes(
                 raise HTTPException(status_code=400, detail=f"Carte {i} : image JPEG ou PNG publique (https) obligatoire")
             if not titre:
                 raise HTTPException(status_code=400, detail=f"Carte {i} : titre obligatoire")
-            if not lien_accepte(lien):
-                raise HTTPException(status_code=400, detail=f"Carte {i} : lien manquant ou invalide (https://…) — "
-                                                            "saisissez-le, ou réglez un « lien par défaut » sur la page Carrousel")
+            # Lot 94 — pas de lien : la carte mène à sa page de présentation sur le site (plus d'erreur)
+            if lien and not lien_accepte(lien):
+                raise HTTPException(status_code=400, detail=f"Carte {i} : lien invalide (https://…) — corrigez-le, "
+                                                            "ou laissez-le vide pour présenter la carte sur le site")
             prets.append({"source": c.source, "produit_id": produit_id, "image_url": image,
                           "titre": titre[:60], "texte": texte[:80], "lien": lien})
         return prets
@@ -861,7 +877,34 @@ def attach_carrousel_whatsapp_routes(
                                                           projection={"_id": 0, "cible": 1})
         if not doc:
             return RedirectResponse(base_publique() or "/", status_code=302)
+        if doit_presenter(doc.get("cible")):
+            # Lot 94 — carte sans lien : page de présentation de la carte sur le site
+            return RedirectResponse(f"{(base_publique() or '').rstrip('/')}{CHEMIN_PRESENTATION}{code[:40]}", status_code=302)
         return RedirectResponse(doc["cible"], status_code=302)
+
+    @api.get("/public/carrousel/carte/{code}", tags=["Public"])
+    async def carte_publique(code: str):
+        """Lot 94 — contenu d'une carte pour la page de présentation du site : photo, titre, texte,
+        expéditeur et, pour un produit, son nom, son prix et sa description (aucune donnée personnelle)."""
+        lien = await db.carrousel_liens.find_one({"code": code[:40]}, {"_id": 0, "campagne_id": 1, "carte_index": 1})
+        campagne = await db.carrousel_campagnes.find_one(
+            {"id": (lien or {}).get("campagne_id")}, {"_id": 0, "cartes": 1, "expediteur": 1, "perimetre": 1}) if lien else None
+        cartes = (campagne or {}).get("cartes") or []
+        i = int((lien or {}).get("carte_index") or 0)
+        if not campagne or i >= len(cartes):
+            raise HTTPException(status_code=404, detail="Carte introuvable")
+        c = cartes[i]
+        produit = None
+        if c.get("produit_id"):
+            p = await db.products.find_one({"id": c["produit_id"]}, {"_id": 0, "name": 1, "description": 1,
+                                                                     "unit_price_ht": 1, "unit": 1})
+            if p:
+                produit = {"nom": p.get("name") or "", "description": (p.get("description") or "")[:2000],
+                           "prix": prix_affiche(p.get("unit_price_ht")) if p.get("unit_price_ht") else "",
+                           "unite": p.get("unit") or ""}
+        return {"code": code[:40], "titre": c.get("titre") or "", "texte": c.get("texte") or "",
+                "image_url": c.get("image_url") or "", "expediteur": campagne.get("expediteur") or "",
+                "plateforme": campagne.get("perimetre") == "admin", "produit": produit}
 
     # =======================================================================
     # Portail client

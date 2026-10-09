@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "94", "date": "2026-10-09",
+        "titre": "🖼️ Cartes de carrousel sans lien : page de présentation",
+        "description": "Une carte sans lien (ou une carte produit) mène à sa page de présentation sur le site (photo, titre, prix, description) au lieu d'une erreur ; et le son des appels WhatsApp sortants passe enfin côté PC.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "93", "date": "2026-10-09",
         "titre": "🛟 Pictogrammes du chat dans les plateformes",
         "description": "La fenêtre d'assistance des plateformes (bfmobility, ALBARKA, adLyn, sTer, beAuthentik) a les pictogrammes du chat SAWALI : emojis, photo, trombone (documents, vidéos) et note vocale transcrite ; les fichiers arrivent dans « <plateforme> - Support ».",

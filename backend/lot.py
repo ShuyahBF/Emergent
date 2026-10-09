@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "93"
-LOT_LIBELLE = "Pictogrammes de la fenêtre de chat du support dans les plateformes web : image, trombone (documents, vidéos), note vocale transcrite, emojis"
+LOT = "94"
+LOT_LIBELLE = "Son des appels WhatsApp sortants (centre de messagerie) et page de présentation des cartes de carrousel sans lien"

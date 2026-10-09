@@ -763,16 +763,16 @@ export default function CarrouselWhatsApp({ admin = false }) {
   if (refus) return <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">{refus}</div>;
   if (!etat) return <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
 
-  // Lot 78.3 — une carte libre sans lien est prête si un lien par défaut est enregistré (le serveur l'utilise)
-  const cartesPretes = cartes.every((c) => (c.source === "produit" ? c.produit_id
-    : c.image_url && c.titre && ((c.lien || "").trim() || lienDefautServeur)));
+  // Lot 94 — le lien n'est plus obligatoire : une carte sans lien (ni lien par défaut) mène à sa page de
+  // présentation sur le site (photo, titre, texte, prix du produit)
+  const cartesPretes = cartes.every((c) => (c.source === "produit" ? c.produit_id : c.image_url && c.titre));
   // Lot 78.3 — ce qui manque pour pouvoir envoyer (affiché à côté du bouton grisé)
   const manques = [];
   if (etat && !etat.pret) manques.push("WhatsApp ou les modèles du carrousel ne sont pas configurés");
   if (!message.trim()) manques.push("le texte au-dessus des cartes (rubrique 1)");
   cartes.forEach((c, i) => {
     if (c.source === "produit") { if (!c.produit_id) manques.push(`carte ${i + 1} : choisir un produit`); return; }
-    const m = [!c.image_url && "image", !c.titre && "titre", !((c.lien || "").trim() || lienDefautServeur) && "lien (ou lien par défaut)"].filter(Boolean);
+    const m = [!c.image_url && "image", !c.titre && "titre"].filter(Boolean);
     if (m.length) manques.push(`carte ${i + 1} : ${m.join(", ")}`);
   });
   if (retenus.length === 0) manques.push(choisis.size + groupes.size > 0
@@ -856,8 +856,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     <input className={champ} maxLength={80} placeholder="Texte court" value={c.texte} onChange={(e) => majCarte(i, { texte: e.target.value })} />
                     <input className={champ} placeholder="Lien du bouton https://…" value={c.lien} onChange={(e) => majCarte(i, { lien: e.target.value })} />
                     {!c.lien && (
-                      <p className={`text-[11px] ${lienDefautServeur ? "text-slate-500" : "text-amber-700"}`}>
-                        {lienDefautServeur ? `Sans lien : le bouton ouvrira ${lienDefautServeur}` : "Lien obligatoire (ou réglez un lien par défaut ci-dessus)."}
+                      <p className="text-[11px] text-slate-500">
+                        {lienDefautServeur ? `Sans lien : le bouton ouvrira ${lienDefautServeur}` : "Sans lien : le bouton ouvrira la page de présentation de cette carte sur le site."}
                       </p>
                     )}
                   </div>

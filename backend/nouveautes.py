@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "86", "date": "2026-10-09",
+        "titre": "🧾 Requêtes des clients",
+        "description": "Vos clients signalent dysfonctionnements et remarques (écrits ou vocaux, numérotés) ; vous les traitez par lots et ils évaluent après déploiement.",
+        "rubrique": "🧾 Requêtes des clients",
+    },
+    {
         "lot": "85.1", "date": "2026-10-08",
         "titre": "🗑️ Base Atlas : purge collection par collection",
         "description": "La purge d'une base obsolète supprime ses collections une à une (le compte Atlas n'a pas le droit de supprimer une base entière).",

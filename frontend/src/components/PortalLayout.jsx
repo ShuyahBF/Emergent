@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
+import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -97,6 +98,8 @@ const clientLinks = [
   // least one of the three meta_* features is enabled for the tenant.
   { to: "/portal/meta", label: "Meta (Facebook/Messenger/Ads)", icon: MessageCircle, metaOnly: true },
   { to: "/portal/tickets", label: "Tickets", tKey: "nav.tickets", icon: Ticket, badgeKey: "tickets_pending" },
+  // Lot 86 — requêtes du client (dysfonctionnements, remarques, logiciels, équipements ; écrites ou vocales)
+  { to: "/portal/requetes", label: "Mes requêtes", icon: MessageSquareWarning },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
   // Lot 25 — Grisé (featureGate) quand la fonctionnalité « Génération Vocale IA »
@@ -213,6 +216,8 @@ const adminLinks = [
   { to: "/admin/vidal-logs", label: "Suivi des logs VIDAL", icon: History, adminOrSup: true },
   // Lot 63 — activité des plateformes (adLyn, Ster, beAuthentik…) en temps réel
   { to: "/admin/plateformes-temps-reel", label: "Temps réel", icon: Activity, adminOnly: true, groupe: "plateformes" },   // lot 79.10 : groupe « Plateformes »
+  // Lot 86 — requêtes de tous les clients, lots de correction, évaluations
+  { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOnly: true },
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },

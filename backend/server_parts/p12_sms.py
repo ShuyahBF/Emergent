@@ -2488,6 +2488,21 @@ async def whatsapp_webhook_incoming(request: Request):
                             if _rel.get("action") == "reponse_relayee" and doc.get("id"):
                                 await db.whatsapp_messages.update_one(
                                     {"id": doc["id"]}, {"$set": {"relaye_a": _rel.get("nom") or _rel.get("emetteur")}})
+                            # Lot 102 : réponse de l'assistant d'une plateforme (ex. ZandGo) — question étiquetée,
+                            # réponse copiée dans le fil de la conversation (sans reprendre la main pour SAWALI)
+                            if _rel.get("action") == "reponse_assistant":
+                                if doc.get("id"):
+                                    await db.whatsapp_messages.update_one(
+                                        {"id": doc["id"]}, {"$set": {"assistant_plateforme": _rel.get("nom") or _rel.get("emetteur")}})
+                                await db.whatsapp_messages.insert_one({
+                                    "id": secrets.token_urlsafe(12), "client_id": doc.get("client_id"), "tenant_id": doc.get("client_id"),
+                                    "direction": "outbound", "from": f"assistant-{_rel.get('emetteur')}", "to": from_num,
+                                    "phone_digits": digits_only, "message_type": "text", "body": _rel.get("reponse") or "",
+                                    "wa_message_id": _rel.get("message_id"), "status": "sent", "wa_status": "sent",
+                                    "sent_at": datetime.now(timezone.utc).isoformat(), "created_at": datetime.now(timezone.utc).isoformat(),
+                                    "ai_generated": True, "ai_source": "assistant_plateforme",
+                                    "assistant_plateforme": _rel.get("nom") or _rel.get("emetteur"),
+                                    "contact_id": (contact or {}).get("id")})
                             # Lot 84 : réponse à une plateforme réglée sur « non transmises » (gardée par SAWALI)
                             if _rel.get("action") == "reponse_non_transmise" and doc.get("id"):
                                 await db.whatsapp_messages.update_one(

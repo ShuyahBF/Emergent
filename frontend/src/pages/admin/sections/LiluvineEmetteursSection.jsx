@@ -178,7 +178,8 @@ export default function LiluvineEmetteursSection() {
               <th className="pr-2">Quota / jour</th><th className="pr-2">Envois du jour</th>
               <th className="pr-2">Dernier envoi</th><th className="pr-2">Clé générée le</th>
               <th className="pr-2">Réponses des clients</th>
-              <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th><th></th>
+              <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th>
+              <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…)">Adresse de l'assistant</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -230,6 +231,14 @@ export default function LiluvineEmetteursSection() {
                     <div className="text-[10px] text-red-700">Dernier échec : {fmt(e.derniere_stats_echec)}</div>
                   )}
                 </td>
+                <td className="pr-2">
+                  {/* Lot 102 — adresse de l'assistant de la plateforme (ex. ZandGo : https://…/api/liluvine/question).
+                      Un client qui écrit dans les 72 h suivant un message de la plateforme reçoit la réponse de son
+                      assistant ; vide = Liluvine répond elle-même. Enregistrée en quittant le champ. */}
+                  <input defaultValue={e.url_assistant || ""} onClick={(ev) => ev.stopPropagation()} placeholder="vide = Liluvine répond"
+                         onBlur={(ev) => ev.target.value !== (e.url_assistant || "") && modifier(e.code, { url_assistant: ev.target.value })}
+                         className="w-56 rounded border border-slate-300 px-1 py-0.5" />
+                </td>
                 <td className="whitespace-nowrap">
                   <button type="button" title="Regénérer la clé" onClick={(ev) => { ev.stopPropagation(); regenerer(e.code); }}
                           className="mr-1 inline-flex items-center gap-1 rounded px-2 py-0.5 ring-1 ring-slate-300">
@@ -243,7 +252,7 @@ export default function LiluvineEmetteursSection() {
               </tr>
             ))}
             {emetteurs.length === 0 && (
-              <tr><td colSpan={9} className="py-3 text-center text-slate-400">Aucune plateforme émettrice (nombre illimité : ster, adlyn, albarka, beauthentik…).</td></tr>
+              <tr><td colSpan={10} className="py-3 text-center text-slate-400">Aucune plateforme émettrice (nombre illimité : ster, adlyn, albarka, beauthentik…).</td></tr>
             )}
           </tbody>
         </table>

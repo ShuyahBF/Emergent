@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "107"
-LOT_LIBELLE = "Sauvegardes de migration dans R2 : liste (taille, fichiers) et suppression des anciennes à la main"
+LOT = "107.1"
+LOT_LIBELLE = "Émetteurs Liluvine : l'ancien « Dernier retour en échec » s'efface quand l'adresse de retour fonctionne"

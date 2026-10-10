@@ -132,8 +132,13 @@ async def stats_plateforme(db, emetteur: Dict[str, Any], debut_iso: str, fin_iso
         {"_id": cle_cache},
         {"$set": {"code": code, "debut": debut_iso, "fin": fin_iso, "recu_le": resultat["recu_le"],
                   "resultat": resultat}}, upsert=True)
-    await db.liluvine_emetteurs.update_one({"code": code}, {"$set": {
-        ("derniere_stats_ok" if resultat.get("ok") else "derniere_stats_echec"): resultat["recu_le"]}})
+    maj: Dict[str, Any] = {"$set": {
+        ("derniere_stats_ok" if resultat.get("ok") else "derniere_stats_echec"): resultat["recu_le"]}}
+    # Lot 107.1 : statistiques reçues par l'URL de retour (URL des statistiques vide) : l'adresse de retour
+    # fonctionne, l'ancien « Dernier retour en échec » est effacé
+    if resultat.get("ok") and not (emetteur.get("url_stats") or "").strip():
+        maj["$unset"] = {"dernier_retour_echec": "", "dernier_retour_type": ""}
+    await db.liluvine_emetteurs.update_one({"code": code}, maj)
     return resultat
 
 

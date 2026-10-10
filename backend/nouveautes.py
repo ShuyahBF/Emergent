@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "107.1", "date": "2026-10-11",
+        "titre": "🔁 Retours des plateformes : échec effacé",
+        "description": "Dans la liste des émetteurs, « Dernier retour en échec » disparaît dès que l'adresse de retour fonctionne (retour reçu, statistiques reçues ou URL corrigée) et laisse place à « Dernier retour reçu ».",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "107", "date": "2026-10-10",
         "titre": "🗑️ Supprimer les anciennes sauvegardes R2",
         "description": "Bloc « Sauvegardes présentes dans R2 » : chaque sauvegarde du bucket (ex. sawali-migration) avec sa date, sa taille et son nombre de fichiers ; cochez les anciennes puis Supprimer (la dernière réussie et celle en cours sont protégées).",

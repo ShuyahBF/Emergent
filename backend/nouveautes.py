@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "99", "date": "2026-10-10",
+        "titre": "🤖 Liluvine répond au support des plateformes web",
+        "description": "Dans « sTer - Support », « beAuthentik - Support »…, Liluvine répond d'elle-même tant qu'aucun agent n'a répondu (réponses courtes, 3 échanges au plus, pastille de l'assistant, relais vers Claude) ; activable par plateforme.",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "98", "date": "2026-10-10",
         "titre": "🧮 Synthèse des requêtes à l'IA + règles du support",
         "description": "Tableau de toutes les requêtes à Claude (coût estimé, où régler chaque fonction) ; au support, réponses courtes, 2 questions au plus, pastille de l'assistant concerné et relais vers Claude quand Liluvine ne sait pas.",

@@ -32,11 +32,22 @@ export default function FacebookAnimationSection() {
   useEffect(() => { charger(); }, []);
 
   // Lot 97 — page propre à l'animation (ex. page beAuthentik) : la page active de SAWALI reste celle de SAWALI
+  const [erreurPages, setErreurPages] = useState("");   // lot 99 : message clair si Facebook refuse la lecture
   const chargerPages = async () => {
-    setOccupe("pages");
+    setOccupe("pages"); setErreurPages("");
     try { setPages((await apiClient.get("/admin/facebook/animation/pages")).data.pages); }
-    catch (err) { toast.error(err?.response?.data?.detail || "Lecture des pages impossible"); }
+    catch (err) { setErreurPages(err?.response?.data?.detail || "Lecture des pages impossible"); }
     finally { setOccupe(null); }
+  };
+  // Lot 99 — reconnexion du compte Facebook sans quitter la rubrique (même fenêtre que la rubrique Facebook) ;
+  // dans la fenêtre de Facebook, cocher AUSSI la page de la plateforme (ex. beAuthentik).
+  const reconnecterFacebook = async () => {
+    try {
+      const r = await apiClient.get("/admin/facebook/oauth/authorize");
+      const fenetre = window.open(r.data.authorization_url, "facebook-oauth", "width=600,height=720");
+      if (!fenetre) window.location.href = r.data.authorization_url;
+      setErreurPages(""); setPages(null);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Reconnexion impossible"); }
   };
   const choisirPage = async (pageId) => {
     setOccupe("pages");
@@ -116,7 +127,18 @@ export default function FacebookAnimationSection() {
               <option value="-">(utiliser la page active de SAWALI)</option>
             </select>
           )}
+          {/* Toujours proposé : utile si la connexion a expiré ou si la page voulue n'est pas dans la liste */}
+          <button type="button" onClick={reconnecterFacebook} className="rounded border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs text-blue-800">
+            🔄 Reconnecter Facebook
+          </button>
         </div>
+        {erreurPages && <p className="mt-2 text-xs text-rose-700" data-testid="fb-pages-erreur">{erreurPages}</p>}
+        {pages !== null && (
+          <p className="mt-2 text-xs text-slate-500">
+            La page voulue n'est pas dans la liste ? Le compte Facebook connecté doit en être administrateur : cliquez
+            « Reconnecter Facebook » et cochez-la dans la fenêtre de Facebook.
+          </p>
+        )}
       </div>
 
       {/* Réglages */}

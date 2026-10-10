@@ -146,6 +146,24 @@ def legende(modele: str, cand: Dict[str, Any], bio: str, lien: str) -> str:
         return LEGENDE_DEFAUT.format(**valeurs)
 
 
+def message_erreur_facebook(r) -> str:
+    """Lot 99 — message clair à partir de l'erreur de Facebook (avant : « Lecture des pages impossible (400) »).
+    Code 190 (ou sous-codes 458-467) = connexion expirée ou révoquée : il suffit de reconnecter le compte Facebook."""
+    try:
+        err = (r.json() or {}).get("error") or {}
+    except Exception:  # noqa: BLE001
+        err = {}
+    code, sous_code = err.get("code"), err.get("error_subcode")
+    if code == 190 or sous_code in (458, 459, 460, 463, 464, 467):
+        return ("La connexion Facebook de SAWALI a expiré : cliquez « Reconnecter Facebook » puis, dans la fenêtre de "
+                "Facebook, cochez aussi la page de la plateforme.")
+    if code in (10, 200) or "permission" in str(err.get("message", "")).lower():
+        return ("Facebook refuse l'accès à la liste des pages (autorisation pages_show_list) : cliquez « Reconnecter "
+                "Facebook » et acceptez toutes les autorisations demandées.")
+    detail = str(err.get("message") or "")[:200]
+    return f"Lecture des pages Facebook impossible ({r.status_code}){' : ' + detail if detail else ''}"
+
+
 async def pages_du_compte(db) -> List[Dict[str, Any]]:
     """Pages Facebook gérées par le compte connecté dans SAWALI (avec leur jeton : usage serveur uniquement)."""
     from routes.facebook import DEFAULT_TIMEOUT, FB_API_BASE
@@ -156,7 +174,7 @@ async def pages_du_compte(db) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as http:
         r = await http.get(f"{FB_API_BASE}/me/accounts", params={"access_token": jeton_utilisateur, "fields": "id,name,access_token"})
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Lecture des pages Facebook impossible ({r.status_code})")
+        raise HTTPException(status_code=502, detail=message_erreur_facebook(r))
     return [{"id": p.get("id"), "nom": p.get("name"), "jeton": p.get("access_token")} for p in r.json().get("data", [])]
 
 

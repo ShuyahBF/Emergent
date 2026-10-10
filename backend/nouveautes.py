@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "101", "date": "2026-10-10",
+        "titre": "💾 Sauvegarde nocturne sans arrêt du serveur",
+        "description": "La sauvegarde complète copie désormais les données par lots de 4 Mo au plus : elle ne fait plus dépasser la mémoire du serveur (arrêt automatique de Render la nuit).",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "100", "date": "2026-10-10",
         "titre": "🖼️ Modèles carrousels hors des listes ordinaires",
         "description": "Les listes de modèles WhatsApp approuvés (envois, contacts, automatisations…) ne montrent plus les carrousels ; ils restent dans les écrans des carrousels et dans la gestion des modèles.",

@@ -192,6 +192,9 @@ _setup_liluvine_decroche(db=db, api=api, get_current_user=get_current_user)
 # Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires des utilisateurs suivis)
 from routes.liluvine_agenda import setup_liluvine_agenda_routes as _setup_liluvine_agenda  # noqa: E402
 _setup_liluvine_agenda(db=db, api=api, get_current_user=get_current_user)
+# Lot 106 — une plateforme (ZandGo…) demande à Liluvine d'appeler un client (fiche déposée dans l'agenda, route signée)
+from routes.appels_plateformes import setup_appels_plateformes_routes as _setup_appels_plateformes  # noqa: E402
+_setup_appels_plateformes(api=api, db=db)
 # Lot 73 — partage des éléments de Liluvine avec un superviseur précis (Paramètres)
 from routes.liluvine_partage import setup_liluvine_partage_routes as _setup_liluvine_partage  # noqa: E402
 _setup_liluvine_partage(db=db, api=api, get_current_user=get_current_user)

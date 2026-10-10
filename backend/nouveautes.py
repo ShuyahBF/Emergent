@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "106", "date": "2026-10-10",
+        "titre": "📞 Appels de relance demandés par les plateformes",
+        "description": "ZandGo (et toute plateforme déclarée) peut demander à Liluvine d'appeler un client, par exemple après une commande non payée : l'appel arrive dans l'agenda de Liluvine (type « Relance ») et la plateforme en lit le résumé.",
+        "rubrique": "📅 Agenda d'appels de Liluvine et anniversaires",
+    },
+    {
         "lot": "105.1", "date": "2026-10-10",
         "titre": "📣 Kit Facebook beAuthentik : onglet META",
         "description": "La rubrique « Page Facebook animée par Liluvine » (avec le kit de lancement beAuthentik) est désormais dans l'onglet « META (FB / WA) » des Paramètres, à côté de la rubrique Facebook.",

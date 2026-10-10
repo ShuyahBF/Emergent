@@ -95,9 +95,14 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
     @api.get("/admin/facebook/config", tags=["Admin — Facebook"])
     async def get_config(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:
         s = await db.settings.find_one({"_id": "global"}) or {}
+        # Lot 104.6 — App Secret écrasé par des étoiles (ancien défaut de « Enregistrer ») : le champ revient VIDE
+        # avec un drapeau, pour que l'administrateur voie qu'il doit le ressaisir (8 points ≠ une vraie clé).
+        secret_efface = set((s.get("facebook_app_secret") or "").strip()) == {"*"}
         return {
             "app_id": s.get("facebook_app_id") or "",
-            "app_secret": "********" if s.get("facebook_app_secret") else "",
+            "app_secret": "" if secret_efface else ("********" if s.get("facebook_app_secret") else ""),
+            "app_secret_efface": secret_efface,
+            "jeton_efface": set((s.get("facebook_user_access_token") or "").strip()) == {"*"},
             "redirect_uri": s.get("facebook_redirect_uri") or "",
             "connected": bool(s.get("facebook_user_access_token")),
             "user_id": s.get("facebook_user_id", ""),

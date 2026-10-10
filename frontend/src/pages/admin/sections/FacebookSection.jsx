@@ -167,7 +167,16 @@ const FacebookSection = () => {
             <div className="flex gap-1">
               <input type={reveal ? "text" : "password"} value={cfg?.app_secret || ""} onChange={(e) => setCfg({...cfg, app_secret: e.target.value})} className="flex-1 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono" data-testid="facebook-app-secret" />
               <button onClick={() => setReveal(!reveal)} className="text-xs px-2 rounded ring-1 ring-slate-300">{reveal ? "🙈" : "👁"}</button>
-            </div></label>
+            </div>
+            {/* Lot 104.6 : clé effacée par un ancien « Enregistrer » → champ vide et avertissement */}
+            {cfg?.app_secret_efface && (
+              <span className="mt-1 block text-[11px] font-semibold text-rose-700" data-testid="facebook-app-secret-efface">
+                ⚠️ App Secret effacé : collez ici la vraie clé (developers.facebook.com → App settings → Basic → App secret → Show), puis Enregistrer.
+              </span>
+            )}
+            {cfg?.app_secret === "********" && (
+              <span className="mt-1 block text-[11px] text-slate-500">Clé enregistrée (masquée). Pour la changer, effacez les points et collez la nouvelle.</span>
+            )}</label>
         </div>
         {/* Iter43-fix24az — Editable Redirect URI override (PROD vs PREVIEW) */}
         <label className="block">
@@ -258,6 +267,8 @@ const FacebookSection = () => {
         ) : (
           <div className="text-xs space-y-2">
             <p>Connecté en tant que <strong>{cfg.user_name}</strong> ({cfg.user_email})</p>
+            {/* Lot 104.6 : jeton effacé → il faut « Reconnecter » (après avoir ressaisi l'App Secret si besoin) */}
+            {cfg.jeton_efface && <p className="text-[11px] font-semibold text-rose-700">⚠️ Jeton Facebook effacé : cliquez sur « Reconnecter » (après avoir ressaisi l'App Secret s'il est signalé effacé).</p>}
             <p className="text-[10px] text-slate-500">User token expire : {cfg.user_token_expires_at ? new Date(cfg.user_token_expires_at).toLocaleString("fr-FR") : "—"}</p>
             <div className="flex gap-2">
               <button onClick={loadPages} disabled={loadingPages} className="text-xs px-2 py-1 rounded bg-amber-100 ring-1 ring-amber-300 text-amber-700 inline-flex items-center gap-1" data-testid="facebook-load-pages">

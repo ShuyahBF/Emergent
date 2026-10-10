@@ -124,7 +124,7 @@ const NEW_LOTS = {
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "79.6",   // lot 79.6 : écran « Messages bloqués »
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
-  "Transmission WA Universelle Liluvine (webhook entrant)": "104.1",   // lots 83-84 : réponses citées ; lots 102-103 : assistant de la plateforme, mot-clé ; lot 104 : codes OTP par modèle
+  "Transmission WA Universelle Liluvine (webhook entrant)": "104.2",   // lots 83-84 : réponses citées ; lots 102-103 : assistant de la plateforme, mot-clé ; lot 104 : codes OTP par modèle
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "59",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "57.8",
   "Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)": "52",
@@ -717,6 +717,13 @@ export default function AdminSettings() {
   const [params] = useSearchParams();
 
   const load = () => apiClient.get("/admin/settings").then((r) => setS(r.data));
+  // Lot 104.2 : une section qui modifie elle-même un réglage (ex. modèle WhatsApp créé chez Meta) prévient la page,
+  // qui relit les paramètres : le bouton « Enregistrer » ne réécrit jamais une ancienne valeur.
+  useEffect(() => {
+    const relire = () => { load().catch(() => {}); };
+    window.addEventListener("sawali-reglages-modifies", relire);
+    return () => window.removeEventListener("sawali-reglages-modifies", relire);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     load().catch(() => {});
     if (params.get("gcal") === "ok") toast.success("Google Calendar connecté");

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "104.1"
-LOT_LIBELLE = "Envois WhatsApp par plateforme : statut réel (envoyé, remis, lu, échoué) et motif d'échec Meta"
+LOT = "104.2"
+LOT_LIBELLE = "Modèle WhatsApp de la Transmission universelle créé chez Meta en un clic (messages hors fenêtre de 24 h)"

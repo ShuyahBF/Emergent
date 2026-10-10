@@ -52,3 +52,22 @@ def test_synthese_par_plateforme_lot104_1():
     # Filtre du journal sur une plateforme
     assert len(client.get("/api/admin/liluvine-transmissions", params={"emetteur": "ster"}).json()["transmissions"]) == 2
     assert client.get("/api/admin/liluvine-transmissions", params={"emetteur": "autre"}).json()["transmissions"] == []
+
+
+def test_modele_transmission_lot104_2():
+    """Lot 104.2 — modèle à 3 variables conforme à Meta et variables sans retour à la ligne."""
+    from routes.liluvine_emetteurs import corps_modele_transmission
+    from routes.liluvine_send_webhook import texte_variable
+    corps = corps_modele_transmission("transmission_plateformes")
+    texte = corps["components"][0]["text"]
+    assert corps["category"] == "UTILITY" and "{{1}}" in texte and "{{2}}" in texte and "{{3}}" in texte
+    assert not texte.startswith("{{") and not texte.endswith("}}")          # règle Meta
+    assert len(corps["components"][0]["example"]["body_text"][0]) == 3
+    assert texte_variable("Bonjour\n\nVotre colis   est\tarrivé") == "Bonjour · Votre colis est arrivé"
+    # Envoi par modèle : la variable « message » ne contient plus de retour à la ligne
+    client, db, envois, cle = _app()
+    _run(db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_transmission_modele": "transmission_plateformes"}}))
+    r = _envoyer(client, cle, {"id": "t1", "to": "+22670000003", "message": "Ligne 1\nLigne 2"})
+    assert r.status_code == 200 and r.json()["mode"] == "modele"
+    params = envois[-1][3][0]["parameters"]
+    assert params[2]["text"] == "Ligne 1 · Ligne 2"

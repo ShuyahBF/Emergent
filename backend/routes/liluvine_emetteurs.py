@@ -77,6 +77,44 @@ def corps_modele_otp(nom: str, langue: str = "fr") -> dict:
     ]}
 
 
+# ---------------------------------------------------------------------- lot 104.2 : modèle de la Transmission
+NOM_MODELE_TRANSMISSION = "transmission_plateformes"
+CORPS_TRANSMISSION = ("Le {{1}}, {{2}} vous écrit :\n\n{{3}}\n\n"
+                      "Pour répondre, faites « Répondre » sur ce message.")
+
+
+def corps_modele_transmission(nom: str, langue: str = "fr") -> dict:
+    """Corps POST /{waba}/message_templates du modèle UTILITAIRE à 3 variables de la Transmission WA Universelle :
+    {{1}} date/heure, {{2}} plateforme émettrice, {{3}} message. Le corps ne commence ni ne finit par une variable
+    (règle Meta) ; exemples fournis pour l'approbation. Permet d'écrire hors de la fenêtre de 24 h."""
+    return {"name": nom, "language": langue, "category": "UTILITY", "components": [
+        {"type": "BODY", "text": CORPS_TRANSMISSION,
+         "example": {"body_text": [["10/10/2026 14:30", "ZandGo", "Votre commande ZG-261006 est arrivée à Ouagadougou."]]}},
+    ]}
+
+
+async def creer_modele_meta(db, corps: dict, cle_nom: str, cle_langue: str) -> dict:
+    """Envoie un modèle à Meta (POST message_templates) puis l'enregistre dans les Paramètres.
+    Un modèle qui existe déjà chez Meta est simplement enregistré. Jamais de 401/403 renvoyé tel quel (502)."""
+    reg = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_access_token": 1, "wa_business_account_id": 1}) or {}
+    if not reg.get("wa_access_token") or not reg.get("wa_business_account_id"):
+        raise HTTPException(status_code=400, detail="WhatsApp non configuré (WABA ID et Access Token dans Paramètres)")
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.post(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{reg['wa_business_account_id']}/message_templates",
+                                json=corps, headers={"Authorization": f"Bearer {reg['wa_access_token']}"})
+        brut = r.json() if r.content else {}
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=504, detail=f"Meta injoignable ({type(exc).__name__})")
+    deja = "already exists" in str(brut).lower() or "existe" in str(brut).lower()
+    if r.status_code >= 300 and not deja:
+        msg = ((brut.get("error") or {}).get("error_user_msg") or (brut.get("error") or {}).get("message")) if isinstance(brut, dict) else None
+        raise HTTPException(status_code=502, detail=f"Meta {r.status_code} : {msg or 'refus'}")
+    await db.settings.update_one({"_id": "global"}, {"$set": {cle_nom: corps["name"], cle_langue: corps["language"]}}, upsert=True)
+    return {"ok": True, "nom": corps["name"], "langue": corps["language"],
+            "statut_meta": brut.get("status") or ("EXISTANT" if deja else "PENDING")}
+
+
 async def statut_modele_meta(reg: dict, nom: str) -> Optional[str]:
     """État d'un modèle chez Meta (APPROVED, PENDING, REJECTED…), None si Meta ne répond pas."""
     try:
@@ -208,6 +246,28 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         await db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_modele_otp": nom, "liluvine_modele_otp_langue": langue}},
                                      upsert=True)
         return {"ok": True, "nom": nom, "langue": langue, "statut_meta": brut.get("status") or ("EXISTANT" if deja else "PENDING")}
+
+    # ------------------------------------------------------------------ lot 104.2 : modèle de la Transmission
+    @router.get("/liluvine-modele-transmission")
+    async def modele_transmission(admin: dict = Depends(get_current_admin)):
+        """Modèle à 3 variables (Date/Heure, Émetteur, Message) des messages transmis, avec son état chez Meta."""
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_transmission_modele": 1,
+                                                             "liluvine_transmission_langue": 1,
+                                                             "wa_access_token": 1, "wa_business_account_id": 1}) or {}
+        nom = (reg.get("liluvine_transmission_modele") or "").strip()
+        sortie = {"nom": nom, "langue": reg.get("liluvine_transmission_langue") or "fr", "statut_meta": None,
+                  "nom_propose": NOM_MODELE_TRANSMISSION, "corps": CORPS_TRANSMISSION}
+        if nom and reg.get("wa_access_token") and reg.get("wa_business_account_id"):
+            sortie["statut_meta"] = await statut_modele_meta(reg, nom)
+        return sortie
+
+    @router.post("/liluvine-modele-transmission/creer")
+    async def creer_modele_transmission(donnees: dict = Body(default={}), admin: dict = Depends(get_current_admin)):
+        """Crée chez Meta le modèle UTILITAIRE de la Transmission (3 variables) et l'enregistre dans les Paramètres."""
+        nom = re.sub(r"[^a-z0-9_]", "", str(donnees.get("nom") or NOM_MODELE_TRANSMISSION).lower())[:60] or NOM_MODELE_TRANSMISSION
+        langue = str(donnees.get("langue") or "fr")[:10]
+        return await creer_modele_meta(db, corps_modele_transmission(nom, langue),
+                                       "liluvine_transmission_modele", "liluvine_transmission_langue")
 
     @router.get("/liluvine-transmissions")
     async def journal(limite: int = 100, emetteur: Optional[str] = None, admin: dict = Depends(get_current_admin)):

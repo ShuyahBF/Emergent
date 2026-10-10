@@ -79,6 +79,13 @@ class LiluvineSendPayload(BaseModel):
     code_otp: Optional[str] = None
 
 
+def texte_variable(texte: str) -> str:
+    """Lot 104.2 — texte placé dans une VARIABLE de modèle WhatsApp : Meta refuse les retours à la ligne,
+    les tabulations et plus de 4 espaces consécutifs (erreur 132018). Les sauts de ligne deviennent « · »."""
+    texte = re.sub(r"\s*[\r\n]+\s*", " · ", str(texte or "").strip())
+    return re.sub(r" {2,}", " ", texte.replace("\t", " "))      # tabulations interdites, espaces multiples réduits
+
+
 def composants_otp(code: str) -> list:
     """Lot 104 — paramètres d'un modèle WhatsApp d'AUTHENTIFICATION : le code dans le corps
     et dans le bouton « Copier le code » (index 0), comme l'exige Meta."""
@@ -233,8 +240,8 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 objet = {"link": lien, **({"filename": nom_fichier} if type_media == "document" else {})}
                 composants = [
                     {"type": "header", "parameters": [{"type": type_media, type_media: objet}]},
-                    {"type": "body", "parameters": [{"type": "text", "text": quand}, {"type": "text", "text": source},
-                                                    {"type": "text", "text": message[:LONGUEUR_MAX_MODELE]}]},
+                    {"type": "body", "parameters": [{"type": "text", "text": quand}, {"type": "text", "text": texte_variable(source)},
+                                                    {"type": "text", "text": texte_variable(message)[:LONGUEUR_MAX_MODELE]}]},
                 ]
                 result = await wa_send_template(destinataire, modele_media, langue, composants)
                 if result.get("ok"):
@@ -256,8 +263,8 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
         elif mode == "modele":
             composants = [{"type": "body", "parameters": [
                 {"type": "text", "text": quand},
-                {"type": "text", "text": source},
-                {"type": "text", "text": message},
+                {"type": "text", "text": texte_variable(source)},          # lot 104.2 : sans retour à la ligne
+                {"type": "text", "text": texte_variable(message)},
             ]}]
             result = await wa_send_template(destinataire, modele, langue, composants)
         else:
@@ -289,5 +296,5 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
     logger.info("[liluvine_send_webhook] route mounted at POST /api/webhook/liluvine-send")
 
 
-__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload", "normaliser_numero", "composants_otp",
+__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload", "normaliser_numero", "composants_otp", "texte_variable",
            "date_heure_affichee"]

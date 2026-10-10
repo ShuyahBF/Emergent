@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.2", "date": "2026-10-10",
+        "titre": "📨 Messages des plateformes toujours remis",
+        "description": "Le modèle WhatsApp à 3 variables (Date/Heure, Émetteur, Message) de la Transmission universelle se crée chez Meta en un clic : suivis de commande et rappels des plateformes arrivent même hors de la fenêtre de 24 h.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "104.1", "date": "2026-10-10",
         "titre": "📊 Envois WhatsApp de chaque plateforme : statut réel",
         "description": "Pour chaque plateforme (ZandGo, Ster…), les envois des 7 derniers jours : refusés, envoyés, remis, lus, échoués, avec le dernier motif d'échec donné par Meta ; un clic filtre le journal.",

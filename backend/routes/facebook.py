@@ -180,6 +180,8 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
             raise HTTPException(status_code=400, detail="App ID manquant. Saisissez puis Enregistrer.")
         if not app_secret:
             raise HTTPException(status_code=400, detail="App Secret manquant. Saisissez puis Enregistrer.")
+        if set(app_secret) == {"*"}:   # lot 104.5 : clé écrasée par des étoiles
+            raise HTTPException(status_code=400, detail="App Secret effacé par un enregistrement des Paramètres : ressaisissez-le puis Enregistrer.")
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
                 r = await cli.get(FB_TOKEN_URL, params={
@@ -248,6 +250,8 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
             app_secret = (s.get("facebook_app_secret") or "").strip()
             if not app_id or not app_secret:
                 return HTMLResponse(_render_html(False, "App ID/Secret perdus."), 500)
+            if set(app_secret) == {"*"}:   # lot 104.5 : clé écrasée par des étoiles
+                return HTMLResponse(_render_html(False, "App Secret effacé : ressaisissez-le dans Paramètres → Facebook, puis Reconnecter."), 400)
             # Step 1: exchange code for short-lived user token
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
                 r = await cli.get(FB_TOKEN_URL, params={
@@ -309,6 +313,10 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
         ut = (s.get("facebook_user_access_token") or "").strip()
         if not ut:
             raise HTTPException(status_code=400, detail="Connectez d'abord votre compte Facebook utilisateur.")
+        # Lot 104.5 — jeton écrasé par des étoiles (ancien défaut de « Enregistrer ») : message clair
+        if set(ut) == {"*"}:
+            raise HTTPException(status_code=400, detail="Le jeton Facebook a été effacé par un enregistrement des Paramètres : "
+                                                        "cliquez sur « Reconnecter » pour en obtenir un nouveau.")
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
             r = await cli.get(f"{FB_API_BASE}/me/accounts", params={"access_token": ut, "fields": "id,name,access_token,category,tasks"})
         if r.status_code != 200:

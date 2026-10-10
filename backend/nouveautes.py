@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.5", "date": "2026-10-10",
+        "titre": "🔐 Jetons secrets protégés à l'enregistrement",
+        "description": "« Enregistrer » dans les Paramètres ne remplace plus un jeton masqué par des étoiles (cause de l'erreur Facebook « Cannot parse access token ») ; cliquez une fois sur « Reconnecter » pour obtenir un jeton neuf.",
+        "rubrique": "📘 Facebook Page — Posts API",
+    },
+    {
         "lot": "104.4", "date": "2026-10-10",
         "titre": "📥 Nouveaux numéros dans votre espace",
         "description": "Après un « Rattacher à mon espace », les messages des numéros inconnus arrivent directement dans votre Centre de messagerie (avant : dans l'espace du premier superviseur trouvé).",

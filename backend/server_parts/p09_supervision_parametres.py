@@ -716,6 +716,12 @@ async def public_ui_flags():
     }
 
 
+def retirer_valeurs_masquees(update: Dict[str, Any]) -> Dict[str, Any]:
+    """Lot 104.5 — retire de la mise à jour toute valeur « ******** » (secret masqué renvoyé tel quel par
+    la page Paramètres) : le secret enregistré reste intact, quel que soit le nom du champ."""
+    return {k: v for k, v in update.items() if not (isinstance(v, str) and v.strip() == "********")}
+
+
 @api.put("/admin/settings", tags=["Admin"])
 async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(get_current_admin)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
@@ -747,6 +753,10 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
             update.pop(k, None)
+    # Lot 104.5 — TOUTE valeur masquée « ******** » renvoyée par la page Paramètres est ignorée, quel que soit le
+    # champ. Avant, un secret masqué à la lecture mais absent de la liste ci-dessus (jeton Facebook, LinkedIn,
+    # Twitter, clé PawaPay…) était remplacé par les étoiles au premier « Enregistrer » (Facebook : erreur 190).
+    update = retirer_valeurs_masquees(update)
     # Lot 52 — l'envoi des e-mails est réservé au super-admin : champs smtp_* ignorés pour les autres
     # comptes, mot de passe SMTP chiffré (jamais enregistré en clair dans les réglages globaux).
     update = await _email_fournisseurs.filtrer_maj_parametres_generiques(update, user, _is_super_admin)

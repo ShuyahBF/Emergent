@@ -25,6 +25,9 @@ Ce module regroupe tout ce qui complète l'envoi (routes/liluvine_send_webhook.p
    qui suivent un message d'une plateforme dotée d'une « adresse de l'assistant », Liluvine pose la
    question à la plateforme (appel signé avec sa clé) et renvoie SA réponse au client : statut d'une
    commande, fiche d'un produit… Si la plateforme ne répond pas, Liluvine reprend la main comme avant.
+   Lot 103 : à TOUT moment, un message qui commence par « ! » suivi du code de la plateforme (« !zandgo où est
+   ma commande ? », « !ZandGo prix montre », casse indifférente) est posé à son assistant ; les messages suivants du même numéro
+   y vont aussi pendant 30 min (session) ; « FIN » rend la main à Liluvine.
 """
 from __future__ import annotations
 
@@ -56,6 +59,9 @@ SEUIL_ALERTE = 5                      # échecs ou signatures refusées…
 FENETRE_ALERTE = timedelta(minutes=15)  # …dans cette fenêtre -> e-mail à l'administrateur
 MOTS_STOP = {"stop", "arret", "arrêt", "desinscrire", "désinscrire", "unsubscribe"}
 MOTS_REPRENDRE = {"reprendre", "start"}
+# Lot 103 : conversation ouverte avec l'assistant d'une plateforme par son mot-clé (« ZandGo … »)
+DUREE_SESSION_ASSISTANT = timedelta(minutes=30)
+MOTS_FIN_ASSISTANT = {"fin", "terminer", "terminé", "quitter"}
 TYPES_MEDIA = {"document", "image", "video", "audio"}
 
 
@@ -273,6 +279,80 @@ async def est_desinscrit(db, emetteur: str, numero: str) -> bool:
         {"emetteur": emetteur, "numero": _chiffres(numero), "actif": True}))
 
 
+def _sans_accents(t: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn")
+
+
+def detecter_mot_cle(texte: str, emetteurs: list) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Lot 103 : (émetteur, question sans la commande) si le message commence par « ! » suivi du code ou du nom
+    d'une plateforme dotée d'un assistant (« !zandgo … », « !ZandGo: … », quelle que soit la casse), sinon None."""
+    brut = (texte or "").strip()
+    if not brut.startswith("!"):
+        return None                           # demande du propriétaire (10/10/2026) : commande « ! » obligatoire
+    brut = brut[1:].lstrip()
+    bas = _sans_accents(brut.lower())
+    decale = 0
+    for e in emetteurs:
+        for mot in {(e.get("code") or "").lower(), _sans_accents((e.get("nom") or "").lower())}:
+            mot = mot.strip()
+            if len(mot) < 3 or not bas.startswith(mot):
+                continue
+            suite = bas[len(mot):]
+            if suite and suite[0].isalnum():
+                continue                      # « zandgoo » ou « zandgomania » : pas le mot-clé
+            question = brut[decale + len(mot):].lstrip(" :,-–—!?.").strip()
+            return e, question
+    return None
+
+
+async def _repondre_par_assistant(db, emetteur: Dict[str, Any], de: str, chiffres: str, question: str,
+                                  send_text) -> Optional[Dict[str, Any]]:
+    """Pose la question à l'assistant, envoie sa réponse au client, journalise ; None si pas de réponse."""
+    code = emetteur.get("code")
+    rep = await interroger_assistant(db, emetteur, chiffres, question)
+    if not rep:
+        return None
+    envoi = await send_text(de, str(rep["reponse"])[:3800])
+    await db.liluvine_assistant_journal.insert_one({
+        "emetteur": code, "numero": chiffres, "question": question[:500], "intention": rep.get("intention"),
+        "envoye": bool((envoi or {}).get("ok")) if isinstance(envoi, dict) else True, "date": _maintenant().isoformat()})
+    return {"traite": True, "action": "reponse_assistant", "emetteur": code, "nom": emetteur.get("nom") or code,
+            "reponse": str(rep["reponse"])[:3800],
+            "message_id": (envoi or {}).get("message_id") if isinstance(envoi, dict) else None}
+
+
+async def _session_assistant(db, de: str, chiffres: str, texte: str, send_text) -> Optional[Dict[str, Any]]:
+    """Lot 103 : mot-clé d'une plateforme, ou session ouverte avec son assistant (30 min). None = pas concerné."""
+    emetteurs = [e async for e in db.liluvine_emetteurs.find(
+        {"url_assistant": {"$nin": [None, ""]}, "actif": {"$ne": False}}, {"_id": 0})]
+    if not emetteurs:
+        return None
+    maintenant = _maintenant()
+    trouve = detecter_mot_cle(texte, emetteurs)
+    if trouve:
+        emetteur, question = trouve
+    else:
+        session = await db.liluvine_assistant_sessions.find_one(
+            {"numero": chiffres, "jusqu_a": {"$gt": maintenant.isoformat()}}, {"_id": 0})
+        emetteur = next((e for e in emetteurs if session and e["code"] == session["emetteur"]), None)
+        if not emetteur:
+            return None
+        question = texte.strip()
+        nom = emetteur.get("nom") or emetteur["code"]
+        # « FIN » : la conversation avec la plateforme s'arrête, Liluvine reprend la main
+        if _sans_accents(question.lower()).rstrip(".!") in MOTS_FIN_ASSISTANT:
+            await db.liluvine_assistant_sessions.delete_one({"numero": chiffres})
+            await send_text(de, f"✅ Conversation avec {nom} terminée. Écrivez « !{emetteur['code']} » suivi de votre question pour la reprendre.")
+            return {"traite": True, "action": "fin_assistant", "emetteur": emetteur["code"]}
+    resultat = await _repondre_par_assistant(db, emetteur, de, chiffres, question or "aide", send_text)
+    if resultat:
+        await db.liluvine_assistant_sessions.update_one({"numero": chiffres}, {"$set": {
+            "emetteur": emetteur["code"], "jusqu_a": (maintenant + DUREE_SESSION_ASSISTANT).isoformat(),
+            "maj_le": maintenant.isoformat()}}, upsert=True)
+    return resultat
+
+
 async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Optional[str],
                                   fichier_local: Optional[str] = None, mime: Optional[str] = None,
                                   nom_fichier: Optional[str] = None, cite_message_id: Optional[str] = None,
@@ -285,6 +365,12 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
     chiffres = _chiffres(de)
     if not chiffres:
         return {"traite": False}
+    # Lot 103 : mot-clé d'une plateforme (« ZandGo … ») ou session ouverte avec son assistant
+    if type_message == "text" and (texte or "").strip() and send_text \
+            and (texte or "").strip().lower().rstrip(".!") not in (MOTS_STOP | MOTS_REPRENDRE):
+        par_mot_cle = await _session_assistant(db, de, chiffres, texte, send_text)
+        if par_mot_cle:
+            return par_mot_cle
     # Dernière transmission vers ce numéro (ou celle citée par le client)
     trans = None
     if cite_message_id:
@@ -333,15 +419,9 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
     # est renvoyée au client (ZandGo : statut des commandes de CE numéro, fiches produits…).
     if (type_message == "text" and (texte or "").strip() and emetteur.get("url_assistant")
             and emetteur.get("actif", True) is not False and send_text):
-        rep = await interroger_assistant(db, emetteur, chiffres, texte.strip())
-        if rep:
-            envoi = await send_text(de, str(rep["reponse"])[:3800])
-            await db.liluvine_assistant_journal.insert_one({
-                "emetteur": code, "numero": chiffres, "question": texte.strip()[:500], "intention": rep.get("intention"),
-                "envoye": bool((envoi or {}).get("ok")) if isinstance(envoi, dict) else True, "date": _maintenant().isoformat()})
-            return {"traite": True, "action": "reponse_assistant", "emetteur": code, "nom": nom,
-                    "reponse": str(rep["reponse"])[:3800],
-                    "message_id": (envoi or {}).get("message_id") if isinstance(envoi, dict) else None}
+        resultat = await _repondre_par_assistant(db, emetteur, de, chiffres, texte.strip(), send_text)
+        if resultat:
+            return resultat
 
     # Lot 83 (08/10/2026) — « tous mes autres messages à ce numéro sont lus aussi par ALBARKA » :
     # seule une RÉPONSE CITÉE (« Répondre » sur le message de la plateforme) est relayée. Un message

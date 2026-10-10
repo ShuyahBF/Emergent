@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "103", "date": "2026-10-10",
+        "titre": "🔑 « !zandgo … » : l'assistant de la plateforme à tout moment",
+        "description": "Un message WhatsApp qui commence par « ! » et le code d'une plateforme dotée d'une adresse d'assistant (« !zandgo où est ma commande ? », casse indifférente) lui est posé à tout moment ; la conversation continue 30 min sans la commande, « FIN » rend la main à Liluvine.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "102", "date": "2026-10-10",
         "titre": "🛍️ Liluvine répond aux clients de ZandGo",
         "description": "Un client qui écrit dans les 72 h suivant un message d'une plateforme dotée d'une « Adresse de l'assistant » reçoit la réponse de celle-ci (statut de ses commandes, fiche d'un produit) ; sinon Liluvine répond comme avant.",

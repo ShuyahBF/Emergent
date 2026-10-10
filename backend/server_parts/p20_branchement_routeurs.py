@@ -663,6 +663,10 @@ _journal_ia.installer(api=api, db=db, get_current_admin=get_current_admin)
 from routes.facebook_animation import attach_facebook_animation_routes as _attach_fb_animation  # noqa: E402
 _attach_fb_animation(api=api, db=db, get_current_admin=get_current_admin)
 
+# Lot 105 — kit de lancement de la Page Facebook beAuthentik (visuels publics, textes « À propos », 8 publications)
+from routes.facebook_kit import attach_facebook_kit_routes as _attach_fb_kit  # noqa: E402
+_attach_fb_kit(api=api, db=db, get_current_admin=get_current_admin)
+
 # Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (push notifications)
 from routes.google_calendar_watch import (  # noqa: E402
     attach_google_calendar_watch_routes as _attach_gcal_watch,

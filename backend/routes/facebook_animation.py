@@ -223,6 +223,11 @@ async def publier(db, pid: str, par: str) -> Dict[str, Any]:
     if pub["statut"] not in ("a_valider", "echec"):
         raise HTTPException(status_code=409, detail="Cette publication n'est plus à publier")
     try:
+        # Lot 105 — une publication du kit de lancement ne part QUE sur la page propre de la plateforme
+        if pub.get("type") == "kit":
+            s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "fb_animation_page": 1}) or {}
+            if not (s.get("fb_animation_page") or {}).get("jeton"):
+                raise RuntimeError("choisissez d'abord la Page de la plateforme (le kit n'est jamais publié sur la page de SAWALI)")
         post_id = await publier_sur_facebook(db, pub["texte"], pub["image_url"])
     except Exception as exc:  # noqa: BLE001
         maj = {"statut": "echec", "erreur": str(getattr(exc, "detail", exc))[:300], "tente_le": _iso()}
@@ -230,6 +235,8 @@ async def publier(db, pid: str, par: str) -> Dict[str, Any]:
         return maj
     maj = {"statut": "publie", "post_id": post_id, "publie_le": _iso(), "publie_par": par, "erreur": None}
     await db.fb_publications.update_one({"id": pid}, {"$set": maj})
+    if pub.get("type") == "kit":   # lot 105 : publication de lancement, aucun membre à signaler à la plateforme
+        return maj
     try:   # la plateforme note la publication (le membre n'est plus proposé avant 60 jours)
         emetteur = await db.liluvine_emetteurs.find_one({"code": pub["plateforme"]}, {"_id": 0})
         if emetteur:

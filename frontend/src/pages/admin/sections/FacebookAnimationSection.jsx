@@ -8,6 +8,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import KitFacebookBloc from "./KitFacebookBloc";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];   // 0 = lundi (comme le serveur)
 const LIBELLES = { a_valider: "À valider", publie: "Publiée", refuse: "Refusée", refuse_ia: "Bio refusée par l'IA", echec: "Échec" };
@@ -141,6 +142,9 @@ export default function FacebookAnimationSection() {
         )}
       </div>
 
+      {/* Lot 105 — kit de lancement de la Page (visuels, textes « À propos », 8 publications) */}
+      <KitFacebookBloc pagePropre={etat.page.propre} onCharge={charger} />
+
       {/* Réglages */}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex items-center gap-2 text-sm">
@@ -193,8 +197,9 @@ export default function FacebookAnimationSection() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {etat.publications.map((p) => (
             <div key={p.id} className="overflow-hidden rounded-lg border border-slate-200">
-              <img src={p.image_url} alt={p.prenom || "Membre"} className="aspect-square w-full object-cover" />
+              <img src={p.image_url} alt={p.prenom || "Membre"} className={`${p.type === "kit" ? "aspect-[4/5]" : "aspect-square"} w-full object-cover`} />
               <div className="space-y-2 p-2 text-xs">
+                {p.type === "kit" && <p className="font-semibold text-slate-800">Lancement {p.rang}/8 · {p.prenom}</p>}
                 <span className={`inline-block rounded-full px-2 py-0.5 font-semibold ${COULEURS[p.statut]}`}>{LIBELLES[p.statut]}</span>
                 {p.statut === "refuse_ia" && <p className="text-rose-700">Raison : {p.avis_ia?.raison}</p>}
                 {p.erreur && <p className="text-rose-700">{p.erreur}</p>}

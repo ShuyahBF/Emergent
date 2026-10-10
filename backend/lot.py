@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "98"
-LOT_LIBELLE = "Synthèse des requêtes à l'IA (Claude) et règles des réponses du support (réponses courtes, pastilles des assistants, relais vers Claude)"
+LOT = "99"
+LOT_LIBELLE = "Réponse automatique de Liluvine dans le support des plateformes web (règles du support) et erreur de lecture des pages Facebook expliquée (bouton Reconnecter Facebook)"

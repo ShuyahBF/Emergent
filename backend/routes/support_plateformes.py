@@ -304,6 +304,94 @@ async def en_attente(db) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lot 99 — RÉPONSE AUTOMATIQUE DE LILUVINE dans le support des plateformes web (comme le Support Loois)
+# Demande du propriétaire (10/10/2026) : « Le support des plateformes web n'a pas encore de réponse automatique de
+# Liluvine… Si, l'implémenter. » Mêmes règles que le lot 98 (routes/regles_support.py) :
+#   1. réponses courtes, sans procédure à nombreux clics ;
+#   2. dialogue court : au plus LILUVINE_TOURS_MAX réponses par requête (réponse + 2 questions d'éclaircissement),
+#      puis Liluvine passe la main à un agent ; sans nouvelle réponse, la requête se clôt seule (12 h) ;
+#   3. pastille de l'assistant concerné (comptable, technicien…) en tête du message ;
+#   4. si Liluvine ne sait pas, Claude répond à sa place (sans lire le code).
+# Liluvine ne répond que tant que la requête est « en attente » : dès qu'un agent répond, elle se tait.
+# Réglage par plateforme : champ `liluvine_auto` de l'émetteur (activé par défaut), rubrique
+# « 🛟 Support des plateformes web ».
+# ---------------------------------------------------------------------------
+LILUVINE_TOURS_MAX = 3
+TEXTE_RELAIS = "Je transmets votre demande à un agent du support : il vous répond dès que possible."
+SYSTEME_PLATEFORME = (
+    "Tu es Liluvine, l'assistante du support SAWALI SMART SYSTEMS. Tu réponds dans la fenêtre d'assistance de la "
+    "plateforme web « {plateforme} » à un utilisateur ({role}). Réponds en français, avec politesse. Aide "
+    "l'utilisateur à décrire précisément son problème (page concernée, message d'erreur, ce qu'il a fait) et donne une "
+    "solution seulement si tu en es sûre. Il peut joindre une capture d'écran avec le pictogramme image. N'invente "
+    "jamais de fonction ni de procédure. Ne demande jamais de mot de passe, de code reçu ni de clé."
+)
+
+
+def liluvine_auto(emetteur: Dict[str, Any]) -> bool:
+    """Réponse automatique de Liluvine activée pour cette plateforme (oui par défaut)."""
+    return emetteur.get("liluvine_auto", True) is not False
+
+
+def transcrire_fil(messages: List[Dict[str, Any]], did: str) -> str:
+    """Fil lisible par l'IA : « [10:42] Utilisateur : … » ; pièces jointes signalées par leur type."""
+    lignes = []
+    for m in messages:
+        heure = str(m.get("created_at") or "")[11:16]
+        qui = "Utilisateur" if m.get("sender_id") == did else (m.get("sender_name") or "Support")
+        contenu = (m.get("text") or "").strip()
+        if m.get("media_kind"):
+            contenu = f"[{m['media_kind']} joint] {contenu}".strip()
+        if contenu:
+            lignes.append(f"[{heure}] {qui} : {contenu}")
+    return "\n".join(lignes)
+
+
+async def reponse_liluvine_plateforme(db, emetteur: Dict[str, Any], d: Dict[str, Any], r: Dict[str, Any]) -> tuple:
+    """→ (texte, origine, pastille) ; texte vide = Liluvine se tait. Origine « liluvine », « claude » ou « relais »."""
+    from routes import support_loois_sessions as sessions
+    from routes.regles_support import REGLES_REPONSE, pastille
+    code = emetteur["code"]
+    tours = int(r.get("liluvine_tours") or 0)
+    if tours >= LILUVINE_TOURS_MAX:
+        # Règle 2 : après le dialogue court, Liluvine passe la main UNE fois puis se tait
+        return ("", "relais", None) if r.get("liluvine_relais") else (TEXTE_RELAIS, "relais", None)
+    messages = [m async for m in db.internal_chat_messages.find(requete_fil(espace_id(code), d["id"]), {"_id": 0})
+                .sort("created_at", -1).limit(20)]
+    messages.reverse()
+    if not messages:
+        return "", "liluvine", None
+    question = " ".join(m.get("text") or "" for m in messages if m.get("sender_id") == d["id"])[-500:]
+    systeme = SYSTEME_PLATEFORME.format(plateforme=emetteur.get("nom") or code, role=d.get("role") or "utilisateur")
+    systeme += REGLES_REPONSE + (
+        f"3. Si tu ne connais pas la réponse avec certitude, réponds UNIQUEMENT {sessions.MARQUE_CLAUDE} : Claude, "
+        "l'ingénieur de SAWALI, répondra à ta place.")
+    if tours == LILUVINE_TOURS_MAX - 1:
+        systeme += "\nC'est ta dernière réponse : conclus, sans nouvelle question ; un agent prendra le relais si besoin."
+    try:
+        from routes.liluvine_kb import build_kb_context
+        connaissances = await build_kb_context(db, max_chars=4000, query=question or None, audience="clients")
+    except Exception:  # noqa: BLE001 — sans base de connaissances, Liluvine répond quand même
+        connaissances = ""
+    if connaissances:
+        systeme += "\n\n" + connaissances
+    transcript = transcrire_fil(messages, d["id"])
+    texte = (await sessions.appeler_ia(systeme, f"Conversation :\n{transcript}\n\nTa réponse :",
+                                       sessions.MODELE_REPONSE))[:2000]
+    origine = "liluvine"
+    if sessions.MARQUE_CLAUDE in texte:
+        # Règle 4 : Liluvine ne sait pas → Claude répond à sa place (sans lire le code)
+        try:
+            texte = (await sessions.appeler_claude_assistance(
+                f"Plateforme : {emetteur.get('nom') or code}\nConversation :\n{transcript}\n\nTa réponse :"))[:2000]
+            origine = "claude" if texte else "relais"
+        except Exception:  # noqa: BLE001
+            texte, origine = "", "relais"
+        texte = texte or TEXTE_RELAIS
+    p = await pastille(db, question, texte, defaut_technique=(origine == "claude"))
+    return texte, origine, p
+
+
 def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_user) -> None:
     """Routes signées des plateformes + routes de l'équipe du support (ajoutées au routeur du chat interne :
     même gestionnaire de connexions, un message d'utilisateur est poussé en direct à l'équipe)."""
@@ -352,14 +440,45 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         return {"numero": r["numero"], "statut": r["statut"], "libelle": LIBELLES_STATUT.get(r["statut"], r["statut"]),
                 "ouverte_le": r["ouverte_le"], "prise_par": r.get("prise_par")}
 
-    async def avis_pour_plateforme(emetteur: Dict[str, Any], d: Dict[str, Any], texte: str) -> None:
-        """Lot 91 — avis de Claude sur une demande d'ajout / de correction de fonctionnalité de la plateforme."""
+    async def repondre_liluvine(emetteur: Dict[str, Any], d: Dict[str, Any], rid: str) -> None:
+        """Lot 99 — réponse de Liluvine dans le fil de l'utilisateur, si aucun agent n'a pris la requête."""
+        from routes import support_loois_sessions as sessions
+        from routes.regles_support import nom_affiche
+        try:
+            r = await db.support_plateformes_requetes.find_one({"id": rid}, {"_id": 0})
+            if not r or r.get("statut") != "attente":
+                return
+            texte, origine, p = await reponse_liluvine_plateforme(db, emetteur, d, r)
+            # Un agent a pu répondre pendant que l'IA rédigeait : Liluvine se tait
+            r = await db.support_plateformes_requetes.find_one({"id": rid}, {"_id": 0, "statut": 1})
+            if not texte or not r or r.get("statut") != "attente":
+                return
+            code = emetteur["code"]
+            doc = {"id": str(uuid.uuid4()), "client_id": espace_id(code), "sender_id": sessions.LILUVINE_ID,
+                   "sender_name": nom_affiche(sessions.LILUVINE_NOM, p), "recipient_id": d["id"], "text": texte,
+                   "created_at": now_iso(), "read_by": [sessions.LILUVINE_ID], "liluvine": origine}
+            if p:
+                doc["pastille"] = p
+            await db.internal_chat_messages.insert_one(doc.copy())
+            maj = {"$inc": {"liluvine_tours": 1}} if origine != "relais" else {"$set": {"liluvine_relais": True}}
+            await db.support_plateformes_requetes.update_one({"id": rid}, maj)
+            await diffuser_equipe({"type": "message", "client_id": espace_id(code), "message": doc})
+        except Exception:  # noqa: BLE001 — Liluvine ne bloque jamais le support
+            log.warning("[support_plateformes] réponse Liluvine impossible", exc_info=True)
+
+    async def apres_message(emetteur: Dict[str, Any], d: Dict[str, Any], r: Dict[str, Any], texte: str) -> None:
+        """Avis de Claude si c'est une demande de fonctionnalité ; sinon réponse habituelle de Liluvine."""
+        from routes import support_loois_sessions as sessions
+        pris = False
         try:
             code = emetteur["code"]
-            await avis_claude.traiter(db, source="plateforme", espace=espace_id(code), fil=d["id"], plateforme=code,
-                                      plateforme_nom=emetteur.get("nom") or code, demandeur_nom=d["nom"], texte=texte)
+            pris = await avis_claude.traiter(db, source="plateforme", espace=espace_id(code), fil=d["id"],
+                                             plateforme=code, plateforme_nom=emetteur.get("nom") or code,
+                                             demandeur_nom=d["nom"], texte=texte)
         except Exception:  # noqa: BLE001
             log.warning("[support_plateformes] avis Claude impossible", exc_info=True)
+        if not pris and liluvine_auto(emetteur) and sessions.liluvine_active():
+            await repondre_liluvine(emetteur, d, r["id"])
 
     @router.post("/support-plateforme/messages", tags=["Support des plateformes"])
     async def message_utilisateur(request: Request):
@@ -386,8 +505,9 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         if r["statut"] == "attente":
             await diffuser_equipe({"type": "support_plateforme_requete", "client_id": espace_id(code),
                                    "requete": {**r, "espace_nom": libelle_espace(emetteur)}})
-        # Lot 91 — demande de fonctionnalité : Liluvine la transmet à Claude (tâche de fond, jamais bloquante)
-        avis_claude.lancer(avis_pour_plateforme(emetteur, d, texte))
+        # Lot 91 — demande de fonctionnalité : Liluvine la transmet à Claude ; lot 99 — sinon Liluvine répond
+        # elle-même tant que la requête est en attente (tâche de fond, jamais bloquante)
+        avis_claude.lancer(apres_message(emetteur, d, r, texte))
         return {"ok": True, "message": {"id": doc["id"], "texte": texte, "le": doc["created_at"], "de": "moi"},
                 "requete": vue_requete(r)}
 
@@ -417,6 +537,7 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
                      "de": "moi" if m.get("sender_id") == did else "support",
                      "auteur": None if m.get("sender_id") == did else (m.get("sender_name") or "Support SAWALI"),
                      "systeme": bool(m.get("systeme")),
+                     "pastille": m.get("pastille"),   # lot 99 : assistant de Liluvine concerné
                      "media": vue_media(m)} for m in lignes]   # lot 93 : photo, document, vidéo
         r = await requete_en_cours(db, did)
         return {"messages": messages, "non_lus": int(non_lus), "requete": vue_requete(r),
@@ -575,10 +696,12 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
         """Plateformes enregistrées, support activé ou non, requêtes en attente / en cours / du mois."""
         debut_mois = _maintenant().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         out = []
-        async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1, "nom": 1, "actif": 1, "support_actif": 1}).sort("nom", 1):
+        async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1, "nom": 1, "actif": 1, "support_actif": 1,
+                                                               "liluvine_auto": 1}).sort("nom", 1):
             q = {"plateforme": e["code"]}
             out.append({"code": e["code"], "nom": e.get("nom") or e["code"], "libelle": libelle_espace(e),
                         "actif": e.get("actif", True), "support_actif": bool(e.get("support_actif")),
+                        "liluvine_auto": liluvine_auto(e),   # lot 99
                         "attente": await db.support_plateformes_requetes.count_documents({**q, "statut": "attente"}),
                         "en_cours": await db.support_plateformes_requetes.count_documents({**q, "statut": "active"}),
                         "ce_mois": await db.support_plateformes_requetes.count_documents({**q, "ouverte_le": {"$gte": debut_mois}})})
@@ -593,8 +716,11 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
             corps = await request.json()
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=422, detail="corps JSON attendu")
-        res = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": {
-            "support_actif": bool((corps or {}).get("support_actif"))}})
+        # Lot 99 : on ne modifie que les champs envoyés (support_actif et/ou liluvine_auto)
+        maj = {k: bool(v) for k, v in (corps or {}).items() if k in ("support_actif", "liluvine_auto")}
+        if not maj:
+            raise HTTPException(status_code=422, detail="support_actif ou liluvine_auto attendu")
+        res = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": maj})
         if not res.matched_count:
             raise HTTPException(status_code=404, detail="Plateforme inconnue")
-        return {"ok": True, "code": code, "support_actif": bool((corps or {}).get("support_actif"))}
+        return {"ok": True, "code": code, **maj}

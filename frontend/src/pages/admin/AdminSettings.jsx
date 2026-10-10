@@ -100,7 +100,7 @@ const NEW_LOTS = {
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "94",   // lot 94 : carte sans lien → page de présentation du site ; son des appels sortants
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
-  "🛟 Support des plateformes web": "93",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale
+  "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
   "🔑 Postes Loois sans clé client (alerte)": "89",   // lot 89 : alerte admin + superviseur, aucun message sur le poste
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
@@ -117,7 +117,7 @@ const NEW_LOTS = {
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
   "📈 Disponibilité (/uptime) — journal des sondes": "95",
-  "📣 Page Facebook animée par Liluvine": "96",
+  "📣 Page Facebook animée par Liluvine": "99",   // lot 96 ; lot 99 : message clair + « Reconnecter Facebook »
   "🧮 Consommation de l'IA (requêtes à Claude)": "98",   // lot 95 : sondes corrigées + remise à zéro du journal
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
@@ -139,7 +139,7 @@ const NEW_SECTIONS = {
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-09",   // lot 94
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
-  "🛟 Support des plateformes web": "2026-10-09",   // lot 90, lot 93
+  "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
   "🔑 Postes Loois sans clé client (alerte)": "2026-10-09",   // lot 89
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
@@ -156,7 +156,7 @@ const NEW_SECTIONS = {
   "🖥️ Postes et serveurs — signal de présence": "2026-10-07",
   "⚡ Santé du serveur — blocages": "2026-10-07",
   "📈 Disponibilité (/uptime) — journal des sondes": "2026-10-09",
-  "📣 Page Facebook animée par Liluvine": "2026-10-09",
+  "📣 Page Facebook animée par Liluvine": "2026-10-10",
   "🧮 Consommation de l'IA (requêtes à Claude)": "2026-10-10",
   // Lots 67 et 67.1 (06/10/2026) — Liluvine appelle le propriétaire, historique des appels (durée, coût)
   "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
@@ -220,12 +220,12 @@ const NEW_SECTIONS = {
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
-  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96).",
+  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Une carte sans lien (ou une carte produit) mène à sa page de présentation sur le site (photo, titre, prix, description) au lieu d'une erreur ; son des appels WhatsApp sortants rétabli côté PC (lot 94).",
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
-  "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93).",
+  "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
   "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",

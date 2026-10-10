@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.4", "date": "2026-10-10",
+        "titre": "📥 Nouveaux numéros dans votre espace",
+        "description": "Après un « Rattacher à mon espace », les messages des numéros inconnus arrivent directement dans votre Centre de messagerie (avant : dans l'espace du premier superviseur trouvé).",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "104.3", "date": "2026-10-10",
         "titre": "🔎 Retrouver un numéro",
         "description": "Un message relayé sur votre WhatsApp mais absent du Centre de messagerie ? Saisissez le numéro : SAWALI dit où ses messages sont rangés (autre espace, sans fiche, ligne non autorisée, retenus) et les rattache à votre espace en un clic.",

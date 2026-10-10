@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "104.3"
-LOT_LIBELLE = "Retrouver un numéro : messages absents du Centre de messagerie (diagnostic et rattachement en un clic)"
+LOT = "104.4"
+LOT_LIBELLE = "Messages des nouveaux numéros WhatsApp rangés dans l'espace de l'administrateur (plus d'« autre espace »)"

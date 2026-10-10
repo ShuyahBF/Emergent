@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "102", "date": "2026-10-10",
+        "titre": "🛍️ Liluvine répond aux clients de ZandGo",
+        "description": "Un client qui écrit dans les 72 h suivant un message d'une plateforme dotée d'une « Adresse de l'assistant » reçoit la réponse de celle-ci (statut de ses commandes, fiche d'un produit) ; sinon Liluvine répond comme avant.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "101", "date": "2026-10-10",
         "titre": "💾 Sauvegarde nocturne sans arrêt du serveur",
         "description": "La sauvegarde complète copie désormais les données par lots de 4 Mo au plus : elle ne fait plus dépasser la mémoire du serveur (arrêt automatique de Render la nuit).",

@@ -20,6 +20,11 @@ Ce module regroupe tout ce qui complète l'envoi (routes/liluvine_send_webhook.p
 
 4. ALERTE e-mail à l'administrateur en cas de série d'échecs ou de signatures
    refusées pour un émetteur (au plus une alerte par heure et par émetteur).
+
+5. ASSISTANT DE LA PLATEFORME (lot 102, ZandGo d'abord) : quand un client écrit à SAWALI dans les 72 h
+   qui suivent un message d'une plateforme dotée d'une « adresse de l'assistant », Liluvine pose la
+   question à la plateforme (appel signé avec sa clé) et renvoie SA réponse au client : statut d'une
+   commande, fiche d'un produit… Si la plateforme ne répond pas, Liluvine reprend la main comme avant.
 """
 from __future__ import annotations
 
@@ -230,6 +235,33 @@ async def mettre_a_jour_statut(db, message_id: str, statut: str, erreur: Optiona
 
 
 # ---------------------------------------------------------------------------
+# 5. Assistant de la plateforme (lot 102)
+# ---------------------------------------------------------------------------
+async def interroger_assistant(db, emetteur: Dict[str, Any], numero: str, texte: str) -> Optional[Dict[str, Any]]:
+    """Pose la question du client à l'assistant de la plateforme (POST signé, 12 s au plus).
+    Renvoie la réponse JSON ({"reponse": …, "intention": …}) ou None si la plateforme ne répond pas."""
+    url = (emetteur.get("url_assistant") or "").strip()
+    cle = (emetteur.get("secret") or "").encode()
+    if not url or not cle:
+        return None
+    brut = json.dumps({"telephone": numero, "texte": texte[:500]}, ensure_ascii=False)
+    ts = str(int(time.time()))
+    signature = hmac.new(cle, f"{ts}.{brut}".encode(), hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=12) as http:
+            r = await http.post(url, content=brut.encode(), headers={
+                "Content-Type": "application/json", "X-Emetteur": "sawali", "X-Timestamp": ts, "X-Signature": signature})
+        if r.status_code < 300:
+            donnees = r.json()
+            if isinstance(donnees, dict) and str(donnees.get("reponse") or "").strip():
+                return donnees
+    except Exception:  # noqa: BLE001
+        logger.warning("[liluvine_relais] assistant %s injoignable", emetteur.get("code"), exc_info=True)
+    await noter_incident(db, emetteur.get("code") or "?", "assistant_injoignable")
+    return None
+
+
+# ---------------------------------------------------------------------------
 # 3. Messages entrants : réponses relayées, STOP / REPRENDRE
 # ---------------------------------------------------------------------------
 def _chiffres(numero: str) -> str:
@@ -266,6 +298,7 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
         if trans and not cite_message_id:
             plus_recent = await db.whatsapp_messages.find_one(
                 {"direction": "outbound", "created_at": {"$gt": trans["date"]},
+                 "assistant_plateforme": {"$exists": False},          # lot 102 : réponses de l'assistant exclues
                  "$or": [{"phone_digits": chiffres}, {"to": {"$regex": chiffres + "$"}}]},
                 {"_id": 1})
             if plus_recent:
@@ -295,6 +328,20 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
         if r.modified_count and send_text:
             await send_text(de, f"✅ C'est noté : vous recevrez de nouveau les messages de {nom}.")
         return {"traite": bool(r.modified_count), "action": "reinscription", "emetteur": code}
+
+    # Lot 102 — assistant de la plateforme : la question du client (texte) lui est posée et SA réponse
+    # est renvoyée au client (ZandGo : statut des commandes de CE numéro, fiches produits…).
+    if (type_message == "text" and (texte or "").strip() and emetteur.get("url_assistant")
+            and emetteur.get("actif", True) is not False and send_text):
+        rep = await interroger_assistant(db, emetteur, chiffres, texte.strip())
+        if rep:
+            envoi = await send_text(de, str(rep["reponse"])[:3800])
+            await db.liluvine_assistant_journal.insert_one({
+                "emetteur": code, "numero": chiffres, "question": texte.strip()[:500], "intention": rep.get("intention"),
+                "envoye": bool((envoi or {}).get("ok")) if isinstance(envoi, dict) else True, "date": _maintenant().isoformat()})
+            return {"traite": True, "action": "reponse_assistant", "emetteur": code, "nom": nom,
+                    "reponse": str(rep["reponse"])[:3800],
+                    "message_id": (envoi or {}).get("message_id") if isinstance(envoi, dict) else None}
 
     # Lot 83 (08/10/2026) — « tous mes autres messages à ce numéro sont lus aussi par ALBARKA » :
     # seule une RÉPONSE CITÉE (« Répondre » sur le message de la plateforme) est relayée. Un message

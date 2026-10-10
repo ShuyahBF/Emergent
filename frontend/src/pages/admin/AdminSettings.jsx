@@ -124,7 +124,7 @@ const NEW_LOTS = {
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "79.6",   // lot 79.6 : écran « Messages bloqués »
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
-  "Transmission WA Universelle Liluvine (webhook entrant)": "84",   // lots 83-84 : réponses citées, transmises ou non
+  "Transmission WA Universelle Liluvine (webhook entrant)": "102",   // lots 83-84 : réponses citées ; lot 102 : assistant de la plateforme
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "59",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "57.8",
   "Service d'envoi des e-mails (Resend, ZeptoMail, Brevo, SMTP)": "52",
@@ -165,7 +165,7 @@ const NEW_SECTIONS = {
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-08",   // lot 79.6
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
-  "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-08",   // lots 83-84
+  "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-10",   // lot 102
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "2026-10-06",
   // Lot 57.8 — encaissement PI-SPI (QR de la banque sur les factures émises par SAWALI)
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "2026-10-04",
@@ -232,7 +232,7 @@ const NEW_DESCRIPTIONS = {
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "Numéros interdits aux commandes « ! » avec message de refus de Liluvine (lot 61).",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
-  "Transmission WA Universelle Liluvine (webhook entrant)": "URL des statistiques internes de chaque plateforme (lot 62).",
+  "Transmission WA Universelle Liluvine (webhook entrant)": "Adresse de l'assistant de chaque plateforme : Liluvine lui pose les questions de ses clients (lot 102).",
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "Plusieurs numéros (Standard, VIP, Publicités), couleurs des pastilles, appels (lots 59-60).",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "QR de paiement instantané de la banque sur les factures (lot 57.8).",
 };

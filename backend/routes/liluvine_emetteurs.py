@@ -31,6 +31,7 @@ class NouvelEmetteur(BaseModel):
     quota_jour: Optional[int] = 500
     url_retour: Optional[str] = None   # https://<plateforme>/api/webhooks/liluvine-retour (lot 57.5)
     url_stats: Optional[str] = None    # lot 62 — statistiques internes (vide = URL de retour)
+    url_assistant: Optional[str] = None  # lot 102 — assistant de la plateforme (Liluvine lui pose les questions des clients)
 
 
 class ModifEmetteur(BaseModel):
@@ -41,6 +42,9 @@ class ModifEmetteur(BaseModel):
     url_stats: Optional[str] = None    # lot 62
     # Lot 84 : réponses des clients (« Répondre » sur un message de la plateforme) transmises ou non
     reponses_transmises: Optional[bool] = None
+    # Lot 102 : adresse de l'assistant de la plateforme (ex. ZandGo : https://…/api/liluvine/question) ;
+    # vide = Liluvine ne l'interroge pas
+    url_assistant: Optional[str] = None
 
 
 def _url_retour_valide(url: Optional[str]) -> str:
@@ -85,6 +89,7 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             "quota_jour": max(1, int(donnees.quota_jour or 500)), "cree_le": maintenant,
             "url_retour": _url_retour_valide(donnees.url_retour),
             "url_stats": _url_retour_valide(donnees.url_stats),   # lot 62
+            "url_assistant": _url_retour_valide(donnees.url_assistant),   # lot 102
             "cle_regeneree_le": maintenant, "cree_par": admin.get("email"),
         })
         return {"code": code, "cle": cle}
@@ -116,6 +121,8 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["url_stats"] = _url_retour_valide(donnees.url_stats)
         if donnees.reponses_transmises is not None:   # lot 84
             changements["reponses_transmises"] = bool(donnees.reponses_transmises)
+        if donnees.url_assistant is not None:   # lot 102 — assistant de la plateforme
+            changements["url_assistant"] = _url_retour_valide(donnees.url_assistant)
         if not changements:
             return {"ok": True}
         r = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": changements})

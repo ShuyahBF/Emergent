@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104", "date": "2026-10-10",
+        "titre": "🔐 Codes de connexion WhatsApp toujours remis",
+        "description": "Les codes OTP des plateformes (ZandGo…) partent par un modèle WhatsApp d'authentification créé chez Meta en un clic : ils arrivent même à un nouveau client qui n'a jamais écrit ; le journal affiche le motif d'un échec de remise.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "103", "date": "2026-10-10",
         "titre": "🔑 « !zandgo … » : l'assistant de la plateforme à tout moment",
         "description": "Un message WhatsApp qui commence par « ! » et le code d'une plateforme dotée d'une adresse d'assistant (« !zandgo où est ma commande ? », casse indifférente) lui est posé à tout moment ; la conversation continue 30 min sans la commande, « FIN » rend la main à Liluvine.",

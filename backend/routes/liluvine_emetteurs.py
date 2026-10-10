@@ -19,6 +19,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -58,6 +59,35 @@ def _url_retour_valide(url: Optional[str]) -> str:
 def _nouvelle_cle() -> str:
     """Clé aléatoire forte : 48 octets -> 64 caractères (base64 URL)."""
     return secrets.token_urlsafe(48)
+
+
+# ---------------------------------------------------------------------- lot 104 : modèle OTP (authentification)
+NOM_MODELE_OTP = "code_connexion_plateformes"
+WA_GRAPH_VERSION = "v21.0"
+
+
+def corps_modele_otp(nom: str, langue: str = "fr") -> dict:
+    """Corps POST /{waba}/message_templates d'un modèle d'AUTHENTIFICATION Meta : texte imposé par Meta
+    (« *123456* est votre code de vérification »), rappel « ne le partagez pas », expiration 5 min,
+    bouton « Copier le code ». Ce type de modèle part même hors de la fenêtre de 24 h."""
+    return {"name": nom, "language": langue, "category": "AUTHENTICATION", "components": [
+        {"type": "BODY", "add_security_recommendation": True},
+        {"type": "FOOTER", "code_expiration_minutes": 5},
+        {"type": "BUTTONS", "buttons": [{"type": "OTP", "otp_type": "COPY_CODE", "text": "Copier le code"}]},
+    ]}
+
+
+async def statut_modele_meta(reg: dict, nom: str) -> Optional[str]:
+    """État d'un modèle chez Meta (APPROVED, PENDING, REJECTED…), None si Meta ne répond pas."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{reg['wa_business_account_id']}/message_templates",
+                               params={"name": nom, "fields": "name,status,language"},
+                               headers={"Authorization": f"Bearer {reg['wa_access_token']}"})
+        donnees = (r.json() or {}).get("data") or [] if r.status_code < 300 else []
+        return donnees[0].get("status") if donnees else "INTROUVABLE"
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
@@ -136,6 +166,48 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         if not r.deleted_count:
             raise HTTPException(status_code=404, detail="Émetteur introuvable")
         return {"ok": True}
+
+    # ------------------------------------------------------------------ lot 104 : modèle des codes de connexion
+    @router.get("/liluvine-modele-otp")
+    async def modele_otp(admin: dict = Depends(get_current_admin)):
+        """Modèle WhatsApp d'AUTHENTIFICATION utilisé pour les codes de connexion des plateformes,
+        avec son état chez Meta (APPROVED, PENDING, REJECTED…) quand il est connu."""
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_modele_otp": 1,
+                                                             "liluvine_modele_otp_langue": 1,
+                                                             "wa_access_token": 1, "wa_business_account_id": 1}) or {}
+        nom = (reg.get("liluvine_modele_otp") or "").strip()
+        sortie = {"nom": nom, "langue": reg.get("liluvine_modele_otp_langue") or "fr", "statut_meta": None,
+                  "nom_propose": NOM_MODELE_OTP}
+        if nom and reg.get("wa_access_token") and reg.get("wa_business_account_id"):
+            sortie["statut_meta"] = await statut_modele_meta(reg, nom)
+        return sortie
+
+    @router.post("/liluvine-modele-otp/creer")
+    async def creer_modele_otp(donnees: dict = Body(default={}), admin: dict = Depends(get_current_admin)):
+        """Crée chez Meta le modèle d'AUTHENTIFICATION (catégorie AUTHENTICATION, bouton « Copier le code »,
+        rappel de sécurité, expiration 5 min) puis l'enregistre comme modèle des codes de connexion.
+        Meta l'approuve en général en quelques minutes."""
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_access_token": 1, "wa_business_account_id": 1}) or {}
+        if not reg.get("wa_access_token") or not reg.get("wa_business_account_id"):
+            raise HTTPException(status_code=400, detail="WhatsApp non configuré (WABA ID et Access Token dans Paramètres)")
+        nom = re.sub(r"[^a-z0-9_]", "", str(donnees.get("nom") or NOM_MODELE_OTP).lower())[:60] or NOM_MODELE_OTP
+        langue = str(donnees.get("langue") or "fr")[:10]
+        corps = corps_modele_otp(nom, langue)
+        try:
+            async with httpx.AsyncClient(timeout=15) as http:
+                r = await http.post(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{reg['wa_business_account_id']}/message_templates",
+                                    json=corps, headers={"Authorization": f"Bearer {reg['wa_access_token']}"})
+            brut = r.json() if r.content else {}
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=504, detail=f"Meta injoignable ({type(exc).__name__})")
+        deja = "already exists" in str(brut).lower() or "existe" in str(brut).lower()
+        if r.status_code >= 300 and not deja:
+            # Jamais de 401/403 renvoyé tel quel (l'interface déconnecterait l'administrateur) : 502
+            msg = ((brut.get("error") or {}).get("error_user_msg") or (brut.get("error") or {}).get("message")) if isinstance(brut, dict) else None
+            raise HTTPException(status_code=502, detail=f"Meta {r.status_code} : {msg or 'refus'}")
+        await db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_modele_otp": nom, "liluvine_modele_otp_langue": langue}},
+                                     upsert=True)
+        return {"ok": True, "nom": nom, "langue": langue, "statut_meta": brut.get("status") or ("EXISTANT" if deja else "PENDING")}
 
     @router.get("/liluvine-transmissions")
     async def journal(limite: int = 100, admin: dict = Depends(get_current_admin)):

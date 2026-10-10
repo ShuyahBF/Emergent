@@ -73,6 +73,17 @@ class LiluvineSendPayload(BaseModel):
     source: Optional[str] = None   # libellé lisible de l'émetteur (facultatif)
     id: Optional[str] = None       # identifiant unique du message (idempotence)
     media: Optional[dict] = None   # média / document joint (protocole v3)
+    # Lot 104 : CODE DE CONNEXION (4 à 8 chiffres). S'il est fourni et qu'un modèle WhatsApp
+    # d'AUTHENTIFICATION est paramétré, le code part par ce modèle (bouton « Copier le code ») :
+    # il arrive même si la personne n'a jamais écrit (hors fenêtre de 24 h).
+    code_otp: Optional[str] = None
+
+
+def composants_otp(code: str) -> list:
+    """Lot 104 — paramètres d'un modèle WhatsApp d'AUTHENTIFICATION : le code dans le corps
+    et dans le bouton « Copier le code » (index 0), comme l'exige Meta."""
+    return [{"type": "body", "parameters": [{"type": "text", "text": code}]},
+            {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": code}]}]
 
 
 def normaliser_numero(brut: str) -> Optional[str]:
@@ -105,7 +116,8 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             {"_id": "global"},
             {"_id": 0, "liluvine_send_webhook_hmac_secret": 1, "liluvine_send_webhook_target_number": 1,
              "liluvine_transmission_modele": 1, "liluvine_transmission_langue": 1,
-             "liluvine_transmission_modele_media": 1},
+             "liluvine_transmission_modele_media": 1,
+             "liluvine_modele_otp": 1, "liluvine_modele_otp_langue": 1},
         ) or {}
 
         # 1) Qui envoie ? Émetteur déclaré (clé propre) ou ancien mode (clé unique des Paramètres)
@@ -171,6 +183,13 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
         modele = (reglages.get("liluvine_transmission_modele") or "").strip()
         langue = (reglages.get("liluvine_transmission_langue") or "fr").strip() or "fr"
         mode = "modele" if (modele and wa_send_template) else "texte"
+        # Lot 104 : code de connexion + modèle d'authentification paramétré → mode « otp » (prioritaire)
+        code_otp = re.sub(r"\D", "", payload.code_otp or "")
+        if payload.code_otp is not None and not 4 <= len(code_otp) <= 8:
+            raise HTTPException(status_code=422, detail="code_otp : 4 à 8 chiffres attendus")
+        modele_otp = (reglages.get("liluvine_modele_otp") or "").strip()
+        if code_otp and modele_otp and wa_send_template and not payload.media:
+            mode = "otp"
         limite = LONGUEUR_MAX_MODELE if mode == "modele" else LONGUEUR_MAX_TEXTE
         if len(message) > limite:
             raise HTTPException(status_code=422, detail=f"Message trop long ({limite} caractères au plus)")
@@ -230,6 +249,10 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 result = None
         if result is not None and media_mode in ("direct", "modele"):
             pass  # déjà envoyé avec le média
+        elif mode == "otp":
+            # Modèle d'authentification Meta : {{1}} = code dans le corps, même code pour le bouton « Copier le code »
+            langue_otp = (reglages.get("liluvine_modele_otp_langue") or "fr").strip() or "fr"
+            result = await wa_send_template(destinataire, modele_otp, langue_otp, composants_otp(code_otp))
         elif mode == "modele":
             composants = [{"type": "body", "parameters": [
                 {"type": "text", "text": quand},
@@ -266,5 +289,5 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
     logger.info("[liluvine_send_webhook] route mounted at POST /api/webhook/liluvine-send")
 
 
-__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload", "normaliser_numero",
+__all__ = ["attach_liluvine_send_webhook_routes", "LiluvineSendPayload", "normaliser_numero", "composants_otp",
            "date_heure_affichee"]

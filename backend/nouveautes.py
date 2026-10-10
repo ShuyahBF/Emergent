@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "107", "date": "2026-10-10",
+        "titre": "🗑️ Supprimer les anciennes sauvegardes R2",
+        "description": "Bloc « Sauvegardes présentes dans R2 » : chaque sauvegarde du bucket (ex. sawali-migration) avec sa date, sa taille et son nombre de fichiers ; cochez les anciennes puis Supprimer (la dernière réussie et celle en cours sont protégées).",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "106", "date": "2026-10-10",
         "titre": "📞 Appels de relance demandés par les plateformes",
         "description": "ZandGo (et toute plateforme déclarée) peut demander à Liluvine d'appeler un client, par exemple après une commande non payée : l'appel arrive dans l'agenda de Liluvine (type « Relance ») et la plateforme en lit le résumé.",

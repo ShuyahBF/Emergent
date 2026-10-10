@@ -857,3 +857,125 @@ async def purger_maintenant(_: dict = Depends(get_current_admin)):
                                                 important=bool(resultat["erreurs"]), maintenant=maintenant)
     await mr.db.migration_programmation.update_one({"_id": DOC_ID}, {"$set": {"derniere_purge": resultat}})
     return resultat
+
+
+# ---------------------------------------------------------------------------
+# Lot 107 — Sauvegardes présentes dans R2 : liste et suppression À LA MAIN
+# ---------------------------------------------------------------------------
+# Demande du propriétaire (10/10/2026) : « Je veux pouvoir supprimer des anciennes sauvegardes R2 dans
+# sawali-migration. » Pour un développeur WinDev : on parcourt le bucket comme un répertoire, on totalise taille
+# et nombre de fichiers par dossier de premier niveau (une sauvegarde = un dossier « migration-AAAAMMJJ-HHMMSS »),
+# puis l'administrateur coche les dossiers à supprimer. Garde-fous (jamais supprimées) :
+#   - une sauvegarde EN COURS ;
+#   - la sauvegarde RÉUSSIE la plus récente (il en reste toujours une utilisable).
+# Les identifiants R2 sont ceux, chiffrés, des sauvegardes programmées (jamais affichés).
+
+def _inventaire_bucket(r2, bucket: str) -> Dict[str, Dict[str, Any]]:
+    """Un seul parcours paginé du bucket → {dossier: {objets, octets, modifie_le}}."""
+    stats: Dict[str, Dict[str, Any]] = {}
+    jeton = None
+    while True:
+        args = {"Bucket": bucket, "MaxKeys": 1000}
+        if jeton:
+            args["ContinuationToken"] = jeton
+        page = r2.list_objects_v2(**args)
+        for o in page.get("Contents") or []:
+            dossier = o["Key"].split("/", 1)[0] if "/" in o["Key"] else "(racine)"
+            s = stats.setdefault(dossier, {"objets": 0, "octets": 0, "modifie_le": None})
+            s["objets"] += 1
+            s["octets"] += int(o.get("Size") or 0)
+            quand = o.get("LastModified")
+            quand = quand.isoformat() if hasattr(quand, "isoformat") else (str(quand) if quand else None)
+            if quand and (not s["modifie_le"] or quand > s["modifie_le"]):
+                s["modifie_le"] = quand
+        if not page.get("IsTruncated"):
+            return stats
+        jeton = page.get("NextContinuationToken")
+
+
+def protections(dossiers: List[str], jobs_par_prefixe: Dict[str, List[dict]]) -> Dict[str, str]:
+    """{dossier: raison} des sauvegardes qu'on ne peut PAS supprimer (fonction pure, testée)."""
+    raisons: Dict[str, str] = {}
+    for d in dossiers:
+        if any(j.get("statut") == "EN_COURS" for j in jobs_par_prefixe.get(d) or []):
+            raisons[d] = "sauvegarde en cours"
+    reussies = sorted((d for d in dossiers if RE_PREFIXE.match(d)
+                       and any(j.get("statut") in REUSSIS for j in jobs_par_prefixe.get(d) or [])), reverse=True)
+    if reussies:
+        raisons.setdefault(reussies[0], "dernière sauvegarde réussie")
+    if "(racine)" in dossiers:
+        raisons["(racine)"] = "fichiers hors dossier"
+    return raisons
+
+
+async def _r2_et_jobs():
+    """Client R2 + bucket (identifiants des sauvegardes programmées) + sauvegardes connues par dossier."""
+    try:
+        ids = await charger_identifiants()
+    except RuntimeError as exc:
+        raise HTTPException(400, f"{exc}. Enregistrez les identifiants R2 dans « Sauvegardes programmées ».")
+    r2, bucket = _client_r2(ids), ids["r2_bucket"]
+    jobs_par_prefixe: Dict[str, List[dict]] = {}
+    async for j in mr.db.migration_jobs.find({"cible.r2_bucket": bucket},
+                                             {"_id": 0, "id": 1, "statut": 1, "programmee": 1, "cible": 1, "debut": 1}):
+        jobs_par_prefixe.setdefault((j.get("cible") or {}).get("prefixe"), []).append(j)
+    return r2, bucket, jobs_par_prefixe
+
+
+@router.get("/sauvegardes")
+async def lister_sauvegardes(_: dict = Depends(get_current_admin)):
+    """Dossiers du bucket : date, taille, nombre de fichiers, statut de la sauvegarde, protection éventuelle."""
+    r2, bucket, jobs = await _r2_et_jobs()
+    try:
+        stats = await asyncio.to_thread(_inventaire_bucket, r2, bucket)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Lecture du bucket R2 impossible : {str(exc)[:200]}")
+    proteges = protections(list(stats), jobs)
+    lignes = []
+    for d, s in stats.items():
+        m = RE_PREFIXE.match(d)
+        date = (datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc).isoformat()
+                if m else s["modifie_le"])
+        connus = jobs.get(d) or []
+        lignes.append({"prefixe": d, "date": date, "objets": s["objets"], "octets": s["octets"],
+                       "statut": connus[-1].get("statut") if connus else None,
+                       "programmee": any(j.get("programmee") for j in connus),
+                       "protegee": d in proteges, "raison": proteges.get(d)})
+    lignes.sort(key=lambda x: x["date"] or "", reverse=True)
+    return {"bucket": bucket, "sauvegardes": lignes, "octets_total": sum(x["octets"] for x in lignes),
+            "objets_total": sum(x["objets"] for x in lignes)}
+
+
+class SuppressionIn(BaseModel):
+    prefixes: List[str] = Field(..., min_length=1, max_length=100)
+    confirmation: str = ""       # l'écran demande de taper SUPPRIMER
+
+
+@router.post("/sauvegardes/supprimer")
+async def supprimer_sauvegardes(corps: SuppressionIn, admin: dict = Depends(get_current_admin)):
+    """Supprime DÉFINITIVEMENT les dossiers choisis (jamais une sauvegarde protégée)."""
+    if corps.confirmation.strip().upper() != "SUPPRIMER":
+        raise HTTPException(400, "Tapez SUPPRIMER pour confirmer la suppression définitive")
+    r2, bucket, jobs = await _r2_et_jobs()
+    existants = await asyncio.to_thread(_lister_prefixes, r2, bucket)
+    proteges = protections(existants, jobs)
+    for p in corps.prefixes:
+        if p not in existants:
+            raise HTTPException(404, f"Sauvegarde introuvable dans R2 : {p}")
+        if p in proteges:
+            raise HTTPException(409, f"{p} est protégée ({proteges[p]})")
+    maintenant = _maintenant()
+    supprimees, total_octets, total_erreurs = [], 0, 0
+    for p in corps.prefixes:
+        objets, octets, erreurs = await asyncio.to_thread(_supprimer_prefixe, r2, bucket, p)
+        total_octets, total_erreurs = total_octets + octets, total_erreurs + erreurs
+        supprimees.append({"prefixe": p, "objets": objets, "octets": octets, "erreurs": erreurs})
+        # Historique conservé : la sauvegarde est marquée « purgée » (à la main)
+        await mr.db.migration_jobs.update_many(
+            {"cible.prefixe": p, "cible.r2_bucket": bucket},
+            {"$set": {"purgee": erreurs == 0, "purgee_le": _iso(maintenant),
+                      "purge": {"objets": objets, "octets": octets, "erreurs": erreurs, "manuelle": True,
+                                "par": admin.get("email", "")}}})
+        logger.info("[migration-suppression] %s/%s par %s : %d objet(s), %d octet(s), %d erreur(s)",
+                    bucket, p, admin.get("email", ""), objets, octets, erreurs)
+    return {"supprimees": supprimees, "octets": total_octets, "erreurs": total_erreurs}

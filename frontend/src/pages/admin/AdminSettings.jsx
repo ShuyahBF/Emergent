@@ -1348,7 +1348,8 @@ export default function AdminSettings() {
       </Filterable>
 
       {/* Lot 96 — page Facebook animée par Liluvine : réglages et file des publications à valider */}
-      <Filterable title="📣 Page Facebook animée par Liluvine" anchorId="s-facebook-animation" category="comms">
+      {/* Lot 105.1 — rangée dans l'onglet « META (FB / WA) », avec la rubrique Facebook (le propriétaire la cherchait là) */}
+      <Filterable title="📣 Page Facebook animée par Liluvine" anchorId="s-facebook-animation" category="meta">
         <FacebookAnimationSection />
       </Filterable>
 

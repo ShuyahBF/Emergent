@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "105.1", "date": "2026-10-10",
+        "titre": "📣 Kit Facebook beAuthentik : onglet META",
+        "description": "La rubrique « Page Facebook animée par Liluvine » (avec le kit de lancement beAuthentik) est désormais dans l'onglet « META (FB / WA) » des Paramètres, à côté de la rubrique Facebook.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "105", "date": "2026-10-10",
         "titre": "📣 Kit de lancement de la Page beAuthentik",
         "description": "Photo de profil, couverture, textes « À propos » à copier et 8 publications de lancement aux couleurs de beAuthentik, chargées dans la file en un clic et publiées sur la Page de la plateforme.",

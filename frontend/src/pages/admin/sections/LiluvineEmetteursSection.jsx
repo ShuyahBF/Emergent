@@ -179,7 +179,7 @@ export default function LiluvineEmetteursSection() {
               <th className="pr-2">Dernier envoi</th><th className="pr-2">Clé générée le</th>
               <th className="pr-2">Réponses des clients</th>
               <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th>
-              <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…)">Adresse de l'assistant</th><th></th>
+              <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…). Lot 103 : la commande « !code » (ex. « !zandgo où est ma commande ? », casse indifférente) la joint à tout moment ; conversation de 30 min, « FIN » rend la main à Liluvine.">Adresse de l'assistant</th><th></th>
             </tr>
           </thead>
           <tbody>

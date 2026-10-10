@@ -14,6 +14,8 @@
   Lot 104 : « Codes de connexion » — modèle WhatsApp d'AUTHENTIFICATION (créé chez Meta en un clic)
   utilisé pour les codes OTP des plateformes : ils arrivent même hors de la fenêtre de 24 h.
   Journal : mode « Code (OTP) » et motif d'échec de remise donné par Meta.
+  Lot 104.1 : « Envois des 7 derniers jours par plateforme » (refusés, envoyés, remis, lus, échoués,
+  dernier motif d'échec) ; un clic sur une plateforme filtre le journal.
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
@@ -36,6 +38,8 @@ export default function LiluvineEmetteursSection() {
   const [selection, setSelection] = useState(null);     // ligne sélectionnée (règle 3 des tableaux)
   const [otp, setOtp] = useState(null);                 // lot 104 : modèle des codes de connexion
   const [creationOtp, setCreationOtp] = useState(false);
+  const [synthese, setSynthese] = useState([]);         // lot 104.1 : envois par plateforme (7 jours)
+  const [filtre, setFiltre] = useState("");             // lot 104.1 : plateforme affichée dans le journal
 
   // Lot 104 : état du modèle d'authentification (nom, langue, statut chez Meta)
   const chargerOtp = useCallback(async () => {
@@ -59,7 +63,7 @@ export default function LiluvineEmetteursSection() {
     try {
       const [a, b, c, d] = await Promise.all([
         apiClient.get("/admin/liluvine-emetteurs"),
-        apiClient.get("/admin/liluvine-transmissions", { params: { limite: 50 } }),
+        apiClient.get("/admin/liluvine-transmissions", { params: { limite: 50, ...(filtre ? { emetteur: filtre } : {}) } }),
         apiClient.get("/admin/liluvine-reponses"),
         apiClient.get("/admin/liluvine-desinscriptions"),
       ]);
@@ -67,10 +71,12 @@ export default function LiluvineEmetteursSection() {
       setJournal(b.data.transmissions || []);
       setReponses(c.data.reponses || []);
       setDesinscriptions(d.data.desinscriptions || []);
+      // Lot 104.1 : synthèse par plateforme (n'empêche pas l'affichage du reste si elle échoue)
+      apiClient.get("/admin/liluvine-transmissions/synthese").then((r) => setSynthese(r.data.plateformes || [])).catch(() => {});
     } catch (e) {
       toast.error(erreur(e));
     }
-  }, []);
+  }, [filtre]);
   useEffect(() => { charger(); }, [charger]);
 
   // Création d'un émetteur : la clé revient une seule fois
@@ -344,10 +350,43 @@ export default function LiluvineEmetteursSection() {
         </div>
       </div>
 
+      {/* Lot 104.1 : envois des 7 derniers jours par plateforme, avec leur statut RÉEL de remise */}
+      <div data-testid="liluvine-synthese-envois">
+        <div className="mb-1 text-xs font-semibold">Envois des 7 derniers jours par plateforme</div>
+        {synthese.length === 0 ? <p className="text-xs text-slate-400">Aucun envoi sur la période.</p> : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {synthese.map((p) => {
+              const echecs = p.echec + p.refuses;
+              return (
+                <button key={p.emetteur} type="button" onClick={() => setFiltre(filtre === p.emetteur ? "" : p.emetteur)}
+                        className={`rounded-lg border p-2.5 text-left text-xs ${filtre === p.emetteur ? "border-sky-400 bg-sky-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+                  <div className="flex items-center justify-between">
+                    <b className="text-slate-800">{p.source || p.emetteur}</b>
+                    <span className={echecs ? "font-semibold text-rose-700" : "text-emerald-700"}>{echecs ? `${echecs} échec(s)` : "✅ aucun échec"}</span>
+                  </div>
+                  {/* Compteurs : refusés par Meta à l'envoi, puis statut de remise renvoyé par Meta */}
+                  <div className="mt-1 flex flex-wrap gap-x-3 text-slate-600">
+                    <span>{p.total} envoi(s)</span><span>Lus {p.lu}</span><span>Remis {p.remis}</span>
+                    <span>Envoyés {p.envoye}</span><span className={p.echec ? "text-rose-700" : ""}>Échoués {p.echec}</span>
+                    {p.refuses > 0 && <span className="text-rose-700">Refusés {p.refuses}</span>}
+                  </div>
+                  {p.dernier_echec && (
+                    <div className="mt-1 rounded bg-rose-50 px-2 py-1 text-[11px] text-rose-800">
+                      Dernier échec {fmt(p.dernier_echec.date)} vers {p.dernier_echec.to} : {p.dernier_echec.motif}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Journal des transmissions */}
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-semibold">Journal des 50 dernières transmissions</span>
+          <span className="text-xs font-semibold">Journal des 50 dernières transmissions{filtre ? ` — ${filtre}` : ""}
+            {filtre && <button type="button" onClick={() => setFiltre("")} className="ml-2 font-normal text-sky-700 underline">toutes les plateformes</button>}</span>
           <button type="button" onClick={charger} className="inline-flex items-center gap-1 text-xs text-slate-600">
             <RefreshCw className="h-3.5 w-3.5" /> Actualiser
           </button>

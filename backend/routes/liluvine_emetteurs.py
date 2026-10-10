@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -210,11 +210,35 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         return {"ok": True, "nom": nom, "langue": langue, "statut_meta": brut.get("status") or ("EXISTANT" if deja else "PENDING")}
 
     @router.get("/liluvine-transmissions")
-    async def journal(limite: int = 100, admin: dict = Depends(get_current_admin)):
-        """Dernières transmissions (le texte des messages n'est jamais conservé)."""
+    async def journal(limite: int = 100, emetteur: Optional[str] = None, admin: dict = Depends(get_current_admin)):
+        """Dernières transmissions (le texte des messages n'est jamais conservé).
+        Lot 104.1 : filtre facultatif sur une plateforme (code de l'émetteur)."""
         limite = max(1, min(int(limite), 500))
-        lignes = await db.liluvine_transmissions.find({}, {"_id": 0}).sort("date", -1).to_list(limite)
+        filtre = {"emetteur": emetteur.strip().lower()} if emetteur else {}
+        lignes = await db.liluvine_transmissions.find(filtre, {"_id": 0}).sort("date", -1).to_list(limite)
         return {"transmissions": lignes}
+
+    @router.get("/liluvine-transmissions/synthese")
+    async def synthese(jours: int = 7, admin: dict = Depends(get_current_admin)):
+        """Lot 104.1 — par plateforme, sur les N derniers jours : envois refusés par Meta, puis statut RÉEL
+        de remise (envoyé, remis, lu, échoué) et dernier motif d'échec donné par Meta."""
+        depuis = (datetime.now(timezone.utc) - timedelta(days=max(1, min(int(jours), 90)))).isoformat()
+        par: dict = {}
+        async for t in db.liluvine_transmissions.find({"date": {"$gte": depuis}}, {"_id": 0}).sort("date", -1):
+            p = par.setdefault(t.get("emetteur") or "liluvine", {
+                "emetteur": t.get("emetteur") or "liluvine", "source": t.get("source"), "total": 0, "refuses": 0,
+                "envoye": 0, "remis": 0, "lu": 0, "echec": 0, "sans_statut": 0, "dernier_echec": None})
+            p["total"] += 1
+            if not t.get("ok"):
+                p["refuses"] += 1
+                motif = t.get("erreur")
+            else:
+                cle = {"sent": "envoye", "delivered": "remis", "read": "lu", "failed": "echec"}.get(t.get("statut"), "sans_statut")
+                p[cle] += 1
+                motif = t.get("erreur_remise") if t.get("statut") == "failed" else None
+            if motif and not p["dernier_echec"]:          # les plus récents d'abord : premier motif = dernier échec
+                p["dernier_echec"] = {"date": t.get("date"), "to": t.get("to"), "mode": t.get("mode"), "motif": motif}
+        return {"jours": jours, "plateformes": sorted(par.values(), key=lambda x: x["emetteur"])}
 
     @router.get("/liluvine-desinscriptions")
     async def desinscriptions(admin: dict = Depends(get_current_admin)):

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.1", "date": "2026-10-10",
+        "titre": "📊 Envois WhatsApp de chaque plateforme : statut réel",
+        "description": "Pour chaque plateforme (ZandGo, Ster…), les envois des 7 derniers jours : refusés, envoyés, remis, lus, échoués, avec le dernier motif d'échec donné par Meta ; un clic filtre le journal.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "104", "date": "2026-10-10",
         "titre": "🔐 Codes de connexion WhatsApp toujours remis",
         "description": "Les codes OTP des plateformes (ZandGo…) partent par un modèle WhatsApp d'authentification créé chez Meta en un clic : ils arrivent même à un nouveau client qui n'a jamais écrit ; le journal affiche le motif d'un échec de remise.",

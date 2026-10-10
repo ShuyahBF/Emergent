@@ -35,3 +35,20 @@ def test_corps_du_modele_meta():
     assert corps["category"] == "AUTHENTICATION" and corps["language"] == "fr"
     boutons = [c for c in corps["components"] if c["type"] == "BUTTONS"][0]["buttons"]
     assert boutons[0]["otp_type"] == "COPY_CODE"
+
+
+def test_synthese_par_plateforme_lot104_1():
+    """Lot 104.1 — par plateforme : statut réel de remise et dernier motif d'échec donné par Meta."""
+    import routes.liluvine_relais as relais
+    client, db, envois, cle = _app()
+    _envoyer(client, cle, {"id": "s1", "to": "+22658437050", "message": "Code 1"})
+    _envoyer(client, cle, {"id": "s2", "to": "+22670000002", "message": "Code 2"})
+    mid = _run(db.liluvine_transmissions.find_one({"id_externe": "s1"}))["message_id"]
+    _run(relais.mettre_a_jour_statut(db, mid, "failed", "Re-engagement message (hors fenêtre de 24 h)"))
+    r = client.get("/api/admin/liluvine-transmissions/synthese").json()["plateformes"]
+    ster = next(p for p in r if p["emetteur"] == "ster")
+    assert ster["total"] == 2 and ster["echec"] == 1 and ster["sans_statut"] == 1
+    assert "24 h" in ster["dernier_echec"]["motif"] and ster["dernier_echec"]["to"] == "+22658437050"
+    # Filtre du journal sur une plateforme
+    assert len(client.get("/api/admin/liluvine-transmissions", params={"emetteur": "ster"}).json()["transmissions"]) == 2
+    assert client.get("/api/admin/liluvine-transmissions", params={"emetteur": "autre"}).json()["transmissions"] == []

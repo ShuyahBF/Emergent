@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "103"
-LOT_LIBELLE = "Commande « !zandgo … » : l'assistant de la plateforme répond à tout moment, session de 30 min, FIN"
+LOT = "104"
+LOT_LIBELLE = "Codes de connexion (OTP) des plateformes par modèle WhatsApp d'authentification (hors fenêtre de 24 h)"

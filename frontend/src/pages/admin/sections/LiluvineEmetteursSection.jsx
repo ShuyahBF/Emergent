@@ -11,6 +11,9 @@
   Lot 57.5 : nombre d'émetteurs illimité ; « URL de retour » par plateforme (réponses
   des clients, statuts remis/lu, désinscriptions STOP) ; listes des réponses relayées
   et des numéros désinscrits (avec réinscription).
+  Lot 104 : « Codes de connexion » — modèle WhatsApp d'AUTHENTIFICATION (créé chez Meta en un clic)
+  utilisé pour les codes OTP des plateformes : ils arrivent même hors de la fenêtre de 24 h.
+  Journal : mode « Code (OTP) » et motif d'échec de remise donné par Meta.
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
@@ -31,6 +34,25 @@ export default function LiluvineEmetteursSection() {
   const [nouveau, setNouveau] = useState({ code: "", nom: "", quota_jour: 500, url_retour: "" });
   const [cleAffichee, setCleAffichee] = useState(null); // {code, cle} : affichée une seule fois
   const [selection, setSelection] = useState(null);     // ligne sélectionnée (règle 3 des tableaux)
+  const [otp, setOtp] = useState(null);                 // lot 104 : modèle des codes de connexion
+  const [creationOtp, setCreationOtp] = useState(false);
+
+  // Lot 104 : état du modèle d'authentification (nom, langue, statut chez Meta)
+  const chargerOtp = useCallback(async () => {
+    try { setOtp((await apiClient.get("/admin/liluvine-modele-otp")).data); } catch { setOtp({ nom: "", statut_meta: null }); }
+  }, []);
+  useEffect(() => { chargerOtp(); }, [chargerOtp]);
+  const creerOtp = async () => {
+    setCreationOtp(true);
+    const attente = toast.loading("Patientez… création du modèle chez Meta");
+    try {
+      const { data } = await apiClient.post("/admin/liluvine-modele-otp/creer", {});
+      toast.success(`Modèle « ${data.nom} » envoyé à Meta (${data.statut_meta}). Approbation en général en quelques minutes.`, { id: attente });
+      chargerOtp();
+    } catch (e) {
+      toast.error(erreur(e), { id: attente });
+    } finally { setCreationOtp(false); }
+  };
 
   // Chargement des émetteurs et du journal
   const charger = useCallback(async () => {
@@ -125,6 +147,31 @@ export default function LiluvineEmetteursSection() {
         <code className="mx-1">LILUVINE_WA_EMETTEUR</code>(le code ci-dessous) et
         <code className="mx-1">LILUVINE_WA_HMAC</code>(la clé).
       </p>
+
+      {/* Lot 104 : modèle d'authentification pour les codes de connexion (OTP) des plateformes */}
+      <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 text-xs" data-testid="liluvine-modele-otp">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-800">Codes de connexion (OTP) des plateformes</div>
+            <p className="mt-0.5 text-slate-600">
+              Un code envoyé avec le champ <code>code_otp</code> part par un modèle WhatsApp d'<b>authentification</b>
+              (bouton « Copier le code ») : il arrive même à un nouveau client qui n'a jamais écrit (hors fenêtre de 24 h).
+            </p>
+          </div>
+          <button type="button" onClick={creerOtp} disabled={creationOtp}
+                  className="inline-flex items-center gap-1 rounded bg-slate-900 px-3 py-1.5 text-white disabled:opacity-50">
+            <KeyRound className="h-3.5 w-3.5" /> {otp?.nom ? "Recréer / vérifier chez Meta" : "Créer le modèle chez Meta"}
+          </button>
+        </div>
+        <div className="mt-2 text-slate-700">
+          {otp === null ? "Lecture…" : otp.nom ? (
+            <>Modèle : <b className="font-mono">{otp.nom}</b> ({otp.langue}) — état Meta :{" "}
+              <b className={otp.statut_meta === "APPROVED" ? "text-emerald-700" : "text-amber-700"}>
+                {{ APPROVED: "✅ approuvé", PENDING: "⏳ en attente d'approbation", REJECTED: "❌ refusé", INTROUVABLE: "❌ introuvable chez Meta" }[otp.statut_meta] || otp.statut_meta || "inconnu"}
+              </b></>
+          ) : <>⚠️ Aucun modèle : les codes partent en texte libre et n'arrivent qu'aux personnes ayant écrit dans les 24 h.</>}
+        </div>
+      </div>
 
       {/* Clé affichée une seule fois, juste après création / régénération */}
       {cleAffichee && (
@@ -319,9 +366,11 @@ export default function LiluvineEmetteursSection() {
                   <td className="py-1 pr-2">{fmt(j.date)}</td>
                   <td className="pr-2">{j.source || j.emetteur}</td>
                   <td className="pr-2 font-mono">{j.to}</td>
-                  <td className="pr-2">{j.mode === "modele" ? "Modèle" : "Texte"}{j.media_mode ? ` + média (${j.media_mode})` : ""}</td>
+                  <td className="pr-2">{{ modele: "Modèle", otp: "Code (OTP)" }[j.mode] || "Texte"}{j.media_mode ? ` + média (${j.media_mode})` : ""}</td>
                   <td className="pr-2">{j.ok ? "✅ Envoyé" : `❌ ${j.erreur || "Échec"}`}</td>
-                  <td className="pr-2">{{ sent: "Envoyé", delivered: "Remis", read: "Lu", failed: "Échec" }[j.statut] || "—"}</td>
+                  {/* Lot 104 : motif d'échec de remise donné par Meta (ex. hors fenêtre de 24 h) */}
+                  <td className="pr-2">{{ sent: "Envoyé", delivered: "Remis", read: "Lu", failed: "❌ Échec" }[j.statut] || "—"}
+                    {j.statut === "failed" && j.erreur_remise && <div className="text-[10px] text-rose-700">{j.erreur_remise}</div>}</td>
                   <td>{j.longueur}</td>
                 </tr>
               ))}

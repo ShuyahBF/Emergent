@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.6", "date": "2026-10-10",
+        "titre": "📘 Facebook : clé effacée signalée",
+        "description": "Si l'App Secret ou le jeton Facebook ont été effacés par un ancien « Enregistrer », le champ revient vide avec un avertissement rouge : on sait qu'il faut coller la vraie clé puis Reconnecter.",
+        "rubrique": "📘 Facebook Page — Posts API",
+    },
+    {
         "lot": "104.5", "date": "2026-10-10",
         "titre": "🔐 Jetons secrets protégés à l'enregistrement",
         "description": "« Enregistrer » dans les Paramètres ne remplace plus un jeton masqué par des étoiles (cause de l'erreur Facebook « Cannot parse access token ») ; cliquez une fois sur « Reconnecter » pour obtenir un jeton neuf.",

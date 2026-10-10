@@ -33,6 +33,7 @@ import ImagesIaChatSection from "@/pages/admin/sections/ImagesIaChatSection";   
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection";   // Lot 95 : remise à zéro du journal /uptime
 import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSection";   // Lot 96 : page Facebook animée par Liluvine
+import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
@@ -116,7 +117,8 @@ const NEW_LOTS = {
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
   "📈 Disponibilité (/uptime) — journal des sondes": "95",
-  "📣 Page Facebook animée par Liluvine": "96",   // lot 95 : sondes corrigées + remise à zéro du journal
+  "📣 Page Facebook animée par Liluvine": "96",
+  "🧮 Consommation de l'IA (requêtes à Claude)": "98",   // lot 95 : sondes corrigées + remise à zéro du journal
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "79.6",   // lot 79.6 : écran « Messages bloqués »
@@ -155,6 +157,7 @@ const NEW_SECTIONS = {
   "⚡ Santé du serveur — blocages": "2026-10-07",
   "📈 Disponibilité (/uptime) — journal des sondes": "2026-10-09",
   "📣 Page Facebook animée par Liluvine": "2026-10-09",
+  "🧮 Consommation de l'IA (requêtes à Claude)": "2026-10-10",
   // Lots 67 et 67.1 (06/10/2026) — Liluvine appelle le propriétaire, historique des appels (durée, coût)
   "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
   "📊 Historique des appels de Liluvine (durée et coût)": "2026-10-06",
@@ -216,6 +219,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
   "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Une carte sans lien (ou une carte produit) mène à sa page de présentation sur le site (photo, titre, prix, description) au lieu d'une erreur ; son des appels WhatsApp sortants rétabli côté PC (lot 94).",
@@ -1323,6 +1327,11 @@ export default function AdminSettings() {
       {/* Lot 71.3 — santé du serveur : blocages notés par la sentinelle (lots 71.1 et 71.2) */}
       <Filterable title="⚡ Santé du serveur — blocages" anchorId="s-sante-serveur" category="diagnostics">
         <SanteServeurSection />
+      </Filterable>
+
+      {/* Lot 98 — synthèse de toutes les requêtes à l'IA (aide-mémoire des fonctions et coût estimé) */}
+      <Filterable title="🧮 Consommation de l'IA (requêtes à Claude)" anchorId="s-consommation-ia" category="diagnostics">
+        <ConsommationIaSection />
       </Filterable>
 
       {/* Lot 96 — page Facebook animée par Liluvine : réglages et file des publications à valider */}

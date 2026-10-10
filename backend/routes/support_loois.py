@@ -328,22 +328,31 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
                               aussi=[pid, doc.get("recipient_id") or pid])
         return doc
 
-    async def message_systeme(pid: str, texte: str, expediteur: str = "sawali", nom: str = "Support SAWALI") -> None:
-        """Message d'information dans le fil (ticket créé, session terminée…), visible des deux côtés."""
-        await enregistrer_message(pid, {
-            "id": str(uuid.uuid4()), "client_id": ESPACE_ID, "sender_id": expediteur, "sender_name": nom,
-            "recipient_id": pid, "text": texte[:TEXTE_MAX], "created_at": now_iso(), "read_by": [expediteur],
-            "systeme": True})
+    async def message_systeme(pid: str, texte: str, expediteur: str = "sawali", nom: str = "Support SAWALI",
+                              pastille: Optional[Dict[str, str]] = None) -> None:
+        """Message d'information dans le fil (ticket créé, session terminée…), visible des deux côtés.
+        Lot 98 : `pastille` = assistant de Liluvine concerné (affiché en en-tête du message)."""
+        doc = {"id": str(uuid.uuid4()), "client_id": ESPACE_ID, "sender_id": expediteur, "sender_name": nom,
+               "recipient_id": pid, "text": texte[:TEXTE_MAX], "created_at": now_iso(), "read_by": [expediteur],
+               "systeme": True}
+        if pastille:
+            doc["pastille"] = pastille
+        await enregistrer_message(pid, doc)
 
     async def repondre_liluvine(pid: str, sid: str) -> None:
         """Pendant l'attente, Liluvine répond au poste (tâche de fond : n'interrompt pas la discussion)."""
         try:
-            texte = await sessions.reponse_liluvine(db, pid, en_attente=True)
+            texte, origine = await sessions.reponse_liluvine_detail(db, pid, en_attente=True)
             session = await sessions.lire(db, sid)
             # L'agent a pris la main entre-temps : Liluvine se tait
             if not texte or not session or session.get("statut") != "attente":
                 return
-            await message_systeme(pid, texte, sessions.LILUVINE_ID, sessions.LILUVINE_NOM)
+            # Lot 98 (règle 3) — pastille de l'assistant concerné par la question (technicien si Claude a répondu)
+            from routes.regles_support import nom_affiche, pastille as _pastille
+            recents = await sessions.conversation(db, pid, limite=4)
+            question = " ".join(m.get("text") or "" for m in recents if m.get("sender_id") == pid)[-600:]
+            p = await _pastille(db, question, texte, defaut_technique=(origine == "claude"))
+            await message_systeme(pid, texte, sessions.LILUVINE_ID, nom_affiche(sessions.LILUVINE_NOM, p), p)
         except Exception:  # noqa: BLE001
             log.warning("[support_loois] réponse Liluvine impossible", exc_info=True)
 

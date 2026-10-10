@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "98", "date": "2026-10-10",
+        "titre": "🧮 Synthèse des requêtes à l'IA + règles du support",
+        "description": "Tableau de toutes les requêtes à Claude (coût estimé, où régler chaque fonction) ; au support, réponses courtes, 2 questions au plus, pastille de l'assistant concerné et relais vers Claude quand Liluvine ne sait pas.",
+        "rubrique": "🧮 Consommation de l'IA (requêtes à Claude)",
+    },
+    {
         "lot": "97", "date": "2026-10-09",
         "titre": "📣 Page Facebook propre à l'animation de Liluvine",
         "description": "La page de la plateforme (ex. beAuthentik) se choisit dans la rubrique de l'animation ; la page active de SAWALI reste celle de SAWALI.",

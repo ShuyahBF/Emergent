@@ -48,6 +48,7 @@ TOURS_MAX = 14                                      # nombre maximal d'aller-ret
 LECTURE_MAX = 24_000                                # caractères lus au plus par fichier
 DELAI_GITHUB = 15
 VERDICTS = ("approuve", "a_preciser", "non_faisable")
+from routes.regles_support import REGLES_REPONSE, TOURS_PRECISIONS_MAX  # noqa: E402 — lot 98
 LIBELLES_VERDICT = {"approuve": "✅ Approuvé", "a_preciser": "❓ À préciser", "non_faisable": "⛔ Non faisable"}
 DECISIONS = ("acceptee", "refusee", "en_attente")
 LIBELLES_DECISION = {"acceptee": "Acceptée", "refusee": "Refusée", "en_attente": "En attente"}
@@ -90,8 +91,9 @@ SYSTEME_ANALYSE = (
     "lire_fichier, chercher_code) : repère les fichiers concernés, la complexité, le temps de développement, les "
     "risques. Reste bref dans tes explorations (quelques lectures ciblées suffisent).\n"
     "Verdicts : « approuve » (faisable et utile : le propriétaire décidera), « a_preciser » (il manque des "
-    "informations : pose 1 à 3 questions précises au client), « non_faisable » (impossible, hors périmètre ou "
+    "informations : pose au plus 2 questions simples au client), « non_faisable » (impossible, hors périmètre ou "
     "contraire aux règles : explique poliment).\n"
+    "La « reponse_client » suit les règles de réponse ci-dessous : 2 ou 3 phrases simples, sans jargon.\n"
     "Règles : ne promets JAMAIS de date ni d'accord au client (seul le propriétaire décide) ; pas de jargon "
     "technique dans la réponse au client ; français ; aucun secret, aucune donnée personnelle.\n"
     "Termine OBLIGATOIREMENT par un objet JSON seul entre les balises <avis> et </avis> :\n"
@@ -99,6 +101,8 @@ SYSTEME_ANALYSE = (
     "\"duree_estimee\": \"ex. 2 à 4 heures\", \"resume\": \"la demande en une phrase\", "
     "\"analyse_technique\": \"pour le propriétaire : fichiers/modules touchés, étapes, risques\", "
     "\"questions\": [\"…\"], \"reponse_client\": \"le message que Liluvine enverra au client\"}</avis>")
+
+SYSTEME_ANALYSE += REGLES_REPONSE   # lot 98 : réponses courtes au client, 2 questions au plus
 
 # Outils de lecture du dépôt proposés à Claude (lecture seule)
 OUTILS_GITHUB: List[Dict[str, Any]] = [
@@ -249,6 +253,12 @@ async def appeler_analyse(systeme: str, texte: str, modele: str, depot: str) -> 
         if outils and tour < TOURS_MAX - 1:
             params["tools"] = outils
         rep = await client.messages.create(**params)
+        try:   # lot 98 : journal de consommation de l'IA (cet appel ne passe pas par LlmChat)
+            from ia_client import noter_usage
+            u = getattr(rep, "usage", None)
+            noter_usage("avis-claude-analyse", "anthropic", modele, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
+        except Exception:  # noqa: BLE001
+            pass
         appels = [b for b in rep.content if getattr(b, "type", "") == "tool_use"]
         if not appels:
             return "".join(getattr(b, "text", "") for b in rep.content if getattr(b, "type", "") == "text")
@@ -273,7 +283,7 @@ def normaliser_avis(brut: str) -> Dict[str, Any]:
     m = re.search(r"<avis>(.*?)</avis>", brut or "", re.DOTALL)
     v = lire_json(m.group(1) if m else brut)
     verdict = v.get("verdict") if v.get("verdict") in VERDICTS else "a_preciser"
-    questions = [str(q)[:300] for q in (v.get("questions") or []) if str(q).strip()][:3]
+    questions = [str(q)[:300] for q in (v.get("questions") or []) if str(q).strip()][:2]   # lot 98 : 2 au plus
     reponse = str(v.get("reponse_client") or "").strip()
     if not reponse:
         reponse = ("Merci, votre demande a bien été étudiée. Pouvez-vous préciser : " + " ".join(questions)) if questions \
@@ -292,12 +302,17 @@ def normaliser_avis(brut: str) -> Dict[str, Any]:
 # =====================================================================
 # Publication dans le chat (Liluvine parle au client)
 # =====================================================================
-async def publier(db, demande: Dict[str, Any], texte: str) -> None:
-    """Message de Liluvine dans le fil du client (Support Loois ou espace de la plateforme), poussé à l'équipe."""
+async def publier(db, demande: Dict[str, Any], texte: str, pastille: Optional[Dict[str, str]] = None) -> None:
+    """Message de Liluvine dans le fil du client (Support Loois ou espace de la plateforme), poussé à l'équipe.
+    Lot 98 : `pastille` = assistant de Liluvine concerné, affiché en en-tête (nom de l'expéditeur)."""
     from routes import support_loois
-    doc = {"id": str(uuid.uuid4()), "client_id": demande["espace"], "sender_id": LILUVINE_ID, "sender_name": LILUVINE_NOM,
+    from routes.regles_support import nom_affiche
+    doc = {"id": str(uuid.uuid4()), "client_id": demande["espace"], "sender_id": LILUVINE_ID,
+           "sender_name": nom_affiche(LILUVINE_NOM, pastille),
            "recipient_id": demande["fil"], "text": texte[:2000], "created_at": _maintenant(), "read_by": [LILUVINE_ID],
            "avis_claude": demande["id"]}
+    if pastille:
+        doc["pastille"] = pastille
     if demande["source"] == "loois":
         doc["systeme"] = True              # même présentation que les autres messages de Liluvine dans Loois
     await db.internal_chat_messages.insert_one(doc.copy())
@@ -370,6 +385,15 @@ async def demande_a_completer(db, espace: str, fil: str) -> Optional[Dict[str, A
         {"_id": 0}, sort=[("creee_le", -1)])
 
 
+async def abandonner_sans_reponse(db) -> int:
+    """Lot 98 (règle 2) — « s'il ne répond plus, abandonne » : une demande « à préciser » sans réponse du client
+    depuis 24 h passe à « abandonnée » (elle reste consultable)."""
+    limite = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    r = await db.demandes_fonctionnalites.update_many({"statut": "a_preciser", "analysee_le": {"$lt": limite}},
+                                                      {"$set": {"statut": "abandonnee", "abandonnee_le": _maintenant()}})
+    return r.modified_count
+
+
 async def traiter(db, *, source: str, espace: str, fil: str, plateforme: str, plateforme_nom: str,
                   demandeur_nom: str, texte: str, contexte: str = "") -> bool:
     """Point d'entrée appelé à chaque message d'un client du support.
@@ -383,9 +407,10 @@ async def traiter(db, *, source: str, espace: str, fil: str, plateforme: str, pl
     if precedente:
         # Réponse aux questions de Claude : la demande est complétée puis réanalysée
         texte_complet = f"{precedente['texte']}\n\nPrécisions du client : {texte}"
+        tours = int(precedente.get("tours_precisions") or 0) + 1      # lot 98 : 2 échanges d'éclaircissement au plus
         await db.demandes_fonctionnalites.update_one({"id": precedente["id"]}, {"$set": {
-            "texte": texte_complet[:6000], "statut": "analyse"}})
-        demande = {**precedente, "texte": texte_complet[:6000], "statut": "analyse"}
+            "texte": texte_complet[:6000], "statut": "analyse", "tours_precisions": tours}})
+        demande = {**precedente, "texte": texte_complet[:6000], "statut": "analyse", "tours_precisions": tours}
     else:
         if not semble_demande_fonctionnelle(texte):
             return False
@@ -415,6 +440,9 @@ async def analyser_et_repondre(db, demande: Dict[str, Any], regl: Dict[str, Any]
     """Analyse par Claude, réponse de Liluvine au client, alerte du propriétaire si approuvée."""
     texte = (f"Plateforme : {demande['plateforme_nom']} (dépôt GitHub : {demande.get('depot') or 'aucun'})\n"
              f"Client : {demande['demandeur_nom']}\n\nDemande du client :\n{demande['texte']}")
+    dernier_tour = int(demande.get("tours_precisions") or 0) >= TOURS_PRECISIONS_MAX
+    if dernier_tour:   # lot 98 : après 2 échanges, on avance sans nouvelle question
+        texte += "\n\nDERNIER ÉCHANGE : conclus par « approuve » ou « non_faisable », sans nouvelle question."
     try:
         brut = await appeler_analyse(SYSTEME_ANALYSE, texte, regl["modele"], demande.get("depot") or "")
         if not brut and regl["modele"] != MODELE_ANALYSE:
@@ -427,11 +455,19 @@ async def analyser_et_repondre(db, demande: Dict[str, Any], regl: Dict[str, Any]
                                    "vers vous.")
         return
     avis = normaliser_avis(brut)
+    if dernier_tour and avis["verdict"] == "a_preciser":
+        # Toujours imprécis après 2 échanges : on transmet quand même au propriétaire (il décidera)
+        avis = {**avis, "verdict": "approuve", "questions": [],
+                "reponse_client": "Merci pour ces précisions 🙏 Votre demande est transmise au responsable, qui "
+                                  "reviendra vers vous."}
     statut = {"approuve": "a_decider", "a_preciser": "a_preciser", "non_faisable": "non_faisable"}[avis["verdict"]]
     maj = {"avis": avis, "statut": statut, "analysee_le": _maintenant(), "erreur": None}
     await db.demandes_fonctionnalites.update_one({"id": demande["id"]}, {"$set": maj})
     demande = {**demande, **maj}
-    await publier(db, demande, avis["reponse_client"])
+    # Lot 98 (règle 3) — pastille de l'assistant concerné (technicien par défaut : la réponse vient de Claude)
+    from routes.regles_support import pastille
+    p = await pastille(db, demande.get("texte") or "", avis["reponse_client"], defaut_technique=True)
+    await publier(db, demande, avis["reponse_client"], p)
     if statut == "a_decider":
         await prevenir_proprietaire(db, demande)
 
@@ -467,6 +503,7 @@ def installer(*, router, db, manager, get_current_user) -> None:
     async def lire_tout(user: dict = Depends(equipe)):
         """Réglages, état des clés (présentes ou non, jamais leur valeur) et demandes récentes."""
         regl = await reglages(db)
+        await abandonner_sans_reponse(db)
         demandes = [vue(d) async for d in db.demandes_fonctionnalites.find({}, {"_id": 0}).sort("creee_le", -1).limit(200)]
         a_decider = sum(1 for d in demandes if d["statut"] == "a_decider")
         return {"reglages": regl, "cle_ia": cle_ia_presente(), "jeton_github": bool(jeton_github()),

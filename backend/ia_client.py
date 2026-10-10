@@ -293,18 +293,65 @@ class LlmChat:
             raise ChatError(f"Clé IA absente : définir {variable_cle(self.provider)} "
                             f"(fournisseur « {self.provider} »).")
         try:
+            reponse: Optional[ChatResponse] = None
             if self.provider == "anthropic":
-                return await _appel_anthropic(cle, self.model, self.system_message, messages, self.extra_params)
-            if self.provider == "openai":
-                return await _appel_openai(cle, self.model, self.system_message, messages, self.extra_params)
-            if self.provider == "gemini":
-                return await _appel_gemini(cle, self.model, self.system_message, messages, self.extra_params,
-                                           multimodal)
+                reponse = await _appel_anthropic(cle, self.model, self.system_message, messages, self.extra_params)
+            elif self.provider == "openai":
+                reponse = await _appel_openai(cle, self.model, self.system_message, messages, self.extra_params)
+            elif self.provider == "gemini":
+                reponse = await _appel_gemini(cle, self.model, self.system_message, messages, self.extra_params,
+                                              multimodal)
+            if reponse is not None:
+                # Lot 98 — chaque appel est noté dans le journal de consommation (tableau des Paramètres)
+                u = getattr(reponse, "usage", None)
+                noter_usage(self.session_id, self.provider, self.model,
+                            getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
+                return reponse
         except ChatError:
             raise
         except Exception as exc:  # noqa: BLE001 — réseau, quota, clé refusée, modèle inconnu…
             raise ChatError(f"Échec de l'appel IA ({self.provider}/{self.model}) : {exc}") from exc
         raise ChatError(f"Fournisseur IA inconnu : « {self.provider} »")
+
+
+# ---------------------------------------------------------------------------
+# Lot 98 — JOURNAL DE CONSOMMATION DE L'IA (« tableau de synthèse des requêtes à Claude »)
+# ---------------------------------------------------------------------------
+# Chaque appel (LlmChat, ou appel direct du SDK qui appelle noter_usage) est noté en arrière-plan, sans jamais
+# bloquer ni faire échouer l'appel : date, fonction (déduite du session_id, ex. « support-loois-1a2b » →
+# « support-loois »), fournisseur, modèle, jetons d'entrée et de sortie. Le serveur branche l'enregistreur au
+# démarrage (journal_ia.installer) ; sans enregistreur (tests, scripts), rien n'est noté.
+ENREGISTREUR_USAGE = None          # fonction async (document) -> None, posée par routes/journal_ia.py
+_TACHES_USAGE: set = set()
+
+
+PREFIXES_CONNUS: List[str] = []     # préfixes du catalogue (routes/journal_ia.py), le plus long d'abord
+
+
+def fonction_du_session_id(session_id: Optional[str]) -> str:
+    """« support-loois-1a2b3c4d » → « support-loois » ; « wa:uid:tel » → « wa » ; « agenda-<uuid> » → « agenda » ;
+    vide → « autre ». Un préfixe connu du catalogue gagne ; sinon on retire le suffixe aléatoire."""
+    s = (session_id or "").strip().lower()
+    for p in PREFIXES_CONNUS:
+        if s == p or s.startswith((p + "-", p + ":", p + "_")):
+            return p
+    s = re.sub(r"[-_:]?[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}.*$", "", s)   # uuid complet
+    s = re.sub(r"([-_:][0-9a-f]{6,}|[-_:]\d+)+$", "", s)                        # suffixe hexadécimal ou numérique
+    return s[:60] or "autre"
+
+
+def noter_usage(session_id: Optional[str], fournisseur: str, modele: str, entree: int, sortie: int) -> None:
+    """Note un appel dans le journal (tâche de fond, erreurs ignorées)."""
+    if ENREGISTREUR_USAGE is None:
+        return
+    doc = {"le": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "fonction": fonction_du_session_id(session_id),
+           "fournisseur": fournisseur, "modele": modele, "entree": int(entree or 0), "sortie": int(sortie or 0)}
+    try:
+        tache = asyncio.ensure_future(ENREGISTREUR_USAGE(doc))
+        _TACHES_USAGE.add(tache)
+        tache.add_done_callback(_TACHES_USAGE.discard)
+    except Exception:  # noqa: BLE001 — pas de boucle active : on n'enregistre pas
+        pass
 
 
 # ---------------------------------------------------------------------------

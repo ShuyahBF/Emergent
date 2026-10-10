@@ -35,14 +35,6 @@ services:
     rootDir: backend
     # Filtre de build (économie des minutes de compilation Render) : seule une modification utile de
     # backend/ relance une compilation ; les tests et la documentation (.md) n'en déclenchent plus.
-    buildFilter:
-      paths:
-        - backend/**
-      ignoredPaths:
-        - backend/tests/**
-        - backend/**/*.test.js
-        - backend/**/*.test.jsx
-        - backend/**/*.md
     # Plus d'index privé Emergent : uniquement des paquets publics (PyPI).
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
@@ -217,14 +209,6 @@ services:
     rootDir: frontend
     # Filtre de build (économie des minutes de compilation Render) : seule une modification utile de
     # frontend/ relance une compilation ; les tests et la documentation (.md) n'en déclenchent plus.
-    buildFilter:
-      paths:
-        - frontend/**
-      ignoredPaths:
-        - frontend/tests/**
-        - frontend/**/*.test.js
-        - frontend/**/*.test.jsx
-        - frontend/**/*.md
     # Render installe déjà les dépendances avec npm (voir frontend/.npmrc) : on construit seulement.
     buildCommand: CI=false npm run build
     staticPublishPath: build

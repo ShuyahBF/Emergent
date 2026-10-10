@@ -19,6 +19,7 @@ import AppelProprietaireSection from "@/pages/admin/sections/AppelProprietaireSe
 import HistoriqueAppelsLiluvine from "@/pages/admin/sections/HistoriqueAppelsLiluvine";   // Lot 67.1
 import LiluvineDecrocheSection from "@/pages/admin/sections/LiluvineDecrocheSection";   // Lot 69
 import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSection";   // Lot 71.3
+import RetrouverNumeroSection from "@/pages/admin/sections/RetrouverNumeroSection";   // Lot 104.3
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
@@ -112,7 +113,7 @@ const NEW_LOTS = {
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "70",
-  "💬 Conversations WhatsApp — transfert et en-tête": "71",
+  "💬 Conversations WhatsApp — transfert et en-tête": "104.3",   // lot 104.3 : retrouver un numéro
   "🔄 Loois — synchronisation des tables et clés clients": "68",
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
@@ -151,7 +152,7 @@ const NEW_SECTIONS = {
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
   "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-07",
-  "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-07",
+  "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-10",
   "🔄 Loois — synchronisation des tables et clés clients": "2026-10-07",
   "🖥️ Postes et serveurs — signal de présence": "2026-10-07",
   "⚡ Santé du serveur — blocages": "2026-10-07",
@@ -1269,6 +1270,11 @@ export default function AdminSettings() {
       {/* Lot 71.3 — transfert de messages WhatsApp (lot 71) et en-tête de conversation en pictogrammes (lot 71.1) */}
       <Filterable title="💬 Conversations WhatsApp — transfert et en-tête" anchorId="s-conversations-wa" category="meta">
         <ConversationsWaSection />
+        {/* Lot 104.3 : retrouver les messages d'un numéro absents du Centre de messagerie */}
+        <div className="mt-6 border-t border-slate-200 pt-4">
+          <p className="mb-2 text-sm font-semibold text-slate-800">🔎 Retrouver un numéro</p>
+          <RetrouverNumeroSection />
+        </div>
       </Filterable>
 
       {/* Lot 71.3 — Loois : synchronisation des tables HFSQL et clés par client (lots 68 et 68.1) */}

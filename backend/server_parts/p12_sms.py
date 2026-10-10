@@ -1437,6 +1437,113 @@ async def me_contact_rattacher_messages(cid: str, user: dict = Depends(get_curre
     return {"ok": True, "rattaches": int(getattr(res, "modified_count", 0) or 0)}
 
 
+# ---------------------------------------------------------------------------------------------------
+# Lot 104.3 — « Retrouver un numéro » : où sont rangés les messages d'un numéro et pourquoi ils
+# n'apparaissent pas dans le Centre de messagerie (autre espace client, ligne WhatsApp non autorisée,
+# message sans fiche, numéro « à importer »). Réparation en un clic : fiche dans MON espace + messages
+# rattachés. Réservé aux administrateurs et superviseurs.
+# ---------------------------------------------------------------------------------------------------
+def _exiger_admin_ou_superviseur(user: dict) -> None:
+    if user.get("role") not in ("admin", "superviseur") and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
+        raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
+
+
+@api.get("/me/retrouver-numero", tags=["Portail Client"])
+async def me_retrouver_numero(numero: str, user: dict = Depends(get_current_user)):
+    """Diagnostic d'un numéro : fiches, messages (dans / hors de mon espace, sans fiche), ligne WhatsApp."""
+    _exiger_admin_ou_superviseur(user)
+    rx = _phone_suffix_regex(numero)
+    if not rx:
+        raise HTTPException(status_code=422, detail="Numéro incomplet (8 chiffres au moins)")
+    mon_espace = await _resolve_visible_client_ids(user)
+    from routes.numeros_wa import VisibiliteLignes
+    vis = await VisibiliteLignes.charger(db, user, complet=True)
+    par_numero = [{"whatsapp": {"$regex": rx}}, {"phone": {"$regex": rx}}, {"phone_digits": {"$regex": rx}}]
+    fiches = []
+    async for c in db.directory_contacts.find({"$or": par_numero}, {"_id": 0}).sort("created_at", 1):
+        fiches.append({"id": c.get("id"), "nom": c.get("name"), "numero": c.get("whatsapp") or c.get("phone"),
+                       "dans_mon_espace": c.get("client_id") in mon_espace,
+                       "ligne_visible": (not vis.restreint) or vis.contact_visible(c),
+                       "source": c.get("source") or ("auto" if "auto-liluvine" in (c.get("tags") or []) else "manuel"),
+                       "cree_le": c.get("created_at")})
+    filtre_msg = {"$or": [{"phone_digits": {"$regex": rx}}, {"to": {"$regex": rx}}, {"to_number": {"$regex": rx}}]}
+    total = await db.whatsapp_messages.count_documents(filtre_msg)
+    hors = await db.whatsapp_messages.count_documents({**filtre_msg, "client_id": {"$nin": mon_espace}})
+    sans_fiche = await db.whatsapp_messages.count_documents({**filtre_msg, "contact_id": None})
+    retenus = await db.whatsapp_messages.count_documents({**filtre_msg, "barriere_retenu": True})
+    derniers = []
+    async for m in db.whatsapp_messages.find(filtre_msg, {"_id": 0}).sort("created_at", -1).limit(10):
+        derniers.append({"date": m.get("received_at") or m.get("created_at"), "sens": m.get("direction"),
+                         "extrait": (m.get("body") or m.get("media_caption") or f"[{m.get('message_type') or 'message'}]")[:80],
+                         "dans_mon_espace": m.get("client_id") in mon_espace, "avec_fiche": bool(m.get("contact_id")),
+                         "retenu": bool(m.get("barriere_retenu"))})
+    a_importer = bool(await db.wa_pending_imports.find_one({"phone_digits": {"$regex": rx}}, {"_id": 1}))
+    # Diagnostic en phrases simples
+    causes = []
+    if not total:
+        causes.append("Aucun message de ce numéro n'est enregistré dans SAWALI.")
+    if not fiches:
+        causes.append("Aucune fiche contact pour ce numéro : ses messages ne s'affichent pas dans la liste des contacts.")
+    elif not any(f["dans_mon_espace"] for f in fiches):
+        causes.append("La fiche de ce numéro est rangée dans un AUTRE espace client que le vôtre.")
+    if fiches and any(f["dans_mon_espace"] for f in fiches) and not any(f["dans_mon_espace"] and f["ligne_visible"] for f in fiches):
+        causes.append("La conversation dépend d'une ligne WhatsApp qui n'est pas cochée pour votre compte (Utilisateurs suivis → Lignes WhatsApp visibles).")
+    if hors:
+        causes.append(f"{hors} message(s) rangé(s) dans un autre espace client.")
+    if retenus:
+        causes.append(f"{retenus} message(s) retenu(s) par la barrière anti-rafale (bouton « Insérer dans la conversation »).")
+    if a_importer:
+        causes.append("Le numéro figure dans « Contacts à enregistrer » (numéro inconnu).")
+    if not causes:
+        causes.append("Tout est rangé dans votre espace : la conversation doit apparaître (actualisez le Centre de messagerie).")
+    return {"numero": numero, "fiches": fiches, "messages": {"total": total, "hors_espace": hors, "sans_fiche": sans_fiche,
+                                                               "retenus": retenus, "derniers": derniers},
+            "a_importer": a_importer, "lignes_restreintes": vis.restreint, "causes": causes,
+            "reparable": bool(total) and (hors > 0 or sans_fiche > 0 or not any(f["dans_mon_espace"] for f in fiches))}
+
+
+@api.post("/me/retrouver-numero/rattacher", tags=["Portail Client"])
+async def me_retrouver_numero_rattacher(donnees: dict = Body(...), user: dict = Depends(get_current_user)):
+    """Réparation : une fiche du numéro dans MON espace (reprise d'une fiche existante ou créée),
+    prioritaire pour ce numéro ; tous ses messages y sont rattachés ; « à importer » retiré."""
+    _exiger_admin_ou_superviseur(user)
+    numero = str(donnees.get("numero") or "")
+    rx = _phone_suffix_regex(numero)
+    if not rx:
+        raise HTTPException(status_code=422, detail="Numéro incomplet (8 chiffres au moins)")
+    mon_espace = await _resolve_visible_client_ids(user)
+    espace = mon_espace[0] if mon_espace else user.get("id")
+    par_numero = [{"whatsapp": {"$regex": rx}}, {"phone": {"$regex": rx}}, {"phone_digits": {"$regex": rx}}]
+    fiche = await db.directory_contacts.find_one({"$or": par_numero, "client_id": {"$in": mon_espace}}, {"_id": 0},
+                                                 sort=[("created_at", 1)])
+    fiche_deplacee = False
+    if not fiche:
+        # Fiche existante ailleurs → ramenée dans mon espace ; sinon créée à partir du dernier message reçu
+        fiche = await db.directory_contacts.find_one({"$or": par_numero}, {"_id": 0}, sort=[("created_at", 1)])
+        if fiche:
+            await db.directory_contacts.update_one({"id": fiche["id"]}, {"$set": {"client_id": espace, "updated_at": _now()}})
+            fiche["client_id"] = espace
+            fiche_deplacee = True
+        else:
+            dernier = await db.whatsapp_messages.find_one({"phone_digits": {"$regex": rx}, "direction": "inbound"},
+                                                          {"_id": 0}, sort=[("created_at", -1)]) or {}
+            chiffres = re.sub(r"\D", "", dernier.get("phone_digits") or numero)
+            fiche = {"id": _uuid(), "client_id": espace, "name": dernier.get("from_profile_name") or f"+{chiffres}",
+                     "phone": f"+{chiffres}", "whatsapp": f"+{chiffres}", "phone_digits": chiffres,
+                     "wa_profile_name": dernier.get("from_profile_name"), "tags": ["retrouve"], "shared": True,
+                     "source": "retrouver_numero", "created_at": _now(), "updated_at": _now()}
+            await db.directory_contacts.insert_one(dict(fiche))
+    await db.directory_contacts.update_many({"$or": par_numero, "id": {"$ne": fiche["id"]}}, {"$unset": {"wa_prioritaire": ""}})
+    await db.directory_contacts.update_one({"id": fiche["id"]}, {"$set": {"wa_prioritaire": True}})
+    res = await db.whatsapp_messages.update_many(
+        {"$or": [{"phone_digits": {"$regex": rx}}, {"to": {"$regex": rx}}, {"to_number": {"$regex": rx}}]},
+        {"$set": {"client_id": fiche["client_id"], "contact_id": fiche["id"], "contact_name": fiche.get("name"),
+                  "rattache_le": _now(), "rattache_par": user.get("full_name") or user.get("email")}})
+    await db.wa_pending_imports.delete_many({"phone_digits": {"$regex": rx}})
+    return {"ok": True, "fiche_id": fiche["id"], "fiche_nom": fiche.get("name"), "fiche_deplacee": fiche_deplacee,
+            "rattaches": int(getattr(res, "modified_count", 0) or 0)}
+
+
 @api.post("/me/contacts/{cid}/barriere/liberer", tags=["Portail Client"])
 async def me_contact_barriere_liberer(cid: str, user: dict = Depends(get_current_user)):
     """Lot 64.13 — « Insérer dans la conversation » : les messages de ce contact RETENUS par

@@ -32,7 +32,7 @@ export default function AdminWaTemplates() {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/admin/whatsapp/templates");
+      const r = await apiClient.get("/admin/whatsapp/templates?carrousels=true");   // lot 100 : la gestion montre aussi les carrousels
       setResp(r.data || { configured: false, items: [] });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");

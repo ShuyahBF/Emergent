@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "99"
-LOT_LIBELLE = "Réponse automatique de Liluvine dans le support des plateformes web (règles du support) et erreur de lecture des pages Facebook expliquée (bouton Reconnecter Facebook)"
+LOT = "100"
+LOT_LIBELLE = "Listes des modèles WhatsApp approuvés sans les carrousels (sauf écrans des carrousels et gestion des modèles)"

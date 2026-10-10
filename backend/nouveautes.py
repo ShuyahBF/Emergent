@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "100", "date": "2026-10-10",
+        "titre": "🖼️ Modèles carrousels hors des listes ordinaires",
+        "description": "Les listes de modèles WhatsApp approuvés (envois, contacts, automatisations…) ne montrent plus les carrousels ; ils restent dans les écrans des carrousels et dans la gestion des modèles.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "99", "date": "2026-10-10",
         "titre": "🤖 Liluvine répond au support des plateformes web",
         "description": "Dans « sTer - Support », « beAuthentik - Support »…, Liluvine répond d'elle-même tant qu'aucun agent n'a répondu (réponses courtes, 3 échanges au plus, pastille de l'assistant, relais vers Claude) ; activable par plateforme.",

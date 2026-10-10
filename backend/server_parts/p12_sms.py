@@ -1283,9 +1283,11 @@ async def me_delete_schedule(sid: str, user: dict = Depends(get_current_user)):
 
 
 @api.get("/me/whatsapp/templates", tags=["Portail Client"])
-async def me_list_wa_templates(user: dict = Depends(get_current_user)):
+async def me_list_wa_templates(carrousels: bool = False, user: dict = Depends(get_current_user)):
     """Utilisateurs portail : liste les modèles APPROUVÉS + uniquement ceux marqués disponibles.
-    Attaches the admin-maintained description note."""
+    Attaches the admin-maintained description note.
+    Lot 100 : les modèles CARROUSEL sont exclus, sauf `?carrousels=true` (écrans des carrousels)."""
+    from routes.whatsapp_helpers import est_modele_carrousel
     if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Rôle non autorisé")
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -1305,6 +1307,8 @@ async def me_list_wa_templates(user: dict = Depends(get_current_user)):
             for t in (d.get("data") or []):
                 if (t.get("status") or "").upper() != "APPROVED":
                     continue
+                if not carrousels and est_modele_carrousel(t):
+                    continue   # lot 100 : carrousel → seulement dans les écrans des carrousels
                 note = notes_map.get(t["name"]) or {}
                 # Hide if explicitly marked unavailable to users (default = available)
                 if note.get("is_available_for_users") is False:

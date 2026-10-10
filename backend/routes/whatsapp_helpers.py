@@ -1105,3 +1105,9 @@ def attach_whatsapp_helpers(
         # quels credentials sont utilisés + pour les tests de diagnostic.
         "_resolve_wa_credentials": _resolve_wa_credentials,
     }
+
+
+def est_modele_carrousel(modele: dict) -> bool:
+    """Lot 100 — modèle Meta de type CARROUSEL (un composant « CAROUSEL »). Règle du propriétaire (10/10/2026) :
+    les listes de modèles approuvés ne montrent PAS les carrousels, sauf quand on travaille avec des carrousels."""
+    return any(str((c or {}).get("type") or "").upper() == "CAROUSEL" for c in (modele or {}).get("components") or [])

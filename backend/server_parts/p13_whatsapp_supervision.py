@@ -334,8 +334,10 @@ async def admin_integration_health_history(
 
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
-async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
-    """Liste tous les modèles du WABA configuré + fusionne les notes admin (description + disponibilité)."""
+async def admin_list_wa_templates(carrousels: bool = False, _: dict = Depends(get_current_admin)):
+    """Liste tous les modèles du WABA configuré + fusionne les notes admin (description + disponibilité).
+    Lot 100 : les modèles CARROUSEL sont exclus, sauf `?carrousels=true` (page de gestion des modèles)."""
+    from routes.whatsapp_helpers import est_modele_carrousel
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
     waba_id = s.get("wa_business_account_id")
@@ -351,6 +353,8 @@ async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
             notes_map = await _load_template_notes_map()
             items = []
             for t in (d.get("data") or []):
+                if not carrousels and est_modele_carrousel(t):
+                    continue   # lot 100 : carrousel → seulement dans les écrans des carrousels
                 note = notes_map.get(t["name"]) or {}
                 t["note_description"] = note.get("description") or ""
                 # Default TRUE when not explicitly set

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "104.3", "date": "2026-10-10",
+        "titre": "🔎 Retrouver un numéro",
+        "description": "Un message relayé sur votre WhatsApp mais absent du Centre de messagerie ? Saisissez le numéro : SAWALI dit où ses messages sont rangés (autre espace, sans fiche, ligne non autorisée, retenus) et les rattache à votre espace en un clic.",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "104.2", "date": "2026-10-10",
         "titre": "📨 Messages des plateformes toujours remis",
         "description": "Le modèle WhatsApp à 3 variables (Date/Heure, Émetteur, Message) de la Transmission universelle se crée chez Meta en un clic : suivis de commande et rappels des plateformes arrivent même hors de la fenêtre de 24 h.",

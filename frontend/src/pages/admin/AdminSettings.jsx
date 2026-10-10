@@ -118,7 +118,7 @@ const NEW_LOTS = {
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
   "📈 Disponibilité (/uptime) — journal des sondes": "95",
-  "📣 Page Facebook animée par Liluvine": "99",   // lot 96 ; lot 99 : message clair + « Reconnecter Facebook »
+  "📣 Page Facebook animée par Liluvine": "105",  // lot 96 ; lot 99 : « Reconnecter Facebook » ; lot 105 : kit de lancement beAuthentik
   "🧮 Consommation de l'IA (requêtes à Claude)": "98",   // lot 95 : sondes corrigées + remise à zéro du journal
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
@@ -221,7 +221,7 @@ const NEW_SECTIONS = {
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
-  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99).",
+  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; depuis le lot 100, les carrousels n'apparaissent plus dans les listes ordinaires de modèles approuvés.",
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",

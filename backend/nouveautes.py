@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "105", "date": "2026-10-10",
+        "titre": "📣 Kit de lancement de la Page beAuthentik",
+        "description": "Photo de profil, couverture, textes « À propos » à copier et 8 publications de lancement aux couleurs de beAuthentik, chargées dans la file en un clic et publiées sur la Page de la plateforme.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "104.6", "date": "2026-10-10",
         "titre": "📘 Facebook : clé effacée signalée",
         "description": "Si l'App Secret ou le jeton Facebook ont été effacés par un ancien « Enregistrer », le champ revient vide avec un avertissement rouge : on sait qu'il faut coller la vraie clé puis Reconnecter.",

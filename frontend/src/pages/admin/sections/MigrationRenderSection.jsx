@@ -36,7 +36,8 @@ const Statut = ({ valeur }) => {
 };
 
 // Octets -> texte lisible
-const taille = (o) => (o > 1048576 ? `${(o / 1048576).toFixed(1)} Mo` : o > 1024 ? `${Math.round(o / 1024)} Ko` : `${o || 0} o`);
+// Lot 107 : en Go au-delà de 1 Go (les sauvegardes complètes pèsent plusieurs Go)
+const taille = (o) => (o > 1073741824 ? `${(o / 1073741824).toFixed(2)} Go` : o > 1048576 ? `${(o / 1048576).toFixed(1)} Mo` : o > 1024 ? `${Math.round(o / 1024)} Ko` : `${o || 0} o`);
 // Octets -> Mo avec une décimale (avancement du fichier en cours)
 const enMo = (o) => ((o || 0) / 1048576).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
@@ -750,6 +751,8 @@ const MigrationRenderSection = () => {
 
       {/* ---------- Sauvegardes programmées et rétention ---------- */}
       <ProgrammationSauvegardes form={form} enCours={enCours} charger={charger} suivre={suivre} actualisation={jobs} />
+      {/* Lot 107 — sauvegardes présentes dans R2 : taille, suppression à la main */}
+      <SauvegardesR2 actualisation={jobs} charger={charger} />
 
       {/* ---------- Historique ---------- */}
       {jobs.length > 0 && (
@@ -775,5 +778,100 @@ const MigrationRenderSection = () => {
     </div>
   );
 };
+
+// =====================================================================
+// Lot 107 — Sauvegardes présentes dans le bucket R2 (ex. « sawali-migration ») :
+// date, taille, nombre de fichiers, statut ; cases à cocher puis « Supprimer » (confirmation SUPPRIMER).
+// Jamais supprimables : la sauvegarde en cours et la dernière sauvegarde réussie (cadenas).
+// Les identifiants R2 utilisés sont ceux, chiffrés, des « Sauvegardes programmées ».
+// =====================================================================
+function SauvegardesR2({ charger }) {
+  const [liste, setListe] = useState(null);       // {bucket, sauvegardes[], octets_total, objets_total}
+  const [erreur, setErreur] = useState("");
+  const [choix, setChoix] = useState([]);         // dossiers cochés
+  const [occupe, setOccupe] = useState(false);
+
+  // Lecture du bucket (toast « Patientez… » : le parcours peut prendre quelques secondes)
+  const lire = async () => {
+    setOccupe(true); setErreur("");
+    const attente = toast.loading("Patientez… lecture du bucket R2");
+    try {
+      const r = await apiClient.get("/admin/migration/programmation/sauvegardes");
+      setListe(r.data); setChoix([]); toast.dismiss(attente);
+    } catch (err) {
+      setErreur(err?.response?.data?.detail || "Lecture du bucket impossible"); toast.dismiss(attente);
+    } finally { setOccupe(false); }
+  };
+
+  const basculer = (p) => setChoix((c) => (c.includes(p) ? c.filter((x) => x !== p) : [...c, p]));
+  const octetsChoisis = (liste?.sauvegardes || []).filter((x) => choix.includes(x.prefixe)).reduce((t, x) => t + x.octets, 0);
+
+  // Suppression définitive des dossiers cochés (après saisie de SUPPRIMER)
+  const supprimer = async () => {
+    const mot = window.prompt(`Supprimer DÉFINITIVEMENT ${choix.length} sauvegarde(s) (${taille(octetsChoisis)}) de R2 ?\nTapez SUPPRIMER pour confirmer.`);
+    if (!mot) return;
+    setOccupe(true);
+    const attente = toast.loading("Patientez… suppression dans R2");
+    try {
+      const r = await apiClient.post("/admin/migration/programmation/sauvegardes/supprimer", { prefixes: choix, confirmation: mot });
+      toast.success(`${r.data.supprimees.length} sauvegarde(s) supprimée(s), ${taille(r.data.octets)} libéré(s)`
+        + (r.data.erreurs ? ` · ${r.data.erreurs} fichier(s) non supprimé(s)` : ""), { id: attente });
+      await lire(); charger && charger();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Suppression impossible", { id: attente });
+    } finally { setOccupe(false); }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 p-4" data-testid="migration-sauvegardes-r2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 font-semibold"><Cloud className="h-4 w-4" /> Sauvegardes présentes dans R2</p>
+        <button type="button" onClick={lire} disabled={occupe}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50">
+          <RefreshCw className={`h-3.5 w-3.5 ${occupe ? "animate-spin" : ""}`} /> {liste ? "Actualiser" : "Afficher les sauvegardes"}
+        </button>
+      </div>
+      {erreur && <p className="text-xs text-red-700">{erreur}</p>}
+      {liste && (
+        <>
+          <p className="text-xs text-slate-600">
+            Bucket <b className="font-mono">{liste.bucket}</b> : {liste.sauvegardes.length} sauvegarde(s), <b>{taille(liste.octets_total)}</b>,
+            {" "}{liste.objets_total.toLocaleString("fr-FR")} fichier(s). La sauvegarde en cours et la dernière réussie sont protégées.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr>
+                <th className="w-8 px-2 py-1.5" /><th className="px-2 py-1.5">Sauvegarde</th><th className="px-2 py-1.5">Date</th>
+                <th className="px-2 py-1.5">Statut</th><th className="px-2 py-1.5 text-right">Fichiers</th><th className="px-2 py-1.5 text-right">Taille</th>
+              </tr></thead>
+              <tbody>
+                {liste.sauvegardes.map((x) => (
+                  <tr key={x.prefixe} className={`border-t border-slate-100 ${choix.includes(x.prefixe) ? "ligne-selectionnee" : ""}`}
+                      aria-selected={choix.includes(x.prefixe)}>
+                    <td className="px-2 py-1.5">
+                      {x.protegee
+                        ? <Lock className="h-3.5 w-3.5 text-slate-400" aria-label={x.raison} />
+                        : <input type="checkbox" checked={choix.includes(x.prefixe)} onChange={() => basculer(x.prefixe)} aria-label={`Choisir ${x.prefixe}`} />}
+                    </td>
+                    <td className="px-2 py-1.5 font-mono">{x.prefixe}{x.programmee && <span className="ml-1 font-sans text-slate-400">(programmée)</span>}
+                      {x.protegee && <span className="ml-1 font-sans text-slate-500">— {x.raison}</span>}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5">{dateHeure(x.date)}</td>
+                    <td className="px-2 py-1.5">{x.statut ? <Statut valeur={x.statut} /> : <span className="text-slate-400">inconnue</span>}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{x.objets.toLocaleString("fr-FR")}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">{taille(x.octets)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={supprimer} disabled={occupe || choix.length === 0}
+            className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+            <Trash2 className="h-4 w-4" /> Supprimer {choix.length ? `${choix.length} sauvegarde(s) (${taille(octetsChoisis)})` : "la sélection"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default MigrationRenderSection;

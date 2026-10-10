@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -193,7 +193,10 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["url_assistant"] = _url_retour_valide(donnees.url_assistant)
         if not changements:
             return {"ok": True}
-        r = await db.liluvine_emetteurs.update_one({"code": code}, {"$set": changements})
+        maj: Dict[str, Any] = {"$set": changements}
+        if "url_retour" in changements:   # lot 107.1 : nouvelle adresse, l'échec de l'ancienne n'est plus affiché
+            maj["$unset"] = {"dernier_retour_echec": "", "dernier_retour_type": ""}
+        r = await db.liluvine_emetteurs.update_one({"code": code}, maj)
         if not r.matched_count:
             raise HTTPException(status_code=404, detail="Émetteur introuvable")
         return {"ok": True}

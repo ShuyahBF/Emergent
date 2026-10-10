@@ -198,8 +198,10 @@ async def _poster_retour(db, emetteur: Dict[str, Any], corps: Dict[str, Any]) ->
                     "Content-Type": "application/json", "X-Emetteur": "sawali",
                     "X-Timestamp": ts, "X-Signature": signature})
             if r.status_code < 300:
+                # Lot 107.1 : un retour réussi efface l'ancien échec affiché (l'adresse fonctionne de nouveau)
                 await db.liluvine_emetteurs.update_one({"code": emetteur["code"]},
-                                                       {"$set": {"dernier_retour_ok": _maintenant().isoformat()}})
+                                                       {"$set": {"dernier_retour_ok": _maintenant().isoformat()},
+                                                        "$unset": {"dernier_retour_echec": "", "dernier_retour_type": ""}})
                 return True
             if r.status_code < 500:
                 break  # refus définitif (signature, route absente…) : pas de nouvel essai

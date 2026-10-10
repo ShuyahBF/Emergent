@@ -80,6 +80,21 @@ export default function LiluvineEmetteursSection() {
   };
 
   // Chargement des émetteurs et du journal
+  // Lot 107.1 — test immédiat de chaque plateforme (statistiques sans cache) puis rechargement du tableau
+  const [actualisation, setActualisation] = useState(false);
+  const actualiserPlateformes = async () => {
+    setActualisation(true);
+    const attente = toast.loading("Patientez… interrogation des plateformes");
+    try {
+      const actifs = emetteurs.filter((x) => x.actif && (x.url_retour || x.url_stats));
+      await Promise.allSettled(actifs.map((x) => apiClient.post(`/admin/plateformes-activite/${x.code}/tester`)));
+      await charger();
+      toast.success(`${actifs.length} plateforme(s) interrogée(s)`, { id: attente });
+    } catch {
+      toast.error("Actualisation impossible", { id: attente });
+    } finally { setActualisation(false); }
+  };
+
   const charger = useCallback(async () => {
     try {
       const [a, b, c, d] = await Promise.all([
@@ -270,6 +285,14 @@ export default function LiluvineEmetteursSection() {
       </div>
 
       {/* Plateformes émettrices */}
+      {/* Lot 107.1 — « Actualiser » : interroge tout de suite chaque plateforme (statistiques = test de l'adresse de
+          retour), puis recharge le tableau ; toast « Patientez… » pendant l'opération */}
+      <div className="flex justify-end">
+        <button type="button" onClick={actualiserPlateformes} disabled={actualisation}
+                className="inline-flex items-center gap-1 rounded border border-slate-300 px-2.5 py-1 text-xs hover:bg-slate-50 disabled:opacity-50">
+          <RefreshCw className={`h-3.5 w-3.5 ${actualisation ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -317,9 +340,12 @@ export default function LiluvineEmetteursSection() {
                   <input defaultValue={e.url_retour || ""} onClick={(ev) => ev.stopPropagation()} placeholder="https://…"
                          onBlur={(ev) => ev.target.value !== (e.url_retour || "") && modifier(e.code, { url_retour: ev.target.value })}
                          className="w-56 rounded border border-slate-300 px-1 py-0.5" />
-                  {e.dernier_retour_echec && (
+                  {/* Lot 107.1 : échec affiché seulement s'il est plus récent que le dernier retour réussi */}
+                  {e.dernier_retour_echec && !(e.dernier_retour_ok && e.dernier_retour_ok > e.dernier_retour_echec) ? (
                     <div className="text-[10px] text-red-700">Dernier retour en échec : {fmt(e.dernier_retour_echec)}</div>
-                  )}
+                  ) : e.dernier_retour_ok ? (
+                    <div className="text-[10px] text-emerald-700">Dernier retour reçu : {fmt(e.dernier_retour_ok)}</div>
+                  ) : null}
                 </td>
                 <td className="pr-2">
                   {/* Lot 62 — adresse des statistiques internes (vide = l'URL de retour est utilisée) */}

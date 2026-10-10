@@ -112,7 +112,7 @@ const NEW_LOTS = {
   "Contrats — Seuil de retard de paiement (par défaut)": "79.7",   // lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
-  "📅 Agenda d'appels de Liluvine et anniversaires": "70",
+  "📅 Agenda d'appels de Liluvine et anniversaires": "106",   // lot 70 ; lot 106 : appels demandés par les plateformes
   "💬 Conversations WhatsApp — transfert et en-tête": "104.4",   // lots 104.3-104.4 : retrouver un numéro, espace de réception
   "🔄 Loois — synchronisation des tables et clés clients": "68",
   "🖥️ Postes et serveurs — signal de présence": "65",
@@ -151,7 +151,7 @@ const NEW_SECTIONS = {
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-08",   // lot 79.7
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
-  "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-07",
+  "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-10",
   "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-10",
   "🔄 Loois — synchronisation des tables et clés clients": "2026-10-07",
   "🖥️ Postes et serveurs — signal de présence": "2026-10-07",

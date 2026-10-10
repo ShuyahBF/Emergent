@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "105.1"
-LOT_LIBELLE = "Rubrique « Page Facebook animée par Liluvine » (kit beAuthentik) rangée dans l'onglet META (FB / WA)"
+LOT = "106"
+LOT_LIBELLE = "Les plateformes (ZandGo…) demandent un appel de relance à Liluvine (agenda d'appels) et en lisent le résultat"

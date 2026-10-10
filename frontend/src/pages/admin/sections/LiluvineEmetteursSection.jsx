@@ -16,6 +16,8 @@
   Journal : mode « Code (OTP) » et motif d'échec de remise donné par Meta.
   Lot 104.1 : « Envois des 7 derniers jours par plateforme » (refusés, envoyés, remis, lus, échoués,
   dernier motif d'échec) ; un clic sur une plateforme filtre le journal.
+  Lot 104.2 : « Messages des plateformes » — modèle WhatsApp UTILITAIRE à 3 variables (Date/Heure,
+  Émetteur, Message) créé chez Meta en un clic : les messages transmis arrivent hors fenêtre de 24 h.
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
@@ -38,6 +40,24 @@ export default function LiluvineEmetteursSection() {
   const [selection, setSelection] = useState(null);     // ligne sélectionnée (règle 3 des tableaux)
   const [otp, setOtp] = useState(null);                 // lot 104 : modèle des codes de connexion
   const [creationOtp, setCreationOtp] = useState(false);
+  const [modeleTrans, setModeleTrans] = useState(null); // lot 104.2 : modèle de la Transmission (3 variables)
+  const [creationTrans, setCreationTrans] = useState(false);
+  const chargerTrans = useCallback(async () => {
+    try { setModeleTrans((await apiClient.get("/admin/liluvine-modele-transmission")).data); } catch { setModeleTrans({ nom: "", statut_meta: null }); }
+  }, []);
+  useEffect(() => { chargerTrans(); }, [chargerTrans]);
+  const creerTrans = async () => {
+    setCreationTrans(true);
+    const attente = toast.loading("Patientez… création du modèle chez Meta");
+    try {
+      const { data } = await apiClient.post("/admin/liluvine-modele-transmission/creer", {});
+      toast.success(`Modèle « ${data.nom} » envoyé à Meta (${data.statut_meta}). Approbation en général en quelques minutes à quelques heures.`, { id: attente });
+      chargerTrans();
+      window.dispatchEvent(new Event("sawali-reglages-modifies"));   // la page relit ses paramètres
+    } catch (e) {
+      toast.error(erreur(e), { id: attente });
+    } finally { setCreationTrans(false); }
+  };
   const [synthese, setSynthese] = useState([]);         // lot 104.1 : envois par plateforme (7 jours)
   const [filtre, setFiltre] = useState("");             // lot 104.1 : plateforme affichée dans le journal
 
@@ -53,6 +73,7 @@ export default function LiluvineEmetteursSection() {
       const { data } = await apiClient.post("/admin/liluvine-modele-otp/creer", {});
       toast.success(`Modèle « ${data.nom} » envoyé à Meta (${data.statut_meta}). Approbation en général en quelques minutes.`, { id: attente });
       chargerOtp();
+      window.dispatchEvent(new Event("sawali-reglages-modifies"));   // la page relit ses paramètres
     } catch (e) {
       toast.error(erreur(e), { id: attente });
     } finally { setCreationOtp(false); }
@@ -176,6 +197,32 @@ export default function LiluvineEmetteursSection() {
                 {{ APPROVED: "✅ approuvé", PENDING: "⏳ en attente d'approbation", REJECTED: "❌ refusé", INTROUVABLE: "❌ introuvable chez Meta" }[otp.statut_meta] || otp.statut_meta || "inconnu"}
               </b></>
           ) : <>⚠️ Aucun modèle : les codes partent en texte libre et n'arrivent qu'aux personnes ayant écrit dans les 24 h.</>}
+        </div>
+      </div>
+
+      {/* Lot 104.2 : modèle à 3 variables des messages transmis par les plateformes (suivi de commande, rappels…) */}
+      <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 text-xs" data-testid="liluvine-modele-transmission">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-800">Messages des plateformes (Transmission universelle)</div>
+            <p className="mt-0.5 text-slate-600">
+              Les messages des plateformes partent par un modèle WhatsApp <b>utilitaire</b> à 3 variables (Date/Heure, Émetteur, Message) :
+              ils arrivent même à quelqu'un qui n'a pas écrit depuis 24 h. Les retours à la ligne du message deviennent « · ».
+            </p>
+            {modeleTrans?.corps && <p className="mt-1 whitespace-pre-line rounded bg-white/70 px-2 py-1 font-mono text-[11px] text-slate-600">{modeleTrans.corps}</p>}
+          </div>
+          <button type="button" onClick={creerTrans} disabled={creationTrans}
+                  className="inline-flex items-center gap-1 rounded bg-slate-900 px-3 py-1.5 text-white disabled:opacity-50">
+            <KeyRound className="h-3.5 w-3.5" /> {modeleTrans?.nom ? "Recréer / vérifier chez Meta" : "Créer le modèle chez Meta"}
+          </button>
+        </div>
+        <div className="mt-2 text-slate-700">
+          {modeleTrans === null ? "Lecture…" : modeleTrans.nom ? (
+            <>Modèle : <b className="font-mono">{modeleTrans.nom}</b> ({modeleTrans.langue}) — état Meta :{" "}
+              <b className={modeleTrans.statut_meta === "APPROVED" ? "text-emerald-700" : "text-amber-700"}>
+                {{ APPROVED: "✅ approuvé", PENDING: "⏳ en attente d'approbation", REJECTED: "❌ refusé", INTROUVABLE: "❌ introuvable chez Meta" }[modeleTrans.statut_meta] || modeleTrans.statut_meta || "inconnu"}
+              </b></>
+          ) : <>⚠️ Aucun modèle : les messages partent en texte libre et n'arrivent qu'aux personnes ayant écrit dans les 24 h.</>}
         </div>
       </div>
 

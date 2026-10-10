@@ -1478,6 +1478,9 @@ async def me_retrouver_numero(numero: str, user: dict = Depends(get_current_user
                          "dans_mon_espace": m.get("client_id") in mon_espace, "avec_fiche": bool(m.get("contact_id")),
                          "retenu": bool(m.get("barriere_retenu"))})
     a_importer = bool(await db.wa_pending_imports.find_one({"phone_digits": {"$regex": rx}}, {"_id": 1}))
+    # Lot 104.4 — où sont rangés les messages des NOUVEAUX numéros
+    _reg = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_espace_reception": 1}) or {}
+    reception_ici = _reg.get("wa_espace_reception") in mon_espace
     # Diagnostic en phrases simples
     causes = []
     if not total:
@@ -1494,12 +1497,17 @@ async def me_retrouver_numero(numero: str, user: dict = Depends(get_current_user
         causes.append(f"{retenus} message(s) retenu(s) par la barrière anti-rafale (bouton « Insérer dans la conversation »).")
     if a_importer:
         causes.append("Le numéro figure dans « Contacts à enregistrer » (numéro inconnu).")
+    if not reception_ici:
+        causes.append("Les messages des NOUVEAUX numéros ne sont pas rangés dans votre espace : « Rattacher à mon espace » "
+                      "les y range désormais automatiquement.")
     if not causes:
         causes.append("Tout est rangé dans votre espace : la conversation doit apparaître (actualisez le Centre de messagerie).")
     return {"numero": numero, "fiches": fiches, "messages": {"total": total, "hors_espace": hors, "sans_fiche": sans_fiche,
                                                                "retenus": retenus, "derniers": derniers},
             "a_importer": a_importer, "lignes_restreintes": vis.restreint, "causes": causes,
-            "reparable": bool(total) and (hors > 0 or sans_fiche > 0 or not any(f["dans_mon_espace"] for f in fiches))}
+            "reception_dans_mon_espace": reception_ici,
+            "reparable": (bool(total) and (hors > 0 or sans_fiche > 0 or not any(f["dans_mon_espace"] for f in fiches)))
+                         or not reception_ici}
 
 
 @api.post("/me/retrouver-numero/rattacher", tags=["Portail Client"])
@@ -1540,8 +1548,12 @@ async def me_retrouver_numero_rattacher(donnees: dict = Body(...), user: dict = 
         {"$set": {"client_id": fiche["client_id"], "contact_id": fiche["id"], "contact_name": fiche.get("name"),
                   "rattache_le": _now(), "rattache_par": user.get("full_name") or user.get("email")}})
     await db.wa_pending_imports.delete_many({"phone_digits": {"$regex": rx}})
+    # Lot 104.4 — les messages des nouveaux numéros seront désormais rangés dans CET espace
+    await db.settings.update_one({"_id": "global"}, {"$set": {"wa_espace_reception": fiche["client_id"],
+                                                              "wa_espace_reception_par": user.get("full_name") or user.get("email"),
+                                                              "wa_espace_reception_le": _now()}}, upsert=True)
     return {"ok": True, "fiche_id": fiche["id"], "fiche_nom": fiche.get("name"), "fiche_deplacee": fiche_deplacee,
-            "rattaches": int(getattr(res, "modified_count", 0) or 0)}
+            "rattaches": int(getattr(res, "modified_count", 0) or 0), "espace_reception": True}
 
 
 @api.post("/me/contacts/{cid}/barriere/liberer", tags=["Portail Client"])
@@ -1780,7 +1792,13 @@ async def whatsapp_webhook_incoming(request: Request):
         # match inbound WhatsApp messages to any tenant scope, breaking the
         # Liluvine WA auto-reply (it would skip with `liluvine_pro_not_enabled`
         # or, worse, fire without a tenant context).
-        primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1})
+        # Lot 104.4 — espace de réception choisi par l'administrateur (« Retrouver un numéro » →
+        # « Rattacher à mon espace ») : les numéros inconnus y sont rangés. Avant, le PREMIER superviseur
+        # trouvé dans la base recevait ces messages, souvent hors de l'espace de l'administrateur.
+        _reg_espace = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_espace_reception": 1}) or {}
+        primary = {"id": _reg_espace["wa_espace_reception"]} if _reg_espace.get("wa_espace_reception") else None
+        if not primary:
+            primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1})
         if not primary:
             primary = await db.users.find_one(
                 {"role": "admin", "email": {"$ne": "admin@sawalismartsystems.com"}},

@@ -113,7 +113,7 @@ const NEW_LOTS = {
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "70",
-  "💬 Conversations WhatsApp — transfert et en-tête": "104.3",   // lot 104.3 : retrouver un numéro
+  "💬 Conversations WhatsApp — transfert et en-tête": "104.4",   // lots 104.3-104.4 : retrouver un numéro, espace de réception
   "🔄 Loois — synchronisation des tables et clés clients": "68",
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",

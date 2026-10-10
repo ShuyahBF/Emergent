@@ -6,6 +6,8 @@
     retenus par la barrière anti-rafale, ligne WhatsApp non autorisée, « contact à enregistrer ») ;
   - « Rattacher à mon espace » : la fiche du numéro est ramenée (ou créée) dans mon espace et
     tous ses messages y sont rattachés ; la conversation apparaît dans le Centre de messagerie.
+  Lot 104.4 : ce rattachement fixe aussi l'ESPACE DE RÉCEPTION : les messages des nouveaux numéros
+    sont désormais rangés directement dans l'espace de l'administrateur.
 */
 import React, { useState } from "react";
 import { apiClient } from "@/lib/api";
@@ -39,7 +41,8 @@ export default function RetrouverNumeroSection() {
     const t = toast.loading("Patientez… rattachement des messages");
     try {
       const { data } = await apiClient.post("/me/retrouver-numero/rattacher", { numero: numero.trim() });
-      toast.success(`${data.rattaches} message(s) rattaché(s) à la fiche « ${data.fiche_nom} »${data.fiche_deplacee ? " (fiche ramenée dans votre espace)" : ""}.`, { id: t });
+      toast.success(`${data.rattaches} message(s) rattaché(s) à la fiche « ${data.fiche_nom} »${data.fiche_deplacee ? " (fiche ramenée dans votre espace)" : ""}. Les nouveaux numéros seront désormais rangés dans votre espace.`, { id: t });
+      window.dispatchEvent(new Event("sawali-reglages-modifies"));   // la page relit ses paramètres
       await chercher();
     } catch (err) { toast.error(erreur(err), { id: t }); }
   };
@@ -65,6 +68,10 @@ export default function RetrouverNumeroSection() {
           <ul className="space-y-1">
             {resultat.causes.map((c) => <li key={c} className="text-slate-800">• {c}</li>)}
           </ul>
+          {/* Lot 104.4 : espace où arrivent les messages des nouveaux numéros */}
+          <p className={`text-xs font-semibold ${resultat.reception_dans_mon_espace ? "text-emerald-700" : "text-amber-700"}`}>
+            {resultat.reception_dans_mon_espace ? "✅ Les nouveaux numéros arrivent dans votre espace." : "⚠️ Les nouveaux numéros arrivent dans un autre espace que le vôtre."}
+          </p>
           <div className="flex flex-wrap gap-x-4 text-xs text-slate-600">
             <span>{m.total} message(s)</span><span>Hors de votre espace : {m.hors_espace}</span>
             <span>Sans fiche : {m.sans_fiche}</span><span>Retenus : {m.retenus}</span>

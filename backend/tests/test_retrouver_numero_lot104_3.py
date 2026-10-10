@@ -78,6 +78,10 @@ def test_diagnostic_puis_reparation(monkeypatch):
         d2 = await ns["me_retrouver_numero"]("55859615", admin)
         assert d2["messages"]["hors_espace"] == 0 and d2["messages"]["sans_fiche"] == 0 and not d2["reparable"]
         assert all(f["dans_mon_espace"] for f in d2["fiches"])
+        # Lot 104.4 : l'espace de réception des nouveaux numéros devient le mien
+        reg = await db.settings.find_one({"_id": "global"})
+        assert reg["wa_espace_reception"] == "moi" and d2["reception_dans_mon_espace"]
+        assert any("NOUVEAUX numéros" in c for c in d["causes"])
         # Accès refusé à un simple utilisateur
         with pytest.raises(Exception):
             await ns["me_retrouver_numero"]("55859615", {"id": "u", "role": "client"})

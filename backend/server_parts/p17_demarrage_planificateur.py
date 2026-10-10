@@ -32,6 +32,9 @@ async def on_startup():
     # New indexes are added on every startup (idempotent).
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id")
+    # Lot 98 — journal de consommation de l'IA : lecture par date, nettoyage automatique après 400 jours
+    from routes.journal_ia import creer_index as _index_journal_ia
+    await _index_journal_ia(db)
     await db.otps.create_index("session_token")
     await db.otps.create_index("expires_at")
     await db.appointments.create_index("scheduled_at")

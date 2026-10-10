@@ -354,6 +354,14 @@ def liluvine_active() -> bool:
         return False
 
 
+async def appeler_claude_assistance(texte: str) -> str:
+    """Lot 98 — Claude répond à la place de Liluvine (sans lire le dépôt) ; remplacé dans les tests."""
+    from ia_client import LlmChat, UserMessage, cle_ia
+    chat = LlmChat(api_key=cle_ia("anthropic"), session_id=f"assistance-claude-{uuid.uuid4().hex[:8]}",
+                   system_message=SYSTEME_ASSISTANCE).with_model("anthropic", MODELE_ASSISTANCE).with_params(max_tokens=700)
+    return (await chat.send_message(UserMessage(text=texte)) or "").strip()
+
+
 async def appeler_ia(systeme: str, texte: str, modele: str) -> str:
     """Appel du modèle (remplacé par une fonction factice dans les tests)."""
     from ia_client import LlmChat, UserMessage, cle_ia
@@ -394,6 +402,20 @@ SYSTEME_REPONSE = (
     "« 📷 Capture ») ou une vidéo de l'écran (bouton « 🎥 Vidéo ») si utile, et donne une solution seulement si "
     "tu en es sûre. N'invente jamais de fonction ni de procédure. Ne demande jamais de mot de passe ni de clé."
 )
+# Lot 98 — règles du propriétaire (réponses courtes, 2 questions au plus) et relais vers Claude si Liluvine ne sait pas
+from routes.regles_support import REGLES_REPONSE as _REGLES  # noqa: E402
+MARQUE_CLAUDE = "[CLAUDE]"
+SYSTEME_REPONSE += _REGLES + (
+    f"3. Si tu ne connais pas la réponse avec certitude (question technique pointue, cas non couvert par tes "
+    f"connaissances), réponds UNIQUEMENT {MARQUE_CLAUDE} : Claude, l'ingénieur de SAWALI, répondra à ta place.")
+SYSTEME_ASSISTANCE = (
+    "Tu es Claude, l'ingénieur qui développe les logiciels de SAWALI SMART SYSTEMS (Loois, e-Kol, sTer, adLyn, "
+    "beAuthentik, bfmobility, ALBARKA). Liluvine, l'assistante du support, ne sait pas répondre à l'utilisateur : "
+    "réponds à sa place, dans la fenêtre du support. Tu ne lis pas le code : réponds avec tes connaissances "
+    "générales du logiciel et de l'informatique, uniquement sur le plan technique. Si tu n'es pas certain, dis "
+    "simplement qu'un agent du support va prendre le relais. N'invente aucune fonction ; ne demande jamais de mot "
+    "de passe ni de clé. Français." + _REGLES)
+MODELE_ASSISTANCE = "claude-sonnet-4-5-20250929"
 SYSTEME_RESUME = (
     "Tu es Liluvine, l'assistante du support SAWALI. On te donne la conversation d'une session d'assistance "
     "entre un utilisateur du logiciel Loois (école) et le support. Rédige les « Détails du Support » en français, "
@@ -452,31 +474,47 @@ async def systeme_liluvine(db, client_doc: Dict[str, Any], question: str = "") -
 
 
 async def reponse_liluvine(db, pid: str, en_attente: bool = True) -> str:
-    """Réponse (attente) ou suggestion (session active, pour l'agent) à partir de la conversation récente,
+    """Texte seul de reponse_liluvine_detail (suggestion pour l'agent, anciens appelants)."""
+    return (await reponse_liluvine_detail(db, pid, en_attente))[0]
+
+
+async def reponse_liluvine_detail(db, pid: str, en_attente: bool = True) -> tuple:
+    """→ (texte, origine) avec origine « liluvine » ou « claude » (lot 98 : relais quand Liluvine ne sait pas).
+    Réponse (attente) ou suggestion (session active, pour l'agent) à partir de la conversation récente,
     du prompt du client lié et de la base de connaissances.
     En attente, si l'accès Liluvine du client est « Restreint » hors heures ouvrées : un seul message
     d'information par session, puis silence (l'agent répondra)."""
     messages = await conversation(db, pid, limite=20)
     if not messages:
-        return ""
+        return "", "liluvine"
     session = await session_en_cours(db, pid) or {}
     client_doc = await client_du_poste(db, pid, session)
     if en_attente:
         reglages = await db.settings.find_one({"_id": "global"}) or {}
         if acces_restreint_maintenant(client_doc, reglages):
             if session.get("liluvine_restreint_annonce"):
-                return ""
+                return "", "liluvine"
             await db.support_loois_sessions.update_one({"id": session.get("id")},
                                                        {"$set": {"liluvine_restreint_annonce": True}})
             modele = (reglages.get("liluvine_access_restricted_message") or "").strip() or MESSAGE_RESTREINT_DEFAUT
-            return modele.replace("{client_name}", client_doc.get("company") or client_doc.get("full_name") or "votre établissement")
+            return (modele.replace("{client_name}", client_doc.get("company") or client_doc.get("full_name") or
+                                   "votre établissement"), "liluvine")
     consigne = ("Un agent humain va prendre le relais : dis-le si l'utilisateur attend une intervention."
                 if en_attente else
                 "Rédige la PROCHAINE réponse que l'agent du support pourra envoyer (il la relira).")
     texte = f"{consigne}\n\nConversation :\n{transcrire(messages, pid)}\n\nTa réponse :"
     # Question à rechercher dans Qdrant : derniers messages du poste
     question = " ".join(m.get("text") or "" for m in messages if m.get("sender_id") == pid)[-500:]
-    return (await appeler_ia(await systeme_liluvine(db, client_doc, question), texte, MODELE_REPONSE))[:2000]
+    reponse = (await appeler_ia(await systeme_liluvine(db, client_doc, question), texte, MODELE_REPONSE))[:2000]
+    # Lot 98 (règle 4) — Liluvine ne sait pas : Claude répond à sa place, sans lire le code
+    if MARQUE_CLAUDE in reponse:
+        try:
+            aide = await appeler_claude_assistance(f"Conversation :\n{transcrire(messages, pid)}\n\nTa réponse :")
+        except Exception:  # noqa: BLE001
+            aide = ""
+        return (aide[:2000] or "Je transmets votre question à un agent du support, il vous répond dès que possible."), \
+            ("claude" if aide else "liluvine")
+    return reponse, "liluvine"
 
 
 async def resumer(db, session: Dict[str, Any]) -> str:

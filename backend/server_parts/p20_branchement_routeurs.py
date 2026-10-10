@@ -655,6 +655,10 @@ _attach_twitter(api=api, db=db, get_current_user=get_current_user, get_current_a
 from routes.facebook import attach_facebook_routes as _attach_facebook  # noqa: E402
 _attach_facebook(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
 
+# Lot 98 — journal de consommation de l'IA (tableau de synthèse des requêtes à Claude)
+from routes import journal_ia as _journal_ia  # noqa: E402
+_journal_ia.installer(api=api, db=db, get_current_admin=get_current_admin)
+
 # Lot 96 — Liluvine anime la page Facebook (photos masquées + bio modérée par l'IA, file de validation)
 from routes.facebook_animation import attach_facebook_animation_routes as _attach_fb_animation  # noqa: E402
 _attach_fb_animation(api=api, db=db, get_current_admin=get_current_admin)

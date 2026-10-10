@@ -1195,9 +1195,17 @@ export default function InternalChatPanel() {
                             </p>
                           </button>
                         )}
-                        {!mine && (
-                          <p className="text-[10px] font-semibold text-slate-500 mb-0.5">{m.sender_name}</p>
-                        )}
+                        {/* Lot 98 — pastille de l'assistant de Liluvine concerné par le sujet (ex. Robert · Comptable) */}
+                        {!mine && (m.pastille?.prenom ? (
+                            <p className="mb-0.5 flex flex-wrap items-center gap-1 text-[10px] font-semibold text-slate-500">
+                              {(m.sender_name || "").split(" · ")[0]}
+                              <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">
+                                {m.pastille.prenom}{m.pastille.specialite ? ` · ${m.pastille.specialite}` : ""}
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="text-[10px] font-semibold text-slate-500 mb-0.5">{m.sender_name}</p>
+                          ))}
                         {hasMedia && (
                           <button
                             type="button"

@@ -135,7 +135,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         try:
             chat = LlmChat(
                 api_key=api_key,
-                session_id=secrets.token_urlsafe(8),
+                session_id=f"ai-media-{secrets.token_urlsafe(8)}",   # lot 98 : nommé dans le journal de l'IA
                 system_message="You are a helpful AI assistant generating high-quality images.",
             ).with_model("gemini", GEMINI_MODEL).with_params(modalities=["image", "text"])
 

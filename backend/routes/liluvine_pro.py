@@ -691,7 +691,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY manquant côté serveur.")
         chat = LlmChat(
             api_key=api_key,
-            session_id=session_id,
+            session_id=f"liluvine-pro-{session_id}",   # lot 98 : préfixe lu par le journal de consommation de l'IA
             system_message=system_text,
         ).with_model("anthropic", LILUVINE_MODEL)
         # S031 — Record LLM outcome for the budget-exceeded banner

@@ -18,6 +18,8 @@ const STATUTS = {
   acceptee: { libelle: "👍 Acceptée", classe: "bg-emerald-600 text-white" },
   refusee: { libelle: "👎 Refusée", classe: "bg-slate-200 text-slate-700" },
   erreur: { libelle: "⚠️ Analyse impossible", classe: "bg-rose-100 text-rose-800" },
+  // Lot 98 — le client n'a pas répondu aux questions pendant 24 h : la demande est abandonnée (consultable)
+  abandonnee: { libelle: "💤 Abandonnée (pas de réponse)", classe: "bg-slate-100 text-slate-500" },
 };
 
 // Date courte « 09/10/2026 14:05 »

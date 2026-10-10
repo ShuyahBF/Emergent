@@ -82,6 +82,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
+import gc
 import gzip
 import hashlib
 import io
@@ -100,6 +101,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import unquote, urlparse
 
 import httpx
+import bson
 from bson import json_util
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -131,6 +133,24 @@ MESSAGE_MEME_CLUSTER = (
     "ALBARKA, DentalCare et adLyn. Collez l'URI du cluster de sauvegarde (ex. « clusterbkp.xxxxx.mongodb.net »), "
     "pas celle de Cluster0 avec un autre nom de base.")
 LOT = 500  # documents écrits par lot dans la base cible
+# Lot 101 — le serveur (offre à 512 Mo) a été arrêté pour dépassement de mémoire pendant la sauvegarde nocturne :
+# un lot de 500 GROS documents (sauvegardes, médias encodés…) occupait des centaines de Mo (document + EJSON +
+# requêtes d'écriture). Un lot est donc AUSSI limité en octets : il part dès qu'il atteint LOT_OCTETS.
+LOT_OCTETS = 4 * 1024 * 1024
+LOT_LECTURE = 100  # documents demandés à MongoDB par aller-retour (au lieu de 500)
+
+
+def taille_bson(doc: dict) -> int:
+    """Taille d'un document une fois encodé (BSON) ; ne fait jamais échouer la copie."""
+    try:
+        return len(bson.encode(doc))
+    except Exception:  # noqa: BLE001 — document atypique : estimation prudente
+        return 64 * 1024
+
+
+def lot_plein(nombre: int, octets: int) -> bool:
+    """Vrai quand le lot en cours doit être écrit : 500 documents OU 4 Mo atteints."""
+    return nombre >= LOT or octets >= LOT_OCTETS
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
 BATTEMENT_MIN = 5  # secondes minimum entre deux mises à jour de l'avancement
@@ -955,9 +975,12 @@ async def _relire_references(job_id: str, nom: str, references: Dict[tuple, str]
     if _sans_references(nom):
         return
     lot_refs: List[dict] = []
-    async for doc in db[nom].find({}, batch_size=LOT):
+    octets_refs = 0
+    async for doc in db[nom].find({}, batch_size=LOT_LECTURE):
         lot_refs.append(doc)
-        if len(lot_refs) >= LOT:
+        octets_refs += taille_bson(doc)
+        if lot_plein(len(lot_refs), octets_refs):
+            octets_refs = 0
             _ajouter_references(references, (await asyncio.to_thread(_serialiser_lot, lot_refs))[1], nom)
             lot_refs = []
             await _battement(job_id, {"collection": nom, "copies": 0, "total": 0, "saut": True})
@@ -1006,14 +1029,18 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                     copies += len(docs)
                     await _battement(job_id, {"collection": nom, "copies": copies, "total": n_source})
 
+                # Lot 101 : lot limité en nombre ET en octets (mémoire du serveur)
                 lot: List[dict] = []
-                async for doc in src.find({}, batch_size=LOT):
+                octets_lot = 0
+                async for doc in src.find({}, batch_size=LOT_LECTURE):
                     lot.append(doc)
-                    if len(lot) >= LOT:
+                    octets_lot += taille_bson(doc)
+                    if lot_plein(len(lot), octets_lot):
                         await ecrire_lot(lot)
-                        lot = []
+                        lot, octets_lot = [], 0
                 if lot:
                     await ecrire_lot(lot)
+                lot = []
             taille = tmp.tell()
             tmp.seek(0)
             await asyncio.to_thread(r2.upload_fileobj, tmp, cible.r2_bucket, f"{prefixe}/mongo/{nom}.jsonl.gz",
@@ -1043,6 +1070,7 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                                                             "$inc": {"collections_faites": 1, "documents_copies": copies,
                                                                      "octets_archives": taille}})
         await _maj(job_id, f"  {'✓' if ok else '✗'} {nom} : {n_source} → {n_cible}")
+        gc.collect()  # lot 101 : mémoire de la collection rendue avant la suivante
     await _maj(job_id, f"Base terminée : {total_docs} documents copiés, {anomalies} anomalie(s)")
     return anomalies
 

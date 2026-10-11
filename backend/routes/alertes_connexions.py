@@ -85,12 +85,39 @@ def reglages(s: Dict[str, Any]) -> Dict[str, Any]:
         "plafond_jour": _entier(s.get("alerte_cnx_plafond_jour"), 100, 1, 5000),
         "ip_exclues": _liste(s.get("alerte_cnx_ip_exclues")),
         "plateformes_exclues": [x.lower() for x in _liste(s.get("alerte_cnx_plateformes_exclues"))],
+        # Lot 109.3 — l'IP change sans cesse (mobile, Wi-Fi) : exclusions qui ne dépendent pas du réseau
+        #   - comptes exclus : numéros de téléphone ou noms d'utilisateur (vos comptes sur les plateformes) ;
+        #   - mes propres numéros : ceux de « Liluvine appelle le propriétaire » sont exclus d'office (réglable) ;
+        #   - appareils exclus : navigateur reconnu par son identifiant de visiteur, plateforme par plateforme.
+        "comptes_exclus": _liste(s.get("alerte_cnx_comptes_exclus")),
+        "exclure_mes_numeros": s.get("alerte_cnx_exclure_mes_numeros") is not False,
+        "appareils_exclus": [a for a in (s.get("alerte_cnx_appareils_exclus") or []) if isinstance(a, dict) and a.get("visiteur")],
     }
 
 
 CHAMPS_REGLAGES = {"alerte_cnx_actif": bool, "alerte_cnx_connexions": bool, "alerte_cnx_visites": bool,
                    "alerte_cnx_delai_min": int, "alerte_cnx_plafond_jour": int,
-                   "alerte_cnx_ip_exclues": str, "alerte_cnx_plateformes_exclues": str}
+                   "alerte_cnx_ip_exclues": str, "alerte_cnx_plateformes_exclues": str,
+                   "alerte_cnx_comptes_exclus": str, "alerte_cnx_exclure_mes_numeros": bool}
+
+
+def compte_exclu(evt: Dict[str, Any], comptes: List[str]) -> bool:
+    """Vrai si le numéro (8 derniers chiffres) ou le nom de l'utilisateur figure dans la liste des comptes exclus."""
+    tel = chiffres(evt.get("telephone"))
+    nom = str(evt.get("utilisateur") or "").strip().lower()
+    for c in comptes:
+        cc = chiffres(c)
+        if tel and len(cc) >= 8 and tel[-8:] == cc[-8:]:
+            return True
+        if nom and not cc and c.strip().lower() == nom:
+            return True
+    return False
+
+
+def appareil_exclu(code: str, evt: Dict[str, Any], appareils: List[Dict[str, Any]]) -> bool:
+    """Vrai si l'identifiant de visiteur de ce navigateur a été exclu pour cette plateforme."""
+    v = str(evt.get("visiteur") or "").strip()
+    return bool(v) and any(a.get("visiteur") == v and (a.get("code") or code) == code for a in appareils)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +234,10 @@ def decision(cfg: Dict[str, Any], code: str, evt: Dict[str, Any]) -> Optional[st
         return "robot"
     if evt.get("ip") and evt["ip"] in cfg["ip_exclues"]:
         return "IP exclue"
+    if compte_exclu(evt, cfg["comptes_exclus"] + cfg.get("mes_numeros", [])):
+        return "compte exclu"
+    if appareil_exclu(code, evt, cfg["appareils_exclus"]):
+        return "appareil exclu"
     return None
 
 
@@ -327,6 +358,8 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
 
         s = await db.settings.find_one({"_id": "global"}) or {}
         cfg = reglages(s)
+        if cfg["exclure_mes_numeros"]:   # lot 109.3 : vos propres numéros ne déclenchent jamais d'alerte
+            cfg["mes_numeros"] = ap.reglages(s)["numeros"]
         cle = cle_personne(evt)
         raison = decision(cfg, code, evt)
         if raison is None:
@@ -390,6 +423,40 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
             await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         s = await db.settings.find_one({"_id": "global"}) or {}
         return {"ok": True, "reglages": reglages(s)}
+
+    # ---- Lot 109.3 : « Ne plus m'alerter » depuis une ligne du journal ----
+    @api.post("/admin/alertes-connexions/ignorer", tags=["Plateformes — alertes de connexion"])
+    async def ignorer(corps: Dict[str, Any], user: dict = Depends(_admin)):
+        """Exclut la personne d'une ligne du journal : son numéro (ou son nom) pour un compte connecté,
+        sinon l'appareil (identifiant de visiteur) pour cette plateforme. Rien ne dépend de l'adresse IP."""
+        a = await db[COLLECTION].find_one({"id": str(corps.get("id") or "")}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Ligne introuvable")
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        cfg = reglages(s)
+        if a.get("telephone") or (a.get("type") == "connexion" and a.get("utilisateur")):
+            valeur = a.get("telephone") or a.get("utilisateur")
+            if valeur not in cfg["comptes_exclus"]:
+                cfg["comptes_exclus"].append(valeur)
+            await db.settings.update_one({"_id": "global"}, {"$set": {
+                "alerte_cnx_comptes_exclus": ", ".join(cfg["comptes_exclus"])}}, upsert=True)
+            return {"ok": True, "exclu": "compte", "valeur": valeur}
+        if a.get("visiteur"):
+            if not appareil_exclu(a["code"], a, cfg["appareils_exclus"]):
+                cfg["appareils_exclus"].append({"code": a["code"], "plateforme": a.get("plateforme"),
+                                                "visiteur": a["visiteur"], "agent": (a.get("agent") or "")[:120],
+                                                "le": datetime.now(timezone.utc).isoformat()})
+            await db.settings.update_one({"_id": "global"}, {"$set": {"alerte_cnx_appareils_exclus": cfg["appareils_exclus"]}}, upsert=True)
+            return {"ok": True, "exclu": "appareil", "valeur": a["visiteur"]}
+        raise HTTPException(status_code=422, detail="Ni numéro, ni nom, ni identifiant d'appareil sur cette ligne : impossible de l'exclure")
+
+    @api.delete("/admin/alertes-connexions/appareils/{visiteur}", tags=["Plateformes — alertes de connexion"])
+    async def retirer_appareil(visiteur: str, user: dict = Depends(_admin)):
+        """Retire un appareil exclu (il redéclenchera les alertes)."""
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        reste = [x for x in reglages(s)["appareils_exclus"] if x.get("visiteur") != visiteur]
+        await db.settings.update_one({"_id": "global"}, {"$set": {"alerte_cnx_appareils_exclus": reste}}, upsert=True)
+        return {"ok": True, "appareils_exclus": reste}
 
     async def _meta() -> tuple:
         g = await db.settings.find_one({"_id": "global"}) or {}

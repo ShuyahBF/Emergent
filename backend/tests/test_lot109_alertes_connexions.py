@@ -164,3 +164,32 @@ def test_modele_ne_commence_ni_ne_finit_par_une_variable():
     """Lot 109.1 — règle Meta : « Les variables ne peuvent pas se trouver au début ou à la fin du modèle »."""
     corps = ac.definition_modele()["components"][0]["text"].strip()
     assert not corps.startswith("{{") and not corps.endswith("}}")
+
+
+def test_exclusions_sans_ip(env):
+    """Lot 109.3 — l'IP change (mobile, Wi-Fi) : exclusion par compte (numéro), par mes numéros, par appareil."""
+    client, db, envoyes, _ = env
+    # Mes propres numéros (destinataires des alertes) sont exclus d'office
+    brut, entetes = signe("cle-zg", {**CONNEXION, "telephone": "22670000009", "utilisateur": "Moi"})
+    assert client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes).json()["raison"] == "compte exclu"
+    # Visite anonyme d'un appareil, puis « Ne plus m'alerter » sur cette ligne → appareil exclu, quelle que soit l'IP
+    visite = {"type": "visite", "ip": "41.1.1.1", "visiteur": "v-moi", "agent": "Mozilla/5.0 Chrome"}
+    brut, entetes = signe("cle-zg", visite)
+    assert client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes).json()["alerte"] is True
+    ligne = client.portal.call(db.alertes_connexions.find_one, {"visiteur": "v-moi"})
+    r = client.post("/api/admin/alertes-connexions/ignorer", json={"id": ligne["id"]}).json()
+    assert r["exclu"] == "appareil"
+    brut, entetes = signe("cle-zg", {**visite, "ip": "102.9.9.9"})   # autre IP, même appareil
+    assert client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes).json()["raison"] == "appareil exclu"
+    # Sur une autre plateforme, le même identifiant n'est pas exclu (identifiant propre à chaque site)
+    brut, entetes = signe("cle-ad", visite, code="adlyn")
+    assert client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes).json()["alerte"] is True
+    # Connexion d'un compte → « Ne plus m'alerter » exclut son numéro
+    brut, entetes = signe("cle-zg", CONNEXION)
+    client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes)
+    ligne = client.portal.call(db.alertes_connexions.find_one, {"telephone": "22670123456"})
+    assert client.post("/api/admin/alertes-connexions/ignorer", json={"id": ligne["id"]}).json()["exclu"] == "compte"
+    assert ac.compte_exclu({"telephone": "+226 70 12 34 56"}, ["22670123456"])
+    # Retrait d'un appareil exclu
+    d = client.delete("/api/admin/alertes-connexions/appareils/v-moi").json()
+    assert d["appareils_exclus"] == []

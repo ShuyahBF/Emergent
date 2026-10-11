@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "109.1", "date": "2026-10-11",
+        "titre": "🔔 Modèle Meta de l'alerte de connexion corrigé",
+        "description": "Meta refusait le modèle « sawali_connexion_plateforme » (texte terminé par une variable) : le texte est corrigé ; cliquez de nouveau sur « Créer le modèle chez Meta ».",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "109", "date": "2026-10-11",
         "titre": "🔔 WhatsApp à chaque connexion sur vos plateformes",
         "description": "adLyn, bfmobility, sTer, beAuthentik et ZandGo signalent chaque connexion (et les nouvelles visites) : Liluvine vous écrit avec la plateforme, la date/heure, l'IP, l'utilisateur et un bouton « Visiter le site ». Créez le modèle Meta dans la rubrique.",

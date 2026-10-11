@@ -162,7 +162,10 @@ def definition_modele() -> Dict[str, Any]:
     """Corps envoyé à Meta pour créer le modèle (catégorie Utilitaire, bouton lien à suffixe variable)."""
     return {"name": MODELE, "language": LANGUE, "category": "UTILITY", "components": [
         {"type": "BODY",
-         "text": ("Nouvelle activité sur la plateforme {{1}} le {{2}}.\nAdresse IP : {{3}}\nUtilisateur : {{4}}"),
+         # Lot 109.1 : Meta refuse un modèle qui COMMENCE ou FINIT par une variable ({{4}} était en fin de texte) :
+         # une phrase fixe termine désormais le message.
+         "text": ("Nouvelle activité sur la plateforme {{1}} le {{2}}.\nAdresse IP : {{3}}\nUtilisateur : {{4}}\n"
+                  "Touchez le bouton ci-dessous pour ouvrir le site."),
          "example": {"body_text": [["ZandGo (connexion)", "11/10/2026 01:35", "154.66.162.235",
                                     "Awa Ouédraogo (+226 70 12 34 56)"]]}},
         {"type": "FOOTER", "text": "SAWALI Smart Systems"},

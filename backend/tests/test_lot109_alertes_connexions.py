@@ -52,6 +52,11 @@ def env(monkeypatch):
     monkeypatch.setattr(ap, "fenetre_24h_ouverte", fausse_fenetre)
     monkeypatch.setattr(ap, "ligne_appelante", lambda s, cfg: ("PNID", "principal"))
 
+    async def fausse_geo(db_, ip):   # lot 110 : géolocalisation simulée (aucun appel réseau)
+        return {"pays": "Burkina Faso", "pays_code": "BF", "drapeau": "🇧🇫", "operateur": "Moov Africa (Onatel)"} if ip else {}
+
+    monkeypatch.setattr(ac, "geolocaliser", fausse_geo)
+
     async def utilisateur():
         return {"id": "a1", "role": "admin", "name": "Admin"}
 
@@ -193,3 +198,22 @@ def test_exclusions_sans_ip(env):
     # Retrait d'un appareil exclu
     d = client.delete("/api/admin/alertes-connexions/appareils/v-moi").json()
     assert d["appareils_exclus"] == []
+
+
+def test_pays_operateur_dans_alerte_et_journal(env):
+    """Lot 110 — le modèle Meta reçoit IP + pays + opérateur en {{3}} ; le journal garde pays et opérateur."""
+    client, db, envoyes, _ = env
+    brut, entetes = signe("cle-zg", CONNEXION)
+    assert client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes).json()["alerte"] is True
+    attendre(client, db, 1, envoyes)
+    var3 = envoyes[0]["template"]["components"][0]["parameters"][2]["text"]
+    assert var3 == "154.66.1.2 — 🇧🇫 Burkina Faso · Moov Africa (Onatel)"
+    ligne = client.get("/api/admin/alertes-connexions").json()["dernieres"][0]
+    assert ligne["pays"] == "Burkina Faso" and ligne["operateur"] == "Moov Africa (Onatel)"
+    # La plateforme peut fournir elle-même pays / opérateur : ils sont repris tels quels
+    brut, entetes = signe("cle-ad", {"type": "visite", "ip": "41.207.200.1", "visiteur": "v-9", "agent": "Mozilla",
+                                     "pays": "Côte d'Ivoire", "pays_code": "CI", "operateur": "Orange"}, code="adlyn")
+    client.post("/api/webhook/plateforme-connexion", content=brut, headers=entetes)
+    attendre(client, db, 2, envoyes)
+    var3 = envoyes[1]["template"]["components"][0]["parameters"][2]["text"]
+    assert var3 == "41.207.200.1 — 🇨🇮 Côte d'Ivoire · Orange"

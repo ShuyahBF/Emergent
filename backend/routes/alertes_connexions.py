@@ -28,6 +28,7 @@ Aucun secret n'est stocké ni affiché ici.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -172,17 +173,21 @@ def texte_alerte(nom_plateforme: str, evt: Dict[str, Any], quand: datetime) -> s
     titre = "🔐 Connexion" if evt.get("type") == "connexion" else "👀 Visite"
     lignes = [f"{titre} sur *{nom_plateforme}*",
               f"📅 {ap.formater_date(quand)}",
-              f"🌐 IP : {evt.get('ip') or 'inconnue'}",
-              f"👤 {qui(evt)}"]
+              f"🌐 IP : {evt.get('ip') or 'inconnue'}"]
+    if lieu_lisible(evt):                      # lot 110 : pays et opérateur
+        lignes.append(f"📍 {lieu_lisible(evt)}")
+    lignes.append(f"👤 {qui(evt)}")
     if evt.get("page"):
         lignes.append(f"📄 Page : {str(evt['page'])[:120]}")
     return "\n".join(lignes)
 
 
 def variables_modele(nom_plateforme: str, evt: Dict[str, Any], quand: datetime) -> List[str]:
-    """{{1}} plateforme, {{2}} date, {{3}} IP, {{4}} utilisateur (une ligne chacune, jamais vide)."""
+    """{{1}} plateforme, {{2}} date, {{3}} IP + pays + opérateur, {{4}} utilisateur (une ligne chacune, jamais vide)."""
     genre = "connexion" if evt.get("type") == "connexion" else "visite"
-    return [f"{nom_plateforme} ({genre})", ap.formater_date(quand), str(evt.get("ip") or "inconnue")[:60], qui(evt)]
+    ip = str(evt.get("ip") or "inconnue")[:60]
+    lieu = lieu_lisible(evt)                   # lot 110 : « 154.66.1.2 — 🇧🇫 Burkina Faso · Moov Africa (Onatel) »
+    return [f"{nom_plateforme} ({genre})", ap.formater_date(quand), f"{ip} — {lieu}" if lieu else ip, qui(evt)]
 
 
 def definition_modele() -> Dict[str, Any]:
@@ -239,6 +244,99 @@ def decision(cfg: Dict[str, Any], code: str, evt: Dict[str, Any]) -> Optional[st
     if appareil_exclu(code, evt, cfg["appareils_exclus"]):
         return "appareil exclu"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Lot 110 — Pays et opérateur de l'adresse IP (demande du 11/10/2026 : « je ne connais ni le pays ni l'opérateur »)
+# ---------------------------------------------------------------------------
+# Service public ipwho.is (HTTPS, sans clé) ; chaque IP est mémorisée 30 jours dans db.geo_ip pour ne pas
+# interroger le service à chaque signal. Si le service ne répond pas, l'alerte part quand même (pays inconnu).
+GEO_URL = (os.environ.get("SAWALI_GEO_IP_URL") or "https://ipwho.is").rstrip("/")
+GEO_CACHE_J = 30
+# Nom commercial de l'opérateur reconnu dans le libellé technique du fournisseur (ordre = priorité)
+OPERATEURS = [
+    ("sonatel", "Orange (Sonatel)"),            # avant « onatel » : « sonatel » contient « onatel »
+    ("onatel", "Moov Africa (Onatel)"), ("fasonet", "Moov Africa (Onatel)"), ("moov", "Moov Africa"),
+    ("orange", "Orange"), ("telecel", "Telecel"), ("mtn", "MTN"),
+    ("airtel", "Airtel"), ("expresso", "Expresso"), ("free ", "Free"), ("canalbox", "CanalBox"),
+    ("vivendi africa", "CanalBox"), ("starlink", "Starlink"), ("space exploration", "Starlink"),
+    ("safaricom", "Safaricom"), ("vodacom", "Vodacom"), ("maroc telecom", "Maroc Telecom"),
+]
+
+
+def drapeau(code_pays: Any) -> str:
+    """« BF » → 🇧🇫 (lettres régionales Unicode) ; vide si le code n'est pas sur 2 lettres."""
+    c = str(code_pays or "").strip().upper()
+    return "".join(chr(0x1F1E6 + ord(x) - ord("A")) for x in c) if len(c) == 2 and c.isalpha() else ""
+
+
+def nom_operateur(*libelles: Any) -> Optional[str]:
+    """Nom commercial de l'opérateur à partir des libellés du fournisseur (org, isp) ; sinon le libellé brut."""
+    texte = " ".join(str(x or "") for x in libelles).lower() + " "
+    for motif, nom in OPERATEURS:
+        if motif in texte:
+            return nom
+    brut = next((str(x).strip() for x in libelles if str(x or "").strip()), "")
+    return brut[:60] or None
+
+
+def ip_privee(ip: Any) -> bool:
+    """Vrai pour une adresse locale (réseau interne, 127.0.0.1…) : rien à géolocaliser."""
+    try:
+        a = ipaddress.ip_address(str(ip or "").split(",")[0].strip())
+    except ValueError:
+        return False
+    return a.is_private or a.is_loopback or a.is_link_local or a.is_reserved
+
+
+def lire_geo(donnees: Dict[str, Any]) -> Dict[str, Any]:
+    """Réponse ipwho.is → {pays, pays_code, drapeau, operateur, ville} (champs absents = None)."""
+    if not isinstance(donnees, dict) or donnees.get("success") is False:
+        return {}
+    cnx = donnees.get("connection") or {}
+    code = str(donnees.get("country_code") or "").upper()[:2] or None
+    return {"pays": str(donnees.get("country") or "")[:60] or None, "pays_code": code,
+            "drapeau": ((donnees.get("flag") or {}).get("emoji") if isinstance(donnees.get("flag"), dict) else None)
+            or drapeau(code) or None,
+            "operateur": nom_operateur(cnx.get("org"), cnx.get("isp")),
+            "ville": str(donnees.get("city") or "")[:60] or None}
+
+
+def lieu_lisible(evt: Dict[str, Any]) -> str:
+    """« 🇧🇫 Burkina Faso · Moov Africa (Onatel) » ; vide si rien n'est connu."""
+    pays = " ".join(x for x in [evt.get("drapeau") or "", evt.get("pays") or ""] if x).strip()
+    return " · ".join(x for x in [pays, evt.get("operateur") or ""] if x)
+
+
+async def geolocaliser(db, ip: Any) -> Dict[str, Any]:
+    """Pays et opérateur d'une IP (cache Mongo 30 jours). Ne lève JAMAIS d'exception : {} si inconnu."""
+    ip = str(ip or "").split(",")[0].strip()[:60]
+    if not ip:
+        return {}
+    if ip_privee(ip):
+        return {"pays": None, "operateur": "Réseau local"}
+    try:
+        trouve = await db.geo_ip.find_one({"ip": ip}, {"_id": 0, "geo": 1})
+        if trouve and trouve.get("geo"):
+            return trouve["geo"]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=4) as http:
+            rep = await http.get(f"{GEO_URL}/{ip}", params={"lang": "fr"})
+        geo = lire_geo(rep.json()) if rep.status_code < 300 else {}
+    except Exception:  # noqa: BLE001
+        logger.info("[alertes_connexions] géolocalisation impossible pour %s", ip)
+        return {}
+    if geo:
+        try:
+            await db.geo_ip.create_index("le_date", expireAfterSeconds=GEO_CACHE_J * 86400)
+            await db.geo_ip.update_one({"ip": ip}, {"$set": {"ip": ip, "geo": geo,
+                                                             "le_date": datetime.now(timezone.utc)}}, upsert=True)
+        except Exception:  # noqa: BLE001
+            pass
+    return geo
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +422,9 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
 
     async def traiter(alerte_id: str, s: Dict[str, Any], code: str, nom: str, evt: Dict[str, Any],
                       url_site: Optional[str], quand: datetime) -> None:
-        """Envoi en arrière-plan puis mise à jour du journal (jamais bloquant pour la plateforme)."""
+        """Géolocalisation puis envoi en arrière-plan, et mise à jour du journal (jamais bloquant pour la plateforme)."""
+        lieu = await completer_lieu(alerte_id, evt)
+        evt = {**evt, **lieu}
         try:
             envois = await envoyer(s, code, nom, evt, url_site, quand)
             statut = "envoyee" if any(e["ok"] for e in envois) else "echec"
@@ -332,6 +432,22 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
             logger.warning("[alertes_connexions] envoi impossible", exc_info=True)
             envois, statut = [{"ok": False, "erreur": str(exc)[:200]}], "echec"
         await db[COLLECTION].update_one({"id": alerte_id}, {"$set": {"statut": statut, "envois": envois}})
+
+    async def completer_lieu(alerte_id: str, evt: Dict[str, Any]) -> Dict[str, Any]:
+        """Lot 110 — pays / opérateur : ceux envoyés par la plateforme, sinon géolocalisation de l'IP ;
+        recopiés dans la ligne du journal (colonnes de la rubrique)."""
+        if evt.get("pays") or evt.get("operateur"):
+            lieu = {k: evt.get(k) for k in ("pays", "pays_code", "drapeau", "operateur") if evt.get(k)}
+            if lieu.get("pays_code") and not lieu.get("drapeau"):
+                lieu["drapeau"] = drapeau(lieu["pays_code"])
+        else:
+            lieu = await geolocaliser(db, evt.get("ip"))
+        if lieu:
+            try:
+                await db[COLLECTION].update_one({"id": alerte_id}, {"$set": lieu})
+            except Exception:  # noqa: BLE001
+                pass
+        return lieu
 
     # ---- Signal d'une plateforme ----
     @api.post("/webhook/plateforme-connexion", tags=["Plateformes — alertes de connexion"])
@@ -350,7 +466,11 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
                "role": str(corps.get("role") or "").strip()[:30] or None,
                "visiteur": str(corps.get("visiteur") or "").strip()[:80] or None,
                "page": str(corps.get("page") or "").strip()[:200] or None,
-               "agent": str(corps.get("agent") or "").strip()[:300] or None}
+               "agent": str(corps.get("agent") or "").strip()[:300] or None,
+               # Lot 110 : la plateforme peut déjà fournir pays / opérateur (sinon SAWALI géolocalise l'IP)
+               "pays": str(corps.get("pays") or "").strip()[:60] or None,
+               "pays_code": str(corps.get("pays_code") or "").strip().upper()[:2] or None,
+               "operateur": str(corps.get("operateur") or "").strip()[:60] or None}
         url_site = url_valide(corps.get("url_site")) or url_valide(emetteur.get("url_site"))
         if url_site and url_site != emetteur.get("url_site"):
             await db.liluvine_emetteurs.update_one({"code": code}, {"$set": {"url_site": url_site}})
@@ -382,6 +502,9 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
             "raison": raison, "envois": []})
         if raison is None:
             asyncio.create_task(traiter(alerte_id, s, code, nom, evt, url_site, quand))
+        elif raison != "robot":
+            # Ligne ignorée (répétition, exclusion…) : on renseigne quand même le pays et l'opérateur du journal
+            asyncio.create_task(completer_lieu(alerte_id, evt))
         return {"ok": True, "alerte": raison is None, "raison": raison}
 
     # ---- Bouton « Visiter le site » du modèle Meta : redirection vers le site de la plateforme ----
@@ -509,7 +632,8 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
         s = await db.settings.find_one({"_id": "global"}) or {}
         quand = datetime.now(timezone.utc)
         evt = {"type": "connexion", "ip": "0.0.0.0 (essai)", "utilisateur": user.get("name") or "Essai",
-               "telephone": None, "role": "essai", "page": "/"}
+               "telephone": None, "role": "essai", "page": "/",
+               "pays": "Burkina Faso", "drapeau": "🇧🇫", "operateur": "opérateur (essai)"}
         envois = await envoyer(s, emetteur["code"], emetteur.get("nom") or emetteur["code"], evt,
                                url_valide(emetteur.get("url_site")) or "https://www.sawalismartsystems.com", quand)
         return {"ok": any(e["ok"] for e in envois), "envois": envois}

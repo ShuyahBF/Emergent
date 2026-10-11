@@ -125,7 +125,7 @@ export default function AlertesConnexionsSection() {
       <p className="text-xs text-slate-600">
         À chaque <b>connexion</b> d'un compte (et, si vous le souhaitez, à chaque <b>nouvelle visite</b> d'un visiteur non
         connecté) sur adLyn, bfmobility, sTer, beAuthentik ou ZandGo, Liluvine vous envoie un WhatsApp : plateforme,
-        date et heure, adresse IP, utilisateur et numéro, avec un bouton <b>« Visiter le site »</b>. Destinataires : les
+        date et heure, adresse IP avec le pays et l'opérateur, utilisateur et numéro, avec un bouton <b>« Visiter le site »</b>. Destinataires : les
         numéros de la rubrique « Liluvine appelle le propriétaire »
         {donnees.destinataires?.length ? <> (<b>{donnees.destinataires.join(", ")}</b>)</> : <b className="text-rose-700"> — aucun numéro saisi</b>}.
         Si vous avez écrit au numéro SAWALI depuis moins de 24 h, le message part avec un vrai bouton lien (gratuit) ;
@@ -225,11 +225,11 @@ export default function AlertesConnexionsSection() {
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
-            <tr><th className="px-2 py-2">Date</th><th className="px-2">Plateforme</th><th className="px-2">Type</th><th className="px-2">Utilisateur</th><th className="px-2">IP</th><th className="px-2">Statut</th><th className="px-2"></th></tr>
+            <tr><th className="px-2 py-2">Date</th><th className="px-2">Plateforme</th><th className="px-2">Type</th><th className="px-2">Utilisateur</th><th className="px-2">IP</th><th className="px-2">Pays</th><th className="px-2">Opérateur</th><th className="px-2">Statut</th><th className="px-2"></th></tr>
           </thead>
           <tbody>
             {donnees.dernieres.length === 0 && (
-              <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-500">Aucun signal reçu pour l'instant : les plateformes l'enverront à la prochaine connexion.</td></tr>
+              <tr><td colSpan={9} className="px-2 py-4 text-center text-slate-500">Aucun signal reçu pour l'instant : les plateformes l'enverront à la prochaine connexion.</td></tr>
             )}
             {donnees.dernieres.map((a) => {
               const [lib, coul] = STATUTS[a.statut] || [a.statut, "bg-slate-100"];
@@ -242,6 +242,9 @@ export default function AlertesConnexionsSection() {
                   <td className="px-2">{a.type === "connexion" ? "Connexion" : "Visite"}</td>
                   <td className="px-2">{a.utilisateur || (a.telephone ? `+${a.telephone}` : "Visiteur non connecté")}{a.role ? <span className="text-xs opacity-70"> · {a.role}</span> : null}</td>
                   <td className="whitespace-nowrap px-2 font-mono text-xs">{a.ip || "—"}</td>
+                  {/* Lot 110 : pays (drapeau) et opérateur, déduits de l'adresse IP */}
+                  <td className="whitespace-nowrap px-2">{a.pays ? `${a.drapeau || ""} ${a.pays}`.trim() : "—"}</td>
+                  <td className="px-2 text-xs">{a.operateur || "—"}</td>
                   <td className="px-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${coul}`}>{lib}</span>
                     {(a.raison || erreur) && <span className="block text-[11px] opacity-70">{a.raison || erreur}</span>}

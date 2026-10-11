@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "109", "date": "2026-10-11",
+        "titre": "🔔 WhatsApp à chaque connexion sur vos plateformes",
+        "description": "adLyn, bfmobility, sTer, beAuthentik et ZandGo signalent chaque connexion (et les nouvelles visites) : Liluvine vous écrit avec la plateforme, la date/heure, l'IP, l'utilisateur et un bouton « Visiter le site ». Créez le modèle Meta dans la rubrique.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "108", "date": "2026-10-11",
         "titre": "⚡ Paramètres plus rapides à ouvrir",
         "description": "Chaque rubrique ne charge plus ses données qu'en approchant de l'écran (au lieu d'environ 110 appels au serveur à l'ouverture) : la page s'affiche aussitôt et le toast « Patientez… synthèse du support » n'apparaît plus qu'en arrivant sur cette rubrique.",

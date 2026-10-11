@@ -48,6 +48,7 @@ import Missions from "@/pages/public/Missions";
 import Specialisations from "@/pages/public/Specialisations";
 import Catalogue from "@/pages/public/Catalogue";
 import PresentationCarte from "@/pages/public/PresentationCarte";   // Lot 94 : carte de carrousel sans lien
+import PresentationCarrousel from "@/pages/public/PresentationCarrousel";   // Lot 111 : tout le carrousel, #carte-n
 import Contact from "@/pages/public/Contact";
 import RDV from "@/pages/public/RDV";
 import Testimonials from "@/pages/public/Testimonials";
@@ -293,6 +294,8 @@ export default function App() {
           <Route path="/specialisations" element={<PublicRoute><Specialisations /></PublicRoute>} />
           <Route path="/catalogue" element={<PublicRoute><Catalogue /></PublicRoute>} />
           <Route path="/presentation/:code" element={<PublicRoute><PresentationCarte /></PublicRoute>} />
+          {/* Lot 111 — présentation de toutes les cartes d'un carrousel, positionnée sur #carte-n */}
+          <Route path="/presentation/c/:id" element={<PublicRoute><PresentationCarrousel /></PublicRoute>} />
           <Route path="/checkout/success" element={<PublicRoute><CheckoutSuccess /></PublicRoute>} />
           <Route path="/checkout/cancel" element={<PublicRoute><CheckoutCancel /></PublicRoute>} />
           <Route path="/contact" element={<PublicRoute><Contact /></PublicRoute>} />

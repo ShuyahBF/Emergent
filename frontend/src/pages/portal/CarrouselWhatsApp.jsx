@@ -9,12 +9,16 @@
   Chaque carte vient d'un produit de la caisse (photo, nom, prix, « Voir le produit ») ou est
   libre (image envoyée, générée ou de la médiathèque ; titre, texte, lien).
   API : /me/whatsapp/carrousel et /admin/whatsapp/carrousel (backend/routes/carrousel_whatsapp.py).
+  Lot 111 — chaque carte a une « description détaillée » et un mode de bouton : « Page de présentation » (page
+  publique de tout le carrousel, positionnée sur la carte) ou « Lien personnalisé ». L'administration peut
+  rattacher un carrousel à une campagne de la RÉGIE PUBLICITAIRE (carrousel sponsorisé, clics facturés).
+  Chaque envoi montre par carte : clics, vues de la présentation et « Je suis intéressé ».
 */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, Copy, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Package, Plus,
-  MessageSquareReply, RefreshCw, Save, Send, Settings, Share2, Sparkles, Trash2, Users, XCircle,
+  ArrowLeft, ArrowRight, CheckCircle2, Copy, ExternalLink, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Megaphone,
+  Package, Plus, MessageSquareReply, RefreshCw, Save, Send, Settings, Share2, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
 import QRCode from "qrcode";                                  // lot 79 : QR code du lien d'accord
 import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle (partage réservé admin / superviseur)
@@ -28,11 +32,21 @@ const erreur = (e, defaut) => {
   return d || defaut;
 };
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
-const carteVide = () => ({ source: "libre", image_url: "", titre: "", texte: "", lien: "" });
+// Lot 111 — bouton "" = automatique (lien s'il y en a un, sinon page de présentation) ; description détaillée vide
+const carteVide = () => ({ source: "libre", image_url: "", titre: "", texte: "", lien: "", bouton: "", description_detaillee: "" });
+const DESCRIPTION_MAX = 4000;   // lot 111 : longueur maximale de la description détaillée
 // Cartes telles que le serveur les attend (une carte produit ne garde que son produit et ses textes)
-const cartesPourServeur = (cartes) => cartes.map((c) => (c.source === "produit"
-  ? { source: "produit", produit_id: c.produit_id || null, titre: c.titre || null, texte: c.texte || null }
-  : { source: "libre", image_url: c.image_url || "", titre: c.titre || "", texte: c.texte || "", lien: c.lien || "" }));
+// Lot 111 — + description détaillée et mode du bouton ; une carte produit en mode « lien » garde son lien
+const cartesPourServeur = (cartes) => cartes.map((c) => {
+  const commun = { description_detaillee: c.description_detaillee || "", bouton: c.bouton || null };
+  return c.source === "produit"
+    ? { source: "produit", produit_id: c.produit_id || null, titre: c.titre || null, texte: c.texte || null,
+        lien: c.bouton === "lien" ? (c.lien || "") : "", ...commun }
+    : { source: "libre", image_url: c.image_url || "", titre: c.titre || "", texte: c.texte || "", lien: c.lien || "", ...commun };
+});
+// Lot 111 — mode effectif du bouton, comme le calcule le serveur à l'envoi
+const modeBouton = (c, lienDefaut) => c.bouton
+  || ((c.lien || (c.source === "libre" && lienDefaut)) ? "lien" : "presentation");
 const champ = "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
 // Aperçu d'une carte, à la façon de WhatsApp
@@ -575,6 +589,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [groupes, setGroupes] = useState(new Set());
   const [filtre, setFiltre] = useState("");
   const [envoi, setEnvoi] = useState(false);
+  // Lot 111 — carrousel sponsorisé (administration) : campagnes de la régie et campagne choisie pour l'envoi
+  const [regies, setRegies] = useState([]);
+  const [regieId, setRegieId] = useState("");
 
   const charger = useCallback(async () => {
     try {
@@ -584,10 +601,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
       ]);
       setEtat(e.data); setProduits(p.data.produits); setImages(i.data.images);
       setAnnuaire(d.data); setCampagnes(c.data.campagnes);
+      if (admin) {
+        // Lot 111 — campagnes de régie « Carrousel WhatsApp » (facultatif : l'écran reste utilisable sans)
+        apiClient.get(`${base}/regies`).then((r) => setRegies(r.data.regies || [])).catch(() => setRegies([]));
+      }
     } catch (e) {
       setRefus(erreur(e, "Carrousel indisponible"));
     }
-  }, [base]);
+  }, [base, admin]);
   useEffect(() => { charger(); }, [charger]);
 
   // Lot 78 — au chargement : lien par défaut, puis restauration du brouillon automatique
@@ -742,6 +763,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
         message,
         cartes: cartesPourServeur(cartes),
         ids: [...choisis], groupes: [...groupes],
+        regie_id: admin && regieId ? regieId : null,   // lot 111 : carrousel sponsorisé
       };
       const { data } = await apiClient.post(`${base}/envoyer`, corps);
       toast.success(`Envoi lancé vers ${data.destinataires} destinataire(s) (modèle ${data.modele})`);
@@ -752,6 +774,22 @@ export default function CarrouselWhatsApp({ admin = false }) {
       setEnvoiErreur(motif);   // reste affiché sous le bouton tant qu'on ne relance pas l'envoi
     } finally {
       setEnvoi(false);
+    }
+  };
+
+  // Lot 111 — rattacher un envoi déjà fait à une campagne de régie (ses prochains clics seront facturés)
+  const [liaison, setLiaison] = useState("");
+  const lierRegie = async (c, rid) => {
+    setLiaison(c.id);
+    const attente = toast.loading("Patientez… rattachement à la régie");
+    try {
+      await apiClient.put(`${base}/campagnes/${c.id}/regie`, { regie_id: rid || null });
+      toast.success(rid ? "Envoi rattaché à la campagne de régie : ses clics seront facturés" : "Envoi détaché de la régie", { id: attente });
+      await charger();
+    } catch (e) {
+      toast.error(erreur(e, "Rattachement impossible"), { id: attente });
+    } finally {
+      setLiaison("");
     }
   };
 
@@ -855,7 +893,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     <input className={champ} maxLength={60} placeholder="Titre" value={c.titre} onChange={(e) => majCarte(i, { titre: e.target.value })} />
                     <input className={champ} maxLength={80} placeholder="Texte court" value={c.texte} onChange={(e) => majCarte(i, { texte: e.target.value })} />
                     <input className={champ} placeholder="Lien du bouton https://…" value={c.lien} onChange={(e) => majCarte(i, { lien: e.target.value })} />
-                    {!c.lien && (
+                    {!c.lien && c.bouton !== "presentation" && (
                       <p className="text-[11px] text-slate-500">
                         {lienDefautServeur ? `Sans lien : le bouton ouvrira ${lienDefautServeur}` : "Sans lien : le bouton ouvrira la page de présentation de cette carte sur le site."}
                       </p>
@@ -863,6 +901,31 @@ export default function CarrouselWhatsApp({ admin = false }) {
                   </div>
                 </div>
               )}
+              {/* Lot 111 — où mène le bouton de la carte, et description détaillée de la page de présentation */}
+              <div className="mt-3 space-y-2 rounded-md bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <span className="text-xs font-medium text-slate-600">Bouton de la carte :</span>
+                  {[["presentation", "Page de présentation (recommandé)"], ["lien", "Lien personnalisé"]].map(([v, libelle]) => (
+                    <label key={v} className="inline-flex items-center gap-1.5">
+                      <input type="radio" name={`bouton-${i}`} checked={modeBouton(c, lienDefautServeur) === v}
+                             onChange={() => majCarte(i, { bouton: v })} />
+                      {libelle}
+                    </label>
+                  ))}
+                </div>
+                {c.source === "produit" && c.bouton === "lien" && (
+                  <input className={champ} placeholder="Lien du bouton https://…" value={c.lien || ""} onChange={(e) => majCarte(i, { lien: e.target.value })} />
+                )}
+                <p className="text-[11px] text-slate-500">
+                  {modeBouton(c, lienDefautServeur) === "presentation"
+                    ? `Le bouton ouvre la page de présentation de tout le carrousel, directement sur cette carte (carte ${i + 1}), avec « Je suis intéressé » (WhatsApp).`
+                    : "Le bouton ouvre le lien saisi (ou le lien par défaut). Choisissez « Page de présentation » pour présenter la carte sur le site."}
+                </p>
+                <textarea className={champ} rows={4} maxLength={DESCRIPTION_MAX}
+                          placeholder={"Description détaillée affichée sur la page de présentation (facultatif).\nMarkdown simple : **gras**, *italique*, - liste, [texte](https://…)"}
+                          value={c.description_detaillee || ""} onChange={(e) => majCarte(i, { description_detaillee: e.target.value })} />
+                <p className="text-right text-[11px] text-slate-400">{(c.description_detaillee || "").length} / {DESCRIPTION_MAX}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -960,6 +1023,27 @@ export default function CarrouselWhatsApp({ admin = false }) {
             </tbody>
           </table>
         </div>
+        {/* Lot 111 — carrousel sponsorisé : campagne de la régie publicitaire qui paie les clics (administration) */}
+        {admin && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50/60 p-3 text-sm">
+            <Megaphone className="h-4 w-4 text-fuchsia-700" />
+            <label htmlFor="carrousel-regie" className="text-xs font-medium text-slate-700">Carrousel sponsorisé (régie publicitaire) :</label>
+            <select id="carrousel-regie" className="rounded border border-slate-300 px-2 py-1 text-sm" value={regieId}
+                    onChange={(e) => setRegieId(e.target.value)}>
+              <option value="">— Aucune (carrousel ordinaire) —</option>
+              {regies.map((r) => (
+                <option key={r.id} value={r.id} disabled={!!r.motif}>
+                  {r.nom}{r.annonceur ? ` · ${r.annonceur}` : ""} — {r.cout_par_clic} {r.devise}/clic
+                  {r.reste != null ? ` · reste ${Math.round(r.reste)} ${r.devise}` : ""}{r.motif ? ` (${r.motif})` : ""}
+                </option>
+              ))}
+            </select>
+            <span className="w-full text-[11px] text-slate-500">
+              Chaque clic sur un bouton est facturé à l'annonceur (une fois par appareil et par carte sur 24 h, dans la limite
+              du budget). Les campagnes se créent dans « Régie publicitaire » (type « Carrousel WhatsApp »).
+            </span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-slate-700"><b>{retenus.length}</b> destinataire(s) (max. {etat.destinataires_max})</span>
           <Button onClick={envoyer} disabled={!etat.pret || envoi || !message.trim() || !cartesPretes || retenus.length === 0
@@ -991,7 +1075,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               <span className="text-slate-500">{c.statut === "EN_COURS" ? "en cours…" : ""}</span>
               {/* Lot 78 — recharge les cartes et le message de cet envoi dans l'éditeur (nouveau carrousel) */}
               <Button size="sm" variant="outline" className="ml-auto" title="Reprendre ce carrousel dans l'éditeur pour le modifier ou le renvoyer"
-                onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien }) => ({ source, produit_id, image_url, titre, texte, lien })) }); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>
+                onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee }) => ({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee })) }); if (admin && c.regie_id) setRegieId(c.regie_id); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>
                 Recharger dans l'éditeur
               </Button>
               <Button size="sm" variant="ghost" onClick={() => (detail?.id === c.id ? setDetail(null) : ouvrirDetail(c.id))}>
@@ -999,8 +1083,41 @@ export default function CarrouselWhatsApp({ admin = false }) {
               </Button>
             </div>
             <div className="mt-1 truncate text-slate-600">{c.message}</div>
-            <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-              {c.cartes.map((k, i) => <span key={i}>{k.titre} : {k.clics} clic(s)</span>)}
+            {/* Lot 111 — par carte : clics, vues de la page de présentation, « Je suis intéressé » (et clics facturés) */}
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[420px] text-xs">
+                <thead className="text-left text-slate-500">
+                  <tr><th className="py-1 pr-2">Carte</th><th className="py-1 pr-2 text-right">Clics</th>
+                    {c.regie_id && <th className="py-1 pr-2 text-right">Facturés</th>}
+                    <th className="py-1 pr-2 text-right">Vues présentation</th><th className="py-1 text-right">« Je suis intéressé »</th></tr>
+                </thead>
+                <tbody>
+                  {c.cartes.map((k, i) => (
+                    <tr key={i} className="border-t border-slate-100">
+                      <td className="py-1 pr-2">{i + 1}. {k.titre}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{k.clics}</td>
+                      {c.regie_id && <td className="py-1 pr-2 text-right tabular-nums">{k.clics_factures || 0}</td>}
+                      <td className="py-1 pr-2 text-right tabular-nums">{k.vues || 0}</td>
+                      <td className="py-1 text-right tabular-nums">{k.interesses || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              {c.url_presentation && (
+                <a href={c.url_presentation} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-emerald-700 underline">
+                  <ExternalLink className="h-3.5 w-3.5" /> Page de présentation
+                </a>
+              )}
+              {c.regie_id && <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-fuchsia-800">Sponsorisé : {c.regie_nom || "régie"}</span>}
+              {admin && (
+                <select className="ml-auto rounded border border-slate-300 px-2 py-1" value={c.regie_id || ""} disabled={liaison === c.id}
+                        onChange={(e) => lierRegie(c, e.target.value)} title="Rattacher cet envoi à une campagne de la régie publicitaire">
+                  <option value="">Non sponsorisé</option>
+                  {regies.map((r) => <option key={r.id} value={r.id}>Régie : {r.nom}</option>)}
+                </select>
+              )}
             </div>
             {detail?.id === c.id && (
               <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2">

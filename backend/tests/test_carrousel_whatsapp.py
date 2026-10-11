@@ -159,10 +159,11 @@ def test_consentement_obligatoire_et_envoi(env):
     assert camp["statut"] == "TERMINEE" and camp["compte"] == {"total": 2, "envoyes": 1, "echecs": 1}
     assert {d["statut"] for d in camp["destinataires"]} == {"ENVOYE", "ECHEC"}
     assert client.portal.call(db.whatsapp_messages.count_documents, {"carrousel_id": res["id"]}) == 2
-    # Le bouton compte le clic et mène à la page de présentation du produit sur le site (lot 94)
+    # Le bouton compte le clic et mène à la page de présentation du carrousel, sur la carte (lots 94 et 111)
     code = camp["cartes"][0]["code_lien"]
     r = client.get(f"/api/public/carrousel/l/{code}", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == f"{BASE}/presentation/{code}"
+    assert r.status_code == 302
+    assert r.headers["location"] == f"{BASE}/presentation/c/{camp['id_public']}?depuis={code}#carte-1"
     liste = client.get("/api/me/whatsapp/carrousel/campagnes", headers=h("cli_a")).json()["campagnes"]
     assert liste[0]["cartes"][0]["clics"] == 1
     # L'utilisateur suivi du même client la voit ; l'administration ne la mélange pas aux siennes

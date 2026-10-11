@@ -5,6 +5,10 @@
 //
 // Iter38r-fix9z5 — Added sparkline trend chart (30j) + "Renew campaign"
 // CTA widget that lets the advertiser request a renewal in one click.
+//
+// Lot 111 — campagne « Carrousel WhatsApp sponsorisé » (type carrousel_wa) : le rapport montre les envois, les
+// clics (bruts, facturables, hors budget), les vues de la page de présentation, les « Je suis intéressé », le
+// montant consommé, le budget restant, le détail par carte et par jour. Renouvellement et paiement inchangés.
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
@@ -109,6 +113,7 @@ export default function PublicAdReport() {
   const ctr = report.totals?.ctr_pct ?? 0;
   const budget = report.budget || {};
   const daily = report.daily || [];
+  const carrousel = report.type === "carrousel_wa" ? (report.carrousel || {}) : null;   // lot 111
   const progressColor = budget.progress_pct >= 90 ? "bg-rose-500" : budget.progress_pct >= 70 ? "bg-amber-500" : "bg-emerald-500";
 
   return (
@@ -172,12 +177,18 @@ export default function PublicAdReport() {
 
         {/* Key stats */}
         <section className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="ads-report-stats">
-          <Stat icon={Eye} label="Affichages" value={(report.totals?.impressions || 0).toLocaleString("fr-FR")} accent="sky" />
-          <Stat icon={MousePointerClick} label="Clics" value={(report.totals?.clicks || 0).toLocaleString("fr-FR")} accent="violet" />
-          <Stat icon={TrendingUp} label="CTR" value={`${ctr}%`} accent="emerald" />
+          {/* Lot 111 — pour un carrousel : envois (messages acceptés par Meta) et clics facturables */}
+          <Stat icon={carrousel ? Send : Eye} label={carrousel ? "Envois" : "Affichages"}
+                value={(carrousel ? carrousel.envois || 0 : report.totals?.impressions || 0).toLocaleString("fr-FR")} accent="sky" />
+          <Stat icon={MousePointerClick} label={carrousel ? "Clics facturables" : "Clics"} value={(report.totals?.clicks || 0).toLocaleString("fr-FR")} accent="violet" />
+          <Stat icon={TrendingUp} label={carrousel ? "« Je suis intéressé »" : "CTR"}
+                value={carrousel ? (carrousel.interesses || 0).toLocaleString("fr-FR") : `${ctr}%`} accent="emerald" />
           <Stat icon={Wallet} label="Dépensé"
                 value={`${(report.totals?.amount_spent || 0).toLocaleString("fr-FR")} ${report.currency}`} accent="amber" />
         </section>
+
+        {/* Lot 111 — détail du carrousel WhatsApp sponsorisé */}
+        {carrousel && <RapportCarrousel c={carrousel} currency={report.currency} budget={budget} />}
 
         {/* Budget progression */}
         {budget.amount > 0 && (
@@ -217,14 +228,17 @@ export default function PublicAdReport() {
           currency={report.currency}
           currentBudget={budget.amount || 0}
         />
-        <SelfServiceMediaUpdate
-          slug={slug}
-          token={token}
-          apiBase={apiBase}
-          currentImageUrl={report.image_url}
-          currentMediaKind={report.media_kind}
-          currentTargetUrl={report.target_url}
-        />
+        {/* Mise à jour du visuel : bannières seulement (un carrousel reprend les photos de ses cartes) */}
+        {!carrousel && (
+          <SelfServiceMediaUpdate
+            slug={slug}
+            token={token}
+            apiBase={apiBase}
+            currentImageUrl={report.image_url}
+            currentMediaKind={report.media_kind}
+            currentTargetUrl={report.target_url}
+          />
+        )}
 
         {/* Iter38r-fix9z9 — AI campaign plan */}
         <AICampaignPlan slug={slug} token={token} apiBase={apiBase} currency={report.currency} />
@@ -240,9 +254,13 @@ export default function PublicAdReport() {
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="text-left px-3 py-2">Date</th>
-                    <th className="text-right px-3 py-2">Affichages</th>
-                    <th className="text-right px-3 py-2">Clics</th>
-                    <th className="text-right px-3 py-2">CTR</th>
+                    <th className="text-right px-3 py-2">{carrousel ? "Envois" : "Affichages"}</th>
+                    {carrousel && <th className="text-right px-3 py-2">Clics bruts</th>}
+                    <th className="text-right px-3 py-2">{carrousel ? "Clics facturables" : "Clics"}</th>
+                    {carrousel ? (<>
+                      <th className="text-right px-3 py-2">Vues présentation</th>
+                      <th className="text-right px-3 py-2">Intéressés</th>
+                    </>) : <th className="text-right px-3 py-2">CTR</th>}
                     <th className="text-right px-3 py-2">Dépensé ({report.currency})</th>
                   </tr>
                 </thead>
@@ -250,11 +268,15 @@ export default function PublicAdReport() {
                   {[...daily].reverse().map((d, i) => {
                     const dctr = d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(1) : "—";
                     return (
-                      <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                      <tr key={i} className="border-t border-slate-100">
                         <td className="px-3 py-1.5 text-slate-700">{d.date}</td>
                         <td className="text-right font-mono">{(d.impressions || 0).toLocaleString("fr-FR")}</td>
+                        {carrousel && <td className="text-right font-mono">{(d.clics_bruts || 0).toLocaleString("fr-FR")}</td>}
                         <td className="text-right font-mono">{(d.clicks || 0).toLocaleString("fr-FR")}</td>
-                        <td className="text-right font-mono text-slate-500">{dctr}{dctr !== "—" && "%"}</td>
+                        {carrousel ? (<>
+                          <td className="text-right font-mono">{(d.vues || 0).toLocaleString("fr-FR")}</td>
+                          <td className="text-right font-mono">{(d.interesses || 0).toLocaleString("fr-FR")}</td>
+                        </>) : <td className="text-right font-mono text-slate-500">{dctr}{dctr !== "—" && "%"}</td>}
                         <td className="text-right font-mono">{(d.spent || 0).toLocaleString("fr-FR")}</td>
                       </tr>
                     );
@@ -271,6 +293,74 @@ export default function PublicAdReport() {
         </p>
       </main>
     </div>
+  );
+}
+
+// Lot 111 — partie « Carrousel WhatsApp » du rapport : chiffres clés, règle de facturation, détail par carte
+function RapportCarrousel({ c, currency, budget }) {
+  const nf = (n) => (n || 0).toLocaleString("fr-FR");
+  const tuiles = [
+    ["Envois", c.envois], ["Clics bruts", c.clics_bruts], ["Clics facturables", c.clics_facturables],
+    ["Clics hors budget", c.clics_hors_budget], ["Vues de la présentation", c.vues], ["« Je suis intéressé »", c.interesses],
+  ];
+  return (
+    <section className="rounded-2xl ring-1 ring-emerald-200 bg-white p-5 space-y-4" data-testid="ads-report-carrousel">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-emerald-600" /> Carrousel WhatsApp sponsorisé
+        </h2>
+        <p className="text-sm text-slate-600">
+          Consommé <span className="font-mono font-bold">{nf(budget.amount ? budget.amount - budget.remaining : 0)} {currency}</span>
+          {budget.amount > 0 && <> · Restant <span className="font-mono font-bold text-emerald-700">{nf(budget.remaining)} {currency}</span></>}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {tuiles.map(([libelle, v]) => (
+          <div key={libelle} className="rounded-xl bg-slate-50 ring-1 ring-slate-200 px-3 py-2">
+            <p className="text-[10px] uppercase font-semibold tracking-wider text-slate-500">{libelle}</p>
+            <p className="text-lg font-display font-bold tabular-nums text-slate-900">{nf(v)}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Facturation : {c.cost_per_click ? `${nf(c.cost_per_click)} ${currency} par clic facturable` : "aucun coût par clic"}
+        {c.cost_per_impression ? ` · ${nf(c.cost_per_impression)} ${currency} par envoi accepté par WhatsApp` : ""}.
+        Un clic est facturable une seule fois par appareil et par carte sur 24 h ; au-delà du budget, les liens restent
+        actifs mais les clics ne sont plus facturés (« hors budget »).
+      </p>
+      {(c.campagnes || []).map((camp, k) => (
+        <div key={k} className="space-y-1">
+          <p className="text-xs font-semibold text-slate-700">
+            Envoi du {camp.date ? new Date(camp.date).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}
+            {" · "}{nf(camp.envois)} message(s){camp.message ? ` · « ${camp.message} »` : ""}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="text-left px-3 py-2">Carte</th>
+                  <th className="text-right px-3 py-2">Clics</th>
+                  <th className="text-right px-3 py-2">Facturés</th>
+                  <th className="text-right px-3 py-2">Vues</th>
+                  <th className="text-right px-3 py-2">Intéressés</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(camp.cartes || []).map((x) => (
+                  <tr key={x.n} className="border-t border-slate-100">
+                    <td className="px-3 py-1.5 text-slate-700">{x.n}. {x.titre}</td>
+                    <td className="text-right font-mono">{nf(x.clics)}</td>
+                    <td className="text-right font-mono">{nf(x.clics_factures)}</td>
+                    <td className="text-right font-mono">{nf(x.vues)}</td>
+                    <td className="text-right font-mono">{nf(x.interesses)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 

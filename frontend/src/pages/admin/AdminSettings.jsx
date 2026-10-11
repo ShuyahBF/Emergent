@@ -31,6 +31,7 @@ import SupportPlateformesSection from "@/pages/admin/sections/SupportPlateformes
 import AvisClaudeSection from "@/pages/admin/sections/AvisClaudeSection";   // Lot 91
 import SyntheseSupport from "@/components/SyntheseSupport";   // Lot 92
 import AlertesConnexionsSection from "@/components/AlertesConnexionsSection";   // Lot 109
+import RegieCarrouselSection from "@/pages/admin/sections/RegieCarrouselSection";   // Lot 111 : carrousels sponsorisés
 import ImagesIaChatSection from "@/pages/admin/sections/ImagesIaChatSection";   // Lot 87
 import SanteServeurSection from "@/pages/admin/sections/SanteServeurSection";   // Lot 71.3
 import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection";   // Lot 95 : remise à zéro du journal /uptime
@@ -99,8 +100,9 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "100",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "111",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
@@ -140,8 +142,9 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-10",   // lot 94
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-11",   // lot 94 ; lot 111
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
@@ -228,7 +231,8 @@ const NEW_DESCRIPTIONS = {
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
   "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; depuis le lot 100, les carrousels n'apparaissent plus dans les listes ordinaires de modèles approuvés.",
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; lot 100 : carrousels hors des listes ordinaires de modèles ; lot 111 : description détaillée par carte et page de présentation de tout le carrousel, ouverte sur la carte (#carte-n), avec « Je suis intéressé ».",
+  "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "Carrousel WhatsApp vendu à un annonceur : clics facturés au coût par clic (une fois par appareil et par carte sur 24 h), coût par envoi, envoi bloqué si budget épuisé, rapport public de l'annonceur (lot 111).",
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
@@ -1208,6 +1212,12 @@ export default function AdminSettings() {
             Les modèles Meta du carrousel se règlent en haut de la page Carrousel ; le bouton « Créer les modèles chez Meta »
             y dépose les 9 modèles d'un clic (lot 76).
           </p>
+          <p className="text-xs text-slate-500">
+            Lot 111 — chaque carte a une « description détaillée » (markdown simple) et un bouton « Page de présentation »
+            ou « Lien personnalisé ». La page de présentation montre tout le carrousel et s'ouvre directement sur la carte
+            touchée (<code>/presentation/c/…#carte-n</code>), avec « Je suis intéressé » (WhatsApp de l'expéditeur). Les
+            modèles Meta ne changent pas. Chaque envoi affiche par carte : clics, vues de la présentation, intéressés.
+          </p>
           <p className="text-xs">
             App ID Meta (pour l'image d'exemple des cartes) :{" "}
             {s.meta_app_id
@@ -1228,6 +1238,11 @@ export default function AdminSettings() {
             </Link>
           </div>
         </CorpsSection>
+      </Filterable>
+
+      {/* Lot 111 — carrousel WhatsApp sponsorisé par la régie publicitaire (clics facturés, rapport annonceur) */}
+      <Filterable title="📣 Régie publicitaire — carrousels WhatsApp sponsorisés" anchorId="s-regie-carrousel">
+        <RegieCarrouselSection />
       </Filterable>
 
       {/* Lot 74 — message d'absence : texte fixe envoyé hors des heures d'ouverture, une fois par contact */}

@@ -34,6 +34,11 @@ import {
 } from "lucide-react";
 
 // Iter38r-fix9w — Admin page to manage paid advertising banners.
+// Lot 111 — la régie gère aussi les CARROUSELS WHATSAPP SPONSORISÉS (placement « carrousel_wa ») : la campagne est
+// rattachée à un ou plusieurs envois de carrousel de l'administration ; chaque clic sur un bouton de carte est
+// facturé au coût par clic (une fois par appareil et par carte sur 24 h, dans la limite du budget), chaque message
+// accepté par Meta au coût par envoi. Ces campagnes ne sont jamais servies comme bannières.
+const PLACEMENT_CARROUSEL = "carrousel_wa";
 
 const DEFAULT_DRAFT = {
   name: "",
@@ -74,6 +79,8 @@ const DEFAULT_DRAFT = {
   modal_frequency: "session",
   // Iter40-modal-ab — Per-variant modal frequency override (empty = same as A)
   variant_b_modal_frequency: "",
+  // Lot 111 — envois de carrousel WhatsApp pilotés par une campagne « Carrousel WhatsApp »
+  carrousel_campagne_ids: [],
 };
 
 export default function AdminAdBanners() {
@@ -85,6 +92,7 @@ export default function AdminAdBanners() {
   const [statsId, setStatsId] = useState(null);
   const [stats, setStats] = useState(null);
   const [renewals, setRenewals] = useState([]);
+  const [filtreType, setFiltreType] = useState("tous");   // lot 111 : tous | bannieres | carrousels
 
   const load = async () => {
     setLoading(true);
@@ -120,6 +128,15 @@ export default function AdminAdBanners() {
   }, { impressions: 0, clicks: 0, spent: {}, active_count: 0 }), [items]);
 
   const startCreate = () => { setEditing(null); setDraft(DEFAULT_DRAFT); setShowForm(true); };
+  // Lot 111 — nouvelle campagne de type « Carrousel WhatsApp » (pas d'image ni de lien à saisir)
+  const startCreateCarrousel = () => {
+    setEditing(null);
+    setDraft({ ...DEFAULT_DRAFT, placement: PLACEMENT_CARROUSEL, cost_per_impression: 0 });
+    setShowForm(true);
+  };
+  // Lot 111 — lignes affichées selon le filtre (bannières / carrousels)
+  const lignesAffichees = items.filter((it) => (filtreType === "tous" ? true
+    : filtreType === "carrousels" ? it.placement === PLACEMENT_CARROUSEL : it.placement !== PLACEMENT_CARROUSEL));
 
   const startEdit = (it) => {
     setEditing(it.id);
@@ -162,13 +179,17 @@ export default function AdminAdBanners() {
       modal_frequency: it.modal_frequency || "session",
       // Iter40-modal-ab — Per-variant modal frequency override
       variant_b_modal_frequency: it.variant_b_modal_frequency || "",
+      // Lot 111 — envois de carrousel rattachés
+      carrousel_campagne_ids: it.carrousel_campagne_ids || [],
     });
     setShowForm(true);
   };
 
   const save = async () => {
-    if (!draft.name.trim() || !draft.image_url.trim() || !draft.target_url.trim()) {
-      toast.error("Nom, URL de l'image et URL cible sont obligatoires");
+    // Lot 111 — un carrousel sponsorisé n'a ni image ni lien à saisir (repris des cartes du carrousel)
+    const carrousel = draft.placement === PLACEMENT_CARROUSEL;
+    if (!draft.name.trim() || (!carrousel && (!draft.image_url.trim() || !draft.target_url.trim()))) {
+      toast.error(carrousel ? "Le nom de la campagne est obligatoire" : "Nom, URL de l'image et URL cible sont obligatoires");
       return;
     }
     try {
@@ -251,11 +272,12 @@ export default function AdminAdBanners() {
           <ArrowLeft className="h-3 w-3" /> Retour aux paramètres
         </Link>
         <h1 className="text-2xl font-display font-bold inline-flex items-center gap-2">
-          <Megaphone className="h-6 w-6 text-fuchsia-600" /> Régie publicitaire — Bannières monétisées
+          <Megaphone className="h-6 w-6 text-fuchsia-600" /> Régie publicitaire — Bannières et carrousels WhatsApp
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Vendez un espace publicitaire en haut des pages publiques et/ou de l'Espace Loois.
-          La rotation, le tracking (affichages/clics) et l'auto-pause budget/expiration sont gérés automatiquement.
+          Vendez un espace publicitaire en haut des pages publiques et/ou de l'Espace Loois, ou l'envoi d'un carrousel
+          WhatsApp sponsorisé (clics facturés à l'annonceur). La rotation, le tracking (affichages/clics) et
+          l'auto-pause budget/expiration sont gérés automatiquement.
         </p>
       </div>
 
@@ -269,7 +291,23 @@ export default function AdminAdBanners() {
               accent="amber" />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Lot 111 — liste distinguant bannières et carrousels WhatsApp */}
+        <div className="mr-auto inline-flex rounded-lg ring-1 ring-slate-200 bg-white p-0.5 text-xs" role="tablist" aria-label="Type de campagne">
+          {[["tous", "Toutes"], ["bannieres", "Bannières"], ["carrousels", "Carrousels WhatsApp"]].map(([v, libelle]) => (
+            <button key={v} type="button" role="tab" aria-selected={filtreType === v} onClick={() => setFiltreType(v)}
+                    className={`rounded-md px-3 py-1.5 ${filtreType === v ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+              {libelle}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={startCreateCarrousel}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm hover:bg-emerald-700"
+          data-testid="ad-carrousel-add-btn"
+        >
+          <Plus className="h-4 w-4" /> Nouveau carrousel WhatsApp sponsorisé
+        </button>
         <button
           onClick={startCreate}
           className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 text-white px-4 py-2 text-sm hover:bg-fuchsia-700"
@@ -325,8 +363,10 @@ export default function AdminAdBanners() {
       <section className="rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
         {loading ? (
           <p className="p-6 text-slate-500">Chargement…</p>
-        ) : items.length === 0 ? (
-          <p className="p-8 text-center text-slate-400 italic">Aucune bannière. Créez-en une pour commencer à monétiser.</p>
+        ) : lignesAffichees.length === 0 ? (
+          <p className="p-8 text-center text-slate-400 italic">
+            {items.length === 0 ? "Aucune bannière. Créez-en une pour commencer à monétiser." : "Aucune campagne de ce type."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs" data-testid="ad-banners-table">
@@ -345,10 +385,12 @@ export default function AdminAdBanners() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => {
+                {lignesAffichees.map((it) => {
                   const ctr = it.total_impressions > 0 ? ((it.total_clicks / it.total_impressions) * 100).toFixed(1) : "—";
+                  const estCarrousel = it.placement === PLACEMENT_CARROUSEL;   // lot 111
                   return (
-                    <tr key={it.id} className={`border-t border-slate-100 hover:bg-slate-50 ${!it.active ? "opacity-60" : ""}`} data-testid={`ad-banner-row-${it.id}`}>
+                    <tr key={it.id} aria-selected={editing === it.id}
+                        className={`border-t border-slate-100 ${editing === it.id ? "ligne-selectionnee" : ""} ${!it.active ? "opacity-60" : ""}`} data-testid={`ad-banner-row-${it.id}`}>
                       <td className="px-3 py-2 max-w-[260px]">
                         <div className="flex items-center gap-2">
                           {it.image_url && (
@@ -364,7 +406,16 @@ export default function AdminAdBanners() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-slate-700 px-2 capitalize">{it.placement === "both" ? "Public + Portail" : it.placement === "public_modal" ? "Modale publique" : it.placement}</td>
+                      <td className="text-slate-700 px-2 capitalize">
+                        {estCarrousel ? (
+                          <span className="inline-flex flex-col">
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold normal-case text-emerald-800">Carrousel WhatsApp</span>
+                            <span className="mt-0.5 text-[10px] normal-case text-slate-500">
+                              {(it.carrousel_campagne_ids || []).length} envoi(s) · {(it.carrousel_clics_bruts || 0).toLocaleString("fr-FR")} clic(s) bruts
+                            </span>
+                          </span>
+                        ) : it.placement === "both" ? "Public + Portail" : it.placement === "public_modal" ? "Modale publique" : it.placement}
+                      </td>
                       <td className="text-center">
                         {it.is_currently_active
                           ? <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Active maintenant" />
@@ -374,7 +425,9 @@ export default function AdminAdBanners() {
                               ? <span className="inline-block h-2 w-2 rounded-full bg-amber-500" title="Budget atteint" />
                               : <span className="inline-block h-2 w-2 rounded-full bg-slate-300" title="Inactive" />}
                       </td>
-                      <td className="text-right font-mono tabular-nums">{(it.total_impressions || 0).toLocaleString("fr-FR")}</td>
+                      <td className="text-right font-mono tabular-nums" title={estCarrousel ? "Messages de carrousel acceptés par Meta" : "Affichages"}>
+                        {(it.total_impressions || 0).toLocaleString("fr-FR")}{estCarrousel && <span className="text-[10px] text-slate-400 ml-1">envois</span>}
+                      </td>
                       <td className="text-right font-mono tabular-nums">
                         {(it.total_clicks || 0).toLocaleString("fr-FR")}
                         <span className="text-[10px] text-slate-400 ml-1">({ctr}%)</span>
@@ -455,6 +508,7 @@ function Stat({ icon: Icon, label, value, accent }) {
 }
 
 function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
+  const estCarrousel = draft.placement === PLACEMENT_CARROUSEL;   // lot 111 : campagne « Carrousel WhatsApp »
   const [uploading, setUploading] = React.useState(false);
   const fileInputRef = React.useRef(null);
   const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
@@ -525,9 +579,18 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
   return (
     <div className="rounded-2xl ring-1 ring-fuchsia-300 bg-fuchsia-50/30 p-5 space-y-3" data-testid="ad-banner-form">
       <div className="flex justify-between items-center">
-        <h3 className="font-display font-semibold">{editing ? "Modifier la bannière" : "Nouvelle bannière publicitaire"}</h3>
+        <h3 className="font-display font-semibold">
+          {estCarrousel
+            ? (editing ? "Modifier la campagne « Carrousel WhatsApp »" : "Nouveau carrousel WhatsApp sponsorisé")
+            : (editing ? "Modifier la bannière" : "Nouvelle bannière publicitaire")}
+        </h3>
         <button onClick={onCancel} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
       </div>
+
+      {/* Lot 111 — carrousel sponsorisé : choix des envois de carrousel pilotés par cette campagne */}
+      {estCarrousel && <ChoixCarrousels draft={draft} setDraft={setDraft} />}
+
+      {!estCarrousel && (<>
 
       {/* Iter38r-fix9x — Direct file upload */}
       <div className="rounded-xl ring-1 ring-fuchsia-200 bg-white p-3 flex items-center gap-3 flex-wrap" data-testid="ad-banner-upload-block">
@@ -564,6 +627,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
           <p className="text-[10px] text-slate-500 truncate flex-1">{draft.image_url}</p>
         </div>
       )}
+      </>)}
 
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Nom (campagne)" required testid="ad-form-name">
@@ -572,18 +636,21 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
         <Field label="Annonceur" testid="ad-form-advertiser">
           <input type="text" value={draft.advertiser_name} onChange={(e) => setDraft({ ...draft, advertiser_name: e.target.value })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
         </Field>
+        {!estCarrousel && (<>
         <Field label="URL de l'image de la bannière" required testid="ad-form-image">
           <input type="url" value={draft.image_url} onChange={(e) => setDraft({ ...draft, image_url: e.target.value })} placeholder="https://…" className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white font-mono" />
         </Field>
         <Field label="URL cible (au clic)" required testid="ad-form-target">
           <input type="url" value={draft.target_url} onChange={(e) => setDraft({ ...draft, target_url: e.target.value })} placeholder="https://…" className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white font-mono" />
         </Field>
+        </>)}
         <Field label="Emplacement" testid="ad-form-placement">
           <select value={draft.placement} onChange={(e) => setDraft({ ...draft, placement: e.target.value })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white">
             <option value="public">Pages publiques uniquement</option>
             <option value="portal">Espace Loois uniquement</option>
             <option value="both">Public + Espace Loois</option>
             <option value="public_modal">Modale aléatoire (page publique)</option>
+            <option value={PLACEMENT_CARROUSEL}>Carrousel WhatsApp sponsorisé (clics facturés)</option>
           </select>
         </Field>
         {draft.placement === "public_modal" && (
@@ -609,10 +676,10 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
             </select>
           </div>
         </Field>
-        <Field label="Coût / Affichage (CPM unitaire)" testid="ad-form-cpi">
+        <Field label={estCarrousel ? "Coût / Envoi (message accepté par Meta, 0 = gratuit)" : "Coût / Affichage (CPM unitaire)"} testid="ad-form-cpi">
           <input type="number" min="0" step="0.01" value={draft.cost_per_impression} onChange={(e) => setDraft({ ...draft, cost_per_impression: parseFloat(e.target.value) || 0 })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
         </Field>
-        <Field label="Coût / Clic (CPC)" testid="ad-form-cpc">
+        <Field label={estCarrousel ? "Coût / Clic sur un bouton de carte (CPC)" : "Coût / Clic (CPC)"} testid="ad-form-cpc">
           <input type="number" min="0" step="0.01" value={draft.cost_per_click} onChange={(e) => setDraft({ ...draft, cost_per_click: parseFloat(e.target.value) || 0 })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
         </Field>
         <label className="inline-flex items-center gap-2 mt-6 cursor-pointer">
@@ -620,7 +687,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
           <span className="text-sm font-semibold text-slate-700">Active (diffusée)</span>
         </label>
         <label className="inline-flex items-center gap-2 mt-6 cursor-pointer">
-          <input type="checkbox" checked={draft.animated} onChange={(e) => setDraft({ ...draft, animated: e.target.checked })} className="h-4 w-4" />
+          <input type="checkbox" checked={draft.animated} disabled={estCarrousel} onChange={(e) => setDraft({ ...draft, animated: e.target.checked })} className="h-4 w-4" />
           <span className="text-sm text-slate-700">Animation pulse (subtle)</span>
         </label>
         <label className="inline-flex items-center gap-2 mt-6 cursor-pointer">
@@ -632,12 +699,12 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
         <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Contrat, contact annonceur…" className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
       </Field>
 
-      {/* Iter38r-fix9z6 — A/B testing + advertiser contact + reminder */}
-      <BannerABBlock draft={draft} setDraft={setDraft} handleFileChange={handleFileChange} uploading={uploading} />
+      {/* Iter38r-fix9z6 — A/B testing + advertiser contact + reminder (A/B et dimensions : bannières seulement) */}
+      {!estCarrousel && <BannerABBlock draft={draft} setDraft={setDraft} handleFileChange={handleFileChange} uploading={uploading} />}
       <BannerContactReminderBlock draft={draft} setDraft={setDraft} />
 
       {/* Iter38r-fix9z5 — Sizing controls */}
-      <BannerSizingBlock draft={draft} setDraft={setDraft} />
+      {!estCarrousel && <BannerSizingBlock draft={draft} setDraft={setDraft} />}
 
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-xs text-slate-600 hover:underline">Annuler</button>
@@ -645,6 +712,64 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
           <Save className="h-3.5 w-3.5" /> {editing ? "Enregistrer" : "Créer"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Lot 111 — choix des envois de carrousel WhatsApp (administration SAWALI) pilotés par la campagne de régie.
+// Tableau à cases à cocher : ligne cochée = ligne sélectionnée (classe ligne-selectionnee + aria-selected).
+function ChoixCarrousels({ draft, setDraft }) {
+  const [lignes, setLignes] = useState(null);
+  useEffect(() => {
+    const attente = toast.loading("Patientez… lecture des carrousels envoyés");
+    apiClient.get("/admin/ad-banners/carrousels")
+      .then((r) => { setLignes(r.data?.items || []); toast.dismiss(attente); })
+      .catch((err) => { setLignes([]); toast.error(err?.response?.data?.detail || "Carrousels indisponibles", { id: attente }); });
+  }, []);
+  const choisis = new Set(draft.carrousel_campagne_ids || []);
+  const basculer = (id) => {
+    const s = new Set(choisis);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    setDraft({ ...draft, carrousel_campagne_ids: [...s] });
+  };
+  return (
+    <div className="rounded-xl ring-1 ring-emerald-200 bg-white p-3 space-y-2" data-testid="ad-carrousel-choix">
+      <p className="text-sm font-semibold text-slate-800">Envois de carrousel WhatsApp sponsorisés par cet annonceur</p>
+      <p className="text-[11px] text-slate-500">
+        Cochez les carrousels déjà envoyés à facturer. Pour un nouvel envoi, choisissez cette campagne dans l'écran
+        « Carrousel WhatsApp » (rubrique 2, « Carrousel sponsorisé ») : l'envoi est refusé si le budget est épuisé ou la
+        campagne expirée. Chaque clic sur un bouton est facturé une fois par appareil et par carte sur 24 h ; au-delà du
+        budget, les liens fonctionnent toujours mais les clics ne sont plus facturés.
+      </p>
+      {lignes === null ? (
+        <p className="text-xs text-slate-400">Chargement…</p>
+      ) : lignes.length === 0 ? (
+        <p className="text-xs italic text-slate-400">Aucun carrousel envoyé par l'administration pour le moment.</p>
+      ) : (
+        <div className="max-h-64 overflow-y-auto rounded-lg ring-1 ring-slate-200">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase text-slate-500">
+              <tr><th className="p-2" /><th className="p-2">Envoyé le</th><th className="p-2">Message et cartes</th>
+                <th className="p-2 text-right">Envois</th><th className="p-2">Régie actuelle</th></tr>
+            </thead>
+            <tbody>
+              {lignes.map((c) => (
+                <tr key={c.id} aria-selected={choisis.has(c.id)} onClick={() => basculer(c.id)}
+                    className={`cursor-pointer border-t border-slate-100 ${choisis.has(c.id) ? "ligne-selectionnee" : ""}`}>
+                  <td className="p-2"><input type="checkbox" checked={choisis.has(c.id)} onChange={() => basculer(c.id)} onClick={(e) => e.stopPropagation()} /></td>
+                  <td className="p-2 whitespace-nowrap">{c.cree_le ? new Date(c.cree_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                  <td className="p-2">
+                    <span className="font-medium">{c.message || "—"}</span>
+                    <span className="block text-[10px] opacity-80">{c.nb_cartes} cartes : {c.titres.join(" · ")}</span>
+                  </td>
+                  <td className="p-2 text-right tabular-nums">{c.envoyes}</td>
+                  <td className="p-2">{c.regie_nom || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

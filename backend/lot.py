@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "109.2"
-LOT_LIBELLE = "Alerte de connexion : état du modèle Meta relu automatiquement pendant la revue de Meta"
+LOT = "109.3"
+LOT_LIBELLE = "Alerte de connexion : exclusion par compte et par appareil (l'IP mobile ou Wi-Fi change sans cesse)"

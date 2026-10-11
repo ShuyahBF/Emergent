@@ -46,6 +46,9 @@ export default function AlertesConnexionsSection() {
         alerte_cnx_delai_min: r.delai_min, alerte_cnx_plafond_jour: r.plafond_jour,
         alerte_cnx_ip_exclues: (r.ip_exclues || []).join(", "),
         alerte_cnx_plateformes_exclues: (r.plateformes_exclues || []).join(", "),
+        // Lot 109.3 : exclusions indépendantes de l'adresse IP
+        alerte_cnx_comptes_exclus: (r.comptes_exclus || []).join(", "),
+        alerte_cnx_exclure_mes_numeros: r.exclure_mes_numeros,
       });
     } catch (e) { setDonnees({ erreur: e?.response?.data?.detail || "Rubrique indisponible" }); }
   }, []);
@@ -90,6 +93,17 @@ export default function AlertesConnexionsSection() {
     toast.success(`Modèle soumis à Meta (${r.etat})`);
     await lireModele();
   });
+  // Lot 109.3 — exclure le compte (numéro / nom) ou l'appareil d'une ligne du journal
+  const ignorer = (a) => agir("exclusion", async () => {
+    const r = (await apiClient.post("/admin/alertes-connexions/ignorer", { id: a.id })).data;
+    toast.success(r.exclu === "compte" ? `Compte exclu : ${r.valeur}` : `Appareil exclu sur ${a.plateforme}`);
+    await charger();
+  });
+  const retirerAppareil = (visiteur) => agir("retrait", async () => {
+    await apiClient.delete(`/admin/alertes-connexions/appareils/${encodeURIComponent(visiteur)}`);
+    toast.success("Appareil retiré des exclusions");
+    await charger();
+  });
   const essai = () => agir("envoi de l'essai", async () => {
     const r = (await apiClient.post("/admin/alertes-connexions/tester", {})).data;
     const e = (r.envois || [])[0] || {};
@@ -124,6 +138,7 @@ export default function AlertesConnexionsSection() {
           {coche("alerte_cnx_actif", "Alerte activée")}
           {coche("alerte_cnx_connexions", "Connexions de comptes (clients, équipe…)")}
           {coche("alerte_cnx_visites", "Visites de visiteurs non connectés")}
+          {coche("alerte_cnx_exclure_mes_numeros", "Ne jamais m'alerter de mes propres numéros (ceux qui reçoivent les alertes)")}
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
           <label>Une alerte par personne toutes les (min)
@@ -132,7 +147,10 @@ export default function AlertesConnexionsSection() {
           <label>Plafond par plateforme et par jour
             <input type="number" min={1} value={form.alerte_cnx_plafond_jour} className={`${champ} mt-1 w-full`}
                    onChange={(e) => setForm({ ...form, alerte_cnx_plafond_jour: e.target.value })} /></label>
-          <label className="col-span-2">IP exclues (les vôtres, séparées par des virgules)
+          <label className="col-span-2">Comptes exclus : numéros ou noms d'utilisateur (séparés par des virgules)
+            <input value={form.alerte_cnx_comptes_exclus} className={`${champ} mt-1 w-full`} placeholder="+226 70 12 34 56, Admin ZandGo"
+                   onChange={(e) => setForm({ ...form, alerte_cnx_comptes_exclus: e.target.value })} /></label>
+          <label className="col-span-2">IP fixes exclues (facultatif : une IP de mobile ou de Wi-Fi change souvent)
             <input value={form.alerte_cnx_ip_exclues} className={`${champ} mt-1 w-full`} placeholder="154.66.162.235"
                    onChange={(e) => setForm({ ...form, alerte_cnx_ip_exclues: e.target.value })} /></label>
           <label className="col-span-2">Plateformes sans alerte (codes, séparés par des virgules)
@@ -183,15 +201,35 @@ export default function AlertesConnexionsSection() {
         </table>
       </div>
 
+      {/* Lot 109.3 — appareils exclus (navigateurs reconnus par leur identifiant de visiteur, plateforme par plateforme) */}
+      {(donnees.reglages.appareils_exclus || []).length > 0 && (
+        <div className="rounded-lg bg-slate-50 p-3 text-sm">
+          <p className="mb-1 font-semibold">Appareils exclus</p>
+          <ul className="space-y-1 text-xs">
+            {donnees.reglages.appareils_exclus.map((x) => (
+              <li key={x.visiteur} className="flex flex-wrap items-center gap-2">
+                <span><b>{x.plateforme || x.code}</b> · {x.agent || "navigateur"} <span className="font-mono opacity-60">({x.visiteur.slice(0, 10)}…)</span></span>
+                <button onClick={() => retirerAppareil(x.visiteur)} disabled={occupe} className="text-rose-700 underline">Retirer</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="text-xs text-slate-500">
+        Pour ne plus être alerté de vos propres visites ou connexions, cliquez sur « Ne plus m'alerter » sur la ligne
+        correspondante : votre <b>compte</b> (numéro ou nom) est exclu, ou à défaut votre <b>appareil</b> (navigateur), une
+        fois par plateforme — quelle que soit l'adresse IP (mobile ou Wi-Fi).
+      </p>
+
       {/* Journal des dernières alertes */}
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs text-slate-500">
-            <tr><th className="px-2 py-2">Date</th><th className="px-2">Plateforme</th><th className="px-2">Type</th><th className="px-2">Utilisateur</th><th className="px-2">IP</th><th className="px-2">Statut</th></tr>
+            <tr><th className="px-2 py-2">Date</th><th className="px-2">Plateforme</th><th className="px-2">Type</th><th className="px-2">Utilisateur</th><th className="px-2">IP</th><th className="px-2">Statut</th><th className="px-2"></th></tr>
           </thead>
           <tbody>
             {donnees.dernieres.length === 0 && (
-              <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-500">Aucun signal reçu pour l'instant : les plateformes l'enverront à la prochaine connexion.</td></tr>
+              <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-500">Aucun signal reçu pour l'instant : les plateformes l'enverront à la prochaine connexion.</td></tr>
             )}
             {donnees.dernieres.map((a) => {
               const [lib, coul] = STATUTS[a.statut] || [a.statut, "bg-slate-100"];
@@ -207,6 +245,13 @@ export default function AlertesConnexionsSection() {
                   <td className="px-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${coul}`}>{lib}</span>
                     {(a.raison || erreur) && <span className="block text-[11px] opacity-70">{a.raison || erreur}</span>}
+                  </td>
+                  <td className="px-2">
+                    {/* Lot 109.3 : exclure ce compte ou cet appareil (indépendant de l'IP) */}
+                    {!["compte exclu", "appareil exclu"].includes(a.raison) && (a.telephone || a.utilisateur || a.visiteur) && (
+                      <button onClick={(e) => { e.stopPropagation(); ignorer(a); }} disabled={occupe}
+                              className="whitespace-nowrap rounded border border-slate-300 px-2 py-0.5 text-[11px]">Ne plus m'alerter</button>
+                    )}
                   </td>
                 </tr>
               );

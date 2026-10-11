@@ -158,3 +158,9 @@ def test_robots_reglages_et_plafond(env):
 def test_redirection_site_inconnu(env):
     client, *_ = env
     assert client.get("/api/visiter/inconnu", follow_redirects=False).status_code == 404
+
+
+def test_modele_ne_commence_ni_ne_finit_par_une_variable():
+    """Lot 109.1 — règle Meta : « Les variables ne peuvent pas se trouver au début ou à la fin du modèle »."""
+    corps = ac.definition_modele()["components"][0]["text"].strip()
+    assert not corps.startswith("{{") and not corps.endswith("}}")

@@ -30,6 +30,20 @@ Lot 94 — carte SANS lien (carte produit sans lien saisi, carte libre sans lien
 le bouton mène à la PAGE DE PRÉSENTATION du site, <site>/presentation/{code} (photo, titre, texte,
 prix et description du produit), au lieu d'une page d'erreur. Données lues par
 GET /api/public/carrousel/carte/{code} (public, sans compter de clic).
+
+Lot 111 — PAGE DE PRÉSENTATION DE TOUT LE CARROUSEL, une position par carte, et CARROUSEL SPONSORISÉ :
+  - chaque carte a une « description détaillée » (markdown simple, 4000 caractères) et un mode de bouton :
+    « presentation » (par défaut sans lien) ou « lien » (lien personnalisé, comportement d'avant) ;
+  - en mode présentation, le lien court renvoie vers <site>/presentation/c/<id_public>?depuis=<code>#carte-<n>
+    (le « # » est ajouté par le serveur dans la redirection, jamais dans la variable du modèle Meta) ;
+      GET  /api/public/carrousel/presentation/{id_public}   toutes les cartes (aucune donnée de destinataire)
+      POST /api/public/carrousel/evenement                  « vue » / « interesse », dédupliqués 24 h
+  - un carrousel de l'administration peut être rattaché à une campagne de la RÉGIE PUBLICITAIRE (ad_banners,
+    placement « carrousel_wa ») : clics facturés au coût par clic (dédupliqués), envois au coût par envoi,
+    garde-fou à l'envoi quand le budget est épuisé ou la campagne expirée. Voir routes/carrousel_regie.py.
+      GET  /api/admin/whatsapp/carrousel/regies                       campagnes de régie « Carrousel WhatsApp »
+      PUT  /api/admin/whatsapp/carrousel/campagnes/{id}/regie         rattacher / détacher un envoi
+      GET  /api/admin/whatsapp/carrousel/regie/etat                   état pour la page Paramètres
 """
 from __future__ import annotations
 
@@ -42,11 +56,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional
 
-from fastapi import BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from routes.whatsapp_helpers import _normalize_wa_phone
+from routes import carrousel_regie as regie     # lot 111 : présentation par campagne et régie publicitaire
 
 logger = logging.getLogger("sawali.carrousel")
 
@@ -61,6 +76,7 @@ COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 CHEMIN_LIEN = "/api/public/carrousel/l/"
 CHEMIN_PRESENTATION = "/presentation/"   # lot 94 : page du site qui présente une carte sans lien
 CHEMIN_OG_PRODUIT = "/api/public/og/product/"   # ancien lien automatique des cartes produit
+DESCRIPTION_MAX = 4000                  # lot 111 : description détaillée d'une carte (page de présentation)
 
 
 def doit_presenter(cible: Optional[str]) -> bool:
@@ -185,6 +201,10 @@ class CarteIn(BaseModel):
     titre: Optional[str] = Field(None, max_length=60)
     texte: Optional[str] = Field(None, max_length=80)
     lien: Optional[str] = Field(None, max_length=600)
+    # Lot 111 — texte long de la page de présentation (gras, listes, liens en markdown simple)
+    description_detaillee: Optional[str] = Field(None, max_length=DESCRIPTION_MAX)
+    # Lot 111 — où mène le bouton : page de présentation (défaut sans lien) ou lien personnalisé
+    bouton: Optional[Literal["presentation", "lien"]] = None
 
 
 class EnvoiIn(BaseModel):
@@ -192,6 +212,22 @@ class EnvoiIn(BaseModel):
     cartes: List[CarteIn] = Field(..., min_length=CARTES_MIN, max_length=CARTES_MAX)
     ids: List[str] = Field(default_factory=list)          # contacts (portail) ou clients (admin)
     groupes: List[str] = Field(default_factory=list)      # groupes de contacts (portail)
+    # Lot 111 — campagne de la régie publicitaire qui sponsorise ce carrousel (administration seulement)
+    regie_id: Optional[str] = Field(None, max_length=80)
+
+
+class LienRegieIn(BaseModel):
+    """Lot 111 — rattacher un envoi de carrousel à une campagne de régie (vide = détacher)."""
+    regie_id: Optional[str] = Field(None, max_length=80)
+
+
+class EvenementIn(BaseModel):
+    """Lot 111 — événement de la page de présentation : « vue » (arrivée sur la carte) ou « interesse »
+    (bouton « Je suis intéressé »). La campagne est donnée par son identifiant public ou par le code d'une carte."""
+    campagne: Optional[str] = Field(None, max_length=40)
+    code: Optional[str] = Field(None, max_length=40)
+    carte: int = Field(..., ge=1, le=CARTES_MAX)
+    type: Literal["vue", "interesse"]
 
 
 class BrouillonIn(BaseModel):
@@ -419,7 +455,10 @@ def attach_carrousel_whatsapp_routes(
                            "image_url": url_absolue(c.get("image_url") or p.get("image_url"), base),
                            "titre": (c.get("titre") or p.get("name") or "")[:60],
                            "texte": (c.get("texte") or prix_affiche(p.get("unit_price_ht")))[:80],
-                           "lien": c.get("lien") or f"{base.rstrip('/')}/api/public/og/product/{p['id']}"})
+                           "lien": c.get("lien") or f"{base.rstrip('/')}/api/public/og/product/{p['id']}",
+                           # Lot 111 — description détaillée et mode du bouton conservés
+                           "description_detaillee": c.get("description_detaillee") or "",
+                           "bouton": c.get("bouton") or ("lien" if c.get("lien") else "presentation")})
         return sortie
 
     def _filtre_partages(perimetre: str, tenant_id: Optional[str]) -> dict:
@@ -665,8 +704,14 @@ def attach_carrousel_whatsapp_routes(
             if lien and not lien_accepte(lien):
                 raise HTTPException(status_code=400, detail=f"Carte {i} : lien invalide (https://…) — corrigez-le, "
                                                             "ou laissez-le vide pour présenter la carte sur le site")
+            # Lot 111 — mode du bouton : choisi dans l'éditeur ; sinon « lien » s'il y a un lien, « presentation » sinon.
+            # Un mode « lien » sans lien mène quand même à la page de présentation (jamais de page d'erreur).
+            bouton = c.bouton or ("lien" if lien else "presentation")
+            if bouton == "lien" and not lien:
+                bouton = "presentation"
             prets.append({"source": c.source, "produit_id": produit_id, "image_url": image,
-                          "titre": titre[:60], "texte": texte[:80], "lien": lien})
+                          "titre": titre[:60], "texte": texte[:80], "lien": lien, "bouton": bouton,
+                          "description_detaillee": (c.description_detaillee or "").strip()[:DESCRIPTION_MAX]})
         return prets
 
     # --- Destinataires -------------------------------------------------------
@@ -785,11 +830,21 @@ def attach_carrousel_whatsapp_routes(
                                                         "WhatsApp (ou aucun numéro valable)")
         if len(destinataires) > DESTINATAIRES_MAX:
             raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} destinataires au maximum par campagne")
+        # Lot 111 — carrousel sponsorisé (administration seulement) : garde-fou budget / dates de la régie
+        regie_id = ((envoi.regie_id or "").strip() or None) if perimetre == "admin" else None
+        if regie_id:
+            try:
+                await regie.regie_envoyable(db, regie_id, len(destinataires))
+            except ValueError as exc:
+                logger.info("[carrousel] envoi sponsorisé refusé (%s) : %s", regie_id, exc)
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         campagne_id = secrets.token_hex(8)
         for i, c in enumerate(cartes):
+            # Code court du bouton : caractères base64 URL seulement (jamais de « # » dans la variable Meta)
             c["code_lien"] = secrets.token_urlsafe(6)
             await db.carrousel_liens.insert_one({"code": c["code_lien"], "cible": c["lien"], "campagne_id": campagne_id,
-                                                 "carte_index": i, "clics": 0, "cree_le": _maintenant()})
+                                                 "carte_index": i, "clics": 0, "bouton": c.get("bouton") or "presentation",
+                                                 "cree_le": _maintenant()})
         doc = {
             "id": campagne_id, "perimetre": perimetre, "tenant_id": tenant_id, "cree_le": _maintenant(),
             "cree_par": user["id"], "cree_par_nom": user.get("full_name") or user.get("email"),
@@ -797,8 +852,13 @@ def attach_carrousel_whatsapp_routes(
             "modele": nom_modele(r["modele"], len(cartes)), "langue": r["langue"],
             "creds_tenant": r["creds_tenant"], "destinataires": destinataires,
             "statut": "EN_COURS", "compte": {"total": len(destinataires), "envoyes": 0, "echecs": 0},
+            # Lot 111 — identifiant public (page de présentation) et campagne de régie qui sponsorise
+            "id_public": regie.nouvel_id_public(), "regie_id": regie_id,
         }
         await db.carrousel_campagnes.insert_one(dict(doc))
+        if regie_id:
+            await db.ad_banners.update_one({"id": regie_id}, {"$addToSet": {"carrousel_campagne_ids": campagne_id}})
+            await regie.apercu_si_vide(db, regie_id, campagne_id)
         bg.add_task(_executer, campagne_id)
         return {"id": campagne_id, "destinataires": len(destinataires), "modele": doc["modele"],
                 "ignores": len(personnes) - len(destinataires)}
@@ -820,6 +880,13 @@ def attach_carrousel_whatsapp_routes(
             statut = "ENVOYE" if r.get("ok") else "ECHEC"
             envoyes += statut == "ENVOYE"
             echecs += statut == "ECHEC"
+            if statut == "ENVOYE" and c.get("regie_id"):
+                # Lot 111 — carrousel sponsorisé : envoi accepté par Meta = un envoi compté (et facturé au coût
+                # par envoi s'il y en a un), jamais bloquant pour la suite des envois
+                try:
+                    await regie.enregistrer_envoi(db, c["regie_id"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[carrousel] comptage de l'envoi sponsorisé impossible : %s", exc)
             await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {
                 f"destinataires.{i}.statut": statut, f"destinataires.{i}.message_id": r.get("message_id"),
                 f"destinataires.{i}.erreur": (r.get("error") or None) and str(r["error"])[:300],
@@ -842,12 +909,22 @@ def attach_carrousel_whatsapp_routes(
     async def _campagnes(filtre: dict) -> List[dict]:
         lignes = await db.carrousel_campagnes.find(filtre, {"_id": 0, "destinataires": 0}).sort(
             "cree_le", -1).limit(50).to_list(50)
+        noms_regie = {b["id"]: b.get("name") or "" async for b in db.ad_banners.find(
+            {"id": {"$in": [c.get("regie_id") for c in lignes if c.get("regie_id")]}}, {"_id": 0, "id": 1, "name": 1})}
+        base = (base_publique() or "").rstrip("/")
         for c in lignes:
             codes = [x.get("code_lien") for x in c.get("cartes") or []]
-            clics = {x["code"]: x.get("clics", 0) async for x in db.carrousel_liens.find(
-                {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1})}
+            # Lot 111 — par carte : clics, clics facturés (sponsorisé), vues de la présentation, « Je suis intéressé »
+            stats = {x["code"]: x async for x in db.carrousel_liens.find(
+                {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "clics_factures": 1, "vues": 1, "interesses": 1})}
             for x in c.get("cartes") or []:
-                x["clics"] = clics.get(x.get("code_lien"), 0)
+                s = stats.get(x.get("code_lien")) or {}
+                x["clics"] = int(s.get("clics") or 0)
+                x["clics_factures"] = int(s.get("clics_factures") or 0)
+                x["vues"] = int(s.get("vues") or 0)
+                x["interesses"] = int(s.get("interesses") or 0)
+            c["regie_nom"] = noms_regie.get(c.get("regie_id"), "")
+            c["url_presentation"] = f"{base}{regie.CHEMIN_PRESENTATION_CAMPAGNE}{c['id_public']}" if c.get("id_public") else ""
         return lignes
 
     async def _campagne(filtre: dict) -> dict:
@@ -872,14 +949,32 @@ def attach_carrousel_whatsapp_routes(
         return RedirectResponse(base_publique() or "/", status_code=302)
 
     @api.get("/public/carrousel/l/{code}", tags=["Public"])
-    async def ouvrir_lien(code: str):
-        doc = await db.carrousel_liens.find_one_and_update({"code": code[:40]}, {"$inc": {"clics": 1}},
-                                                          projection={"_id": 0, "cible": 1})
+    async def ouvrir_lien(code: str, request: Request):
+        code = code[:40]
+        # Clic BRUT compté sur la carte (toujours, même hors budget ou en double)
+        doc = await db.carrousel_liens.find_one_and_update(
+            {"code": code}, {"$inc": {"clics": 1}},
+            projection={"_id": 0, "cible": 1, "campagne_id": 1, "carte_index": 1, "bouton": 1})
         if not doc:
             return RedirectResponse(base_publique() or "/", status_code=302)
-        if doit_presenter(doc.get("cible")):
-            # Lot 94 — carte sans lien : page de présentation de la carte sur le site
-            return RedirectResponse(f"{(base_publique() or '').rstrip('/')}{CHEMIN_PRESENTATION}{code[:40]}", status_code=302)
+        campagne = await db.carrousel_campagnes.find_one(
+            {"id": doc.get("campagne_id")}, {"_id": 0, "id": 1, "id_public": 1, "regie_id": 1}) or {}
+        index = int(doc.get("carte_index") or 0)
+        # Lot 111 — carrousel sponsorisé : clic facturé à la régie (dédupliqué par appareil, dans le budget)
+        if campagne.get("regie_id"):
+            try:
+                await regie.enregistrer_clic(db, campagne_id=campagne["id"], carte_index=index,
+                                             regie_id=campagne["regie_id"], emp=regie.empreinte_requete(request))
+            except Exception as exc:  # noqa: BLE001 — la facturation ne bloque jamais l'ouverture du lien
+                logger.warning("[carrousel] facturation du clic impossible : %s", exc)
+        if doc.get("bouton") == "presentation" or doit_presenter(doc.get("cible")):
+            base = (base_publique() or "").rstrip("/")
+            # Lot 111 — page de TOUT le carrousel, positionnée sur la carte (#carte-n, appliqué par le navigateur)
+            id_public = campagne.get("id_public") or (await regie.assurer_id_public(db, doc.get("campagne_id")) if campagne else None)
+            if id_public:
+                return RedirectResponse(f"{base}{regie.chemin_presentation(id_public, code, index + 1)}", status_code=302)
+            # Lot 94 — repli : page d'une seule carte
+            return RedirectResponse(f"{base}{CHEMIN_PRESENTATION}{code}", status_code=302)
         return RedirectResponse(doc["cible"], status_code=302)
 
     @api.get("/public/carrousel/carte/{code}", tags=["Public"])
@@ -902,9 +997,85 @@ def attach_carrousel_whatsapp_routes(
                 produit = {"nom": p.get("name") or "", "description": (p.get("description") or "")[:2000],
                            "prix": prix_affiche(p.get("unit_price_ht")) if p.get("unit_price_ht") else "",
                            "unite": p.get("unit") or ""}
+        # Lot 111 — l'ancienne page /presentation/{code} redirige vers la page du carrousel, sur cette carte
+        id_public = await regie.assurer_id_public(db, lien["campagne_id"])
         return {"code": code[:40], "titre": c.get("titre") or "", "texte": c.get("texte") or "",
                 "image_url": c.get("image_url") or "", "expediteur": campagne.get("expediteur") or "",
-                "plateforme": campagne.get("perimetre") == "admin", "produit": produit}
+                "plateforme": campagne.get("perimetre") == "admin", "produit": produit,
+                "id_public": id_public, "n": i + 1}
+
+    async def _produit_public(produit_id: Optional[str]) -> Optional[dict]:
+        """Lot 111 — nom, prix, unité et description publique d'un produit de la caisse (ou None)."""
+        if not produit_id:
+            return None
+        p = await db.products.find_one({"id": produit_id}, {"_id": 0, "name": 1, "description": 1,
+                                                             "unit_price_ht": 1, "unit": 1})
+        if not p:
+            return None
+        return {"nom": p.get("name") or "", "description": (p.get("description") or "")[:2000],
+                "prix": prix_affiche(p.get("unit_price_ht")) if p.get("unit_price_ht") else "",
+                "unite": p.get("unit") or ""}
+
+    async def _contact_whatsapp(campagne: dict) -> str:
+        """Lot 111 — numéro WhatsApp de contact de l'expéditeur (chiffres avec indicatif) pour « Je suis
+        intéressé » : celui du client pour un carrousel du portail, celui de l'entreprise (Paramètres,
+        company_whatsapp) pour un carrousel de SAWALI. Vide s'il n'est pas connu."""
+        brut = ""
+        if campagne.get("perimetre") == "client" and campagne.get("tenant_id"):
+            u = await db.users.find_one({"id": campagne["tenant_id"]}, {"_id": 0, "whatsapp_number": 1, "phone": 1}) or {}
+            brut = u.get("whatsapp_number") or u.get("phone") or ""
+        if not brut:
+            s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "company_whatsapp": 1}) or {}
+            brut = (s.get("company_whatsapp") or "") if campagne.get("perimetre") == "admin" else ""
+        tel = numero_whatsapp(brut) if brut else ""
+        return tel if len(tel) >= 10 else ""
+
+    @api.get("/public/carrousel/presentation/{id_public}", tags=["Public"])
+    async def presentation_publique(id_public: str):
+        """Lot 111 — page de présentation d'un carrousel : toutes ses cartes (photo, titre, texte, description
+        détaillée, produit), l'expéditeur et son numéro WhatsApp de contact. AUCUNE donnée de destinataire :
+        la lecture se limite aux champs listés ici (jamais la liste des destinataires ni leurs numéros)."""
+        campagne = await db.carrousel_campagnes.find_one(
+            {"id_public": id_public[:40]},
+            {"_id": 0, "id": 1, "id_public": 1, "expediteur": 1, "message": 1, "cartes": 1, "perimetre": 1,
+             "tenant_id": 1, "cree_le": 1})
+        if not campagne:
+            raise HTTPException(status_code=404, detail="Présentation introuvable")
+        cartes = []
+        for i, c in enumerate(campagne.get("cartes") or []):
+            lien = (c.get("lien") or "").strip()
+            cartes.append({
+                "n": i + 1, "titre": c.get("titre") or "", "texte": c.get("texte") or "",
+                "image_url": c.get("image_url") or "",
+                "description_detaillee": (c.get("description_detaillee") or "")[:DESCRIPTION_MAX],
+                "produit": await _produit_public(c.get("produit_id")),
+                # Lien personnalisé saisi (affiché comme « En savoir plus ») ; jamais l'ancien lien automatique
+                "lien": lien if lien and lien_accepte(lien) and not doit_presenter(lien) else "",
+            })
+        return {"id": campagne["id_public"], "expediteur": campagne.get("expediteur") or "",
+                "message": campagne.get("message") or "", "plateforme": campagne.get("perimetre") == "admin",
+                "contact_whatsapp": await _contact_whatsapp(campagne), "date": campagne.get("cree_le"),
+                "cartes": cartes}
+
+    @api.post("/public/carrousel/evenement", tags=["Public"])
+    async def evenement_public(data: EvenementIn, request: Request):
+        """Lot 111 — « vue » ou « Je suis intéressé » sur une carte de la page de présentation. Dédupliqué par
+        empreinte (IP + navigateur) sur 24 h : un même appareil n'est compté qu'une fois par carte et par type."""
+        filtre = None
+        if data.campagne:
+            filtre = {"id_public": data.campagne[:40]}
+        elif data.code:
+            lien = await db.carrousel_liens.find_one({"code": data.code[:40]}, {"_id": 0, "campagne_id": 1})
+            filtre = {"id": lien["campagne_id"]} if lien else None
+        campagne = await db.carrousel_campagnes.find_one(
+            filtre, {"_id": 0, "id": 1, "regie_id": 1, "cartes": 1}) if filtre else None
+        if not campagne:
+            raise HTTPException(status_code=404, detail="Présentation introuvable")
+        if data.carte > len(campagne.get("cartes") or []):
+            raise HTTPException(status_code=400, detail="Carte inexistante")
+        compte = await regie.enregistrer_evenement(db, campagne=campagne, carte_index=data.carte - 1,
+                                                   type_evt=data.type, emp=regie.empreinte_requete(request))
+        return {"ok": True, "compte": compte}
 
     # =======================================================================
     # Portail client
@@ -1195,5 +1366,50 @@ def attach_carrousel_whatsapp_routes(
     @api.get("/admin/whatsapp/carrousel/campagnes/{cid}", tags=["Admin — Carrousel WhatsApp"])
     async def campagne_admin(cid: str, _: dict = Depends(get_current_admin)):
         return await _campagne({"id": cid, "perimetre": "admin"})
+
+    # Lot 111 — carrousel sponsorisé : campagnes de la régie publicitaire (placement « carrousel_wa »)
+    @api.get("/admin/whatsapp/carrousel/regies", tags=["Admin — Carrousel WhatsApp"])
+    async def regies_admin(_: dict = Depends(get_current_admin)):
+        """Campagnes de régie « Carrousel WhatsApp » proposées dans l'éditeur, avec le motif qui empêche
+        l'envoi (budget épuisé, expirée, en pause…) le cas échéant."""
+        lignes = []
+        async for b in db.ad_banners.find({"placement": regie.PLACEMENT_CARROUSEL}, {"_id": 0}).sort("created_at", -1):
+            budget, depense = float(b.get("budget_amount") or 0), float(b.get("amount_spent") or 0)
+            lignes.append({"id": b["id"], "nom": b.get("name") or "", "annonceur": b.get("advertiser_name") or "",
+                           "cout_par_clic": float(b.get("cost_per_click") or 0),
+                           "cout_par_envoi": float(b.get("cost_per_impression") or 0),
+                           "budget": budget, "reste": max(0.0, budget - depense) if budget else None,
+                           "devise": b.get("currency") or "XOF", "motif": regie.motif_non_facturable(b)})
+        return {"regies": lignes}
+
+    @api.put("/admin/whatsapp/carrousel/campagnes/{cid}/regie", tags=["Admin — Carrousel WhatsApp"])
+    async def lier_regie_admin(cid: str, data: LienRegieIn, _: dict = Depends(get_current_admin)):
+        """Rattache un envoi déjà fait à une campagne de régie (ses prochains clics seront facturés), ou le détache."""
+        await _campagne({"id": cid, "perimetre": "admin"})
+        regie_id = (data.regie_id or "").strip() or None
+        if regie_id:
+            b = await db.ad_banners.find_one({"id": regie_id}, {"_id": 0, "placement": 1})
+            if not b or b.get("placement") != regie.PLACEMENT_CARROUSEL:
+                raise HTTPException(status_code=400, detail="Campagne de régie « Carrousel WhatsApp » introuvable")
+        await regie.lier_une(db, cid, regie_id)
+        return {"id": cid, "regie_id": regie_id}
+
+    @api.get("/admin/whatsapp/carrousel/regie/etat", tags=["Admin — Carrousel WhatsApp"])
+    async def etat_regie_admin(_: dict = Depends(get_current_admin)):
+        """État de la rubrique « 📣 Régie publicitaire — carrousels WhatsApp sponsorisés » des Paramètres."""
+        regies = await db.ad_banners.find({"placement": regie.PLACEMENT_CARROUSEL}, {"_id": 0}).to_list(500)
+        return {
+            "dedup_heures": await regie.dedup_heures(db),
+            "campagnes_regie": len(regies),
+            "actives": sum(1 for b in regies if not regie.motif_non_facturable(b)),
+            "carrousels_sponsorises": await db.carrousel_campagnes.count_documents({"regie_id": {"$nin": [None, ""]}}),
+            "clics_factures": sum(int(b.get("total_clicks") or 0) for b in regies),
+            "clics_bruts": sum(int(b.get("carrousel_clics_bruts") or 0) for b in regies),
+            "montant_consomme": round(sum(float(b.get("amount_spent") or 0) for b in regies), 2),
+            "vues_presentation": sum([int(x.get("vues") or 0) async for x in db.carrousel_liens.find(
+                {"vues": {"$gt": 0}}, {"_id": 0, "vues": 1})]),
+            "interesses": sum([int(x.get("interesses") or 0) async for x in db.carrousel_liens.find(
+                {"interesses": {"$gt": 0}}, {"_id": 0, "interesses": 1})]),
+        }
 
     return {"executer": _executer}

@@ -71,6 +71,22 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Lot 111 — placement des campagnes de régie qui pilotent un carrousel WhatsApp sponsorisé.
+# Ces campagnes ne sont JAMAIS servies par la rotation des bannières (public_pick_banner) ni comptées par
+# les routes impression / click des bannières : leurs clics passent par le lien court du carrousel.
+PLACEMENT_CARROUSEL = "carrousel_wa"
+
+# Lot 111 — diffusion vers le panneau « temps réel » de la régie, utilisable hors de ce module
+# (clics et envois des carrousels sponsorisés, routes/carrousel_regie.py). Renseignée au branchement des routes.
+_DIFFUSEUR = None
+
+
+async def diffuser_live(payload: dict) -> None:
+    """Envoie un événement aux administrateurs connectés au panneau temps réel (sans effet si aucun)."""
+    if _DIFFUSEUR is not None:
+        await _DIFFUSEUR(payload)
+
+
 def _today_iso() -> str:
     return date.today().isoformat()
 
@@ -371,12 +387,15 @@ async def process_expiration_reminders(
 class AdBannerPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     advertiser_name: str = Field("", max_length=120)
-    image_url: str = Field(..., min_length=4, max_length=600)
+    # Lot 111 — image et lien facultatifs pour une campagne « Carrousel WhatsApp » (repris des cartes) ;
+    # toujours obligatoires pour une bannière (contrôle dans create_banner)
+    image_url: str = Field("", max_length=600)
     # Iter38r-fix9z3 — Explicit media kind so /api/files/{id} URLs (no extension)
     # are correctly rendered as <img> or <video> on the frontend.
     media_kind: str = Field("image", pattern="^(image|video)$")
-    target_url: str = Field(..., min_length=4, max_length=600)
-    placement: str = Field("both", pattern="^(public|portal|both|public_modal)$")
+    target_url: str = Field("", max_length=600)
+    # Lot 111 — « carrousel_wa » : campagne de régie qui pilote un carrousel WhatsApp sponsorisé
+    placement: str = Field("both", pattern="^(public|portal|both|public_modal|carrousel_wa)$")
     animated: bool = False
     active: bool = True
     budget_amount: float = Field(0, ge=0)
@@ -418,6 +437,8 @@ class AdBannerPayload(BaseModel):
     # Iter38r-fix9z7 — WhatsApp reminder (in addition to email)
     reminder_wa_enabled: bool = False
     reminder_days_before: int = Field(3, ge=1, le=30)
+    # Lot 111 — campagnes de carrousel WhatsApp (administration SAWALI) pilotées par cette campagne de régie
+    carrousel_campagne_ids: List[str] = Field(default_factory=list, max_length=50)
 
 
 class AdBannerUpdate(BaseModel):
@@ -458,6 +479,8 @@ class AdBannerUpdate(BaseModel):
     reminder_email_enabled: Optional[bool] = None
     reminder_wa_enabled: Optional[bool] = None
     reminder_days_before: Optional[int] = Field(None, ge=1, le=30)
+    # Lot 111 — liste complète des campagnes de carrousel rattachées (placement « carrousel_wa »)
+    carrousel_campagne_ids: Optional[List[str]] = Field(None, max_length=50)
 
 
 # Iter38r-fix9z5 — Renewal request payload (must be at module scope so
@@ -545,6 +568,9 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
                 await self.disconnect(ws)
 
     live_hub = AdLiveHub()
+    # Lot 111 — les carrousels sponsorisés diffusent aussi leurs clics et envois dans ce panneau
+    global _DIFFUSEUR
+    _DIFFUSEUR = live_hub.broadcast
 
     async def _broadcast_event(event: str, banner_id: str, variant: str, banner: Dict[str, Any]):
         try:
@@ -584,9 +610,11 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         cursor = db.ad_banners.find(q, {"_id": 0})
         candidates = await cursor.to_list(200)
         # Filter out expired / exhausted / not-started
+        # Lot 111 — une campagne « Carrousel WhatsApp » n'est JAMAIS servie comme bannière (double sécurité)
         ready = [
             b for b in candidates
-            if not _is_expired(b) and not _budget_exhausted(b) and _is_started(b)
+            if b.get("placement") != PLACEMENT_CARROUSEL
+            and not _is_expired(b) and not _budget_exhausted(b) and _is_started(b)
         ]
         if not ready:
             return {"banner": None}
@@ -627,6 +655,9 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if b.get("placement") == PLACEMENT_CARROUSEL:
+            # Lot 111 — les envois d'un carrousel sponsorisé sont comptés à l'envoi, jamais par cette route
+            return {"ok": False, "reason": "carrousel_wa"}
         if not b.get("active"):
             return {"ok": False, "reason": "inactive"}
         if _is_expired(b) or _budget_exhausted(b) or not _is_started(b):
@@ -668,6 +699,9 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if b.get("placement") == PLACEMENT_CARROUSEL:
+            # Lot 111 — un clic de carrousel sponsorisé passe par le lien court (dédupliqué) : refusé ici
+            return {"ok": False, "reason": "carrousel_wa", "target_url": ""}
         cpc = float(b.get("cost_per_click") or 0)
         inc = {"total_clicks": 1, "amount_spent": cpc, f"total_clicks_{variant}": 1}
         if modal:
@@ -712,6 +746,10 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
     @api.post("/admin/ad-banners", tags=["Admin — Ad Banners"])
     async def create_banner(payload: AdBannerPayload, user: dict = Depends(get_current_user)):
         _ensure_admin(user)
+        # Lot 111 — une bannière garde son image et son lien obligatoires ; un carrousel les reprend des cartes
+        carrousel = payload.placement == PLACEMENT_CARROUSEL
+        if not carrousel and (len(payload.image_url.strip()) < 4 or len(payload.target_url.strip()) < 4):
+            raise HTTPException(status_code=422, detail="Image et lien de destination obligatoires pour une bannière")
         tid = user.get("client_id") or user.get("parent_client_id") or user["id"]
         banner_id = str(uuid.uuid4())
         slug = await _ensure_unique_slug(db, payload.name, banner_id)
@@ -779,7 +817,25 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             "updated_at": _now_iso(),
         }
         await db.ad_banners.insert_one(doc.copy())
+        if carrousel:
+            # Lot 111 — rattachement des campagnes de carrousel choisies, image d'aperçu reprise de la 1re carte
+            from routes import carrousel_regie
+            await carrousel_regie.lier_campagnes(db, banner_id, payload.carrousel_campagne_ids)
+            await _apercu_carrousel(banner_id)
+            doc = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0}) or doc
         return {"ok": True, "item": _admin_view(doc)}
+
+    async def _apercu_carrousel(banner_id: str) -> None:
+        """Lot 111 — campagne « Carrousel WhatsApp » sans image : on prend celle de la 1re carte du carrousel
+        rattaché le plus récent (aperçu de la liste et du rapport de l'annonceur)."""
+        b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0, "image_url": 1, "carrousel_campagne_ids": 1})
+        if not b or (b.get("image_url") or "").strip() or not b.get("carrousel_campagne_ids"):
+            return
+        c = await db.carrousel_campagnes.find_one({"id": {"$in": b["carrousel_campagne_ids"]}},
+                                                  {"_id": 0, "cartes": 1}, sort=[("cree_le", -1)])
+        image = (((c or {}).get("cartes") or [{}])[0] or {}).get("image_url") or ""
+        if image:
+            await db.ad_banners.update_one({"id": banner_id}, {"$set": {"image_url": image, "media_kind": "image"}})
 
     @api.put("/admin/ad-banners/{banner_id}", tags=["Admin — Ad Banners"])
     async def update_banner(banner_id: str, payload: AdBannerUpdate, user: dict = Depends(get_current_user)):
@@ -793,9 +849,15 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         # Iter38r-fix9y — If the name changes, regenerate a unique slug
         if "name" in update and update["name"]:
             update["slug"] = await _ensure_unique_slug(db, update["name"], banner_id)
+        # Lot 111 — la liste des carrousels rattachés est écrite des deux côtés (régie et carrousel)
+        ids_carrousel = update.pop("carrousel_campagne_ids", None)
         res = await db.ad_banners.update_one({"id": banner_id}, {"$set": update})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if ids_carrousel is not None:
+            from routes import carrousel_regie
+            await carrousel_regie.lier_campagnes(db, banner_id, ids_carrousel)
+            await _apercu_carrousel(banner_id)
         # Iter38r-fix9y — Backfill share_token on legacy rows that lack one
         fresh = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if fresh and not fresh.get("share_token"):
@@ -849,7 +911,27 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         res = await db.ad_banners.delete_one({"id": banner_id})
         if res.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
+        # Lot 111 — les carrousels qu'elle pilotait redeviennent des carrousels ordinaires (non sponsorisés)
+        await db.carrousel_campagnes.update_many({"regie_id": banner_id}, {"$unset": {"regie_id": ""}})
         return {"ok": True}
+
+    @api.get("/admin/ad-banners/carrousels", tags=["Admin — Ad Banners"])
+    async def lister_carrousels_regie(user: dict = Depends(get_current_user)):
+        """Lot 111 — campagnes de carrousel WhatsApp de l'administration SAWALI, à rattacher à une campagne de
+        régie « Carrousel WhatsApp » (formulaire de la Régie publicitaire). Aucune donnée de destinataire."""
+        _ensure_admin(user)
+        noms = {b["id"]: b.get("name") or "" async for b in db.ad_banners.find(
+            {"placement": PLACEMENT_CARROUSEL}, {"_id": 0, "id": 1, "name": 1})}
+        lignes = []
+        async for c in db.carrousel_campagnes.find({"perimetre": "admin"}, {"_id": 0, "destinataires": 0}).sort(
+                "cree_le", -1).limit(100):
+            cartes = c.get("cartes") or []
+            lignes.append({"id": c["id"], "cree_le": c.get("cree_le"), "message": (c.get("message") or "")[:120],
+                           "nb_cartes": len(cartes), "titres": [k.get("titre") or "" for k in cartes][:10],
+                           "image_url": (cartes[0] if cartes else {}).get("image_url") or "",
+                           "envoyes": int((c.get("compte") or {}).get("envoyes") or 0),
+                           "regie_id": c.get("regie_id"), "regie_nom": noms.get(c.get("regie_id"), "")})
+        return {"items": lignes}
 
     @api.post("/admin/ad-banners/{banner_id}/toggle-paid", tags=["Admin — Ad Banners"])
     async def toggle_paid(banner_id: str, user: dict = Depends(get_current_user)):
@@ -922,6 +1004,11 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             "is_currently_active": _admin_view(b)["is_currently_active"],
         }
 
+    async def _rapport_carrousel(b: Dict[str, Any]) -> Dict[str, Any]:
+        """Lot 111 — partie carrousel du rapport public (calculée dans routes/carrousel_regie.py)."""
+        from routes import carrousel_regie
+        return await carrousel_regie.rapport_carrousel(db, b)
+
     @api.get("/public/ads-report/{slug}", tags=["Public — Ad Banners"])
     async def public_ads_report(slug: str, token: str = Query(..., min_length=1)):
         """Iter38r-fix9y — Rapport public en direct pour un annonceur. Nécessite le
@@ -973,6 +1060,10 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             },
             "daily": daily[-90:],  # last 90 days
             "generated_at": _now_iso(),
+            # Lot 111 — campagne « Carrousel WhatsApp » : envois, clics bruts / facturables, vues,
+            # « Je suis intéressé », détail par campagne et par carte (aucune donnée de destinataire)
+            "type": "carrousel_wa" if b.get("placement") == PLACEMENT_CARROUSEL else "banniere",
+            "carrousel": (await _rapport_carrousel(b)) if b.get("placement") == PLACEMENT_CARROUSEL else None,
         }
 
     # Iter38r-fix9z5 — "Renew campaign" endpoint. Lets the advertiser

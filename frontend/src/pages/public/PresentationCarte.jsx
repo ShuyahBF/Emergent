@@ -8,14 +8,18 @@
  * Quand une carte n'a pas de lien (ni « lien par défaut »), son bouton WhatsApp mène ici : la page montre la
  * photo, le titre, le texte de la carte et, pour un produit de la caisse, son prix et sa description.
  * Données publiques lues par GET /api/public/carrousel/carte/{code} (aucune donnée personnelle).
+ *
+ * Lot 111 — les anciens liens /presentation/{code} restent valables : la page redirige vers la présentation de
+ * TOUT le carrousel (/presentation/c/<identifiant public>?depuis=<code>#carte-<n>), positionnée sur cette carte.
  */
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Loader2, MessageCircle, ShoppingBag } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 export default function PresentationCarte() {
   const { code } = useParams();
+  const navigate = useNavigate();
   const [carte, setCarte] = useState(null);      // contenu de la carte
   const [etat, setEtat] = useState("chargement"); // chargement | pret | introuvable
 
@@ -25,13 +29,19 @@ export default function PresentationCarte() {
     apiClient.get(`/public/carrousel/carte/${encodeURIComponent(code || "")}`)
       .then((r) => {
         if (!actif) return;
+        // Lot 111 — redirection vers la page du carrousel, sur la bonne carte (l'adresse est remplacée)
+        if (r.data?.id_public) {
+          navigate(`/presentation/c/${encodeURIComponent(r.data.id_public)}?depuis=${encodeURIComponent(code || "")}#carte-${r.data.n || 1}`,
+                   { replace: true });
+          return;
+        }
         setCarte(r.data);
         setEtat("pret");
         document.title = `${r.data?.titre || "Présentation"} — SAWALI SMART SYSTEMS`;
       })
       .catch(() => { if (actif) setEtat("introuvable"); });
     return () => { actif = false; };
-  }, [code]);
+  }, [code, navigate]);
 
   // Attente : jauge qui tourne + « Patientez… »
   if (etat === "chargement") {

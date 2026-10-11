@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "111", "date": "2026-10-11",
+        "titre": "📣 Carrousel WhatsApp sponsorisé (régie publicitaire)",
+        "description": "Vendez l'envoi d'un carrousel à un annonceur : chaque clic sur un bouton est facturé au coût par clic (une fois par appareil et par carte sur 24 h), envoi bloqué si le budget est épuisé, rapport public de l'annonceur avec le détail par carte et par jour.",
+        "rubrique": "📣 Régie publicitaire — carrousels WhatsApp sponsorisés",
+    },
+    {
+        "lot": "111", "date": "2026-10-11",
+        "titre": "🧭 Page de présentation du carrousel, ouverte sur la carte",
+        "description": "Le bouton d'une carte ouvre la page de tout le carrousel directement sur cette carte (#carte-n), avec sa description détaillée et « Je suis intéressé » (WhatsApp) ; vues et intérêts comptés par carte.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "110", "date": "2026-10-11",
         "titre": "📍 Pays et opérateur dans l'alerte de connexion",
         "description": "Chaque alerte WhatsApp indique désormais le pays (drapeau) et l'opérateur de l'adresse IP (ex. 🇧🇫 Burkina Faso · Moov Africa (Onatel)) ; le journal de la rubrique a ses colonnes Pays et Opérateur.",

@@ -26,15 +26,18 @@ def test_carte_sans_lien_presentee(env):
     camp = client.get(f"/api/me/whatsapp/carrousel/campagnes/{r.json()['id']}", headers=h("cli_a")).json()
     code_produit, code_libre = (c["code_lien"] for c in camp["cartes"])
 
-    # Les deux boutons mènent à la page de présentation du site (clic compté)
-    for code in (code_produit, code_libre):
+    # Les deux boutons mènent à la page de présentation du site (clic compté) ; depuis le lot 111, c'est la page
+    # de tout le carrousel, positionnée sur la carte (#carte-n)
+    for n, code in enumerate((code_produit, code_libre), 1):
         rr = client.get(f"/api/public/carrousel/l/{code}", follow_redirects=False)
-        assert rr.status_code == 302 and rr.headers["location"] == f"{BASE}/presentation/{code}"
+        assert rr.status_code == 302
+        assert rr.headers["location"] == f"{BASE}/presentation/c/{camp['id_public']}?depuis={code}#carte-{n}"
 
     # Contenu public de la carte produit : prix et nom du produit, expéditeur ; carte libre : son texte
     p = client.get(f"/api/public/carrousel/carte/{code_produit}").json()
     assert p["titre"] == "DOLIPRANE 1000" and p["produit"]["prix"] == "1 500 FCFA" and p["plateforme"] is False
     assert p["expediteur"] and "destinataires" not in p
+    assert p["id_public"] == camp["id_public"] and p["n"] == 1     # lot 111 : redirection de l'ancienne page
     l = client.get(f"/api/public/carrousel/carte/{code_libre}").json()
     assert l["titre"] == "Journée santé" and l["texte"] == "Samedi 9h" and l["produit"] is None
     assert client.get("/api/public/carrousel/carte/inconnu").status_code == 404

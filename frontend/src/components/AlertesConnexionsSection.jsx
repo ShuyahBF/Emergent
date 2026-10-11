@@ -55,6 +55,22 @@ export default function AlertesConnexionsSection() {
     catch (e) { setModele({ etat: "INCONNU", erreur: e?.response?.data?.detail }); }
   }, []);
   useEffect(() => { charger(); lireModele(); }, [charger, lireModele]);
+  // Lot 109.2 — tant que Meta examine le modèle (PENDING), l'état est relu tout seul toutes les 30 s ;
+  // la relecture s'arrête d'elle-même dès qu'il est APPROVED, REJECTED… (ou quand on quitte la page).
+  useEffect(() => {
+    if (modele?.etat !== "PENDING") return undefined;
+    const minuterie = setInterval(lireModele, 30_000);
+    return () => clearInterval(minuterie);
+  }, [modele?.etat, lireModele]);
+  // Annonce du verdict de Meta quand l'état change après une attente (toast)
+  const etatPrecedent = React.useRef(null);
+  useEffect(() => {
+    const avant = etatPrecedent.current;
+    etatPrecedent.current = modele?.etat || null;
+    if (avant !== "PENDING" || !modele?.etat || modele.etat === "PENDING") return;
+    if (modele.etat === "APPROVED") toast.success("Meta a approuvé le modèle : les alertes peuvent partir à tout moment");
+    else toast.error(`Meta n'a pas approuvé le modèle (${modele.etat})`);
+  }, [modele?.etat]);
 
   // Action avec toast « Patientez… »
   const agir = async (libelle, fn) => {
@@ -135,6 +151,7 @@ export default function AlertesConnexionsSection() {
         <p>Modèle Meta <code className="text-xs">{donnees.modele}</code> :{" "}
           <b className={ETAT_MODELE[modele?.etat] || "text-slate-700"}>{modele ? modele.etat : "…"}</b>
           {modele?.motif_refus && modele.motif_refus !== "NONE" && <span className="text-rose-700"> — {modele.motif_refus}</span>}
+          {modele?.etat === "PENDING" && <span className="ml-1 text-xs text-slate-500">(en revue chez Meta — état relu automatiquement toutes les 30 s)</span>}
         </p>
         {modele && ["ABSENT", "REJECTED"].includes(modele.etat) && (
           <button onClick={creerModele} disabled={occupe} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">

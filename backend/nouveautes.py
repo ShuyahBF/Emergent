@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "109.2", "date": "2026-10-11",
+        "titre": "🔄 État du modèle Meta actualisé tout seul",
+        "description": "Pendant la revue de Meta (PENDING), l'état du modèle de l'alerte de connexion est relu toutes les 30 s, et un message annonce l'approbation ou le refus.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "109.1", "date": "2026-10-11",
         "titre": "🔔 Modèle Meta de l'alerte de connexion corrigé",
         "description": "Meta refusait le modèle « sawali_connexion_plateforme » (texte terminé par une variable) : le texte est corrigé ; cliquez de nouveau sur « Créer le modèle chez Meta ».",

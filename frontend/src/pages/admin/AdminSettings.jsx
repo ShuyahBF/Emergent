@@ -99,7 +99,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "109.1",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "109.2",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "100",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "108", "date": "2026-10-11",
+        "titre": "⚡ Paramètres plus rapides à ouvrir",
+        "description": "Chaque rubrique ne charge plus ses données qu'en approchant de l'écran (au lieu d'environ 110 appels au serveur à l'ouverture) : la page s'affiche aussitôt et le toast « Patientez… synthèse du support » n'apparaît plus qu'en arrivant sur cette rubrique.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "107.1", "date": "2026-10-11",
         "titre": "🔁 Retours des plateformes : échec effacé",
         "description": "Dans la liste des émetteurs, « Dernier retour en échec » disparaît dès que l'adresse de retour fonctionne (retour reçu, statistiques reçues ou URL corrigée) et laisse place à « Dernier retour reçu ».",

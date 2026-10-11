@@ -324,11 +324,58 @@ function slugify(title) {
   return (title || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+// Lot 108 — CHARGEMENT PROGRESSIF des rubriques.
+// Avant : à l'ouverture des Paramètres, les ~100 rubriques chargeaient TOUTES leurs données en même temps
+// (≈ 110 appels au serveur), d'où une page très lente et le toast « Patientez… synthèse du support » qui
+// restait affiché plusieurs secondes. Désormais une rubrique n'affiche (et ne charge) son contenu que
+// lorsqu'elle arrive à moins d'un écran et demi de la zone visible ; une fois chargée, elle le reste.
+// Exceptions chargées tout de suite : la rubrique visée par l'adresse (#ancre) et celles trouvées par la recherche.
+const MARGE_CHARGEMENT = "1200px 0px";   // distance d'anticipation avant l'arrivée à l'écran
+const ancreDemandee = (anchorId) => {
+  try { return !!anchorId && window.location.hash.replace("#", "") === anchorId; } catch { return false; }
+};
+
+// Lot 108 — aller à une rubrique : on la charge d'abord (événement), on s'y place, puis on se recale deux fois,
+// car les rubriques voisines qui se chargent entre-temps changent la hauteur de la page.
+const EVENEMENT_MONTER = "sawali:monter-rubrique";
+function allerARubrique(anchorId, apres) {
+  if (!anchorId) return null;
+  window.dispatchEvent(new CustomEvent(EVENEMENT_MONTER, { detail: anchorId }));
+  const placer = () => document.getElementById(anchorId)?.scrollIntoView({ block: "start" });
+  setTimeout(placer, 30);
+  setTimeout(placer, 600);
+  setTimeout(() => { placer(); if (apres) apres(document.getElementById(anchorId)); }, 1400);
+  return document.getElementById(anchorId);
+}
+
 const Filterable = ({ title, anchorId, category, children }) => {
   const ctx = useSettingsFilter();
   const ref = useRef(null);
   const [, force] = useState(0);
   const cat = category || categoryOf(title);
+  // Lot 108 — vrai dès que la rubrique a approché de l'écran (son contenu est alors monté pour de bon)
+  const [monte, setMonte] = useState(() => ancreDemandee(anchorId) || typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    if (monte || !ref.current) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setMonte(true); obs.disconnect(); }
+    }, { rootMargin: MARGE_CHARGEMENT });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  });
+  // Recherche par titre : la rubrique trouvée est chargée immédiatement
+  useEffect(() => { if (ctx?.search && !monte) setMonte(true); }, [ctx?.search, monte]);
+  // Lien direct (/admin/settings#ancre) : on se place sur la rubrique une fois la page chargée
+  useEffect(() => {
+    if (ancreDemandee(anchorId)) allerARubrique(anchorId);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Demande explicite (carte Nouveautés, liste « Aller à ») : chargement immédiat
+  useEffect(() => {
+    if (monte || !anchorId) return;
+    const ecouter = (e) => { if (e.detail === anchorId) setMonte(true); };
+    window.addEventListener(EVENEMENT_MONTER, ecouter);
+    return () => window.removeEventListener(EVENEMENT_MONTER, ecouter);
+  }, [monte, anchorId]);
   useEffect(() => {
     if (!ctx) return;
     ctx.register(title, anchorId, cat);
@@ -368,7 +415,13 @@ const Filterable = ({ title, anchorId, category, children }) => {
           • NOUVEAU
         </span>
       )}
-      {children}
+      {monte ? children : (
+        // Cadre d'attente (aucun appel au serveur) : remplacé par la rubrique dès qu'elle approche de l'écran
+        <div className="min-h-[96px] rounded-2xl border border-dashed border-slate-200 bg-white/60 px-5 py-4 text-sm text-slate-400"
+             data-testid={`rubrique-differee-${anchorId || slugify(title)}`}>
+          {title}
+        </div>
+      )}
     </div>
   );
 };
@@ -464,12 +517,13 @@ const CartesNouveautes = () => {
     const ancre = ctx.registry[titre]?.anchorId;
     ctx.setSearch("");
     ctx.setActiveTab("all");
+    // Lot 108 : la rubrique est chargée puis on s'y place (et elle clignote brièvement)
     setTimeout(() => {
-      const el = ancre && document.getElementById(ancre);
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      el.classList.add("ring-4", "ring-sky-300", "rounded-xl");
-      setTimeout(() => el.classList.remove("ring-4", "ring-sky-300", "rounded-xl"), 2500);
+      allerARubrique(ancre, (el) => {
+        if (!el) return;
+        el.classList.add("ring-4", "ring-sky-300", "rounded-xl");
+        setTimeout(() => el.classList.remove("ring-4", "ring-sky-300", "rounded-xl"), 2500);
+      });
     }, 80);
   };
   const classeCarte = "relative rounded-xl bg-white p-3 text-left ring-1 ring-sky-200 shadow-sm transition hover:ring-sky-400 hover:shadow-md";
@@ -575,7 +629,7 @@ const SettingsToolbar = () => {
             onChange={(e) => {
               const t = e.target.value;
               if (t && ctx.registry[t]) {
-                document.getElementById(ctx.registry[t].anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                allerARubrique(ctx.registry[t].anchorId);   // lot 108 : chargée puis atteinte
               }
             }}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm pr-8 appearance-none w-full sm:w-72"

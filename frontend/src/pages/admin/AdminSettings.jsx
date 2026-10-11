@@ -99,7 +99,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "109.3",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "100",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
@@ -233,7 +233,7 @@ const NEW_DESCRIPTIONS = {
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
   "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, utilisateur, bouton « Visiter le site » (lot 109).",
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, pays et opérateur, utilisateur, bouton « Visiter le site » (lots 109-110).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",

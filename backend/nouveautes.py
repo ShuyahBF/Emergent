@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "110", "date": "2026-10-11",
+        "titre": "📍 Pays et opérateur dans l'alerte de connexion",
+        "description": "Chaque alerte WhatsApp indique désormais le pays (drapeau) et l'opérateur de l'adresse IP (ex. 🇧🇫 Burkina Faso · Moov Africa (Onatel)) ; le journal de la rubrique a ses colonnes Pays et Opérateur.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "109.3", "date": "2026-10-11",
         "titre": "🙈 Ne plus être alerté de vos propres connexions",
         "description": "Votre IP change (mobile, Wi-Fi) : vos numéros sont exclus d'office, et le bouton « Ne plus m'alerter » d'une ligne du journal exclut un compte (numéro ou nom) ou un appareil (navigateur), quelle que soit l'IP.",

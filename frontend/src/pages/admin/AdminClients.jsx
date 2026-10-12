@@ -20,6 +20,8 @@ export default function AdminClients() {
   // Iter38r-fix9v — Source filter (e.g. "wa_otp_login" for WA-onboarded users)
   // + sort by created_at / last_login_at / full_name
   const [sourceFilter, setSourceFilter] = useState("all");
+  // Lot 129 — filtre « Contrat » : all = tous ; avec = n° de contrat renseigné ; sans = aucun n° de contrat
+  const [contratFilter, setContratFilter] = useState("all");
   const [sortBy, setSortBy] = useState("");      // "" | created_at | last_login_at | full_name
   const [sortOrder, setSortOrder] = useState("desc");
   const [categories, setCategories] = useState([]);
@@ -88,22 +90,28 @@ export default function AdminClients() {
       return `${Number(amount).toLocaleString("fr-FR")} ${currency || ""}`.trim();
     }
   };
+  // Lot 129 — durée de chaque périodicité de facturation (même table que le serveur, backend/retard_echeance.py)
+  const PERIODES_JOURS = { monthly: 30, quarterly: 90, annual: 365 };
   const computePaymentDelay = (c) => {
     const refIso = c.last_payment_at || c.contract_signed_at || null;
     if (!refIso) return null;
-    const d = new Date(refIso);
+    const d = new Date(String(refIso).slice(0, 10) + "T00:00:00");
     if (Number.isNaN(d.getTime())) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const start = new Date(d);
-    start.setHours(0, 0, 0, 0);
-    const days = Math.max(0, Math.floor((today.getTime() - start.getTime()) / 86400000));
+    // Lot 129 — le retard se compte depuis l'ÉCHÉANCE = dernier règlement + périodicité (mensuelle par défaut),
+    // comme la puce de contrat du Centre de messagerie et l'alerte quotidienne des retards
+    const periodeJours = PERIODES_JOURS[String(c.contract_billing_period || "").toLowerCase()] || 30;
+    const echeance = new Date(d);
+    echeance.setDate(echeance.getDate() + periodeJours);
+    const days = Math.max(0, Math.round((today.getTime() - echeance.getTime()) / 86400000));
     // 2026-02 fork iter104 — Threshold : per-client override > global setting > 5.
     const threshold = Math.max(1, Number(c.contract_overdue_days) || Number(overdueDefault) || 5);
     return {
       days,
       refIso,
       refField: c.last_payment_at ? "last_payment_at" : "contract_signed_at",
+      echeance,                       // lot 129 : date d'échéance (affichée dans l'infobulle)
       threshold,
       overdue: days >= threshold,
     };
@@ -127,27 +135,40 @@ export default function AdminClients() {
     { role: "editeur_vidal", label: "📚 Éditeurs VIDAL", color: "#7c3aed", bg: "bg-violet-50", ring: "ring-violet-200", text: "text-violet-700" },
   ], []);
 
+  // Lot 129 — un compte « a un contrat » quand son n° de contrat est renseigné (même critère que la puce de contrat)
+  const aUnContrat = (c) => Boolean(String(c.contract_number || "").trim());
+  const contratCounts = useMemo(() => {
+    const avec = items.filter(aUnContrat).length;
+    return { all: items.length, avec, sans: items.length - avec };
+  }, [items]);
+  // Lot 129 — liste réduite selon le filtre « Contrat » (les pastilles de rôle et les groupes en tiennent compte)
+  const itemsFiltres = useMemo(() => {
+    if (contratFilter === "avec") return items.filter(aUnContrat);
+    if (contratFilter === "sans") return items.filter((c) => !aUnContrat(c));
+    return items;
+  }, [items, contratFilter]);
+
   const roleCounts = useMemo(() => {
-    const counts = { all: items.length, other: 0 };
+    const counts = { all: itemsFiltres.length, other: 0 };
     ROLE_ORDER.forEach((g) => { counts[g.role] = 0; });
-    items.forEach((c) => {
+    itemsFiltres.forEach((c) => {
       if (counts[c.role] != null) counts[c.role]++;
       else counts.other++;
     });
     return counts;
-  }, [items, ROLE_ORDER]);
+  }, [itemsFiltres, ROLE_ORDER]);
 
   const groupedByRole = useMemo(() => {
     const fallback = { role: "other", label: "Autres rôles", color: "#64748b", rows: [] };
     const groups = ROLE_ORDER.map((g) => ({ ...g, rows: [] }));
-    items.forEach((c) => {
+    itemsFiltres.forEach((c) => {
       const target = groups.find((g) => g.role === c.role) || fallback;
       target.rows.push(c);
     });
     const all = [...groups, fallback].filter((g) => g.rows.length > 0);
     if (roleFilter === "all") return all;
     return all.filter((g) => g.role === roleFilter);
-  }, [items, roleFilter, ROLE_ORDER]);
+  }, [itemsFiltres, roleFilter, ROLE_ORDER]);
 
   const open = (it = null) => {
     setEditing(it);
@@ -347,6 +368,25 @@ export default function AdminClients() {
           title="Filtrer les comptes créés via login WhatsApp OTP"
         >📱 WhatsApp OTP</button>
 
+        {/* Lot 129 — filtre « Contrat » : tous / avec contrat / sans contrat (avec le nombre de comptes) */}
+        <span className="ml-4 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Contrat :</span>
+        {[
+          { cle: "all", libelle: "Tous", actif: "bg-slate-900 text-white ring-slate-900", repos: "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50" },
+          { cle: "avec", libelle: "📄 Avec contrat", actif: "bg-emerald-600 text-white ring-emerald-600", repos: "bg-white text-emerald-700 ring-emerald-300 hover:bg-emerald-50" },
+          { cle: "sans", libelle: "🚫 Sans contrat", actif: "bg-rose-600 text-white ring-rose-600", repos: "bg-white text-rose-700 ring-rose-300 hover:bg-rose-50" },
+        ].map((f) => (
+          <button
+            key={f.cle}
+            onClick={() => setContratFilter(f.cle)}
+            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ring-1 ${contratFilter === f.cle ? f.actif : f.repos}`}
+            data-testid={`contrat-filter-${f.cle}`}
+            title={f.cle === "all" ? "Tous les comptes" : f.cle === "avec" ? "Comptes dont le n° de contrat est renseigné" : "Comptes sans n° de contrat"}
+          >
+            {f.libelle}
+            <span className="rounded-full px-1.5 text-[10px] tabular-nums bg-black/10">{contratCounts[f.cle]}</span>
+          </button>
+        ))}
+
         <span className="ml-4 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Trier :</span>
         <select
           value={sortBy}
@@ -387,7 +427,7 @@ export default function AdminClients() {
           <tbody>
             {items.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
             {items.length > 0 && groupedByRole.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client dans cette catégorie de rôle.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client pour ces filtres (rôle / contrat).</td></tr>
             )}
             {groupedByRole.map(({ role, label, color, rows }) => (
               <React.Fragment key={role}>
@@ -477,11 +517,13 @@ export default function AdminClients() {
                           : d.days === 0
                           ? "bg-emerald-100 text-emerald-800 border-emerald-200"
                           : "bg-slate-100 text-slate-700 border-slate-200";
-                        const refLabel = d.refField === "last_payment_at" ? "depuis le dernier règlement" : "depuis la signature";
+                        // Lot 129 — infobulle : retard compté depuis l'échéance (règlement + périodicité)
+                        const refLabel = d.refField === "last_payment_at" ? "dernier règlement" : "signature";
+                        const echeanceFr = d.echeance.toLocaleDateString("fr-FR");
                         return (
                           <span
                             className={`inline-flex flex-col items-start px-2 py-0.5 rounded border ${cls}`}
-                            title={`${d.days} jour${d.days > 1 ? "s" : ""} ${refLabel} (${String(d.refIso).slice(0,10)}) — seuil ${d.threshold} j${d.overdue ? " ⚠ en retard" : ""}`}
+                            title={`${d.days} jour${d.days > 1 ? "s" : ""} de retard depuis l'échéance du ${echeanceFr} (${refLabel} le ${new Date(String(d.refIso).slice(0,10) + "T00:00:00").toLocaleDateString("fr-FR")}) — seuil ${d.threshold} j${d.overdue ? " ⚠ en retard" : ""}`}
                           >
                             <span className="font-mono font-semibold text-[11px]">{d.days} j</span>
                             <span className="text-[9px] uppercase tracking-wide opacity-70">/ {d.threshold} j {d.overdue ? "⚠" : ""}</span>

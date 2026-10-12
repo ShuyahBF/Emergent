@@ -461,18 +461,19 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
                                 "contract_amount": 1, "contract_currency": 1,
                                 "contract_overdue_days": 1,
                                 "auto_suspend_after_overdue_days": 1,
+                                "contract_billing_period": 1,   # lot 129 : échéance = règlement + périodicité
                                 "account_status": 1})
     overdue_tenants: List[Dict[str, Any]] = []
     suspended_tenants: List[Dict[str, Any]] = []
     async for u in cursor:
-        ref_iso = (u.get("last_payment_at") or u.get("contract_signed_at") or "")[:10]
-        if not ref_iso:
+        # Lot 129 — retard compté depuis l'ÉCHÉANCE (dernier règlement + périodicité), comme la puce de contrat
+        # (avant : depuis le jour du dernier règlement, un client mensuel « à jour » paraissait en retard au 6e jour)
+        from retard_echeance import retard_client
+        retard = retard_client(u, today)
+        if not retard:
             continue
-        try:
-            ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
-        except Exception:  # noqa: BLE001
-            continue
-        days = max(0, (today - ref_date).days)
+        ref_iso = retard["ref_iso"]
+        days = retard["jours"]
         threshold = int(u.get("contract_overdue_days") or default_threshold)
         # 2026-02 fork iter108 fix — S159 : Auto-suspend must be evaluated
         # INDEPENDENTLY of the alert threshold so a tenant with a low
@@ -514,8 +515,9 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
             **u,
             "days_overdue": days,
             "threshold_days": threshold,
-            "ref_field": "last_payment_at" if u.get("last_payment_at") else "contract_signed_at",
+            "ref_field": retard["ref_field"],
             "ref_iso": ref_iso,
+            "echeance_iso": retard["echeance_iso"],     # lot 129
         })
     # Dispatch alerts (idempotent per-day).
     dispatched = 0

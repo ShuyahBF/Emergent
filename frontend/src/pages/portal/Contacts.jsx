@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
+import PuceContrat from "../../components/PuceContrat";             // Lot 120 : puce carrée de l'état du contrat
 import EmojiPicker from "@/components/EmojiPicker";
 import ImageAnnotator from "@/components/ImageAnnotator";
 import { Link, useSearchParams } from "react-router-dom";
@@ -172,6 +173,19 @@ export default function Contacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Lot 120 — état du contrat de chaque contact (puce carrée verte / orange / rouge, sans montant).
+  // Une SEULE requête pour toute la liste ; le serveur ne renvoie que les contacts visibles par
+  // l'utilisateur, et rien du tout (actif=false) pour un compte qui n'est pas de l'équipe SAWALI.
+  const [contratsContacts, setContratsContacts] = useState({});
+  const loadContrats = async (liste) => {
+    try {
+      const ids = (liste || []).map((c) => c.id).filter(Boolean);
+      if (!ids.length) { setContratsContacts({}); return; }
+      const r = await apiClient.post("/me/contacts-contrats", { contact_ids: ids });
+      setContratsContacts(r.data?.actif ? (r.data.contrats || {}) : {});
+    } catch { /* puce facultative : une erreur ne bloque jamais la liste */ }
+  };
+
   // Lot 23 — `silent` : relecture en arrière-plan (sans « Chargement… ») pour
   // remettre la liste dans l'ordre de la dernière interaction.
   const load = async (silent = false) => {
@@ -181,8 +195,10 @@ export default function Contacts() {
         apiClient.get("/me/contacts"),
         apiClient.get("/me/clients-roster").catch(() => ({ data: [] })),
       ]);
-      setItems(Array.isArray(contactsRes.data) ? contactsRes.data : []);
+      const liste = Array.isArray(contactsRes.data) ? contactsRes.data : [];
+      setItems(liste);
       setClients(clientsRes.data || []);
+      loadContrats(liste);   // Lot 120 : puces « contrat » chargées en arrière-plan
     } catch (err) {
       if (!silent) toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally {
@@ -538,6 +554,7 @@ export default function Contacts() {
                   waEnabled={!!smartFeatures.whatsapp}
                   smsEnabled={!!smartFeatures.sms}
                   unreadCount={unread.by_contact?.[c.id] || 0}
+                  contrat={contratsContacts[c.id]}
                 />
               ))}
             </tbody>
@@ -697,7 +714,7 @@ function formatLastInteraction(iso) {
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0 }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0, contrat = null }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -745,6 +762,9 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
         <div className="flex items-start gap-2.5">
           <ContactAvatar contact={c} size={36} />
           <div className="min-w-0 flex-1">
+            {/* Lot 120 — puce carrée de l'état du contrat (vert valide, orange retard, rouge aucun) ;
+                survol / focus / appui : détail sans montant. Rien pour un contact interne. */}
+            <PuceContrat contrat={contrat} className="mr-1.5" testid={`contact-contrat-${c.id}`} />
             <button
               onClick={onHistory}
               className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex items-center gap-2"

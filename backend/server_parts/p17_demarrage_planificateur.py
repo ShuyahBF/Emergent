@@ -1331,6 +1331,12 @@ async def _start_scheduler():
                     await _surveiller_quota(db, _client_mongo, db.name)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[quota_atlas] surveillance en échec : %s", exc)
+                # Lot 122 — même tâche : taille du cluster de COPIE (512 Mo en gratuit), alerte à 90 %
+                try:
+                    from routes.quota_atlas import surveiller_secours as _surveiller_secours
+                    await _surveiller_secours(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[quota_atlas] surveillance du cluster de copie en échec : %s", exc)
             _safe_add_job(
                 _scheduled_quota_atlas,
                 CronTrigger(minute=7, timezone="Africa/Abidjan"),

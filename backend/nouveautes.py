@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "119", "date": "2026-10-12",
+        "titre": "🤖 Visites de robots masquées",
+        "description": "Une visite anonyme venant d'un centre de données (Google Cloud, Amazon, Azure, hébergeurs, VPN…) n'envoie plus de WhatsApp : elle reste dans le journal (« robot ») et Liluvine la compte, plateforme par plateforme, dans sa synthèse quotidienne.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "118", "date": "2026-10-12",
         "titre": "🔑 Postes Loois : ignorer un poste",
         "description": "Dans l'alerte des postes Loois sans clé client : bouton « × » pour fermer le toast et, dans la rubrique, « Ignorer ce poste » (serveur, clé commune voulue) ; le poste reste listé, grisé, et se « Réactive » d'un clic ; les nouveaux postes continuent d'alerter.",

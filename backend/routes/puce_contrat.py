@@ -71,6 +71,8 @@ CHAMPS_CLIENT = {
     "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "contract_services_suspendus": 1,
     "cycle_vie.statut": 1,
 }
+# Lot 128.1 — formes juridiques retirées à la FIN du nom de société avant comparaison
+FORMES_JURIDIQUES = {"sarl", "sarlu", "suarl", "sa", "sas", "sasu", "snc", "gie", "ets", "sci"}
 SEUIL_RETARD_DEFAUT = 5                                 # même défaut que les alertes de retard (lot 79.7)
 PERIODES_JOURS = {"monthly": 30, "quarterly": 90, "annual": 365}   # même table que abonnement_acces (lot 50)
 LIBELLES_PERIODES = {"monthly": "Mensuel", "quarterly": "Trimestriel", "annual": "Annuel"}
@@ -218,7 +220,11 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
 def cle_societe(nom: Any) -> str:
     """Lot 124 — société comparable : sans accents, en minuscules, espaces multiples réduits (« Pharmacie  Évasion » =
     « pharmacie evasion »)."""
-    return " ".join(_sans_accent(str(nom or "")).lower().split())
+    mots = _sans_accent(str(nom or "")).lower().replace(".", "").split()
+    # Lot 128.1 — forme juridique ignorée en fin de nom (« SAWALI SMART SYSTEMS SARL » = « Sawali Smart Systems »)
+    while len(mots) > 1 and mots[-1] in FORMES_JURIDIQUES:
+        mots.pop()
+    return " ".join(mots)
 
 
 def a_une_societe(contact: Dict[str, Any]) -> bool:
@@ -429,6 +435,7 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         resultat: Dict[str, Optional[Dict[str, Any]]] = {}
         raisons: Dict[str, int] = {}          # lot 127.2 : pourquoi un contact n'a pas de puce (comptages)
         inconnues: set = set()                # lot 128 : sociétés des contacts introuvables parmi les clients
+        par_societe: Dict[str, str] = {}      # lot 128.1 : résultat par société (diagnostic)
         for c in contacts:
             # Lot 124 — contact sans « Société » : non analysé (ni puce ni bandeau)
             if not a_une_societe(c):
@@ -451,6 +458,10 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             fiche = fiche_contrat(client, aujourdhui, seuil_defaut)
             fiche["relie_par"] = critere
             resultat[c["id"]] = fiche
+            # Lot 128.1 — diagnostic par société : état et statut du contrat (aucun montant, aucune donnée personnelle)
+            par_societe[cle_societe(c.get("company"))] = (
+                f"{fiche.get('couleur')}/{fiche.get('statut')}/{critere}"
+                + (f"/retard={fiche.get('jours_retard')}j" if fiche.get("jours_retard") else ""))
         # Lot 128 — diagnostic (comptages) : contacts reçus / analysés / reliés, par critère et par couleur
         bilan: Dict[str, int] = {}
         for f in resultat.values():
@@ -459,6 +470,9 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         logger.info("[puce_contrat] demandés=%s visibles=%s comptes_indexés=%s sociétés_indexées=%s bilan=%s sans_puce=%s",
                     len(payload.contact_ids or []), len(contacts), len(index.par_id), len(index.par_societe), bilan,
                     raisons)
+        if par_societe:
+            logger.info("[puce_contrat] par société : %s",
+                        " ; ".join(f"{k}={v}" for k, v in sorted(par_societe.items())[:80]))
         if inconnues:
             logger.info("[puce_contrat] sociétés sans client correspondant (%s) : %s", len(inconnues),
                         ", ".join(sorted(inconnues)[:40]))

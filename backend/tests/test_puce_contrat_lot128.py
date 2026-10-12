@@ -49,3 +49,13 @@ def test_client_sans_contrat_n_est_pas_pris_pour_sawali():
     assert not est_interne(client, {SAWALI, "sa"}, [])
     client, critere = idx.client_du_contact({"company": "Sawali Smart Systems"})
     assert est_interne(client, {SAWALI, "sa"}, [])                       # SAWALI elle-même : pas de puce
+
+
+def test_lot128_1_forme_juridique_ignoree():
+    """Lot 128.1 — « SAWALI SMART SYSTEMS SARL » = « Sawali Smart Systems » ; un nom réduit à « SA » reste « sa »."""
+    from routes.puce_contrat import cle_societe
+    assert cle_societe("SAWALI SMART SYSTEMS SARL") == "sawali smart systems"
+    assert cle_societe("Felin Énergie S.A.") == "felin energie"
+    assert cle_societe("SA") == "sa"
+    client, critere = _index().client_du_contact({"company": "Sawali Smart Systems SARL"})
+    assert critere == "societe" and est_interne(client, {SAWALI, "sa"}, [])

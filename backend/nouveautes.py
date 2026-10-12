@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "126", "date": "2026-10-12",
+        "titre": "🟥 Puce rouge : société sans contrat",
+        "description": "Un contact dont la « Société » est renseignée mais sans contrat valable reçoit désormais la puce rouge, même si son numéro ou son e-mail correspond à un compte de l'équipe ; seule une société qui désigne SAWALI elle-même n'a pas de puce.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "125", "date": "2026-10-12",
         "titre": "🤖📞 Résumé d'appel : appelant reconnu",
         "description": "Le résumé envoyé après un appel décroché par Liluvine reçoit l'identité connue de l'appelant (nom du contact, société, numéro) : plus de « appelant non identifié » pour un contact connu, et rien d'inventé au-delà de ce qui a été dit.",

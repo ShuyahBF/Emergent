@@ -39,6 +39,8 @@
 #     champ "Société" renseigné ». Un contact SANS société n'est pas analysé : pas de puce, pas de bandeau (null).
 #     Pour un contact avec société, la société passe EN PREMIER (comparaison sans accents, majuscules ni espaces en
 #     trop), puis l'e-mail et le téléphone servent de secours si la société ne correspond à aucun client.
+#   - Lot 126 : un contact AVEC société n'est jamais écarté parce que son e-mail / téléphone correspond à un compte de
+#     l'équipe : seule une société qui désigne SAWALI elle-même masque la puce ; sinon, sans contrat → puce ROUGE.
 #   - Efficacité : UNE requête groupée sur les comptes (index mémorisé 60 s), puis tout se calcule en mémoire.
 from __future__ import annotations
 
@@ -388,10 +390,13 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
                 resultat[c["id"]] = None
                 continue
             client, critere = index.client_du_contact(c)
-            if est_interne(client, internes, domaines) or (client is None and est_interne(
-                    {"email": c.get("email")}, set(), domaines)):
-                resultat[c["id"]] = None                     # membre de l'équipe : pas de puce
-                continue
+            if est_interne(client, internes, domaines):
+                if critere == "societe":
+                    resultat[c["id"]] = None                 # la SOCIÉTÉ est SAWALI elle-même : pas de puce
+                    continue
+                # Lot 126 — relié à un compte de l'équipe seulement par son e-mail / téléphone (ex. Diane, ÉCOLE DES
+                # MÉTIERS ; Sonia, Alimentation DELI GROCERY) : sa société n'a pas de contrat → puce ROUGE, pas d'oubli
+                client, critere = None, "aucun"
             fiche = fiche_contrat(client, aujourdhui, seuil_defaut)
             fiche["relie_par"] = critere
             resultat[c["id"]] = fiche

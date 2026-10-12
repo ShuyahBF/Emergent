@@ -121,6 +121,9 @@ def _app(utilisateur):
          "contract_currency": "XOF"},
         {"id": "pC", "email": "dg@pharma-c.bf", "role": "client", "company": "Pharmacie C",
          "contract_number": "C-C", "contract_status": "résilié"},
+        # Lot 127.2 : vrai client dont l'e-mail est au domaine interne (créé par l'équipe) → reste un CLIENT
+        {"id": "pD", "email": "pharmacie.d@sawalismartsystems.com", "role": "client", "company": "Pharmacie D",
+         "contract_number": "C-D", "last_payment_at": _jours(2)},
         {"id": "autre", "email": "x@ailleurs.bf", "role": "client", "company": "Ailleurs", "contract_number": "C-Z"},
     ]))
     _run(base.directory_contacts.insert_many([
@@ -136,6 +139,7 @@ def _app(utilisateur):
         {"id": "k8", "client_id": SAWALI, "name": "Diane", "company": "ECOLE DES METIERS", "whatsapp": "22655264438"},
         # La société désigne SAWALI elle-même → pas de puce
         {"id": "k9", "client_id": SAWALI, "name": "Ines", "company": "Sawali Smart Systems"},
+        {"id": "k10", "client_id": SAWALI, "name": "Caissière D", "company": "PHARMACIE D"},     # lot 127.2
     ]))
 
     async def courant():
@@ -182,6 +186,7 @@ def test_route_couleurs_liens_et_aucun_montant():
     assert c["k7"] is None                                          # lot 124 : sans « Société », pas analysé
     assert c["k8"]["etat"] == "aucun" and c["k8"]["couleur"] == "rouge"   # lot 126 : société sans contrat
     assert c["k9"] is None                                          # lot 126 : la société est SAWALI
+    assert c["k10"]["etat"] == "valide" and c["k10"]["numero"] == "C-D"   # lot 127.2 : e-mail interne ≠ équipe
     assert "k6" not in c                                            # contact hors périmètre : jamais renvoyé
     # Aucun montant, nulle part dans la réponse
     for cle in _cles(corps):

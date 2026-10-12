@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "127.2", "date": "2026-10-12",
+        "titre": "🟩 Puces de contrat : clients reconnus",
+        "description": "Correction : une fiche client dont l'e-mail est au domaine interne (créée par l'équipe) était prise pour un membre de SAWALI, et ses contacts n'avaient aucune puce. Seul le compte SAWALI lui-même est désormais « interne ».",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "127.1", "date": "2026-10-12",
         "titre": "🔎 Puce de contrat : diagnostic",
         "description": "Le serveur note, à chaque affichage du Centre de messagerie, combien de contacts sont reliés à un client et pourquoi certains n'ont pas de puce (comptages seulement, aucune donnée personnelle).",

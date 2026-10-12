@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "129", "date": "2026-10-12",
+        "titre": "📅 Retard de paiement : la même règle partout",
+        "description": "Admin → Clients (colonne Retard), l'alerte quotidienne des retards, la suspension automatique et Liluvine comptent le retard depuis l'échéance (dernier règlement + périodicité), comme la puce ; Admin → Clients se filtre aussi par « Avec / Sans contrat ».",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "128.1", "date": "2026-10-12",
         "titre": "🏷️ Puces de contrat : SARL, SA… ignorés",
         "description": "La forme juridique en fin de nom (SARL, SA, SAS, ETS…) n'empêche plus de retrouver le client : « SAWALI SMART SYSTEMS SARL » = « Sawali Smart Systems ».",

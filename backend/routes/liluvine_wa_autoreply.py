@@ -163,22 +163,16 @@ def _tenant_contract_validity(tenant_doc: Dict[str, Any], default_threshold: int
     compte n'est pas déjà suspendu par le cron quotidien.
     """
     has_contract = bool((tenant_doc.get("contract_number") or "").strip())
-    ref_iso = (tenant_doc.get("last_payment_at") or tenant_doc.get("contract_signed_at") or "")[:10]
     account_suspended = (tenant_doc.get("account_status") or "active").lower() == "suspended"
-    if not ref_iso:
+    # Lot 129 — retard compté depuis l'ÉCHÉANCE (dernier règlement + périodicité), même règle que la puce de contrat
+    from retard_echeance import retard_client
+    retard = retard_client(tenant_doc)
+    if not retard:
         return {
             "has_contract": has_contract, "days_overdue": None, "threshold_days": None,
             "valid": has_contract and not account_suspended,
         }
-    try:
-        ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
-    except Exception:  # noqa: BLE001
-        return {
-            "has_contract": has_contract, "days_overdue": None, "threshold_days": None,
-            "valid": has_contract and not account_suspended,
-        }
-    today = datetime.now(timezone.utc).date()
-    days_overdue = max(0, (today - ref_date).days)
+    days_overdue = retard["jours"]
     threshold = int(tenant_doc.get("contract_overdue_days") or default_threshold)
     valid = has_contract and days_overdue < threshold and not account_suspended
     return {

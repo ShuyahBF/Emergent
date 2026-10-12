@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "117", "date": "2026-10-12",
+        "titre": "🖼️ Carrousels : modèles corrigés pour Meta",
+        "description": "Refus « format non conforme » corrigé : le bouton des cartes ouvre désormais une page du site (/l/…) sans redirection et l'image d'exemple est une vraie carte. Créez les modèles chez Meta UNE fois avec un nouveau nom de modèles.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "116", "date": "2026-10-12",
         "titre": "🗂️ Collections les moins utilisées",
         "description": "Dans « Libérer l'Espace » : mesure de chaque collection de SAWALI (documents, taille, dernière activité, fonction), puis sauvegarde dans R2, désactivation de la fonction et suppression des collections cochées ; elles ne sont plus recréées au démarrage et se restaurent d'un clic.",

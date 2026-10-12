@@ -106,7 +106,7 @@ const NEW_LOTS = {
   "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "115.1",   // lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "117",   // lot 117 : modèles conformes ; lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine

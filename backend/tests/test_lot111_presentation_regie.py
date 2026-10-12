@@ -157,7 +157,7 @@ def test_pas_de_diese_dans_le_modele_meta(env):
         variable = carte["components"][2]["parameters"][0]["text"]
         assert "#" not in variable and "/" not in variable and "?" not in variable
     etat = client.get("/api/me/whatsapp/carrousel", headers=h("cli_a")).json()
-    assert etat["url_bouton_modele"] == f"{BASE}/api/public/carrousel/l/{{{{1}}}}"
+    assert etat["url_bouton_modele"] == f"{BASE}/l/{{{{1}}}}"   # lot 117 : page du site
 
 
 def test_ancien_lien_et_ancienne_campagne(env):

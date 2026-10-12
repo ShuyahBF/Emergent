@@ -94,6 +94,7 @@ LANGUE_DEFAUT = "fr"
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 CHEMIN_LIEN = "/api/public/carrousel/l/"
+CHEMIN_BOUTON = "/l/"                      # lot 117 : page du site qui ouvre la carte (sans redirection serveur)
 CHEMIN_PRESENTATION = "/presentation/"   # lot 94 : page du site qui présente une carte sans lien
 CHEMIN_OG_PRODUIT = "/api/public/og/product/"   # ancien lien automatique des cartes produit
 DESCRIPTION_MAX = 4000                  # lot 111 : description détaillée d'une carte (page de présentation)
@@ -390,7 +391,9 @@ def attach_carrousel_whatsapp_routes(
         }
 
     def _url_bouton() -> str:
-        return f"{base_publique().rstrip('/')}{CHEMIN_LIEN}{{{{1}}}}"
+        # Lot 117 — page du site « /l/{{1}} » (et non plus /api/public/carrousel/l/{{1}}, qui redirigeait :
+        # Meta a refusé tous les modèles pour « format non conforme », constat du 12/10/2026)
+        return f"{base_publique().rstrip('/')}{CHEMIN_BOUTON}{{{{1}}}}"
 
     async def _etat(tenant_id: Optional[str], filtre_campagnes: dict) -> dict:
         r = await _reglages(tenant_id)
@@ -1206,13 +1209,24 @@ def attach_carrousel_whatsapp_routes(
 
     @api.get("/public/carrousel/l/{code}", tags=["Public"])
     async def ouvrir_lien(code: str, request: Request):
+        """Anciens liens (avant le lot 117) : compte le clic et redirige (302)."""
+        return RedirectResponse(await _destination(code, request), status_code=302)
+
+    @api.get("/public/carrousel/destination/{code}", tags=["Public"])
+    async def destination_lien(code: str, request: Request):
+        """Lot 117 — adresse du bouton = page du SITE « /l/<code> » (aucune redirection côté serveur, exigence
+        de Meta pour valider le modèle) ; cette page demande ici l'adresse finale, le clic est compté ici."""
+        return {"url": await _destination(code, request)}
+
+    async def _destination(code: str, request: Request) -> str:
+        """Compte le clic (et le facture à la régie) puis renvoie l'adresse finale de la carte."""
         code = code[:40]
         # Clic BRUT compté sur la carte (toujours, même hors budget ou en double)
         doc = await db.carrousel_liens.find_one_and_update(
             {"code": code}, {"$inc": {"clics": 1}},
             projection={"_id": 0, "cible": 1, "campagne_id": 1, "carte_index": 1, "bouton": 1})
         if not doc:
-            return RedirectResponse(base_publique() or "/", status_code=302)
+            return (base_publique() or "").rstrip("/") + "/"
         campagne = await db.carrousel_campagnes.find_one(
             {"id": doc.get("campagne_id")}, {"_id": 0, "id": 1, "id_public": 1, "regie_id": 1}) or {}
         index = int(doc.get("carte_index") or 0)
@@ -1228,10 +1242,10 @@ def attach_carrousel_whatsapp_routes(
             # Lot 111 — page de TOUT le carrousel, positionnée sur la carte (#carte-n, appliqué par le navigateur)
             id_public = campagne.get("id_public") or (await regie.assurer_id_public(db, doc.get("campagne_id")) if campagne else None)
             if id_public:
-                return RedirectResponse(f"{base}{regie.chemin_presentation(id_public, code, index + 1)}", status_code=302)
+                return f"{base}{regie.chemin_presentation(id_public, code, index + 1)}"
             # Lot 94 — repli : page d'une seule carte
-            return RedirectResponse(f"{base}{CHEMIN_PRESENTATION}{code}", status_code=302)
-        return RedirectResponse(doc["cible"], status_code=302)
+            return f"{base}{CHEMIN_PRESENTATION}{code}"
+        return doc["cible"]
 
     @api.get("/public/carrousel/carte/{code}", tags=["Public"])
     async def carte_publique(code: str):

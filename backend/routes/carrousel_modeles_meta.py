@@ -5,7 +5,7 @@
 # remplit à l'envoi (routes/carrousel_whatsapp.py → composants()) :
 #   - bulle principale : 2 variables  {{1}} expéditeur, {{2}} message ;
 #   - chaque carte : en-tête IMAGE, corps à 2 variables ({{1}} titre, {{2}} texte),
-#     1 bouton URL dynamique  <site>/api/public/carrousel/l/{{1}}  (code court qui compte le clic).
+#     1 bouton URL dynamique  <site>/l/{{1}}  (page du site qui compte le clic ; lot 117 : plus de redirection serveur).
 # Meta exige une image d'EXEMPLE par carte : elle est déposée par l'API « Resumable Upload »
 # (POST /{app-id}/uploads), d'où le besoin de l'App ID Meta (Paramètres → Intégration Meta).
 # Aucun secret n'est écrit dans les journaux ; le jeton n'est jamais renvoyé au navigateur.
@@ -26,7 +26,7 @@ TEXTE_CARTE = "Découvrez {{1}} : {{2}}. Touchez le bouton pour en savoir plus."
 TEXTE_BOUTON = "Voir plus"
 EXEMPLE_BULLE = ["SAWALI SMART SYSTEMS", "nos nouveautés de la semaine"]
 EXEMPLE_CARTE = ["Formulaires", "création de formulaires électroniques"]
-EXEMPLE_CODE = "aBc123"
+EXEMPLE_CODE = "exemple"      # lot 117 : <site>/l/exemple affiche une vraie page (vérifiée par Meta)
 
 
 def nom_modele(prefixe: str, nb_cartes: int) -> str:
@@ -55,10 +55,24 @@ def definition_modele(prefixe: str, nb_cartes: int, langue: str, url_bouton: str
 
 
 def image_exemple() -> bytes:
-    """Image d'exemple (PNG 800×800, couleur unie SAWALI) exigée par Meta pour chaque carte."""
-    from PIL import Image
+    """Image d'exemple exigée par Meta pour chaque carte (PNG 800×800).
+    Lot 117 — avant : un carré de couleur unie, jugé non représentatif (modèles refusés « format non conforme »).
+    Désormais une vraie « carte » : bandeau, titre et sous-titre, comme une carte produit."""
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGB", (800, 800), (240, 249, 255))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 800, 520], fill=(14, 116, 144))                 # zone « photo »
+    d.ellipse([250, 110, 550, 410], fill=(56, 189, 248))               # pictogramme central
+    d.rectangle([0, 520, 800, 800], fill=(255, 255, 255))              # zone texte
+    try:
+        grande = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
+        petite = ImageFont.truetype("DejaVuSans.ttf", 36)
+    except OSError:                                                    # police absente : police par défaut
+        grande = petite = ImageFont.load_default()
+    d.text((60, 570), "SAWALI", fill=(15, 23, 42), font=grande)
+    d.text((60, 670), "Formulaires et sondages en ligne", fill=(71, 85, 105), font=petite)
     tampon = io.BytesIO()
-    Image.new("RGB", (800, 800), (14, 116, 144)).save(tampon, format="PNG")
+    img.save(tampon, format="PNG", optimize=True)
     return tampon.getvalue()
 
 

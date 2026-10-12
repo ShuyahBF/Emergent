@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "127.1", "date": "2026-10-12",
+        "titre": "🔎 Puce de contrat : diagnostic",
+        "description": "Le serveur note, à chaque affichage du Centre de messagerie, combien de contacts sont reliés à un client et pourquoi certains n'ont pas de puce (comptages seulement, aucune donnée personnelle).",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "127", "date": "2026-10-12",
         "titre": "🟩 Puce de contrat : tous les clients analysés",
         "description": "Correction : les contacts dont la société correspond à un vrai client (ex. Pharmacie AMITIÉ MIYOUGOU, Centre médical diocésain de Temnoore) étaient pris pour des comptes internes et n'avaient pas de puce ; seul le compte SAWALI lui-même est désormais « interne ».",

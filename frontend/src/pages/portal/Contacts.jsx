@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
 import PuceContrat from "../../components/PuceContrat";             // Lot 120 : puce carrée de l'état du contrat
+import BandeauContrat from "../../components/BandeauContrat";       // Lot 123 : bandeau contrat au-dessus des Tickets
 import EmojiPicker from "@/components/EmojiPicker";
 import ImageAnnotator from "@/components/ImageAnnotator";
 import { Link, useSearchParams } from "react-router-dom";
@@ -2493,6 +2494,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             onCountChange={setGroupCount}
           />
         </div>
+        {/* Lot 123 — bandeau du contrat du contact (puce + n°, statut, fin, retard, échéance ; aucun montant) */}
+        <BandeauContrat contactId={contact.id} />
         {/* Iter35o — Ticket bar (above chat) */}
         <div className="px-5 py-2 border-b border-slate-200 bg-amber-50/50" data-testid="conversation-ticket-bar">
           {activeTicket ? (

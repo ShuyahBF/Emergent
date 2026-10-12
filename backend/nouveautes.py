@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "123", "date": "2026-10-12",
+        "titre": "🟩 Contrat dans la conversation WhatsApp",
+        "description": "Dans la fenêtre de conversation WhatsApp, un bandeau vert / orange / rouge au-dessus de la zone des Tickets rappelle le contrat du contact : n°, statut, client, fin, mois restants, retard, échéance (jamais de montant) ; détail complet au survol de la puce.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "122", "date": "2026-10-12",
         "titre": "🗄️ Jauge du cluster de copie",
         "description": "À côté de la jauge des collections (alerte à 90 % : 450/500), une 2e jauge suit la TAILLE du cluster de copie des sauvegardes programmées (Clusterbkp, 512 Mo en gratuit) ; WhatsApp au super-admin au-delà de 90 %, une fois par jour.",

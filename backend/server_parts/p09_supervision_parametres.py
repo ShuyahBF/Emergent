@@ -889,8 +889,15 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         prev_enabled = bool(prev.get("incident_banner_enabled", False))
         next_enabled = bool(update.get("incident_banner_enabled", prev_enabled))
         editor = (user.get("email") or "").lower() or None
+        # Lot 115 — un bandeau de sévérité « info » est une ANNONCE (ex. « Ouverture de Compte »), pas un incident :
+        # il n'ouvre ni ne complète aucun incident de l'historique public (/uptime). Seuls « warning » et
+        # « critical » restent des incidents.
+        next_severity = update.get("incident_banner_severity") or prev.get("incident_banner_severity") or "warning"
+        annonce = next_severity == "info"
         # off → on : open a new incident
-        if not prev_enabled and next_enabled:
+        if not prev_enabled and next_enabled and annonce:
+            pass                                    # Lot 115 — annonce : aucun incident ouvert
+        elif not prev_enabled and next_enabled:
             new_incident = {
                 "id": _uuid(),
                 "severity": update.get("incident_banner_severity") or prev.get("incident_banner_severity") or "warning",
@@ -922,8 +929,13 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
                 resolved_doc.pop("_id", None)
                 asyncio.create_task(_broadcast_incident_to_subscribers("resolved", resolved_doc))
         # ongoing edit : append an update entry to the latest open incident
-        elif prev_enabled and next_enabled:
-            content_changed = any(f in update for f in ("incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label"))
+        elif prev_enabled and next_enabled and not annonce:
+            # Lot 115 — l'écran des Paramètres renvoie TOUS les champs à chaque « Enregistrer » : avant, chaque
+            # enregistrement ajoutait une ligne identique à l'incident en cours (constat du 12/10/2026 : des dizaines
+            # de « Ouverture de Compte »). On n'ajoute une mise à jour que si le contenu a VRAIMENT changé.
+            content_changed = any(
+                f in update and (update.get(f) or "") != (prev.get(f) or "")
+                for f in ("incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label"))
             if content_changed:
                 ongoing = await db.incidents.find_one({"status": "ongoing"}, sort=[("started_at", -1)])
                 if ongoing:
@@ -1046,7 +1058,8 @@ async def _send_secret_audit_email(recipient: str, entries: list, actor_email: s
 async def public_list_incidents(limit: int = 30):
     """Timeline publique des incidents (résolus + en cours). Utilisé par la page /uptime."""
     items = await db.incidents.find(
-        {},
+        # Lot 115 — les annonces (sévérité « info ») ne sont pas des incidents : jamais affichées sur /uptime
+        {"severity": {"$ne": "info"}},
         {"_id": 0, "id": 1, "severity": 1, "message": 1, "link_url": 1, "link_label": 1,
          "status": 1, "started_at": 1, "resolved_at": 1, "duration_minutes": 1, "updates": 1},
     ).sort("started_at", -1).to_list(min(max(limit, 1), 100))

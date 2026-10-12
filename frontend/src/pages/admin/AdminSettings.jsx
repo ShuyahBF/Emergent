@@ -5,6 +5,7 @@ import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
+import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
@@ -101,6 +102,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
   "🧹 Libérer l'Espace": "113",   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
@@ -144,6 +146,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
   "🧹 Libérer l'Espace": "2026-10-12",
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
@@ -231,6 +234,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🚨 Bandeau d'incident et historique (/uptime)": "Historique des incidents de /uptime : Résoudre, Supprimer, Réinitialiser ; un bandeau « Info » est une annonce et ne crée plus d'incident (lot 115).",
   "🧹 Libérer l'Espace": "Un seul bouton : analyse des sauvegardes R2 et des bases Atlas obsolètes, sélection selon la règle de rétention, espace et collections libérés, nettoyage après confirmation (lot 113).",
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
   "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105).",
@@ -2790,6 +2794,8 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* Lot 115 — rubrique repérable : bandeau + historique des incidents de /uptime */}
+      <Filterable title="🚨 Bandeau d'incident et historique (/uptime)" anchorId="s-bandeau-incident">
       <Section icon={AlertCircle} title="Bandeau d'incident (public + portail)">
         <p className="text-xs text-slate-500">
           Affiche un bandeau collant en haut de toutes les pages publiques ET du portail client lorsqu'un incident est en cours
@@ -2836,7 +2842,10 @@ export default function AdminSettings() {
             />
           </div>
         )}
+        {/* Lot 115 — historique des incidents de /uptime : résoudre, supprimer, réinitialiser */}
+        <HistoriqueIncidentsSection />
       </Section>
+      </Filterable>
 
       {/* Lot 64 — rubrique repérable (ancre + pastille NOUVEAU) : lignes, couleurs, appels */}
       <Filterable title="WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels" anchorId="s-wa-business-api">

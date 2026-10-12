@@ -199,6 +199,40 @@ def attach_admin_settings_routes(*, api, db, get_current_admin, get_settings_doc
             raise HTTPException(status_code=404, detail="Incident introuvable")
         return {"ok": True}
 
+    # ------------------------------------------------------------------
+    # Lot 115 — gestion de l'historique des incidents depuis les Paramètres
+    # (rubrique « Bandeau d'incident ») : résoudre un incident, tout réinitialiser.
+    # ------------------------------------------------------------------
+    @api.post("/admin/incidents/{incident_id}/resoudre", tags=["Admin"])
+    async def admin_resoudre_incident(incident_id: str, user: dict = Depends(get_current_admin)):
+        """Passe un incident « en cours » à « résolu » (durée calculée), sans toucher au bandeau."""
+        inc = await db.incidents.find_one({"id": incident_id}, {"_id": 0})
+        if not inc:
+            raise HTTPException(status_code=404, detail="Incident introuvable")
+        if inc.get("status") == "resolved":
+            raise HTTPException(status_code=409, detail="Incident déjà résolu")
+        maintenant = datetime.now(timezone.utc)
+        try:
+            debut = datetime.fromisoformat(str(inc.get("started_at")).replace("Z", "+00:00"))
+            duree = max(0, int((maintenant - debut).total_seconds() // 60))
+        except (TypeError, ValueError):
+            duree = None
+        await db.incidents.update_one({"id": incident_id}, {"$set": {
+            "status": "resolved", "resolved_at": maintenant.isoformat(), "duration_minutes": duree,
+            "resolved_by": (user.get("email") or "").lower() or None}})
+        return {"ok": True, "duration_minutes": duree}
+
+    @api.post("/admin/incidents/reinitialiser", tags=["Admin"])
+    async def admin_reinitialiser_incidents(corps: dict = Body(default={}), user: dict = Depends(get_current_admin)):
+        """Efface TOUT l'historique des incidents (page /uptime). L'écran demande de taper REINITIALISER."""
+        saisie = str((corps or {}).get("confirmation") or "").strip().upper().replace("É", "E")
+        if saisie != "REINITIALISER":
+            raise HTTPException(status_code=400, detail="Tapez REINITIALISER pour confirmer")
+        res = await db.incidents.delete_many({})
+        logger.warning("[incidents] historique réinitialisé par %s : %s incident(s) supprimé(s)",
+                       user.get("email"), res.deleted_count)
+        return {"ok": True, "supprimes": res.deleted_count}
+
     @api.get("/admin/incidents/export.csv", tags=["Admin"])
     async def admin_export_incidents_csv(_: dict = Depends(get_current_admin)):
         items = await db.incidents.find({}, {"_id": 0}).sort("started_at", -1).to_list(2000)

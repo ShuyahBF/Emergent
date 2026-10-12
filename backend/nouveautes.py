@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "115", "date": "2026-10-12",
+        "titre": "🚨 Historique des incidents : réinitialisable",
+        "description": "Sous le bandeau d'incident : liste des incidents de /uptime avec Résoudre, Supprimer et « Réinitialiser l'historique » ; un bandeau « Info » est une annonce et n'y apparaît plus ; plus de ligne ajoutée à chaque enregistrement des Paramètres.",
+        "rubrique": "🚨 Bandeau d'incident et historique (/uptime)",
+    },
+    {
         "lot": "114", "date": "2026-10-12",
         "titre": "🕗 Carrousels : plages horaires et envois programmés",
         "description": "Les carrousels WhatsApp respectent les plages horaires d'envoi (hors plage : en attente, reprise automatique sans renvoi) et se programment à une date et une heure ; envois programmés listés et annulables (portail, administration, régie).",

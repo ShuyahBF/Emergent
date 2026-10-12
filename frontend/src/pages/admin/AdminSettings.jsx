@@ -103,7 +103,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
-  "🧹 Libérer l'Espace": "113",   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
+  "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "115.1",   // lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
@@ -147,7 +147,7 @@ const NEW_LOTS = {
 
 const NEW_SECTIONS = {
   "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
-  "🧹 Libérer l'Espace": "2026-10-12",
+  "🧹 Libérer l'Espace": "2026-10-12",   // lots 113 et 116
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-12",   // lot 94 ; lot 111

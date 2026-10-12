@@ -102,6 +102,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🤖📞 Liluvine décroche les appels WhatsApp": "125",   // lot 125 : résumé d'appel avec l'identité de l'appelant
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
   "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
@@ -146,6 +147,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🤖📞 Liluvine décroche les appels WhatsApp": "2026-10-12",   // lot 125
   "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
   "🧹 Libérer l'Espace": "2026-10-12",   // lots 113 et 116
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
@@ -234,6 +236,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
   "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124).",
   "🚨 Bandeau d'incident et historique (/uptime)": "Historique des incidents de /uptime : Résoudre, Supprimer, Réinitialiser ; un bandeau « Info » est une annonce et ne crée plus d'incident (lot 115).",

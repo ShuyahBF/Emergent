@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "125", "date": "2026-10-12",
+        "titre": "🤖📞 Résumé d'appel : appelant reconnu",
+        "description": "Le résumé envoyé après un appel décroché par Liluvine reçoit l'identité connue de l'appelant (nom du contact, société, numéro) : plus de « appelant non identifié » pour un contact connu, et rien d'inventé au-delà de ce qui a été dit.",
+        "rubrique": "🤖📞 Liluvine décroche les appels WhatsApp",
+    },
+    {
         "lot": "124", "date": "2026-10-12",
         "titre": "🟩 Contrat : contacts avec « Société » seulement",
         "description": "La puce et le bandeau de contrat ne concernent plus que les contacts dont le champ « Société » est renseigné ; la société sert en priorité à trouver le client (sans tenir compte des accents ni des majuscules), l'e-mail et le téléphone en secours.",

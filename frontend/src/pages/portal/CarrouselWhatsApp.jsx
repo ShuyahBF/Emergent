@@ -13,6 +13,9 @@
   publique de tout le carrousel, positionnée sur la carte) ou « Lien personnalisé ». L'administration peut
   rattacher un carrousel à une campagne de la RÉGIE PUBLICITAIRE (carrousel sponsorisé, clics facturés).
   Chaque envoi montre par carte : clics, vues de la présentation et « Je suis intéressé ».
+  Lot 114 — « Envoyer maintenant » ou « Programmer le JJ/MM/AAAA à HH:MM » (heure de Ouagadougou), dans les plages
+  horaires d'envoi fixées par l'Admin (Paramètres) : hors plage, l'envoi attend et reprend tout seul. Chaque envoi
+  affiche son statut (Programmée, En attente, En cours, Terminée, Annulée) et peut être annulé tant qu'il n'est pas fini.
 */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle 
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
+import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 : maintenant / programmer + plages horaires
 
 const erreur = (e, defaut) => {
   const d = e?.response?.data?.detail;
@@ -47,6 +51,25 @@ const cartesPourServeur = (cartes) => cartes.map((c) => {
 // Lot 111 — mode effectif du bouton, comme le calcule le serveur à l'envoi
 const modeBouton = (c, lienDefaut) => c.bouton
   || ((c.lien || (c.source === "libre" && lienDefaut)) ? "lien" : "presentation");
+// Lot 114 — pastille de statut d'une campagne : [classes de couleur, libellé par défaut]
+const PASTILLES_STATUT = {
+  PROGRAMMEE: ["bg-sky-100 text-sky-800 ring-sky-300", "Programmée"],
+  EN_ATTENTE: ["bg-amber-100 text-amber-800 ring-amber-300", "En attente"],
+  EN_COURS: ["bg-blue-100 text-blue-800 ring-blue-300", "En cours"],
+  TERMINEE: ["bg-emerald-100 text-emerald-800 ring-emerald-300", "Terminée"],
+  ANNULEE: ["bg-slate-200 text-slate-700 ring-slate-300", "Annulée"],
+};
+function PastilleStatut({ statut, libelle }) {
+  const [classes, defaut] = PASTILLES_STATUT[statut] || ["bg-slate-100 text-slate-700 ring-slate-300", statut || "?"];
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${classes}`}
+          data-testid={`statut-campagne-${statut}`}>
+      {libelle || defaut}
+    </span>
+  );
+}
+// Lot 114 — statuts d'une campagne qui n'est pas encore finie (annulable)
+const STATUTS_ACTIFS = ["PROGRAMMEE", "EN_ATTENTE", "EN_COURS"];
 const champ = "w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
 // Aperçu d'une carte, à la façon de WhatsApp
@@ -754,23 +777,37 @@ export default function CarrouselWhatsApp({ admin = false }) {
   }, [choisis, groupes, annuaire]);
 
   const [envoiErreur, setEnvoiErreur] = useState("");   // lot 79.1 : motif d'un refus, affiché sous le bouton
+  // Lot 114 — date et heure d'envoi programmées (« AAAA-MM-JJTHH:MM », heure de Ouagadougou) ; vide = maintenant
+  const [programmeLe, setProgrammeLe] = useState("");
   const envoyer = async () => {
-    if (!window.confirm(`Envoyer ce carrousel de ${cartes.length} cartes à ${retenus.length} destinataire(s) ?`)) return;
+    const quand = programmeLe ? ` le ${dateFr(programmeLe)}` : "";
+    if (!window.confirm(`${programmeLe ? "Programmer" : "Envoyer"} ce carrousel de ${cartes.length} cartes à ${retenus.length} destinataire(s)${quand} ?`)) return;
     setEnvoi(true);
     setEnvoiErreur("");
+    // Lot 114 — toast « Patientez… » pendant la préparation de la campagne (contrôles, liens, régie)
+    const attente = toast.loading("Patientez… préparation de l'envoi");
     try {
       const corps = {
         message,
         cartes: cartesPourServeur(cartes),
         ids: [...choisis], groupes: [...groupes],
         regie_id: admin && regieId ? regieId : null,   // lot 111 : carrousel sponsorisé
+        programme_le: programmeLe || null,              // lot 114 : envoi programmé (vide = maintenant)
       };
       const { data } = await apiClient.post(`${base}/envoyer`, corps);
-      toast.success(`Envoi lancé vers ${data.destinataires} destinataire(s) (modèle ${data.modele})`);
-      setTimeout(charger, 3000);
+      // Lot 114 — message selon le statut de départ : programmé, en attente d'une plage horaire ou lancé
+      if (data.statut === "PROGRAMMEE") {
+        toast.success(`Envoi programmé le ${dateFr(data.programme_le)} vers ${data.destinataires} destinataire(s)`, { id: attente });
+      } else if (data.statut === "EN_ATTENTE") {
+        toast.info(`Hors des plages horaires d'envoi : le carrousel partira le ${dateFr(data.reprise_le)} (${data.destinataires} destinataire(s))`, { id: attente, duration: 8000 });
+      } else {
+        toast.success(`Envoi lancé vers ${data.destinataires} destinataire(s) (modèle ${data.modele})`, { id: attente });
+      }
+      setProgrammeLe("");
+      setTimeout(charger, data.statut === "EN_COURS" ? 3000 : 300);
     } catch (e) {
       const motif = erreur(e, "Envoi refusé");
-      toast.error(motif, { duration: 10000 });
+      toast.error(motif, { id: attente, duration: 10000 });
       setEnvoiErreur(motif);   // reste affiché sous le bouton tant qu'on ne relance pas l'envoi
     } finally {
       setEnvoi(false);
@@ -792,6 +829,31 @@ export default function CarrouselWhatsApp({ admin = false }) {
       setLiaison("");
     }
   };
+
+  // Lot 114 — annuler un envoi programmé, en attente ou en cours (les destinataires déjà servis le restent)
+  const [annulation, setAnnulation] = useState("");
+  const annuler = async (c) => {
+    if (!window.confirm(`Annuler cet envoi (${PASTILLES_STATUT[c.statut]?.[1] || c.statut}) ? Les messages déjà partis ne sont pas rappelés.`)) return;
+    setAnnulation(c.id);
+    const attente = toast.loading("Patientez… annulation de l'envoi");
+    try {
+      await apiClient.post(`${base}/campagnes/${c.id}/annuler`);
+      toast.success("Envoi annulé", { id: attente });
+      await charger();
+    } catch (e) {
+      toast.error(erreur(e, "Annulation impossible"), { id: attente });
+    } finally {
+      setAnnulation("");
+    }
+  };
+  // Lot 114 — envois programmés, en attente d'une plage horaire ou en cours (liste dédiée en tête de la section 3)
+  const envoisActifs = useMemo(() => campagnes.filter((c) => STATUTS_ACTIFS.includes(c.statut)), [campagnes]);
+  // Lot 114 — relecture toutes les 30 s tant qu'un envoi est en cours (onglet visible seulement)
+  useEffect(() => {
+    if (!campagnes.some((c) => c.statut === "EN_COURS")) return undefined;
+    const t = setInterval(() => { if (pageVisible()) charger(); }, 30000);
+    return () => clearInterval(t);
+  }, [campagnes, charger]);
 
   const ouvrirDetail = async (id) => {
     const { data } = await apiClient.get(`${base}/campagnes/${id}`);
@@ -1044,11 +1106,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
             </span>
           </div>
         )}
+        {/* Lot 114 — Maintenant / Programmer le … ; rappel des plages horaires d'envoi fixées par l'Admin */}
+        <EnvoiProgrammation value={programmeLe} onChange={setProgrammeLe} />
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-slate-700"><b>{retenus.length}</b> destinataire(s) (max. {etat.destinataires_max})</span>
           <Button onClick={envoyer} disabled={!etat.pret || envoi || !message.trim() || !cartesPretes || retenus.length === 0
                                                || retenus.length > etat.destinataires_max}>
-            {envoi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />} Envoyer le carrousel
+            {envoi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+            {programmeLe ? "Programmer l'envoi" : "Envoyer le carrousel"}
           </Button>
           {!envoi && manques.length > 0 && (
             <span className="w-full text-xs text-amber-700">Pour envoyer, il manque : {manques.join(" · ")}.</span>
@@ -1065,6 +1130,40 @@ export default function CarrouselWhatsApp({ admin = false }) {
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
         <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> 3. Envois précédents</h2>
         {campagnes.length === 0 && <p className="text-sm text-slate-500">Aucun envoi pour le moment.</p>}
+        {/* Lot 114 — envois programmés / en attente / en cours, avec annulation */}
+        {envoisActifs.length > 0 && (
+          <div className="rounded-md border border-sky-200 bg-sky-50/60 p-3 text-sm" data-testid="carrousel-envois-programmes">
+            <p className="mb-2 font-semibold text-slate-800">Envois programmés et en attente ({envoisActifs.length})</p>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-xs">
+                <thead className="text-left text-slate-500">
+                  <tr><th className="py-1 pr-2">Statut</th><th className="py-1 pr-2">Départ prévu / reprise</th>
+                    <th className="py-1 pr-2">Message</th><th className="py-1 pr-2 text-right">Envoyés</th><th className="py-1" /></tr>
+                </thead>
+                <tbody>
+                  {envoisActifs.map((c) => (
+                    <tr key={c.id} className="border-t border-sky-100">
+                      <td className="py-1 pr-2"><PastilleStatut statut={c.statut} libelle={c.statut_libelle} /></td>
+                      <td className="py-1 pr-2">
+                        {c.statut === "PROGRAMMEE" && <>le {dateFr(c.programme_le)}</>}
+                        {c.statut === "EN_ATTENTE" && <>reprendra le {dateFr(c.reprise_le)}</>}
+                        {c.statut === "EN_COURS" && <>en cours d'envoi…</>}
+                      </td>
+                      <td className="max-w-[240px] truncate py-1 pr-2">{c.message}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{c.compte.envoyes} / {c.compte.total}</td>
+                      <td className="py-1 text-right">
+                        <Button size="sm" variant="outline" disabled={annulation === c.id} onClick={() => annuler(c)}
+                                data-testid={`annuler-campagne-${c.id}`}>
+                          <XCircle className="mr-1 h-3.5 w-3.5" /> Annuler
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         {campagnes.map((c) => (
           <div key={c.id} className="rounded-md border border-slate-200 p-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">
@@ -1072,7 +1171,21 @@ export default function CarrouselWhatsApp({ admin = false }) {
               <span className="text-slate-600">{c.cartes.length} cartes · {c.modele}</span>
               <span className="text-emerald-700">{c.compte.envoyes} envoyé(s)</span>
               {c.compte.echecs > 0 && <span className="text-red-700">{c.compte.echecs} échec(s)</span>}
-              <span className="text-slate-500">{c.statut === "EN_COURS" ? "en cours…" : ""}</span>
+              {/* Lot 114 — statut en pastille, date programmée, reprise prévue, motif d'arrêt */}
+              <PastilleStatut statut={c.statut} libelle={c.statut_libelle} />
+              {c.programme_le && <span className="text-xs text-sky-700">programmé le {dateFr(c.programme_le)}</span>}
+              {c.statut === "EN_ATTENTE" && c.reprise_le && <span className="text-xs text-amber-700">reprendra le {dateFr(c.reprise_le)}</span>}
+              {c.statut === "ANNULEE" && (
+                <span className="text-xs text-slate-500">
+                  {c.annule_le ? `annulé le ${dateFr(c.annule_le)}` : ""}{c.annule_par ? ` par ${c.annule_par}` : ""}
+                  {c.motif_arret ? ` — ${c.motif_arret}` : ""}
+                </span>
+              )}
+              {c.annulable && (
+                <Button size="sm" variant="ghost" className="text-red-700" disabled={annulation === c.id} onClick={() => annuler(c)}>
+                  <XCircle className="mr-1 h-3.5 w-3.5" /> Annuler
+                </Button>
+              )}
               {/* Lot 78 — recharge les cartes et le message de cet envoi dans l'éditeur (nouveau carrousel) */}
               <Button size="sm" variant="outline" className="ml-auto" title="Reprendre ce carrousel dans l'éditeur pour le modifier ou le renvoyer"
                 onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee }) => ({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee })) }); if (admin && c.regie_id) setRegieId(c.regie_id); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>

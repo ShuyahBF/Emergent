@@ -33,6 +33,7 @@ import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 :
 const erreur = (e, defaut) => {
   const d = e?.response?.data?.detail;
   if (Array.isArray(d)) return d.map((x) => x.msg).join(" ; ");
+  if (d && typeof d === "object") return d.message || defaut;     // lot 117.1 : détail structuré
   return d || defaut;
 };
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
@@ -227,6 +228,7 @@ function Reglages({ etat, onEnregistre }) {
   // Lot 78.2 — statut ACTUEL de chaque modèle chez Meta (le résultat du dépôt n'est qu'une photo à l'instant du dépôt)
   const [actuels, setActuels] = useState({});
   const [motifs, setMotifs] = useState({});   // Lot 115.1 — motif du refus donné par Meta, par nombre de cartes
+  const [urlReelle, setUrlReelle] = useState(null);   // Lot 117.1 — adresse du bouton dans la série DÉPOSÉE chez Meta
   const [actualisation, setActualisation] = useState(false);
   const actualiser = useCallback(async (silencieux = false) => {
     setActualisation(true);
@@ -234,6 +236,7 @@ function Reglages({ etat, onEnregistre }) {
       const { data } = await apiClient.get("/admin/whatsapp/carrousel/statuts-meta", { params: { rafraichir: true } });
       setActuels(data.statuts || {});
       setMotifs(data.motifs || {});
+      setUrlReelle(data.url_bouton_reelle || null);
       if (!silencieux) toast.success(data.erreur ? `Statuts Meta : ${data.erreur}` : "Statuts relus chez Meta");
     } catch (e) {
       if (!silencieux) toast.error(erreur(e, "Statuts Meta indisponibles"));
@@ -241,6 +244,8 @@ function Reglages({ etat, onEnregistre }) {
       setActualisation(false);
     }
   }, []);
+  // Lot 117.1 — à l'ouverture : statuts et adresse RÉELLE du bouton de la série déposée chez Meta (sans message)
+  useEffect(() => { actualiser(true); }, [actualiser]);
   // Tant qu'un modèle déposé est en attente, relecture automatique toutes les 60 s (30 min au plus)
   useEffect(() => {
     if (!resultats) return undefined;
@@ -256,20 +261,37 @@ function Reglages({ etat, onEnregistre }) {
     }, 60000);
     return () => clearInterval(t);
   }, [resultats, actuels, actualiser]);
-  const creerChezMeta = async () => {
+  const creerChezMeta = async (forcer = false) => {
     if (!modele) { toast.error("Saisissez d'abord le nom (préfixe) des modèles, ex. sawali_carrousel."); return; }
-    if (!window.confirm(`Déposer chez Meta les 9 modèles ${modele}_2 à ${modele}_10 (catégorie Marketing) ?`)) return;
+    if (!forcer && !window.confirm(`Déposer chez Meta les 9 modèles ${modele}_2 à ${modele}_10 (catégorie Marketing) ?`)) return;
     setCreation(true);
     setResultats(null);
     try {
       const { data } = await apiClient.post("/admin/whatsapp/carrousel/modeles-meta",
-        { modele, langue, tenant_id: tenantId || null }, { timeout: 180000 });
+        { modele, langue, tenant_id: tenantId || null, forcer }, { timeout: 180000 });
       setResultats(data.resultats);
       setActuels({});
       const ok = data.resultats.filter((r) => r.statut !== "erreur").length;
       if (ok) { toast.success(`${ok} modèle(s) soumis à Meta. L'approbation prend de quelques minutes à 24 h.`); onEnregistre(); }
       else toast.error("Aucun modèle n'a été accepté : voir le détail ci-dessous.");
     } catch (e) {
+      // Lot 117.1 — une série APPROUVÉE existe déjà : la réutiliser (recommandé) plutôt que d'en déposer une copie
+      const d = e?.response?.data?.detail;
+      if (e?.response?.status === 409 && d?.serie_approuvee) {
+        setCreation(false);
+        if (window.confirm(`${d.message}\n\nOK = réutiliser « ${d.serie_approuvee} » (recommandé)\nAnnuler = autres choix`)) {
+          try {
+            await apiClient.put("/admin/whatsapp/carrousel/reglages", { modele: d.serie_approuvee, langue, tenant_id: tenantId || null });
+            setModele(d.serie_approuvee);
+            toast.success(`Série « ${d.serie_approuvee} » réutilisée : vos carrousels partent avec elle.`);
+            onEnregistre();
+            actualiser(true);
+          } catch (e2) { toast.error(erreur(e2, "Réglages refusés")); }
+        } else if (window.confirm("Déposer QUAND MÊME une nouvelle série ? Meta la refusera si ses textes recopient ceux de la série approuvée.")) {
+          creerChezMeta(true);
+        }
+        return;
+      }
       toast.error(erreur(e, "Création des modèles impossible"));
     } finally {
       setCreation(false);
@@ -292,7 +314,9 @@ function Reglages({ etat, onEnregistre }) {
         d'un clic avec le bouton « Créer les modèles chez Meta » ci-dessous :
         <b> {modele || "<nom>"}_2</b> à <b>{modele || "<nom>"}_10</b>. Message : <code>{"{{1}}"}</code> (expéditeur) et
         <code> {"{{2}}"}</code> (texte). Chaque carte : en-tête <b>image</b>, corps <code>{"{{1}}"}</code> (titre) et
-        <code> {"{{2}}"}</code> (texte), un bouton URL dynamique : <code className="break-all">{etat.url_bouton_modele}</code>.
+        <code> {"{{2}}"}</code> (texte), un bouton URL dynamique : <code className="break-all">{urlReelle || etat.url_bouton_modele}</code>
+        {/* Lot 117.1 — adresse RÉELLE de la série déposée chez Meta (sinon celle d'une nouvelle série) */}
+        {urlReelle ? " (adresse de la série déposée chez Meta)." : " (adresse d'une nouvelle série)."}
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
         <input className={champ} placeholder="nom (ex. sawali_carrousel)" value={modele} onChange={(e) => setModele(e.target.value.toLowerCase())} />
@@ -303,7 +327,7 @@ function Reglages({ etat, onEnregistre }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer le nom et la langue des modèles</Button>
         {/* Lot 76 — l'interface Meta ne propose pas toujours « Carrousel » : SAWALI dépose les modèles par l'API */}
-        <Button size="sm" variant="outline" onClick={creerChezMeta} disabled={!modele || creation}>
+        <Button size="sm" variant="outline" onClick={() => creerChezMeta(false)} disabled={!modele || creation}>
           {creation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
           Créer les modèles chez Meta
         </Button>

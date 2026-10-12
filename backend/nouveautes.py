@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "117.1", "date": "2026-10-12",
+        "titre": "🖼️ Carrousels : réutiliser la série approuvée",
+        "description": "« Créer les modèles chez Meta » vérifie d'abord si une série de carrousel est déjà approuvée et propose de la réutiliser (Meta refuse une copie aux mêmes textes) ; l'adresse réelle du bouton de la série déposée est affichée.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "117", "date": "2026-10-12",
         "titre": "🖼️ Carrousels : modèles corrigés pour Meta",
         "description": "Refus « format non conforme » corrigé : le bouton des cartes ouvre désormais une page du site (/l/…) sans redirection et l'image d'exemple est une vraie carte. Créez les modèles chez Meta UNE fois avec un nouveau nom de modèles.",

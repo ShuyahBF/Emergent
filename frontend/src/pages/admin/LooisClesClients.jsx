@@ -12,7 +12,7 @@
 //   - RÉGLAGE DE TRANSITION « Accepter encore la clé commune pour la synchro » (décoché par défaut).
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, UserX, KeyRound, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 const BASE = "/admin/loois-cles-clients";
@@ -89,6 +89,25 @@ export default function LooisClesClients() {
     try {
       const r = await apiClient.post(`${BASE}/${fiche.id}/${quoi}`);
       if (r.data.cle) setCleMontree({ code: fiche.code, cle: r.data.cle });
+      toast.success("Fait", { id: t });
+      charger(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Action impossible", { id: t });
+    }
+  };
+
+  // Lot 131.1 — clé SANS SURVEILLANCE (« LKS-… ») : prise en main sans accord sur les postes qui la portent
+  const sansSurveillance = async (fiche, quoi) => {
+    const messages = {
+      generer: `${fiche.ss_prefixe ? "Remplacer" : "Créer"} la clé SANS SURVEILLANCE de ${fiche.code} ? Les postes qui la portent `
+        + "accepteront la prise en main à distance du super-admin sans clic de l'utilisateur." + (fiche.ss_prefixe ? " L'ancienne clé sera refusée." : ""),
+      revoquer: `Révoquer la clé sans surveillance de ${fiche.code} ? Ses postes seront refusés jusqu'à la saisie d'une autre clé.`,
+    };
+    if (!window.confirm(messages[quoi])) return;
+    const t = toast.loading("Patientez…");
+    try {
+      const r = await apiClient.post(`${BASE}/${fiche.id}/sans-surveillance${quoi === "revoquer" ? "/revoquer" : ""}`);
+      if (r.data.cle) setCleMontree({ code: `${fiche.code} (sans surveillance)`, cle: r.data.cle });
       toast.success("Fait", { id: t });
       charger(false);
     } catch (err) {
@@ -223,7 +242,8 @@ export default function LooisClesClients() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs text-slate-500">
                     <tr>
-                      <th className="p-2">Client</th><th className="p-2">Applications</th><th className="p-2">Clé</th><th className="p-2">État</th>
+                      <th className="p-2">Client</th><th className="p-2">Applications</th><th className="p-2">Clé</th>
+                      <th className="p-2" title="Clé « LKS-… » : prise en main par le super-admin sans clic sur le poste">Sans surveillance</th><th className="p-2">État</th>
                       <th className="p-2">Dernière utilisation</th><th className="p-2">Créée le</th><th className="p-2">Actions</th>
                     </tr>
                   </thead>
@@ -252,6 +272,25 @@ export default function LooisClesClients() {
                             ) : (f.applications?.length ? f.applications.map((a) => LIBELLES[a] || a).join(", ") : "toutes")}
                           </td>
                           <td className="p-2 font-mono text-xs">{f.prefixe}…</td>
+                          {/* Lot 131.1 — clé sans surveillance : pictogrammes (générer / remplacer, révoquer) */}
+                          <td className="whitespace-nowrap p-2" onClick={(e) => e.stopPropagation()}>
+                            {f.ss_prefixe && f.ss_actif ? (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs text-indigo-800" title={`Créée le ${dateHeure(f.ss_cree_le)}`}>
+                                  <UserX className="h-3.5 w-3.5" aria-hidden="true" />{f.ss_prefixe}…
+                                </span>
+                                <button type="button" onClick={() => sansSurveillance(f, "generer")} title="Remplacer la clé sans surveillance"
+                                  className="rounded-full p-1 text-indigo-700 hover:bg-indigo-50"><RefreshCw className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => sansSurveillance(f, "revoquer")} title="Révoquer la clé sans surveillance"
+                                  className="rounded-full p-1 text-rose-700 hover:bg-rose-50"><X className="h-4 w-4" /></button>
+                              </span>
+                            ) : (
+                              <button type="button" onClick={() => sansSurveillance(f, "generer")} title="Créer la clé sans surveillance (LKS-…)"
+                                className="inline-flex items-center gap-1 rounded-full p-1 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700">
+                                <KeyRound className="h-4 w-4" />{f.ss_revoquee_le && <span className="text-[10px] text-rose-600">révoquée</span>}
+                              </button>
+                            )}
+                          </td>
                           <td className="p-2">
                             {f.actif
                               ? <span className="rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-800">active</span>

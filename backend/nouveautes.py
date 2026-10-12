@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "131.1", "date": "2026-10-12",
+        "titre": "🖥️ Postes Loois sans surveillance",
+        "description": "Clé « LKS-… » : le super-admin prend la main sans accord ni bandeau (notification discrète sur le poste) ; liste des postes à prendre en main.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "131", "date": "2026-10-12",
         "titre": "🖥️ Contrôle à distance des postes Loois",
         "description": "Voir l'écran d'un poste Loois ou en prendre le contrôle depuis le navigateur, avec l'accord de son utilisateur ; journal des prises en main.",

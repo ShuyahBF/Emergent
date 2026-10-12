@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 import logging
 import os
 import secrets
@@ -83,6 +84,13 @@ def empreinte(jeton: str) -> str:
 def nouveau_jeton() -> str:
     """Jeton aléatoire de 256 bits, transmis une seule fois."""
     return secrets.token_urlsafe(32)
+
+
+def est_super_admin(user: Optional[Dict[str, Any]]) -> bool:
+    """Lot 131.1 — seul le super-admin SAWALI (SUPER_ADMIN_EMAIL) prend la main sur un poste SANS SURVEILLANCE."""
+    email = str((user or {}).get("email") or "").strip().lower()
+    super_admin = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsystems.com").strip().lower()
+    return bool(email) and email == super_admin
 
 
 def est_technicien(user: Optional[Dict[str, Any]]) -> bool:
@@ -179,6 +187,8 @@ class ReponsePoste(BaseModel):
     accepte: bool
     # L'utilisateur du poste peut réduire le mode demandé (« contrôler » → « voir seulement »), jamais l'augmenter
     mode: Optional[str] = Field(None, pattern="^(voir|controler)$")
+    # Lot 131.1 : accord donné AUTOMATIQUEMENT par un poste sans surveillance (clé « LKS-… » obligatoire)
+    automatique: bool = False
 
 
 def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any]]],
@@ -197,6 +207,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         decode_token = _decode
 
     # --- Outils internes ----------------------------------------------------------------------------------------
+    _derniere_fiche: Dict[str, float] = {}   # lot 131.1 : poste → dernière écriture de sa fiche (time.monotonic)
+
     async def _technicien(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
         if not est_technicien(user):
             raise HTTPException(status_code=403, detail="Réservé au support SAWALI")
@@ -245,6 +257,9 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         if not poste.get("cle_client_code"):
             raise HTTPException(status_code=403,
                                 detail="Ce poste n'utilise pas de clé client : prise en main impossible")
+        # Lot 131.1 : poste sans surveillance (clé « LKS-… ») → il accepte seul : réservé au super-admin
+        if poste.get("sans_surveillance") and not est_super_admin(user):
+            raise HTTPException(status_code=403, detail="Poste sans surveillance : prise en main réservée au super-admin")
         # Une seule demande ou session ouverte à la fois par poste
         ouverte = await db.controle_distance_sessions.find_one(
             {"poste_id": payload.poste_id, "statut": {"$in": ["demandee", "acceptee", "en_cours"]}}, {"_id": 0})
@@ -258,6 +273,7 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             "technicien_id": user.get("id"), "technicien_nom": user.get("full_name") or user.get("email"),
             "mode_demande": payload.mode, "mode": payload.mode, "motif": (payload.motif or "").strip(),
             "statut": "demandee", "cree_le": iso(maintenant()),
+            "poste_sans_surveillance": bool(poste.get("sans_surveillance")),
             "expire_le": iso(maintenant() + timedelta(seconds=DELAI_REPONSE_S)),
         }
         await db.controle_distance_sessions.insert_one(dict(session))
@@ -272,11 +288,25 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         # que le support Loois, donc le même fil de discussion et la même fiche de poste)
         if not poste_id:
             from urllib.parse import unquote
-            from routes.support_loois import nettoyer, poste_id as calculer_poste_id
+            from routes.support_loois import nettoyer, nom_affiche, poste_id as calculer_poste_id
             h = request.headers
-            poste_id = calculer_poste_id(nettoyer(unquote(h.get("x-loois-ecole") or ""), 80),
-                                         nettoyer(unquote(h.get("x-loois-poste") or ""), 60),
-                                         nettoyer(unquote(h.get("x-loois-utilisateur") or ""), 60))
+            ecole = nettoyer(unquote(h.get("x-loois-ecole") or ""), 80)
+            nom_poste = nettoyer(unquote(h.get("x-loois-poste") or ""), 60)
+            utilisateur = nettoyer(unquote(h.get("x-loois-utilisateur") or ""), 60)
+            poste_id = calculer_poste_id(ecole, nom_poste, utilisateur)
+            # Lot 131.1 : fiche du poste tenue à jour (au plus une écriture par minute), même s'il n'a jamais ouvert le
+            # chat du support : il apparaît ainsi dans la liste des postes de la rubrique « Contrôle à distance »
+            if time.monotonic() - _derniere_fiche.get(poste_id, 0.0) > 60:
+                _derniere_fiche[poste_id] = time.monotonic()
+                await db.support_loois_postes.update_one(
+                    {"id": poste_id},
+                    {"$set": {"nom": nom_affiche(ecole, nom_poste, utilisateur), "ecole": ecole, "poste": nom_poste,
+                              "utilisateur": utilisateur, "cle_client_code": identite.get("code"),
+                              "cle_client_libelle": identite.get("libelle"),
+                              "sans_surveillance": bool(identite.get("sans_surveillance")),
+                              "signal_controle_distance": iso(maintenant())},
+                     "$setOnInsert": {"id": poste_id, "premier_contact": iso(maintenant())}},
+                    upsert=True)
         s = await db.controle_distance_sessions.find_one(
             {"poste_id": poste_id, "statut": "demandee", "cle_client_code": identite.get("code")}, {"_id": 0},
             sort=[("cree_le", -1)])
@@ -286,7 +316,9 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         if s.get("statut") != "demandee":
             return {"demande": None}
         return {"demande": {"session_id": s["id"], "technicien": s.get("technicien_nom"), "mode": s.get("mode"),
-                            "motif": s.get("motif"), "expire_le": s.get("expire_le")}}
+                            "motif": s.get("motif"), "expire_le": s.get("expire_le"),
+                            # Lot 131.1 : vrai si CE poste utilise la clé sans surveillance → Loois accepte seul
+                            "sans_surveillance": bool(identite.get("sans_surveillance"))}}
 
     # --- 3. Le poste accepte ou refuse -----------------------------------------------------------------------------
     @router.post("/controle-distance/poste/sessions/{sid}/reponse")
@@ -298,6 +330,10 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         s = await _expirer(s)
         if s.get("statut") != "demandee":
             raise HTTPException(status_code=409, detail="Demande expirée ou déjà traitée")
+        # Lot 131.1 : un accord automatique n'est admis que d'un poste muni de la clé sans surveillance
+        automatique = bool(payload.accepte and payload.automatique)
+        if automatique and not identite.get("sans_surveillance"):
+            raise HTTPException(status_code=403, detail="Accord automatique réservé aux postes sans surveillance")
         if not payload.accepte:
             await db.controle_distance_sessions.update_one(
                 {"id": sid}, {"$set": {"statut": "refusee", "fin_le": iso(maintenant()),
@@ -311,6 +347,7 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         resultat = await db.controle_distance_sessions.update_one(
             {"id": sid, "statut": "demandee"},
             {"$set": {"statut": "acceptee", "mode": mode, "accepte_le": iso(maintenant()),
+                      "sans_surveillance": automatique,   # lot 131.1 : accord donné par le poste sans surveillance
                       "connexion_avant": iso(maintenant() + timedelta(seconds=DELAI_CONNEXION_S)),
                       "jeton_poste_hash": empreinte(jeton_poste), "jeton_poste_utilise": False,
                       "jeton_tech_hash": empreinte(jeton_tech), "jeton_tech_utilise": False,
@@ -351,6 +388,29 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             return {"statut": "terminee"}
         await _terminer(sid, "arrêtée par le technicien")
         return {"statut": "terminee"}
+
+    # --- Lot 131.1 : postes Loois munis d'une clé client (les plus récents d'abord) ------------------------------------
+    @router.get("/controle-distance/postes")
+    async def postes(user: Dict[str, Any] = Depends(_technicien)):
+        curseur = db.support_loois_postes.find(
+            {"cle_client_code": {"$nin": [None, ""]}},
+            {"_id": 0, "id": 1, "nom": 1, "cle_client_code": 1, "cle_client_libelle": 1, "sans_surveillance": 1,
+             "signal_controle_distance": 1, "dernier_contact": 1}).sort("signal_controle_distance", -1).limit(500)
+        return {"postes": [p async for p in curseur], "super_admin": est_super_admin(user)}
+
+    # --- Lot 131.1 : le technicien peut-il prendre la main sur ce poste ? ---------------------------------------------
+    @router.get("/controle-distance/postes/{poste_id}")
+    async def etat_poste(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        """Bouton « Prendre la main » : visible si le poste a une clé client ; « sans surveillance » si sa clé est LKS-."""
+        p = await db.support_loois_postes.find_one(
+            {"id": poste_id}, {"_id": 0, "nom": 1, "cle_client_code": 1, "sans_surveillance": 1, "dernier_contact": 1})
+        if not p:
+            return {"possible": False, "sans_surveillance": False}
+        ouverte = await db.controle_distance_sessions.find_one(
+            {"poste_id": poste_id, "statut": {"$in": ["demandee", "acceptee", "en_cours"]}}, {"_id": 0, "id": 1})
+        return {"possible": bool(p.get("cle_client_code")), "sans_surveillance": bool(p.get("sans_surveillance")),
+                "poste_nom": p.get("nom"), "dernier_contact": p.get("dernier_contact"),
+                "session_ouverte": bool(ouverte)}
 
     # --- Journal des sessions --------------------------------------------------------------------------------------
     @router.get("/controle-distance/journal")

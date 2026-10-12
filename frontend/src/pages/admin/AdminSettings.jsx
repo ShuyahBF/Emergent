@@ -103,7 +103,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🖥️ Contrôle à distance Loois": "131",   // lot 131 : voir / contrôler un poste Loois depuis le navigateur, avec l'accord de son utilisateur
+  "🖥️ Contrôle à distance Loois": "131.1",   // lot 131 : voir / contrôler un poste Loois depuis le navigateur, avec l'accord de son utilisateur
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "130",   // lot 130 : Ctrl + Espace / double-clic recopie le texte gris (placeholder) dans le champ
   "🤖📞 Liluvine décroche les appels WhatsApp": "125",   // lot 125 : résumé d'appel avec l'identité de l'appelant
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
@@ -241,7 +241,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
-  "🖥️ Contrôle à distance Loois": "Le support voit l'écran d'un poste Loois ou en prend le contrôle depuis le navigateur, avec l'accord de son utilisateur ; journal des prises en main (lot 131).",
+  "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1).",
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",

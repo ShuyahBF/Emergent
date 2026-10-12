@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "127.3", "date": "2026-10-12",
+        "titre": "🟧 Puce orange : retard après l'échéance",
+        "description": "La puce passe à l'orange seulement quand l'échéance (dernier règlement + périodicité, mensuelle par défaut) est dépassée de plus que le seuil de retard ; un client qui vient de payer reste vert.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "127.2", "date": "2026-10-12",
         "titre": "🟩 Puces de contrat : clients reconnus",
         "description": "Correction : une fiche client dont l'e-mail est au domaine interne (créée par l'équipe) était prise pour un membre de SAWALI, et ses contacts n'avaient aucune puce. Seul le compte SAWALI lui-même est désormais « interne ».",

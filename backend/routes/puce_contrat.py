@@ -150,8 +150,12 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
     periode = str(c.get("contract_billing_period") or "").strip().lower()
     ref = _jour(c.get("last_payment_at")) or _jour(c.get("contract_signed_at"))
     echeance = None
-    if periode in PERIODES_JOURS and ref:
-        echeance = (ref + timedelta(days=PERIODES_JOURS[periode])).isoformat()
+    # Lot 127.3 — périodicité inconnue : mensuelle par défaut (cas le plus fréquent) pour calculer l'échéance
+    jours_periode = PERIODES_JOURS.get(periode, PERIODES_JOURS["monthly"])
+    d_echeance = (ref + timedelta(days=jours_periode)) if ref else None
+    # Affichage (inchangé) : échéance du règlement si la périodicité est connue, sinon fin du contrat
+    if periode in PERIODES_JOURS and d_echeance:
+        echeance = d_echeance.isoformat()
     elif d_fin:
         echeance = d_fin.isoformat()
 
@@ -186,9 +190,13 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
         return _resultat("aucun", "expire", "Contrat expiré")
 
     # --- ORANGE : compte suspendu (retard, lot 27 / lot 51) ------------------------------------------------------------
+    # Lot 127.3 (12/10/2026, « Pharmacie AMITIÉ MIYOUGOU a un contrat et est à jour ») — le retard se compte À PARTIR
+    # DE L'ÉCHÉANCE (dernier règlement + périodicité), et non plus depuis le dernier règlement : un client mensuel qui a
+    # payé le 1er n'est plus « en retard » le 6. Le seuil (contract_overdue_days, défaut 5 j) devient un délai de grâce
+    # après l'échéance.
     jours, seuil = None, None
-    if ref:
-        jours = max(0, (aujourdhui - ref).days)
+    if d_echeance:
+        jours = max(0, (aujourdhui - d_echeance).days)
         seuil = max(1, int(c.get("contract_overdue_days") or seuil_defaut or SEUIL_RETARD_DEFAUT))
     if compte == "suspended" or cycle == "SUSPENDU_NON_RENOUVELE":
         return _resultat("retard", "suspendu", "Compte suspendu (retard de paiement)", jours, seuil)

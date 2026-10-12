@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "115.1", "date": "2026-10-12",
+        "titre": "🖼️ Carrousels : motif du refus de Meta",
+        "description": "Après « Actualiser les statuts Meta », chaque modèle de carrousel refusé affiche la raison donnée par Meta, en clair (format, catégorie, contenu promotionnel…).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "115", "date": "2026-10-12",
         "titre": "🚨 Historique des incidents : réinitialisable",
         "description": "Sous le bandeau d'incident : liste des incidents de /uptime avec Résoudre, Supprimer et « Réinitialiser l'historique » ; un bandeau « Info » est une annonce et n'y apparaît plus ; plus de ligne ajoutée à chaque enregistrement des Paramètres.",

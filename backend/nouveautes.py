@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "116", "date": "2026-10-12",
+        "titre": "🗂️ Collections les moins utilisées",
+        "description": "Dans « Libérer l'Espace » : mesure de chaque collection de SAWALI (documents, taille, dernière activité, fonction), puis sauvegarde dans R2, désactivation de la fonction et suppression des collections cochées ; elles ne sont plus recréées au démarrage et se restaurent d'un clic.",
+        "rubrique": "🧹 Libérer l'Espace",
+    },
+    {
         "lot": "115.1", "date": "2026-10-12",
         "titre": "🖼️ Carrousels : motif du refus de Meta",
         "description": "Après « Actualiser les statuts Meta », chaque modèle de carrousel refusé affiche la raison donnée par Meta, en clair (format, catégorie, contenu promotionnel…).",

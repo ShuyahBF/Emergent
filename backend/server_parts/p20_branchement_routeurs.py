@@ -228,6 +228,11 @@ _setup_quota_atlas(db=db, client=_client_mongo, api=api, get_current_user=get_cu
 from routes.liberer_espace import setup_liberer_espace_routes as _setup_liberer_espace  # noqa: E402
 _setup_liberer_espace(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
                       base_courante=db.name)
+# Lot 116 — « 🧹 Libérer l'Espace » : 4e bloc, collections les moins utilisées de la base de SAWALI
+# (mesure, sauvegarde R2, désactivation de la fonction, suppression, registre, restauration)
+from routes.collections_inutilisees import setup_collections_inutilisees_routes as _setup_collections_inutilisees  # noqa: E402
+_setup_collections_inutilisees(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
+                               base_courante=db.name)
 # Lot 79.6 — sous-menu Liluvine « Messages bloqués » (messages retenus par la barrière, tous correspondants)
 from routes.barriere_wa import setup_messages_bloques_routes as _setup_messages_bloques  # noqa: E402
 _setup_messages_bloques(db=db, api=api, get_current_user=get_current_user,

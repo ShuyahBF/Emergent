@@ -8,6 +8,9 @@
 //   3. « Libérer maintenant » → saisie de LIBERER → POST /api/admin/liberer-espace/executer
 //      (le serveur re-vérifie toutes les protections) → rapport final avec la jauge APRÈS.
 // Backend : backend/routes/liberer_espace.py.
+// Lot 116 : 4e bloc « Collections les moins utilisées (base SAWALI) » (backend/routes/collections_inutilisees.py) :
+//   « Mesurer » → tableau du moins utilisé au plus utilisé → « Sauvegarder, désactiver et supprimer » (LIBERER)
+//   → rapport ; liste des « Collections archivées » avec « Restaurer ».
 import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -180,6 +183,267 @@ const normaliser = (analyse) => ({
 // Sélection par défaut d'un bloc : les éléments que la règle de rétention supprimerait (jamais les bases Atlas)
 const parDefaut = (bloc) => (bloc?.elements || []).filter((e) => e.coche && e.classe !== "protege").map((e) => e.id);
 
+// ===========================================================================================================
+// Lot 116 — Bloc « Collections les moins utilisées (base SAWALI) »
+// Le cluster Atlas est limité à 500 collections. Ce bloc mesure chaque collection de la base de SAWALI
+// (documents, taille, dernière activité, fonction qui l'utilise), puis, pour les collections cochées :
+// sauvegarde dans R2 → désactivation de la fonction → suppression → registre. Restauration possible.
+// ===========================================================================================================
+
+// Libellé et couleur de l'état d'une collection
+const ETATS_COLLECTION = {
+  vide: { texte: "vide", classe: "text-emerald-700" },
+  inactive: { texte: "inactive", classe: "text-amber-700" },
+  active: { texte: "active", classe: "text-slate-700" },
+};
+
+function BlocCollections() {
+  const [mesure, setMesure] = useState(null);       // réponse de GET /admin/collections-inutilisees/analyse
+  const [choix, setChoix] = useState([]);           // noms des collections cochées
+  const [jours, setJours] = useState(90);           // seuil « inactive » (jours sans activité)
+  const [occupe, setOccupe] = useState("");         // "mesure" | "liberation" | "restauration:<nom>" | ""
+  const [erreur, setErreur] = useState("");
+  const [rapport, setRapport] = useState(null);     // rapport de la dernière libération
+  const [archivees, setArchivees] = useState(null); // registre des collections archivées
+
+  // Registre des collections archivées (relu après chaque libération ou restauration)
+  const chargerArchivees = async () => {
+    try {
+      const r = await apiClient.get("/admin/collections-inutilisees/archivees");
+      setArchivees(r.data.archivees || []);
+    } catch (e) {
+      setArchivees([]);
+    }
+  };
+
+  // 1. Mesure (lecture seule) : toast « Patientez… » + jauge circulaire
+  const mesurer = async () => {
+    setOccupe("mesure"); setErreur(""); setRapport(null);
+    const attente = toast.loading("Patientez… mesure des collections de la base SAWALI");
+    try {
+      const r = await apiClient.get("/admin/collections-inutilisees/analyse", { params: { jours } });
+      setMesure(r.data);
+      // Sélection par défaut : seulement les collections VIDES non protégées (cochées par le serveur)
+      setChoix(r.data.collections.filter((c) => c.coche && !c.protegee).map((c) => c.nom));
+      toast.success(`Mesure terminée : ${r.data.synthese.total} collection(s), ${r.data.synthese.proposees} proposée(s)`, { id: attente });
+      chargerArchivees();
+    } catch (e) {
+      setErreur(e?.response?.data?.detail || "Mesure impossible");
+      toast.error(e?.response?.data?.detail || "Mesure impossible", { id: attente });
+    } finally { setOccupe(""); }
+  };
+
+  // Cocher / décocher une collection ; sélection par défaut / tout décocher
+  const basculer = (nom) => setChoix((c) => (c.includes(nom) ? c.filter((x) => x !== nom) : [...c, nom]));
+  const selectionDefaut = () => setChoix((mesure?.collections || []).filter((c) => c.coche && !c.protegee).map((c) => c.nom));
+
+  // 2. Exécution : confirmation LIBERER, puis rapport final
+  const liberer = async () => {
+    const lignes = (mesure?.collections || []).filter((c) => choix.includes(c.nom));
+    const pleines = lignes.filter((c) => c.documents > 0);
+    const avert = pleines.length ? `\n⚠️ ${pleines.length} collection(s) NON vide(s) : ${pleines.map((c) => c.nom).join(", ")}` : "";
+    const mot = window.prompt(`Sauvegarder dans R2, désactiver la fonction puis SUPPRIMER ${lignes.length} collection(s) ?${avert}`
+      + "\nUne restauration reste possible depuis « Collections archivées ».\nTapez LIBERER pour confirmer.");
+    if (!mot) return;
+    setOccupe("liberation"); setErreur("");
+    const attente = toast.loading("Patientez… sauvegarde puis suppression des collections");
+    try {
+      const r = await apiClient.post("/admin/collections-inutilisees/liberer", { collections: choix, confirmation: mot, jours });
+      setRapport(r.data); setMesure(null); setChoix([]);
+      if (r.data.erreurs) toast.warning(`${r.data.liberees} collection(s) libérée(s), ${r.data.erreurs} erreur(s)`, { id: attente });
+      else toast.success(`${r.data.liberees} collection(s) libérée(s)`, { id: attente });
+      chargerArchivees();
+    } catch (e) {
+      setErreur(e?.response?.data?.detail || "Libération impossible");
+      toast.error(e?.response?.data?.detail || "Libération impossible", { id: attente });
+    } finally { setOccupe(""); }
+  };
+
+  // 3. Restauration d'une collection archivée (documents + index depuis R2, fonction réactivée)
+  const restaurer = async (nom) => {
+    if (!window.confirm(`Restaurer la collection « ${nom} » depuis sa sauvegarde R2 et réactiver sa fonction ?`)) return;
+    setOccupe(`restauration:${nom}`);
+    const attente = toast.loading(`Patientez… restauration de ${nom}`);
+    try {
+      const r = await apiClient.post("/admin/collections-inutilisees/restaurer", { nom });
+      toast.success(`${nom} restaurée : ${r.data.documents} document(s), ${r.data.index} index`, { id: attente });
+      chargerArchivees();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Restauration impossible", { id: attente });
+    } finally { setOccupe(""); }
+  };
+
+  const lignes = mesure?.collections || [];
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 p-3" data-testid="bloc-collections-inutilisees">
+      {/* Titre, explication, seuil et bouton « Mesurer » */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold text-slate-800">🗂️ Collections les moins utilisées (base SAWALI)</p>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="text-slate-600">Inactive après
+            <input type="number" min={1} max={3650} value={jours} onChange={(e) => setJours(Number(e.target.value) || 90)}
+              className="mx-1 w-16 rounded border border-slate-300 px-1 py-0.5" /> jours</label>
+          <button type="button" onClick={mesurer} disabled={!!occupe} data-testid="bouton-mesurer-collections"
+            className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-700 disabled:opacity-60">
+            {occupe === "mesure" && <Attente />} Mesurer
+          </button>
+          <button type="button" onClick={chargerArchivees} disabled={!!occupe}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Collections archivées</button>
+        </div>
+      </div>
+      <p className="text-xs text-slate-500">
+        Chaque collection compte dans la limite de 500 du cluster. Les collections <b>vides</b> sont cochées d'office ;
+        les <b>inactives</b> sont proposées sans être cochées ; les collections vitales (comptes, messages, paiements,
+        contrats, sauvegardes, sécurité…) et celles dont la fonction est inconnue sont <b>protégées</b>. Chaque collection
+        supprimée est d'abord <b>sauvegardée dans R2</b> et peut être restaurée ; elle n'est pas recréée au démarrage.
+      </p>
+      {erreur && <p className="text-sm text-red-700">{erreur}</p>}
+
+      {/* Synthèse + jauge du cluster */}
+      {mesure && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <JaugeCollections jauge={mesure.jauge} titre="Collections du cluster (avant)" />
+          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+            <p>Base <b>{mesure.base}</b> : <b>{mesure.synthese.total}</b> collection(s)</p>
+            <p>Proposées : <b>{mesure.synthese.proposees}</b> · protégées : {mesure.synthese.protegees}</p>
+            <p>Vides : {mesure.synthese.vides} · inactives (&gt; {mesure.jours} j) : {mesure.synthese.inactives}</p>
+            <p>Sélection par défaut : <b>{mesure.synthese.liberables_par_defaut}</b> collection(s) libérable(s)</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tableau trié du moins utilisé au plus utilisé (case à cocher en 1re cellule : règle CSS des tableaux) */}
+      {mesure && (
+        <>
+          <div className="flex justify-end gap-2 text-xs">
+            <button type="button" onClick={selectionDefaut} className="text-sky-700 hover:underline">Sélection par défaut</button>
+            <button type="button" onClick={() => setChoix([])} className="text-slate-600 hover:underline">Tout décocher</button>
+          </div>
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-white text-slate-500">
+                <tr>
+                  <th className="w-8 px-2 py-1.5" />
+                  <th className="px-2 py-1.5">Collection</th>
+                  <th className="px-2 py-1.5">Fonction</th>
+                  <th className="px-2 py-1.5 text-right">Documents</th>
+                  <th className="px-2 py-1.5 text-right">Taille</th>
+                  <th className="px-2 py-1.5">Dernière activité</th>
+                  <th className="px-2 py-1.5">État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((c) => {
+                  const coche = choix.includes(c.nom);
+                  const etat = ETATS_COLLECTION[c.etat] || ETATS_COLLECTION.active;
+                  return (
+                    <tr key={c.nom} className={`border-t border-slate-100 ${c.protegee ? "text-slate-400" : ""}`}
+                      aria-selected={coche} title={c.protegee ? `Protégée : ${c.raison}` : c.action_fonction?.texte}>
+                      <td className="px-2 py-1.5">
+                        {c.protegee
+                          ? <span aria-label={`Protégée : ${c.raison}`}>🔒</span>
+                          : <input type="checkbox" checked={coche} onChange={() => basculer(c.nom)} aria-label={`Choisir ${c.nom}`} />}
+                      </td>
+                      <td className="px-2 py-1.5 font-mono">{c.nom}</td>
+                      <td className="px-2 py-1.5">{c.fonction}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{c.documents == null ? "—" : c.documents.toLocaleString("fr-FR")}</td>
+                      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">{c.octets == null ? "—" : taille(c.octets)}</td>
+                      <td className="px-2 py-1.5">{dateHeure(c.derniere_activite)}</td>
+                      <td className="px-2 py-1.5">
+                        {c.protegee
+                          ? <span className="italic">protégée — {c.raison}</span>
+                          : <span className={etat.classe}>{etat.texte}{c.action_fonction?.desactiver ? ` · ${c.action_fonction.texte}` : ""}</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Total en direct + bouton d'exécution */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+            <p className="text-sm text-emerald-900" data-testid="total-collections-liberees">
+              <b>{choix.length}</b> collection(s) libérée(s) sur le cluster
+            </p>
+            <button type="button" onClick={liberer} disabled={!!occupe || choix.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">
+              {occupe === "liberation" && <Attente />} Sauvegarder, désactiver et supprimer
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Rapport final de la libération */}
+      {rapport && (
+        <div className="space-y-2 rounded-lg border border-slate-200 p-3" data-testid="rapport-collections">
+          <p className="font-semibold text-slate-800">
+            Rapport : {rapport.liberees} collection(s) libérée(s)
+            {rapport.erreurs > 0 && <span className="text-red-700"> · {rapport.erreurs} erreur(s)</span>}
+          </p>
+          <JaugeCollections jauge={rapport.jauge_apres} titre="Collections du cluster (après)" />
+          <div className="max-h-64 overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr>
+                <th className="px-2 py-1">Collection</th><th className="px-2 py-1">Fonction</th>
+                <th className="px-2 py-1 text-right">Documents</th><th className="px-2 py-1">Résultat</th>
+              </tr></thead>
+              <tbody>
+                {rapport.elements.map((e) => (
+                  <tr key={e.nom} className="border-t border-slate-100">
+                    <td className="px-2 py-1 font-mono">{e.nom}</td>
+                    <td className="px-2 py-1">{e.fonction}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{e.documents}</td>
+                    <td className={`px-2 py-1 ${e.ok ? "text-emerald-700" : "font-semibold text-red-700"}`}>
+                      {e.ok ? `✅ ${e.etapes.join(" → ")}` : `❌ ${e.erreur || "erreur"}`}
+                      {e.avertissement && <span className="text-amber-700"> · {e.avertissement}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-slate-500">Sauvegardes déposées dans R2 : {rapport.dossier_r2}/</p>
+        </div>
+      )}
+
+      {/* Registre des collections archivées, avec « Restaurer » */}
+      {archivees && (
+        <div className="space-y-2 rounded-lg border border-slate-200 p-3" data-testid="collections-archivees">
+          <p className="font-semibold text-slate-800">📦 Collections archivées ({archivees.length})</p>
+          {archivees.length === 0 ? <p className="text-xs text-slate-500">Aucune collection archivée.</p> : (
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-500"><tr>
+                  <th className="px-2 py-1">Collection</th><th className="px-2 py-1">Fonction</th>
+                  <th className="px-2 py-1 text-right">Documents</th><th className="px-2 py-1">Archivée le</th>
+                  <th className="px-2 py-1">Par</th><th className="px-2 py-1" />
+                </tr></thead>
+                <tbody>
+                  {archivees.map((a) => (
+                    <tr key={a.nom} className="border-t border-slate-100">
+                      <td className="px-2 py-1 font-mono">{a.nom}{a.recreee && <span className="ml-1 text-amber-700">(recréée depuis)</span>}</td>
+                      <td className="px-2 py-1">{a.fonction}{a.fonction_desactivee && <span className="text-slate-500"> · désactivée</span>}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{a.documents}</td>
+                      <td className="px-2 py-1">{dateHeure(a.archivee_le)}</td>
+                      <td className="px-2 py-1">{a.par}</td>
+                      <td className="px-2 py-1 text-right">
+                        <button type="button" onClick={() => restaurer(a.nom)} disabled={!!occupe}
+                          className="inline-flex items-center gap-1 rounded border border-sky-300 px-2 py-0.5 text-sky-700 hover:bg-sky-50 disabled:opacity-50">
+                          {occupe === `restauration:${a.nom}` && <Attente />} Restaurer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LibererEspaceSection() {
   const [analyse, setAnalyse] = useState(null);     // réponse de l'analyse (jauge, synthèse…)
   const [plan, setPlan] = useState(null);           // blocs normalisés
@@ -329,6 +593,9 @@ export default function LibererEspaceSection() {
           </p>
         </div>
       )}
+
+      {/* Lot 116 — 4e bloc : collections les moins utilisées de la base de SAWALI (indépendant du plan ci-dessus) */}
+      <BlocCollections />
     </div>
   );
 }

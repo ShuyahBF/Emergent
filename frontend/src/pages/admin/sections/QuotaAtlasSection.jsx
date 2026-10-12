@@ -6,6 +6,7 @@
 //   • une jauge circulaire : collections utilisées / limite (lot 79.9 : vert < 45 %, orange ≥ 45 %, rouge ≥ 90 %) ;
 //   • le détail par base (barres horizontales, la base de SAWALI signalée) ;
 //   • la limite et le seuil d'alerte, réglables (alerte WhatsApp au super-admin une fois par jour au-delà du seuil).
+// Lot 122 : 2e jauge — TAILLE du cluster de COPIE (Clusterbkp, gratuit : 512 Mo), alerte WhatsApp à 90 %.
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 // Lot 113 — encadré-renvoi vers le bouton unique « 🧹 Libérer l'Espace »
@@ -19,7 +20,8 @@ const COULEURS = {
 };
 
 // Jauge circulaire (SVG) : arc proportionnel au taux d'occupation, repère du seuil d'alerte
-function Jauge({ total, limite, seuil, niveau }) {
+// Lot 122 — `unite` (ex. « Mo ») affichée sous le total ; `libelle` = texte lu par les lecteurs d'écran
+function Jauge({ total, limite, seuil, niveau, unite = "", libelle }) {
   const rayon = 54;
   const circonference = 2 * Math.PI * rayon;
   const part = Math.min(1, limite ? total / limite : 0);
@@ -31,7 +33,7 @@ function Jauge({ total, limite, seuil, niveau }) {
   const ry = 70 + rayon * Math.sin(angle);
   return (
     <svg viewBox="0 0 140 140" className="w-40 h-40 shrink-0" role="img"
-      aria-label={`${total} collections sur ${limite}`} data-testid="jauge-atlas">
+      aria-label={libelle || `${total} collections sur ${limite}`} data-testid={unite ? "jauge-atlas-secours" : "jauge-atlas"}>
       <circle cx="70" cy="70" r={rayon} fill="none" stroke="#e2e8f0" strokeWidth="14" />
       <circle cx="70" cy="70" r={rayon} fill="none" stroke={couleur} strokeWidth="14" strokeLinecap="round"
         strokeDasharray={`${circonference * part} ${circonference}`} transform="rotate(-90 70 70)"
@@ -39,7 +41,7 @@ function Jauge({ total, limite, seuil, niveau }) {
       {/* Repère du seuil d'alerte */}
       <circle cx={rx} cy={ry} r="4" fill="#ffffff" stroke="#475569" strokeWidth="2" />
       <text x="70" y="66" textAnchor="middle" className="fill-slate-900" style={{ fontSize: 26, fontWeight: 700 }}>{total}</text>
-      <text x="70" y="86" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 11 }}>sur {limite}</text>
+      <text x="70" y="86" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 11 }}>sur {limite}{unite ? ` ${unite}` : ""}</text>
     </svg>
   );
 }
@@ -92,6 +94,79 @@ function DetailBase({ nom, onSupprimee }) {
         </div>
       )}
       {message && <p className="text-slate-700">{message}</p>}
+    </div>
+  );
+}
+
+// Lot 122 — jauge de TAILLE du cluster de COPIE (Clusterbkp). Une fois plein (512 Mo en gratuit), il refuse toute
+// écriture et les sauvegardes programmées échouent. Alerte WhatsApp au super-admin au-delà de 90 % (réglable).
+// L'adresse du cluster (chiffrée, celle des sauvegardes programmées) n'est jamais affichée : seul son hôte l'est.
+function JaugeSecours({ reglages, maj }) {
+  const [m, setM] = useState(null);
+  const [enCours, setEnCours] = useState(false);
+  // Lecture (mesure en direct : connexion au cluster de copie, quelques secondes)
+  const charger = useCallback(() => {
+    setEnCours(true);
+    apiClient.get("/admin/atlas/secours").then((r) => setM(r.data))
+      .catch((e) => setM({ erreur: e?.response?.data?.detail || "Mesure indisponible" }))
+      .finally(() => setEnCours(false));
+  }, []);
+  useEffect(() => { charger(); }, [charger]);
+
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4" data-testid="bloc-atlas-secours">
+      <h4 className="text-sm font-semibold text-slate-800">Cluster de copie (sauvegardes programmées) — taille</h4>
+      {!m && <p className="text-sm text-slate-500">Patientez…</p>}
+      {m && m.configure === false && (
+        <p className="text-xs text-slate-600">Aucun cluster de copie enregistré : renseignez son adresse dans les
+          sauvegardes programmées pour suivre sa taille ici.</p>
+      )}
+      {m && m.erreur && <p className="text-xs text-red-700">{m.erreur}</p>}
+      {m && m.configure && !m.erreur && (() => {
+        const c = COULEURS[m.niveau] || COULEURS.ok;
+        const seuilMo = Math.round((m.limite_mo * m.seuil_pct) / 100);
+        return (
+          <div className="flex flex-col sm:flex-row items-center gap-5">
+            <Jauge total={Math.round(m.total_mo)} limite={Math.round(m.limite_mo)} seuil={seuilMo} niveau={m.niveau}
+              unite="Mo" libelle={`${m.total_mo} Mo sur ${m.limite_mo} Mo`} />
+            <div className="flex-1 space-y-2 w-full">
+              <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${c.fond} ${c.texte}`}>
+                {c.libelle} · {m.pourcentage} %
+              </div>
+              <p className="text-sm text-slate-700">
+                <b>{m.total_mo} Mo</b> utilisés sur <b>{m.limite_mo} Mo</b>{m.hote ? <> ({m.hote})</> : null} — encore
+                <b> {m.restant_mo} Mo</b>. Alerte WhatsApp au-delà de <b>{m.seuil_pct} %</b> ({seuilMo} Mo).
+              </p>
+              {(m.bases || []).length > 0 && (
+                <p className="text-xs text-slate-600">
+                  {m.bases.slice(0, 5).map((b) => `${b.nom} ${b.mo} Mo`).join(" · ")}
+                </p>
+              )}
+              <p className="text-[11px] text-slate-500">
+                Mesuré le {new Date(m.le).toLocaleString("fr-FR")} · vérification automatique toutes les heures.
+                <button type="button" onClick={charger} disabled={enCours}
+                  className="ml-2 rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50 disabled:opacity-50">
+                  {enCours ? "Patientez…" : "⟳ Mesurer"}</button>
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+      {/* Réglages : limite (Mo) du cluster de copie et seuil d'alerte (%) */}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block text-xs">
+          <span className="font-semibold text-slate-700">Limite du cluster de copie (gratuit M0 : 512 Mo)</span>
+          <input type="number" min="1" value={reglages.atlas_secours_limite_mo ?? 512}
+            onChange={(e) => maj("atlas_secours_limite_mo", e.target.value === "" ? null : Number(e.target.value))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="atlas-secours-limite" />
+        </label>
+        <label className="block text-xs">
+          <span className="font-semibold text-slate-700">Seuil d'alerte en % (WhatsApp au super-admin)</span>
+          <input type="number" min="1" max="100" value={reglages.atlas_secours_seuil_pct ?? 90}
+            onChange={(e) => maj("atlas_secours_seuil_pct", e.target.value === "" ? null : Number(e.target.value))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="atlas-secours-seuil" />
+        </label>
+      </div>
     </div>
   );
 }
@@ -184,6 +259,8 @@ export default function QuotaAtlasSection({ reglages, maj }) {
         Les réglages prennent effet après « Enregistrer ». Une copie de secours doit toujours être faite sur un AUTRE
         cluster : sur celui-ci, elle remplit le quota partagé par toutes les plateformes.
       </p>
+      {/* Lot 122 — taille du cluster de copie (Clusterbkp) */}
+      <JaugeSecours reglages={reglages} maj={maj} />
     </div>
   );
 }

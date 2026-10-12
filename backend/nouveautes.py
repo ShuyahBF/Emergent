@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "122", "date": "2026-10-12",
+        "titre": "🗄️ Jauge du cluster de copie",
+        "description": "À côté de la jauge des collections (alerte à 90 % : 450/500), une 2e jauge suit la TAILLE du cluster de copie des sauvegardes programmées (Clusterbkp, 512 Mo en gratuit) ; WhatsApp au super-admin au-delà de 90 %, une fois par jour.",
+        "rubrique": "🗄️ Base Atlas — collections du cluster",
+    },
+    {
         "lot": "121", "date": "2026-10-12",
         "titre": "🟩 Puce de contrat dans le chat Support Loois",
         "description": "Fenêtre de chat Support Loois : puce verte / orange / rouge du contrat du client auquel appartient le poste, avec « Client : … · Contrat n° … » dans l'en-tête et une puce devant chaque poste de la liste ; détail au survol, jamais de montant.",

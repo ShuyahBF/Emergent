@@ -116,7 +116,7 @@ const NEW_LOTS = {
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
-  "🗄️ Base Atlas — collections du cluster": "85",   // lots 79.8-85 : jauge, contenu et purge des bases
+  "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
   "Contrats — Seuil de retard de paiement (par défaut)": "121",   // lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
@@ -160,7 +160,7 @@ const NEW_SECTIONS = {
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
-  "🗄️ Base Atlas — collections du cluster": "2026-10-08",   // lots 79.8-85
+  "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-12",   // lot 120 (créée au lot 79.7)
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
@@ -234,6 +234,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
   "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) et dans le chat Support Loois (lot 121).",
   "🚨 Bandeau d'incident et historique (/uptime)": "Historique des incidents de /uptime : Résoudre, Supprimer, Réinitialiser ; un bandeau « Info » est une annonce et ne crée plus d'incident (lot 115).",
   "🧹 Libérer l'Espace": "Un seul bouton : analyse des sauvegardes R2 et des bases Atlas obsolètes, sélection selon la règle de rétention, espace et collections libérés, nettoyage après confirmation (lot 113).",

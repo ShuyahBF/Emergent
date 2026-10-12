@@ -127,6 +127,124 @@ async def surveiller(db, client, base_courante: str, maintenant: Optional[dateti
     return {"mesure": m, "alerte": envoye}
 
 
+# ---------------------------------------------------------------------------
+# Lot 122 (12/10/2026) — jauge de TAILLE du cluster de COPIE (Clusterbkp, offre gratuite M0 : 512 Mo au plus).
+# Demande du propriétaire : « Oui fais les jauges et l'alerte à 90 % ». Une fois plein, un cluster gratuit refuse
+# toute écriture : les sauvegardes programmées échoueraient. Son adresse est celle, CHIFFRÉE, des sauvegardes
+# programmées (Paramètres → sauvegardes programmées) : elle n'est jamais affichée ni renvoyée au navigateur.
+# Taille mesurée = données + index de chaque base (commande dbStats), comme la « Data size » affichée par Atlas.
+# Réglages (db.settings {_id: "global"}) : atlas_secours_limite_mo (défaut 512), atlas_secours_seuil_pct (défaut 90).
+# ---------------------------------------------------------------------------
+LIMITE_SECOURS_MO = 512
+SEUIL_SECOURS_PCT = 90
+
+
+def reglages_secours(s: Dict[str, Any]) -> Dict[str, float]:
+    """Limite (Mo) du cluster de copie et seuil d'alerte (% de la limite)."""
+    def _nombre(v: Any, defaut: float, maxi: float) -> float:
+        try:
+            n = float(v)
+            return n if 0 < n <= maxi else defaut
+        except (TypeError, ValueError):
+            return defaut
+    return {"limite_mo": _nombre((s or {}).get("atlas_secours_limite_mo"), LIMITE_SECOURS_MO, 1_000_000),
+            "seuil_pct": _nombre((s or {}).get("atlas_secours_seuil_pct"), SEUIL_SECOURS_PCT, 100)}
+
+
+async def taille_cluster(client) -> Dict[str, Any]:
+    """Taille (Mo) de chaque base du cluster = dataSize + indexSize. → {"total_mo", "bases": [{"nom", "mo"}]}."""
+    bases: List[Dict[str, Any]] = []
+    noms = [n for n in await client.list_database_names() if n not in BASES_IGNOREES | {"admin"}]
+    for nom in sorted(noms):
+        try:
+            st = await client[nom].command("dbStats")
+            mo = (float(st.get("dataSize") or 0) + float(st.get("indexSize") or 0)) / (1024 * 1024)
+        except Exception:  # noqa: BLE001 — une base illisible n'empêche pas de mesurer les autres
+            mo = 0.0
+        bases.append({"nom": nom, "mo": round(mo, 2)})
+    bases.sort(key=lambda b: -b["mo"])
+    return {"total_mo": round(sum(b["mo"] for b in bases), 2), "bases": bases}
+
+
+def mesure_secours(taille: Dict[str, Any], cfg: Dict[str, float]) -> Dict[str, Any]:
+    """Ajoute pourcentage, place restante, niveau de couleur et dépassement du seuil d'alerte."""
+    limite = cfg["limite_mo"]
+    pct = round(100 * taille["total_mo"] / limite, 1) if limite else 0
+    return {**taille, "limite_mo": limite, "seuil_pct": cfg["seuil_pct"], "pourcentage": pct,
+            "restant_mo": round(max(0.0, limite - taille["total_mo"]), 1),
+            "niveau": niveau(int(round(taille["total_mo"])), int(limite)), "alerte": pct >= cfg["seuil_pct"]}
+
+
+async def mesurer_secours(db) -> Dict[str, Any]:
+    """Mesure du cluster de copie. {"configure": False} si aucune adresse n'est enregistrée. Ne lève jamais."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    cfg = reglages_secours(s)
+    try:
+        from routes import migration_programmation as mp
+        from routes import migration_render as mr
+        ids = await mp.charger_identifiants()
+    except Exception:  # noqa: BLE001 — aucun identifiant enregistré (ou illisible)
+        return {"configure": False, **cfg}
+    uri = ids.get("mongo_uri") or ""
+    if len(uri) < 10:
+        return {"configure": False, **cfg}
+    client = None
+    try:
+        client = mr._client_cible(uri)
+        m = mesure_secours(await taille_cluster(client), cfg)
+        m.update({"configure": True, "hote": mr._hote(uri), "le": datetime.now(timezone.utc).isoformat()})
+    except Exception as exc:  # noqa: BLE001 — cluster injoignable : on le dit, sans l'adresse
+        m = {"configure": True, "erreur": f"cluster de copie injoignable ({type(exc).__name__})", **cfg,
+             "le": datetime.now(timezone.utc).isoformat()}
+    finally:
+        if client is not None:
+            client.close()
+    await db.settings.update_one({"_id": DOC_ID}, {"$set": {"derniere_mesure_secours": m}}, upsert=True)
+    return m
+
+
+def texte_alerte_secours(m: Dict[str, Any]) -> str:
+    """Message d'alerte (une ligne) : cluster de copie presque plein."""
+    return (f"🗄️ Cluster de copie ({m.get('hote') or 'sauvegardes'}) : {m['total_mo']} Mo sur {m['limite_mo']:.0f} Mo "
+            f"({m['pourcentage']} %) — plus que {m['restant_mo']} Mo. Purgez les anciennes copies (🧹 Libérer l'Espace) "
+            f"avant que les sauvegardes programmées ne soient refusées.")
+
+
+async def _envoyer_alerte(db, texte: str, maintenant: datetime) -> bool:
+    """WhatsApp au super-admin par le relais de Liluvine (même canal que l'alerte des collections)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    proprio = "".join(c for c in str(s.get("super_admin_phone") or "") if c.isdigit())
+    if not proprio:
+        return False
+    try:
+        from routes import appel_proprietaire as ap
+        cfg = ap.reglages(s)
+        numero_id, _ligne = ap.ligne_appelante(s, cfg)
+        r = await ap.envoyer_relais(db, s, cfg, numero_id, proprio, texte,
+                                    ["Liluvine — base Atlas", texte, ap.formater_date(maintenant)], maintenant)
+        return bool(r.get("ok"))
+    except Exception:  # noqa: BLE001 — l'alerte ne doit jamais casser la tâche
+        logger.warning("[quota_atlas] alerte WhatsApp non envoyée", exc_info=True)
+        return False
+
+
+async def surveiller_secours(db, maintenant: Optional[datetime] = None) -> Dict[str, Any]:
+    """Tâche horaire (lot 122) : au-delà de 90 % du cluster de copie, WhatsApp UNE fois par jour."""
+    m = await mesurer_secours(db)
+    if not m.get("configure") or m.get("erreur") or not m.get("alerte"):
+        return {"mesure": m, "alerte": False}
+    logger.warning("[quota_atlas] cluster de copie : %s Mo / %s Mo", m["total_mo"], m["limite_mo"])
+    maintenant = maintenant or datetime.now(timezone.utc)
+    jour = maintenant.date().isoformat()
+    suivi = await db.settings.find_one({"_id": DOC_ID}) or {}
+    if suivi.get("alerte_secours_jour") == jour:
+        return {"mesure": m, "alerte": False, "raison": "alerte déjà envoyée aujourd'hui"}
+    envoye = await _envoyer_alerte(db, texte_alerte_secours(m), maintenant)
+    await db.settings.update_one({"_id": DOC_ID}, {"$set": {"alerte_secours_jour": jour,
+                                                             "alerte_secours_envoyee": envoye}}, upsert=True)
+    return {"mesure": m, "alerte": envoye}
+
+
 # Lot 85 (08/10/2026) — purge d'une base OBSOLÈTE du cluster pour libérer des collections (ex. « smartsystems »,
 # créée par erreur lors du passage de SAWALI sur Render). Les bases en service sont PROTÉGÉES : jamais supprimables.
 BASES_PROTEGEES = {"sawali", "albarka", "sawali_dentalcare", "telecom_boutique", "site_meetafrican",
@@ -191,6 +309,21 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
                 m["niveau"] = niveau(int(m.get("total") or 0), int(m.get("limite") or LIMITE_DEFAUT))
                 return m
         return await mesurer(db, client, base_courante)
+
+    @api.get("/admin/atlas/secours", tags=["Admin — Santé"])
+    async def quota_secours(recente: bool = False, user: dict = Depends(get_current_user)):
+        """Lot 122 — taille du cluster de COPIE (Clusterbkp) par rapport à sa limite (512 Mo en offre gratuite).
+        `recente=true` : la dernière mesure si elle a moins de 15 minutes. L'adresse du cluster n'est jamais renvoyée."""
+        if user.get("role") not in ("admin", "super_admin") and user.get("tracked_role") != "Administrateur":
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        if recente:
+            m = (await db.settings.find_one({"_id": DOC_ID}) or {}).get("derniere_mesure_secours") or {}
+            try:
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(m.get("le"))).total_seconds() < 15 * 60:
+                    return m
+            except (TypeError, ValueError):
+                pass
+        return await mesurer_secours(db)
 
 
     def _admin_strict(user: dict) -> None:

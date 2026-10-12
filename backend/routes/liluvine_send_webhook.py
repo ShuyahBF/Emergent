@@ -109,6 +109,21 @@ def date_heure_affichee(maintenant: datetime) -> str:
     return maintenant.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
 
 
+async def fenetre_ouverte(db, destinataire: str, maintenant: datetime) -> bool:
+    """Lot 112.1 — le destinataire a-t-il écrit à SAWALI (WhatsApp) depuis moins de 24 h ?
+    Comparaison sur les 8 derniers chiffres du numéro (comme le reste de SAWALI). Jamais d'exception."""
+    try:
+        chiffres = re.sub(r"\D", "", destinataire or "")
+        if len(chiffres) < 8:
+            return False
+        depuis = (maintenant - timedelta(hours=24)).isoformat()
+        return bool(await db.whatsapp_messages.find_one(
+            {"direction": "inbound", "created_at": {"$gte": depuis},
+             "phone_digits": {"$regex": re.escape(chiffres[-8:]) + "$"}}, {"_id": 1}))
+    except Exception:  # noqa: BLE001 — en cas de doute : modèle (comportement d'avant)
+        return False
+
+
 def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_template=None, wa_send_media=None):
 
     @api.post("/webhook/liluvine-send", tags=["Liluvine — Webhook"])
@@ -190,6 +205,12 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
         modele = (reglages.get("liluvine_transmission_modele") or "").strip()
         langue = (reglages.get("liluvine_transmission_langue") or "fr").strip() or "fr"
         mode = "modele" if (modele and wa_send_template) else "texte"
+        # Lot 112.1 — fenêtre de 24 h OUVERTE (le destinataire a écrit à SAWALI il y a moins de 24 h) : texte libre
+        # plutôt que le modèle. Constat du 12/10/2026 : un modèle classé « Marketing » par Meta peut être bloqué
+        # pour un numéro (limite de messages marketing, promotions refusées…) alors qu'un texte libre passe toujours
+        # dans la fenêtre ; il est aussi gratuit.
+        if mode == "modele" and await fenetre_ouverte(db, destinataire, maintenant):
+            mode = "texte"
         # Lot 104 : code de connexion + modèle d'authentification paramétré → mode « otp » (prioritaire)
         code_otp = re.sub(r"\D", "", payload.code_otp or "")
         if payload.code_otp is not None and not 4 <= len(code_otp) <= 8:

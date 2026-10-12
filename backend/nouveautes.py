@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "112", "date": "2026-10-12",
+        "titre": "🗂️ Contrôle par collection triable",
+        "description": "Dans le détail d'une sauvegarde, cliquez un en-tête (Collection, Source, Cible, Index, Archive) pour trier ; par défaut les plus grosses archives d'abord, avec leur part du total.",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "111", "date": "2026-10-11",
         "titre": "📣 Carrousel WhatsApp sponsorisé (régie publicitaire)",
         "description": "Vendez l'envoi d'un carrousel à un annonceur : chaque clic sur un bouton est facturé au coût par clic (une fois par appareil et par carte sur 24 h), envoi bloqué si le budget est épuisé, rapport public de l'annonceur avec le détail par carte et par jour.",

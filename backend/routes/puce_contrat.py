@@ -47,6 +47,8 @@
 #   - Efficacité : UNE requête groupée sur les comptes (index mémorisé 60 s), puis tout se calcule en mémoire.
 from __future__ import annotations
 
+import logging
+
 import os
 import re
 import time
@@ -78,6 +80,10 @@ COMPTES_FERMES = {"archive": "Compte archivé", "disabled": "Compte désactivé"
                   "inactive": "Compte inactif", "expired": "Compte expiré"}
 COULEURS = {"valide": "vert", "retard": "orange", "aucun": "rouge"}
 DUREE_CACHE_S = 60.0
+
+
+# Lot 128 — journal de diagnostic (comptages seulement, aucune donnée personnelle)
+logger = logging.getLogger("sawali.puce_contrat")
 
 
 def _jour(valeur: Any) -> Optional[date]:
@@ -348,6 +354,10 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             # Compte du locataire SAWALI : son périmètre contient le compte du super-admin (ou son locataire)
             autorise = bool(ids_sa & set(visibles_ids))
         if not autorise:
+            # Lot 128 — diagnostic : pourquoi les puces ne s'affichent pas pour ce compte
+            logger.info("[puce_contrat] puces refusées : rôle=%s domaine_interne=%s super_admin_trouvé=%s périmètre=%s",
+                        user.get("role"), bool(email_user) and email_user.rsplit("@", 1)[-1] in domaines,
+                        bool(ids_sa), len(visibles_ids or []))
             return None
         try:
             seuil_defaut = int(s.get("contract_overdue_days_default") or SEUIL_RETARD_DEFAUT)
@@ -404,6 +414,13 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             fiche = fiche_contrat(client, aujourdhui, seuil_defaut)
             fiche["relie_par"] = critere
             resultat[c["id"]] = fiche
+        # Lot 128 — diagnostic (comptages) : contacts reçus / analysés / reliés, par critère et par couleur
+        bilan: Dict[str, int] = {}
+        for f in resultat.values():
+            cle = "sans_puce" if f is None else f"{f.get('etat')}_{f.get('relie_par')}"
+            bilan[cle] = bilan.get(cle, 0) + 1
+        logger.info("[puce_contrat] demandés=%s visibles=%s comptes_indexés=%s sociétés_indexées=%s bilan=%s",
+                    len(payload.contact_ids or []), len(contacts), len(index.par_id), len(index.par_societe), bilan)
         return {"actif": True, "contrats": resultat}
 
     # Lot 121 — même puce dans la fenêtre de chat « Support Loois » (postes Loois → client SAWALI) : mêmes droits

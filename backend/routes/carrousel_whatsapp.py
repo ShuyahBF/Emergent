@@ -154,6 +154,34 @@ def statuts_depuis_liste(prefixe: str, langue: str, modeles: List[dict]) -> Dict
     return sortie
 
 
+# Lot 115.1 — motif du refus donné par Meta (champ rejected_reason), traduit en mots simples.
+# Constat du 12/10/2026 : plusieurs séries de modèles refusées, sans que SAWALI n'en affiche la raison.
+MOTIFS_REFUS = {
+    "INVALID_FORMAT": "format non conforme (variables, exemple d'URL ou image d'exemple)",
+    "TAG_CONTENT_MISMATCH": "le contenu ne correspond pas à la catégorie choisie",
+    "INCORRECT_CATEGORY": "catégorie incorrecte",
+    "PROMOTIONAL": "contenu jugé promotionnel pour la catégorie",
+    "ABUSIVE_CONTENT": "contenu jugé abusif ou trompeur",
+    "SCAM": "contenu jugé frauduleux (souvent : lien de redirection)",
+    "NONE": "aucun motif donné par Meta",
+}
+
+
+def motifs_depuis_liste(prefixe: str, langue: str, modeles: List[dict]) -> Dict[int, Dict[str, str]]:
+    """Lot 115.1 — {nombre de cartes: {"code", "libelle"}} pour les modèles REFUSÉS (même filtre que les statuts)."""
+    sortie: Dict[int, Dict[str, str]] = {}
+    for m in modeles or []:
+        nom = str(m.get("name") or "")
+        if not nom.startswith(f"{prefixe}_") or (langue and (m.get("language") or langue) != langue):
+            continue
+        suffixe = nom[len(prefixe) + 1:]
+        if (suffixe.isdigit() and CARTES_MIN <= int(suffixe) <= CARTES_MAX
+                and str(m.get("status") or "").upper() == "REJECTED"):
+            code = str(m.get("rejected_reason") or "NONE").upper()
+            sortie[int(suffixe)] = {"code": code, "libelle": MOTIFS_REFUS.get(code, code)}
+    return sortie
+
+
 def prompt_image_carte(description: str, titre: str = "") -> str:
     """Lot 75 — consigne envoyée à l'IA : la description saisie, le titre de la carte (contexte)
     et la consigne de format (carré, sans texte : WhatsApp affiche déjà titre et texte sous l'image)."""
@@ -451,7 +479,7 @@ def attach_carrousel_whatsapp_routes(
         cle = f"{tenant_id or 'plateforme'}:{prefixe}:{langue}"
         cache = _cache_statuts.get(cle)
         if cache and not rafraichir and time.time() - cache[0] < 120:
-            return {"prefixe": prefixe, "statuts": cache[1], "erreur": None}
+            return {"prefixe": prefixe, "statuts": cache[1], "motifs": cache[2] if len(cache) > 2 else {}, "erreur": None}
         creds = await resolve_wa_credentials(tenant_id)
         jeton, waba = (creds.get("access_token") or "").strip(), (creds.get("waba_id") or "").strip()
         if not jeton or not waba:
@@ -462,15 +490,17 @@ def attach_carrousel_whatsapp_routes(
             import httpx
             async with httpx.AsyncClient(timeout=15) as http:
                 rep = await http.get(f"https://graph.facebook.com/{version}/{waba}/message_templates",
-                                     params={"name": prefixe, "fields": "name,status,language", "limit": 200},
+                                     params={"name": prefixe, "fields": "name,status,language,rejected_reason", "limit": 200},   # lot 115.1 : motif du refus
                                      headers={"Authorization": f"Bearer {jeton}"})
             if rep.status_code >= 300:
                 return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta : HTTP {rep.status_code}"}
-            statuts = statuts_depuis_liste(prefixe, langue, (rep.json() or {}).get("data") or [])
+            donnees = (rep.json() or {}).get("data") or []
+            statuts = statuts_depuis_liste(prefixe, langue, donnees)
+            motifs = motifs_depuis_liste(prefixe, langue, donnees)          # lot 115.1
         except Exception as exc:  # noqa: BLE001 — l'écran reste utilisable sans les pastilles
             return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta injoignable : {type(exc).__name__}"}
-        _cache_statuts[cle] = (time.time(), statuts)
-        return {"prefixe": prefixe, "statuts": statuts, "erreur": None}
+        _cache_statuts[cle] = (time.time(), statuts, motifs)
+        return {"prefixe": prefixe, "statuts": statuts, "motifs": motifs, "erreur": None}
 
     def _filtre_brouillons(perimetre: str, tenant_id: Optional[str]) -> dict:
         return {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}

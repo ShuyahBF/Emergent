@@ -226,12 +226,14 @@ function Reglages({ etat, onEnregistre }) {
   const [resultats, setResultats] = useState(null);
   // Lot 78.2 — statut ACTUEL de chaque modèle chez Meta (le résultat du dépôt n'est qu'une photo à l'instant du dépôt)
   const [actuels, setActuels] = useState({});
+  const [motifs, setMotifs] = useState({});   // Lot 115.1 — motif du refus donné par Meta, par nombre de cartes
   const [actualisation, setActualisation] = useState(false);
   const actualiser = useCallback(async (silencieux = false) => {
     setActualisation(true);
     try {
       const { data } = await apiClient.get("/admin/whatsapp/carrousel/statuts-meta", { params: { rafraichir: true } });
       setActuels(data.statuts || {});
+      setMotifs(data.motifs || {});
       if (!silencieux) toast.success(data.erreur ? `Statuts Meta : ${data.erreur}` : "Statuts relus chez Meta");
     } catch (e) {
       if (!silencieux) toast.error(erreur(e, "Statuts Meta indisponibles"));
@@ -346,7 +348,9 @@ function Reglages({ etat, onEnregistre }) {
                   {(() => {
                     const k = Number(String(r.nom).split("_").pop());
                     const st = actuels[k] || actuels[String(k)];
-                    return st ? <span className="inline-flex items-center gap-1"><PastilleMeta statut={st} modele={r.nom} /> {STATUT_COURT[st] || st}</span>
+                    const motif = motifs[k] || motifs[String(k)];   // Lot 115.1 — raison du refus
+                    return st ? <span className="inline-flex flex-wrap items-center gap-1"><PastilleMeta statut={st} modele={r.nom} /> {STATUT_COURT[st] || st}
+                      {motif && <span className="text-red-700">— motif : {motif.libelle} ({motif.code})</span>}</span>
                       : <span className="text-slate-400">—</span>;
                   })()}
                 </td>
@@ -506,6 +510,17 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
               </button>
             ))}
           </div>
+          {/* Lot 115.1 — modèles refusés : motif donné par Meta, en clair */}
+          {Object.keys(meta.motifs || {}).length > 0 && (
+            <div className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-800 ring-1 ring-red-200">
+              <p className="font-semibold">Modèles refusés par Meta :</p>
+              <ul className="ml-4 list-disc">
+                {Object.entries(meta.motifs).map(([n, m]) => (
+                  <li key={n}>{meta.prefixe}_{n} ({n} cartes) : {m.libelle} <span className="text-red-600">({m.code})</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
       {liste.carrousels.length === 0 ? (

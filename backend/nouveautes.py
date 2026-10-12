@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "133", "date": "2026-10-12",
+        "titre": "☁️ Sauvegarde complète vers R2 seulement",
+        "description": "Adresse Atlas laissée vide : la base est archivée dans R2 (une archive par collection), sans base de secours Atlas ; la sauvegarde programmée continue.",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "132.1", "date": "2026-10-12",
         "titre": "🔑 Clé Loois : copie en un clic",
         "description": "À la création d'une clé client ou sans surveillance, la clé s'affiche dans une fenêtre au centre de l'écran avec le pictogramme « Copier ».",

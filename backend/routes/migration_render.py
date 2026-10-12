@@ -714,12 +714,13 @@ async def _demarrer(cible: Cible, lance_par: str, programmee: bool = False) -> D
         raise HTTPException(400, "Mot de passe des secrets : 12 caractères minimum")
     if not (cible.copier_base or cible.copier_fichiers or cible.sauver_secrets):
         raise HTTPException(400, "Choisissez au moins un élément à sauvegarder")
-    if cible.copier_base and len(cible.mongo_uri or "") < 10:
-        raise HTTPException(400, "URI MongoDB Atlas manquante")
+    # Lot 133 — URI Atlas vide = mode « R2 SEULEMENT » : la base est archivée dans R2 (EJSON compressé, une archive
+    # par collection) sans copie vers une base de secours Atlas (Clusterbkp supprimé le 12/10/2026).
+    r2_seulement = cible.copier_base and len((cible.mongo_uri or "").strip()) < 10
 
-    # Vérification des connexions AVANT de lancer quoi que ce soit (Atlas seulement si la base est copiée)
+    # Vérification des connexions AVANT de lancer quoi que ce soit (Atlas seulement si la base est copiée vers Atlas)
     client = None
-    if cible.copier_base:
+    if cible.copier_base and not r2_seulement:
         try:
             client = _client_cible(cible.mongo_uri)
             await client.admin.command("ping")
@@ -990,7 +991,10 @@ async def _relire_references(job_id: str, nom: str, references: Dict[tuple, str]
 
 async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste, deja_faites=frozenset()) -> int:
     """Copie chaque collection vers Atlas (+ archive EJSON dans R2). Renvoie le nombre d'anomalies."""
-    tdb = client[cible.mongo_db]
+    # Lot 133 — client absent = mode « R2 seulement » : archives R2 uniquement, aucune écriture vers Atlas
+    tdb = client[cible.mongo_db] if client is not None else None
+    if tdb is None:
+        await _maj(job_id, "Mode R2 seulement : la base est archivée dans R2 (pas de base de secours Atlas)")
     noms = sorted(n for n in await db.list_collection_names() if not n.startswith("system.") and n not in EXCLUES)
     # Total estimé des documents (instantané, sans parcourir les collections) -> jauge de progression globale
     documents_total = 0
@@ -1000,7 +1004,7 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                etape="Base de données", collections_total=len(noms), documents_total=documents_total)
     anomalies, total_docs = 0, 0
     for nom in noms:
-        src, dst = db[nom], tdb[nom]
+        src, dst = db[nom], (tdb[nom] if tdb is not None else None)
         if nom in deja_faites:
             # Reprise : collection déjà copiée et contrôlée. On relit seulement ses références de fichiers
             # (sans les copier à nouveau) pour que l'étape Fichiers reste complète.
@@ -1009,7 +1013,7 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
             continue
         n_source = await src.count_documents({})
         await _battement(job_id, {"collection": nom, "copies": 0, "total": n_source}, force=True)
-        if cible.remplacer:
+        if cible.remplacer and dst is not None:
             await dst.drop()
         # Archive EJSON compressée, écrite dans un fichier temporaire puis envoyée à R2
         empreinte = hashlib.sha256()
@@ -1024,8 +1028,9 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                     await asyncio.to_thread(gz.write, donnees)
                     empreinte.update(donnees)
                     _ajouter_references(references, refs, nom)
-                    await dst.bulk_write([ReplaceOne({"_id": d["_id"]}, d, upsert=True) for d in docs],
-                                         ordered=False)
+                    if dst is not None:   # lot 133 : rien à écrire dans Atlas en mode R2 seulement
+                        await dst.bulk_write([ReplaceOne({"_id": d["_id"]}, d, upsert=True) for d in docs],
+                                             ordered=False)
                     copies += len(docs)
                     await _battement(job_id, {"collection": nom, "copies": copies, "total": n_source})
 
@@ -1047,7 +1052,7 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                                     ExtraArgs={"ContentType": "application/gzip"})
         # Index (hors _id)
         index_copies = 0
-        for nom_index, info in (await src.index_information()).items():
+        for nom_index, info in ((await src.index_information()).items() if dst is not None else []):
             if nom_index == "_id_":
                 continue
             options = {k: v for k, v in info.items()
@@ -1058,9 +1063,14 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                 index_copies += 1
             except Exception as exc:  # noqa: BLE001
                 await _maj(job_id, f"  index {nom}.{nom_index} non recréé : {str(exc)[:120]}")
-        n_cible = await dst.count_documents({})
-        # En mode fusion la cible peut contenir plus de documents (données déjà présentes)
-        ok = n_cible == n_source if cible.remplacer else n_cible >= n_source
+        if dst is None:
+            # Lot 133 — R2 seulement : contrôle = tous les documents lus ont été archivés
+            n_cible = copies
+            ok = copies >= n_source
+        else:
+            n_cible = await dst.count_documents({})
+            # En mode fusion la cible peut contenir plus de documents (données déjà présentes)
+            ok = n_cible == n_source if cible.remplacer else n_cible >= n_source
         anomalies += 0 if ok else 1
         total_docs += copies
         resultat = {"nom": nom, "source": n_source, "cible": n_cible, "ok": ok, "index": index_copies,

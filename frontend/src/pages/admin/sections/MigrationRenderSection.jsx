@@ -63,6 +63,63 @@ const Barre = ({ fait, total }) => {
 // Date ISO -> « 30/09/2026 14:05 » (heure du navigateur)
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
+// Lot 112 — colonnes triables du « Contrôle par collection (source → cible) ».
+// cle = champ de la ligne ; texte = tri alphabétique (sinon tri numérique).
+const COLONNES_CONTROLE = [
+  { cle: "nom", libelle: "Collection", texte: true },
+  { cle: "source", libelle: "Source" },
+  { cle: "cible", libelle: "Cible" },
+  { cle: "index", libelle: "Index" },
+  { cle: "archive_octets", libelle: "Archive" },
+];
+
+// Tableau du contrôle par collection : un clic sur un en-tête trie la colonne,
+// un 2e clic inverse le sens (▼ décroissant, ▲ croissant). Par défaut : taille d'archive décroissante.
+const ControleCollections = ({ lignes }) => {
+  const [tri, setTri] = useState({ cle: "archive_octets", sens: -1 });
+  // Copie triée (on ne modifie jamais la liste reçue du serveur)
+  const triees = [...(lignes || [])].sort((a, b) => {
+    const col = COLONNES_CONTROLE.find((c) => c.cle === tri.cle);
+    const va = a[tri.cle], vb = b[tri.cle];
+    const ecart = col?.texte ? String(va || "").localeCompare(String(vb || ""), "fr") : (Number(va) || 0) - (Number(vb) || 0);
+    return ecart * tri.sens;
+  });
+  // Clic sur un en-tête : même colonne → sens inversé ; autre colonne → nom croissant, nombres décroissants
+  const choisir = (col) => setTri((t) => (t.cle === col.cle ? { cle: col.cle, sens: -t.sens } : { cle: col.cle, sens: col.texte ? 1 : -1 }));
+  // Total des archives, pour situer le poids de chaque collection
+  const total = (lignes || []).reduce((s, r) => s + (Number(r.archive_octets) || 0), 0);
+  return (
+    <table className="mt-2 w-full text-xs">
+      <thead>
+        <tr className="text-left text-slate-500">
+          {COLONNES_CONTROLE.map((col) => (
+            <th key={col.cle} aria-sort={tri.cle === col.cle ? (tri.sens > 0 ? "ascending" : "descending") : "none"}>
+              <button type="button" onClick={() => choisir(col)} title="Cliquer pour trier"
+                      className={`inline-flex items-center gap-1 hover:text-slate-900 ${tri.cle === col.cle ? "font-bold text-slate-900" : ""}`}>
+                {col.libelle}{tri.cle === col.cle ? (tri.sens > 0 ? " ▲" : " ▼") : ""}
+              </button>
+            </th>
+          ))}
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {triees.map((r) => (
+          <tr key={r.nom} className="border-t border-slate-100">
+            <td className="font-mono">{r.nom}</td><td>{r.source}</td><td>{r.cible}</td><td>{r.index}</td>
+            {/* Taille de l'archive + part du total (repère les collections les plus lourdes) */}
+            <td className="whitespace-nowrap">{taille(r.archive_octets)}{total > 0 && r.archive_octets ? <span className="text-slate-400"> · {((r.archive_octets / total) * 100).toFixed(1)} %</span> : null}</td>
+            <td>{r.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-red-600" />}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr className="border-t border-slate-300 font-semibold"><td colSpan={4}>Total des archives</td><td className="whitespace-nowrap">{taille(total)}</td><td /></tr>
+      </tfoot>
+    </table>
+  );
+};
+
 // Réglage par défaut des sauvegardes programmées (le serveur renvoie le réglage enregistré)
 const REGLAGE_DEFAUT = {
   actif: false, tous_les: 1, heure: "03:00", fuseau: "Africa/Ouagadougou",
@@ -705,17 +762,8 @@ const MigrationRenderSection = () => {
           {job.resultats_collections?.length > 0 && (
             <details className="text-sm" open={job.statut !== "EN_COURS"}>
               <summary className="cursor-pointer font-semibold">Contrôle par collection (source → cible)</summary>
-              <table className="mt-2 w-full text-xs">
-                <thead><tr className="text-left text-slate-500"><th>Collection</th><th>Source</th><th>Cible</th><th>Index</th><th>Archive</th><th /></tr></thead>
-                <tbody>
-                  {job.resultats_collections.map((r) => (
-                    <tr key={r.nom} className="border-t border-slate-100">
-                      <td className="font-mono">{r.nom}</td><td>{r.source}</td><td>{r.cible}</td><td>{r.index}</td><td>{taille(r.archive_octets)}</td>
-                      <td>{r.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-red-600" />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* Lot 112 — tableau triable (clic sur un en-tête), par défaut : plus grosses archives en premier */}
+              <ControleCollections lignes={job.resultats_collections} />
             </details>
           )}
           {/* Détail : vraies erreurs d'abord, puis absents à la source (liste complète dans l'export CSV) */}

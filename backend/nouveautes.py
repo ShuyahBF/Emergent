@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "121", "date": "2026-10-12",
+        "titre": "🟩 Puce de contrat dans le chat Support Loois",
+        "description": "Fenêtre de chat Support Loois : puce verte / orange / rouge du contrat du client auquel appartient le poste, avec « Client : … · Contrat n° … » dans l'en-tête et une puce devant chaque poste de la liste ; détail au survol, jamais de montant.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "120", "date": "2026-10-12",
         "titre": "🟩 Puce de contrat dans la messagerie",
         "description": "Centre de messagerie : une puce carrée devant chaque contact — vert contrat valide, orange retard de paiement, rouge aucun contrat ou annulé ; au survol, n° de contrat, statut, dates, mois écoulés et restants, retard, échéance (jamais de montant). Le passage à l'orange suit ce seuil de retard.",

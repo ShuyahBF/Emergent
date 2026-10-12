@@ -30,6 +30,8 @@ import CalendrierModal from "@/components/CalendrierModal";
 // Lot 88 — sondages « Evaluation Loois » : envoi depuis le fil d'un poste, carte dans les bulles
 import { EnvoiSondageLoois, CarteSondage } from "@/components/SondagesLoois";
 import SelecteurEmojis from "@/components/SelecteurEmojis";   // lot 91 : emojis dans le chat
+// Lot 121 — puce carrée « contrat » (vert / orange / rouge, sans montant) des postes du Support Loois
+import PuceContrat from "@/components/PuceContrat";
 
 /*
  * Son de réception d'un message du chat interne.
@@ -840,6 +842,33 @@ export default function InternalChatPanel() {
     [threads],
   );
 
+  // ---- Lot 121 — puce « contrat » des postes Loois (liste des conversations + en-tête de la fenêtre) ----
+  // Le serveur relie chaque poste au client SAWALI de la conversation (client de la session acceptée, sinon client
+  // retenu pour le poste, sinon clé client Loois) et renvoie la fiche du lot 120 : couleur, n° de contrat, statut,
+  // dates, mois écoulés / restants, retard, échéance — JAMAIS de montant. UNE seule requête pour toute la liste.
+  // Réservé à l'équipe SAWALI : pour les autres, le serveur répond { actif: false } et aucune puce n'est affichée.
+  const [contratsPostes, setContratsPostes] = useState({});        // { poste_id: fiche | null }
+  const [rechargeContrats, setRechargeContrats] = useState(0);     // +1 = relire (session acceptée, client choisi…)
+  // Identifiants des postes affichés (fils de la liste + fil ouvert), en une chaîne stable pour l'effet
+  const postesAffiches = useMemo(() => {
+    if (activeClientId !== "support-loois") return "";
+    const ids = new Set(threads.map((t) => String(t.key)).filter((k) => k.startsWith("loois-")));
+    if (String(activeThreadKey || "").startsWith("loois-")) ids.add(String(activeThreadKey));
+    return [...ids].sort().join(",");
+  }, [activeClientId, threads, activeThreadKey]);
+  useEffect(() => {
+    if (!open || !postesAffiches) return;
+    let annule = false;     // évite d'écrire un résultat périmé si la liste a changé entre-temps
+    apiClient.post("/support-loois/postes-contrats", { poste_ids: postesAffiches.split(",") })
+      .then((r) => { if (!annule) setContratsPostes(r.data?.actif ? (r.data.contrats || {}) : {}); })
+      .catch(() => { if (!annule) setContratsPostes({}); });   // pas de puce en cas d'erreur (jamais bloquant)
+    return () => { annule = true; };
+  }, [open, postesAffiches, rechargeContrats]);
+  // Une session Loois change (demande, acceptation avec choix du client, fin) : on relit les puces
+  useEffect(() => {
+    if (lastEvent?.type === "support_loois_session") setRechargeContrats((n) => n + 1);
+  }, [lastEvent]);
+
   // Hide entire feature if user has no chat-enabled clients
   if (!user || clients.length === 0) return null;
 
@@ -848,6 +877,9 @@ export default function InternalChatPanel() {
   const activeMember = activeThreadKey && activeThreadKey !== "general"
     ? members.find((m) => m.id === activeThreadKey)
     : null;
+
+  // Lot 121 — fiche « contrat » du poste Loois ouvert (undefined = pas de puce)
+  const contratActif = activeClientId === "support-loois" ? contratsPostes[activeThreadKey] : undefined;
 
   // Build a list of "potential threads" = members not yet having a DM thread
   const newableMembers = members.filter((m) => !dmThreadIds.has(m.id));
@@ -935,6 +967,10 @@ export default function InternalChatPanel() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
+                        {/* Lot 121 — puce « contrat » du client du poste Loois (survol = détail, sans montant) */}
+                        {activeClientId === "support-loois" && (
+                          <PuceContrat contrat={contratsPostes[t.key]} testid={`internal-chat-thread-contrat-${t.key}`} />
+                        )}
                         <span className="text-xs font-medium truncate text-slate-800">{t.label}</span>
                         {t.unread > 0 && (
                           <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold">
@@ -989,11 +1025,23 @@ export default function InternalChatPanel() {
                   {isCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
                 </button>
                 <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-800 truncate">
-                  {activeThreadKey === "general"
-                    ? `#général — ${activeClient?.full_name || activeClient?.company || ""}`
-                    : activeMember?.name || activeThread?.label || "Sélectionnez un fil"}
+                <p className="text-sm font-bold text-slate-800 truncate flex items-center gap-1.5">
+                  {/* Lot 121 — puce « contrat » du client auquel appartient le poste Loois en conversation */}
+                  <PuceContrat contrat={contratActif} testid="internal-chat-header-contrat" />
+                  <span className="truncate">
+                    {activeThreadKey === "general"
+                      ? `#général — ${activeClient?.full_name || activeClient?.company || ""}`
+                      : activeMember?.name || activeThread?.label || "Sélectionnez un fil"}
+                  </span>
                 </p>
+                {/* Lot 121 — nom du client SAWALI (tenant) du poste Loois, et n° de contrat s'il existe */}
+                {contratActif?.client_nom && (
+                  <p className="text-[10px] text-slate-600 truncate" data-testid="internal-chat-header-client">
+                    Client : <span className="font-semibold">{contratActif.client_nom}</span>
+                    {contratActif.numero ? ` · Contrat ${contratActif.numero}` : ""}
+                    {contratActif.relie_par === "aucun" ? " (non relié à un compte SAWALI)" : ""}
+                  </p>
+                )}
                 {activeThreadKey && activeThreadKey !== "general" && (
                   <p className="text-[10px] text-slate-500 inline-flex items-center gap-1">
                     <Circle className={`h-1.5 w-1.5 ${activeMember?.online ? "fill-emerald-500 text-emerald-500" : "fill-slate-400 text-slate-400"}`} />

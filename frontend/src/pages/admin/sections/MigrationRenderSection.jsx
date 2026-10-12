@@ -13,6 +13,8 @@ import { Database, Cloud, KeyRound, Play, RefreshCw, Download, CheckCircle2, XCi
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
+// Lot 113 — encadré-renvoi vers le bouton unique « 🧹 Libérer l'Espace »
+import { RenvoiLibererEspace } from "@/pages/admin/sections/LibererEspaceSection";
 
 // Libellés et couleurs des statuts d'une sauvegarde
 const STATUTS = {
@@ -149,7 +151,8 @@ const REGLAGE_DEFAUT = {
 // sauvegardes dans R2 et rapport envoyé par Liluvine.
 // Backend : backend/routes/migration_programmation.py
 // =====================================================================
-const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisation }) => {
+// Lot 113 — `outilsAvances` : outils de nettoyage secondaires, affichés dans le bloc replié « Outils avancés de nettoyage »
+const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisation, outilsAvances }) => {
   const [etat, setEtat] = useState(null); // réglage + état renvoyés par le serveur
   const [reglage, setReglage] = useState(REGLAGE_DEFAUT);
   const [occupe, setOccupe] = useState("");
@@ -312,10 +315,6 @@ const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisatio
           className="inline-flex items-center gap-1 rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50">
           <Play className="h-4 w-4" /> Lancer maintenant avec ces réglages
         </button>
-        <button type="button" onClick={purgerMaintenant} disabled={!!occupe || !ids.existe}
-          className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
-          <Trash2 className="h-4 w-4" /> {occupe === "purge" ? "Purge…" : "Purger maintenant"}
-        </button>
       </div>
 
       {/* Dernière exécution programmée et dernière purge */}
@@ -342,6 +341,22 @@ const ProgrammationSauvegardes = ({ form, enCours, charger, suivre, actualisatio
       </div>
 
       <p className="text-xs text-slate-500">Les sauvegardes supprimées de R2 par la rétention restent dans l'historique ci-dessous avec le badge « purgée ».</p>
+
+      {/* Lot 113 — boutons de nettoyage secondaires regroupés et repliés : pour faire de la place au quotidien,
+          le bouton unique « 🧹 Libérer l'Espace » applique les mêmes règles avec un plan à valider. */}
+      <details className="rounded-lg border border-slate-200 p-3 text-sm" data-testid="outils-avances-nettoyage">
+        <summary className="cursor-pointer font-semibold">🧰 Outils avancés de nettoyage</summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-slate-500">
+            Réservés aux cas particuliers. Pour faire de la place, préférez <b>🧹 Libérer l'Espace</b> (plus haut dans les Paramètres).
+          </p>
+          <button type="button" onClick={purgerMaintenant} disabled={!!occupe || !ids.existe}
+            className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+            <Trash2 className="h-4 w-4" /> {occupe === "purge" ? "Purge…" : "Purger maintenant"}
+          </button>
+          {outilsAvances}
+        </div>
+      </details>
     </div>
   );
 };
@@ -546,6 +561,8 @@ const MigrationRenderSection = () => {
         <b> base Atlas de secours</b> (jamais la base en service : refusée automatiquement), une archive de chaque
         collection, les fichiers et les variables d'environnement <b>chiffrées</b> vers <b>Cloudflare R2</b>. Relançable à volonté.
       </p>
+      {/* Lot 113 — un seul endroit pour faire de la place */}
+      <RenvoiLibererEspace />
 
       {/* ---------- Inventaire ---------- */}
       {inventaire && (
@@ -813,9 +830,10 @@ const MigrationRenderSection = () => {
       )}
 
       {/* ---------- Sauvegardes programmées et rétention ---------- */}
-      <ProgrammationSauvegardes form={form} enCours={enCours} charger={charger} suivre={suivre} actualisation={jobs} />
-      {/* Lot 107 — sauvegardes présentes dans R2 : taille, suppression à la main */}
-      <SauvegardesR2 actualisation={jobs} charger={charger} />
+      {/* Lot 107 — sauvegardes présentes dans R2 (taille, suppression à la main) : lot 113, rangées dans
+          « Outils avancés de nettoyage » du bloc des sauvegardes programmées */}
+      <ProgrammationSauvegardes form={form} enCours={enCours} charger={charger} suivre={suivre} actualisation={jobs}
+        outilsAvances={<SauvegardesR2 actualisation={jobs} charger={charger} />} />
 
       {/* ---------- Historique ---------- */}
       {jobs.length > 0 && (

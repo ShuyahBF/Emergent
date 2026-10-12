@@ -38,6 +38,7 @@ import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection"; 
 import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSection";   // Lot 96 : page Facebook animée par Liluvine
 import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
+import LibererEspaceSection from "@/pages/admin/sections/LibererEspaceSection";   // Lot 113 : bouton unique « 🧹 Libérer l'Espace »
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
@@ -100,6 +101,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🧹 Libérer l'Espace": "113",   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "111",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
@@ -142,6 +144,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🧹 Libérer l'Espace": "2026-10-12",
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-11",   // lot 94 ; lot 111
@@ -228,6 +231,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🧹 Libérer l'Espace": "Un seul bouton : analyse des sauvegardes R2 et des bases Atlas obsolètes, sélection selon la règle de rétention, espace et collections libérés, nettoyage après confirmation (lot 113).",
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
   "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
@@ -1875,6 +1879,11 @@ export default function AdminSettings() {
       <NoteServiceHistorySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      {/* Lot 113 — un seul bouton pour faire de la place (sauvegardes R2 + bases Atlas obsolètes), placé
+          juste avant les rubriques de sauvegarde dont il regroupe les outils de nettoyage */}
+      <Filterable title="🧹 Libérer l'Espace" anchorId="s-liberer-espace" category="diagnostics">
+        <LibererEspaceSection />
+      </Filterable>
       {/* Lot 49 — toute la base : export / import chiffrés, sauvegardes quotidiennes dans R2 */}
       <Filterable title="Sauvegarde / transfert des données" anchorId="s-sauvegarde-transfert" category="diagnostics">
         <SauvegardeTransfertSection />

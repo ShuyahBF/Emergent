@@ -224,6 +224,10 @@ from routes.quota_atlas import setup_quota_atlas_routes as _setup_quota_atlas  #
 from db import client as _client_mongo  # noqa: E402
 _setup_quota_atlas(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
                    base_courante=db.name)
+# Lot 113 — bouton unique « 🧹 Libérer l'Espace » : sauvegardes R2 (migration, quotidiennes) et bases Atlas obsolètes
+from routes.liberer_espace import setup_liberer_espace_routes as _setup_liberer_espace  # noqa: E402
+_setup_liberer_espace(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
+                      base_courante=db.name)
 # Lot 79.6 — sous-menu Liluvine « Messages bloqués » (messages retenus par la barrière, tous correspondants)
 from routes.barriere_wa import setup_messages_bloques_routes as _setup_messages_bloques  # noqa: E402
 _setup_messages_bloques(db=db, api=api, get_current_user=get_current_user,

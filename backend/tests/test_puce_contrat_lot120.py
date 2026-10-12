@@ -43,18 +43,23 @@ def test_valide_vert_avec_mois():
     assert "contract_amount" not in f and 900000 not in f.values()
 
 
-def test_retard_orange_meme_regle_que_les_alertes():
-    # 20 jours depuis le dernier règlement, seuil du client 15 j → retard (règle du lot 79.7)
-    f = fiche_contrat({"contract_number": "C-002", "last_payment_at": "2026-09-22", "contract_overdue_days": 15,
+def test_retard_orange_compte_depuis_l_echeance():
+    # Lot 127.3 — le retard se compte depuis l'ÉCHÉANCE (dernier règlement + périodicité), le seuil est un délai de grâce.
+    # Mensuel payé le 23/08 → échéance 22/09 → 20 jours de retard au 12/10, seuil du client 15 j → orange
+    f = fiche_contrat({"contract_number": "C-002", "last_payment_at": "2026-08-23", "contract_overdue_days": 15,
                        "contract_billing_period": "monthly"}, AUJ)
     assert f["etat"] == "retard" and f["couleur"] == "orange" and f["jours_retard"] == 20 and f["seuil_retard"] == 15
-    assert f["echeance_prochaine"] == "2026-10-22" and f["periodicite"] == "Mensuel"
-    # Sous le seuil → vert
+    assert f["echeance_prochaine"] == "2026-09-22" and f["periodicite"] == "Mensuel"
+    # Cas réel (Pharmacie AMITIÉ MIYOUGOU) : payé il y a quelques jours → À JOUR (avant : orange au bout de 5 jours)
+    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-10-06"}, AUJ)["etat"] == "valide"
     assert fiche_contrat({"contract_number": "C-002", "last_payment_at": "2026-10-01",
                           "contract_overdue_days": 15}, AUJ)["etat"] == "valide"
-    # Seuil global par défaut (5 j)
-    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-10-06"}, AUJ)["etat"] == "retard"
-    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-10-06"}, AUJ, 30)["etat"] == "valide"
+    # Périodicité inconnue = mensuelle : payé le 01/09 → échéance 01/10 → 11 j > 5 j (défaut) → orange ; seuil 30 → vert
+    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-09-01"}, AUJ)["etat"] == "retard"
+    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-09-01"}, AUJ, 30)["etat"] == "valide"
+    # Trimestriel payé le 01/09 → échéance 30/11 → à jour
+    assert fiche_contrat({"contract_number": "C", "last_payment_at": "2026-09-01",
+                          "contract_billing_period": "quarterly"}, AUJ)["etat"] == "valide"
 
 
 def test_compte_suspendu_et_renouvellement_en_retard_orange():
@@ -178,7 +183,8 @@ def test_route_couleurs_liens_et_aucun_montant():
     assert corps["actif"] is True
     c = corps["contrats"]
     assert c["k1"]["etat"] == "valide" and c["k1"]["numero"] == "C-A" and c["k1"]["relie_par"] == "telephone"
-    assert c["k2"]["etat"] == "retard" and c["k2"]["numero"] == "C-B" and c["k2"]["jours_retard"] == 40
+    # Lot 127.3 : payé il y a 40 jours (mensuel par défaut) → échéance dépassée de 10 jours → orange
+    assert c["k2"]["etat"] == "retard" and c["k2"]["numero"] == "C-B" and c["k2"]["jours_retard"] == 10
     assert c["k2"]["relie_par"] == "email"
     assert c["k3"]["etat"] == "aucun" and c["k3"]["numero"] is None
     assert c["k4"]["etat"] == "aucun" and c["k4"]["statut"] == "annule" and c["k4"]["relie_par"] == "societe"

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "129"
-LOT_LIBELLE = "Retard de paiement compté depuis l'échéance partout (Admin → Clients, alertes, Liluvine) + filtre Avec / Sans contrat"
+LOT = "130"
+LOT_LIBELLE = "Ctrl + Espace / double-clic : reprendre le texte par défaut d'un champ pour le modifier"

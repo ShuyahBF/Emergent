@@ -12,7 +12,7 @@
 //   - RÉGLAGE DE TRANSITION « Accepter encore la clé commune pour la synchro » (décoché par défaut).
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, UserX, KeyRound, X } from "lucide-react";
+import { RefreshCw, UserX, KeyRound, X, Copy, Check } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 const BASE = "/admin/loois-cles-clients";
@@ -40,6 +40,7 @@ export default function LooisClesClients() {
   const [edition, setEdition] = useState(null);   // fiche en cours de modification {id, libelle, applications}
   const [cleMontree, setCleMontree] = useState(null); // {code, cle} : clé affichée UNE fois après création / régénération
   const [ligne, setLigne] = useState(null);       // ligne sélectionnée (orange, règle des tableaux)
+  const [cleCopiee, setCleCopiee] = useState(false);   // lot 132.1 : coche verte après la copie
 
   // Lecture de la liste (avec « Patientez… » si demandé)
   const charger = useCallback(async (visible = false) => {
@@ -107,7 +108,7 @@ export default function LooisClesClients() {
     const t = toast.loading("Patientez…");
     try {
       const r = await apiClient.post(`${BASE}/${fiche.id}/sans-surveillance${quoi === "revoquer" ? "/revoquer" : ""}`);
-      if (r.data.cle) setCleMontree({ code: `${fiche.code} (sans surveillance)`, cle: r.data.cle });
+      if (r.data.cle) setCleMontree({ code: fiche.code, cle: r.data.cle });
       toast.success("Fait", { id: t });
       charger(false);
     } catch (err) {
@@ -145,6 +146,7 @@ export default function LooisClesClients() {
   const copier = async () => {
     try {
       await navigator.clipboard.writeText(cleMontree.cle);
+      setCleCopiee(true);
       toast.success("Clé copiée");
     } catch {
       toast.error("Copie impossible : sélectionnez la clé et faites Ctrl+C");
@@ -159,21 +161,40 @@ export default function LooisClesClients() {
       {!donnees && <p className="text-sm text-slate-500"><Jauge /> Patientez…</p>}
 
       {/* Clé affichée UNE SEULE FOIS (création ou régénération) */}
+      {/* Lot 132.1 — la clé montrée UNE fois s'affiche dans une fenêtre au centre de l'écran (avant : en haut de la
+          page, invisible quand on avait fait défiler le tableau). Copie en un clic (pictogramme « deux feuilles »). */}
       {cleMontree && (
-        <section className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4" data-testid="cle-montree">
-          <h2 className="text-lg font-semibold text-amber-900">🔑 Clé client Loois de {cleMontree.code}</h2>
-          <p className="text-sm text-amber-900">
-            ⚠ Notez-la maintenant : elle ne sera <strong>plus jamais affichée</strong> (SAWALI n'en garde que l'empreinte).
-            À saisir sur chaque poste du client : icône Loois → « Clé client Loois… ».
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <code className="select-all rounded bg-white px-3 py-1.5 font-mono text-sm ring-1 ring-amber-300">{cleMontree.cle}</code>
-            <button type="button" onClick={copier} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700">📋 Copier</button>
-            <button type="button" onClick={() => setCleMontree(null)} className="rounded-lg border border-amber-400 px-3 py-1.5 text-sm hover:bg-amber-100">
-              J'ai noté la clé — masquer
-            </button>
-          </div>
-        </section>
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" data-testid="cle-montree">
+          <section className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl ring-2 ring-amber-400">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700">
+                {String(cleMontree.cle).startsWith("LKS-") ? <UserX className="h-5 w-5" /> : <KeyRound className="h-5 w-5" />}
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {String(cleMontree.cle).startsWith("LKS-") ? "Clé sans surveillance" : "Clé client Loois"} — {cleMontree.code}
+                </h2>
+                <p className="text-sm text-slate-600">
+                  Notez-la maintenant : elle ne sera <strong>plus jamais affichée</strong> (SAWALI n'en garde que l'empreinte).
+                  À coller sur chaque poste concerné : icône Loois → « Clé client Loois… ».
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-slate-50 p-2 ring-1 ring-slate-200">
+              <code className="min-w-0 flex-1 select-all break-all px-2 font-mono text-sm text-slate-900">{cleMontree.cle}</code>
+              <button type="button" onClick={copier} title="Copier la clé"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-500 text-white hover:bg-amber-600" data-testid="copier-cle">
+                {cleCopiee ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button type="button" onClick={() => { setCleMontree(null); setCleCopiee(false); }} title="Fermer : la clé ne sera plus affichée"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                <X className="h-4 w-4" /> J'ai noté la clé
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {donnees && (

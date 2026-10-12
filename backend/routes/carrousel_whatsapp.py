@@ -44,9 +44,28 @@ Lot 111 — PAGE DE PRÉSENTATION DE TOUT LE CARROUSEL, une position par carte, 
       GET  /api/admin/whatsapp/carrousel/regies                       campagnes de régie « Carrousel WhatsApp »
       PUT  /api/admin/whatsapp/carrousel/campagnes/{id}/regie         rattacher / détacher un envoi
       GET  /api/admin/whatsapp/carrousel/regie/etat                   état pour la page Paramètres
+
+Lot 114 — CARROUSELS PROGRAMMÉS et PLAGES HORAIRES D'ENVOI (portail ET administration, sponsorisés compris) :
+  - « Envoyer maintenant » ou « Programmer le JJ/MM/AAAA à HH:MM » (heure de Ouagadougou) : champ `programme_le`
+    de l'envoi, contrôlé par routes/plages_envoi.py (une date passée est refusée) ;
+  - les envois respectent les plages horaires fixées par l'Admin (lot 42, Paramètres) : hors plage, la campagne
+    passe « EN_ATTENTE » et démarre à la prochaine ouverture ; une campagne en cours s'arrête à la fin de la
+    plage et reprend toute seule à l'ouverture suivante, là où elle s'était arrêtée (un destinataire déjà
+    servi — ENVOYE ou ECHEC — n'est jamais renvoyé) ;
+  - statuts d'une campagne : PROGRAMMEE, EN_ATTENTE (hors plage), EN_COURS, TERMINEE, ANNULEE ;
+  - un verrou en base (`verrou_jusqu_a`) empêche deux envois en parallèle de la même campagne (deux tâches,
+    deux serveurs, redémarrage) ;
+  - carrousel sponsorisé : le contrôle budget / dates de la régie est refait AU MOMENT RÉEL de l'envoi
+    (campagne ANNULEE avec son motif si la régie ne le permet plus) ;
+  - un planificateur (toutes les minutes) démarre les campagnes échues et reprend celles restées EN_COURS
+    après un redémarrage du serveur.
+      POST /api/me/whatsapp/carrousel/campagnes/{id}/annuler       annuler (ses propres campagnes)
+      POST /api/admin/whatsapp/carrousel/campagnes/{id}/annuler    annuler (toutes les campagnes)
+      GET  /api/admin/whatsapp/carrousel/programmation/etat        état pour la page Paramètres
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import re
@@ -62,6 +81,7 @@ from pydantic import BaseModel, Field
 
 from routes.whatsapp_helpers import _normalize_wa_phone
 from routes import carrousel_regie as regie     # lot 111 : présentation par campagne et régie publicitaire
+from routes.plages_envoi import DEFAUT as PLAGES_DEFAUT, instant_programme   # lot 114 : envois programmés
 
 logger = logging.getLogger("sawali.carrousel")
 
@@ -77,6 +97,20 @@ CHEMIN_LIEN = "/api/public/carrousel/l/"
 CHEMIN_PRESENTATION = "/presentation/"   # lot 94 : page du site qui présente une carte sans lien
 CHEMIN_OG_PRODUIT = "/api/public/og/product/"   # ancien lien automatique des cartes produit
 DESCRIPTION_MAX = 4000                  # lot 111 : description détaillée d'une carte (page de présentation)
+
+
+# Lot 114 — statuts d'une campagne de carrousel et leur libellé français (pastilles des listes)
+STATUTS_CAMPAGNE = {
+    "PROGRAMMEE": "Programmée",          # date d'envoi future choisie par l'utilisateur
+    "EN_ATTENTE": "En attente",          # hors des plages horaires d'envoi : reprendra à l'ouverture suivante
+    "EN_COURS": "En cours",              # envoi en train de partir
+    "TERMINEE": "Terminée",              # tous les destinataires ont été servis
+    "ANNULEE": "Annulée",                # annulée par l'utilisateur (ou régie qui ne permet plus l'envoi)
+}
+STATUTS_ANNULABLES = ["PROGRAMMEE", "EN_ATTENTE", "EN_COURS"]
+STATUTS_DEST_SERVIS = ("ENVOYE", "ECHEC")   # destinataire déjà traité : jamais renvoyé à la reprise
+VERROU_MINUTES = 5                       # durée du verrou d'envoi (renouvelé à chaque destinataire)
+PLANIFICATEUR_SECONDES = 60              # fréquence du planificateur des envois programmés / en attente
 
 
 def doit_presenter(cible: Optional[str]) -> bool:
@@ -214,6 +248,8 @@ class EnvoiIn(BaseModel):
     groupes: List[str] = Field(default_factory=list)      # groupes de contacts (portail)
     # Lot 111 — campagne de la régie publicitaire qui sponsorise ce carrousel (administration seulement)
     regie_id: Optional[str] = Field(None, max_length=80)
+    # Lot 114 — date et heure d'envoi programmées (« 2026-10-15T09:30 », heure de Ouagadougou) ; vide = maintenant
+    programme_le: Optional[str] = Field(None, max_length=40)
 
 
 class LienRegieIn(BaseModel):
@@ -287,9 +323,14 @@ def attach_carrousel_whatsapp_routes(
     resolve_wa_credentials: Callable[[Optional[str]], Awaitable[dict]],
     base_publique: Callable[[], str],
     save_and_log: Optional[Callable[..., Awaitable[dict]]] = None,
+    plages: Optional[Dict[str, Any]] = None,
+    is_preview_env: Callable[[], bool] = lambda: False,
 ) -> Dict[str, Any]:
     """Branche les routes du carrousel. `base_publique()` : adresse publique du site
-    (PUBLIC_BASE_URL), utilisée pour les images et les liens des boutons."""
+    (PUBLIC_BASE_URL), utilisée pour les images et les liens des boutons.
+    Lot 114 — `plages` : {config, attente, programme} de routes/plages_envoi.py (plages horaires d'envoi et
+    contrôle de la date programmée) ; None = aucune restriction horaire.
+    `is_preview_env()` : vrai dans la preview Emergent (copie de la production) → aucun envoi automatique."""
 
     def _tenant_id(user: dict) -> str:
         return user.get("parent_client_id") or user.get("client_id") or user["id"]
@@ -830,14 +871,28 @@ def attach_carrousel_whatsapp_routes(
                                                         "WhatsApp (ou aucun numéro valable)")
         if len(destinataires) > DESTINATAIRES_MAX:
             raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} destinataires au maximum par campagne")
+        # Lot 114 — date d'envoi programmée (refusée si déjà passée) : contrôlée AVANT tout enregistrement
+        quand = await _programme(envoi.programme_le)
+        programme = bool(quand and quand > datetime.now(timezone.utc))
         # Lot 111 — carrousel sponsorisé (administration seulement) : garde-fou budget / dates de la régie
         regie_id = ((envoi.regie_id or "").strip() or None) if perimetre == "admin" else None
         if regie_id:
             try:
                 await regie.regie_envoyable(db, regie_id, len(destinataires))
             except ValueError as exc:
-                logger.info("[carrousel] envoi sponsorisé refusé (%s) : %s", regie_id, exc)
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                # Lot 114 — envoi PROGRAMMÉ : une régie « pas encore commencée » ou « en pause » peut l'être au
+                # moment réel de l'envoi (contrôle refait par _executer) ; budget épuisé / expirée = refus immédiat
+                if not (programme and _regie_peut_attendre(str(exc))):
+                    logger.info("[carrousel] envoi sponsorisé refusé (%s) : %s", regie_id, exc)
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Lot 114 — statut de départ : PROGRAMMEE (date future), EN_ATTENTE (hors plage horaire) ou EN_COURS
+        ouverture = None if programme else await _attente()
+        if programme:
+            statut, reprise = "PROGRAMMEE", quand
+        elif ouverture is not None:
+            statut, reprise = "EN_ATTENTE", ouverture
+        else:
+            statut, reprise = "EN_COURS", None
         campagne_id = secrets.token_hex(8)
         for i, c in enumerate(cartes):
             # Code court du bouton : caractères base64 URL seulement (jamais de « # » dans la variable Meta)
@@ -851,60 +906,227 @@ def attach_carrousel_whatsapp_routes(
             "expediteur": expediteur[:60], "message": envoi.message, "cartes": cartes,
             "modele": nom_modele(r["modele"], len(cartes)), "langue": r["langue"],
             "creds_tenant": r["creds_tenant"], "destinataires": destinataires,
-            "statut": "EN_COURS", "compte": {"total": len(destinataires), "envoyes": 0, "echecs": 0},
+            "statut": statut, "compte": {"total": len(destinataires), "envoyes": 0, "echecs": 0},
             # Lot 111 — identifiant public (page de présentation) et campagne de régie qui sponsorise
             "id_public": regie.nouvel_id_public(), "regie_id": regie_id,
+            # Lot 114 — programmation et reprise : date choisie, prochaine reprise, verrou d'envoi.
+            # `reprenable` distingue les campagnes du lot 114 : seules elles sont reprises après un redémarrage
+            # (une ancienne campagne restée « EN_COURS » ne repart jamais d'elle-même des semaines plus tard).
+            "programme_le": quand.isoformat() if programme else None,
+            "reprise_le": reprise.isoformat() if reprise else None,
+            "verrou_jusqu_a": None, "reprenable": True,
         }
         await db.carrousel_campagnes.insert_one(dict(doc))
         if regie_id:
             await db.ad_banners.update_one({"id": regie_id}, {"$addToSet": {"carrousel_campagne_ids": campagne_id}})
             await regie.apercu_si_vide(db, regie_id, campagne_id)
-        bg.add_task(_executer, campagne_id)
+        if statut == "EN_COURS":
+            bg.add_task(_executer, campagne_id)          # envoi immédiat, en fond après la réponse
+        logger.info("[carrousel] campagne %s créée (%s) : %s, %d destinataire(s)", campagne_id, perimetre, statut,
+                    len(destinataires))
         return {"id": campagne_id, "destinataires": len(destinataires), "modele": doc["modele"],
-                "ignores": len(personnes) - len(destinataires)}
+                "ignores": len(personnes) - len(destinataires), "statut": statut,
+                "statut_libelle": STATUTS_CAMPAGNE[statut], "programme_le": doc["programme_le"],
+                "reprise_le": doc["reprise_le"]}
+
+    # --- Lot 114 : plages horaires, programmation, verrou, reprise -----------------------
+    async def _attente() -> Optional[datetime]:
+        """None si l'envoi est permis maintenant ; sinon la prochaine ouverture de plage (UTC).
+        Sans réglage des plages (tests, ancien branchement) : jamais d'attente."""
+        if plages is None:
+            return None
+        return await plages["attente"]()
+
+    async def _programme(texte: Optional[str]) -> Optional[datetime]:
+        """Date programmée saisie → instant UTC (None si vide). Refus (400) si illisible ou déjà passée.
+        Même contrôle que les formulaires et sondages (routes/plages_envoi.py)."""
+        if plages is not None:
+            return await plages["programme"](texte)
+        try:
+            d = instant_programme(texte, PLAGES_DEFAUT)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if d and d < datetime.now(timezone.utc) - timedelta(minutes=5):
+            raise HTTPException(status_code=400, detail="La date d'envoi programmée est déjà passée")
+        return d
+
+    def _regie_peut_attendre(motif: str) -> bool:
+        """Lot 114 — motifs de refus de la régie qui peuvent se lever d'ici la date programmée."""
+        return "pas encore commencée" in motif or "en pause" in motif
+
+    async def _prendre_verrou(campagne_id: str) -> bool:
+        """Verrou simple en base : une seule tâche à la fois envoie une campagne donnée (même entre deux
+        serveurs). Pris seulement si la campagne est EN_COURS et que le verrou est libre ou périmé
+        (tâche arrêtée par un redémarrage : le verrou expire de lui-même après VERROU_MINUTES)."""
+        maintenant = datetime.now(timezone.utc)
+        r = await db.carrousel_campagnes.update_one(
+            {"id": campagne_id, "statut": "EN_COURS",
+             "$or": [{"verrou_jusqu_a": None}, {"verrou_jusqu_a": {"$lt": maintenant.isoformat()}}]},
+            {"$set": {"verrou_jusqu_a": (maintenant + timedelta(minutes=VERROU_MINUTES)).isoformat()}})
+        return bool(r.modified_count)
+
+    async def _prolonger_verrou(campagne_id: str) -> None:
+        """Renouvelle le verrou pendant l'envoi (un destinataire = quelques secondes au plus)."""
+        fin = (datetime.now(timezone.utc) + timedelta(minutes=VERROU_MINUTES)).isoformat()
+        await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": fin}})
 
     async def _executer(campagne_id: str) -> None:
         """Envoi un par un ; chaque résultat est gardé sur la campagne et dans
-        whatsapp_messages (compteurs d'usage de la plateforme)."""
-        c = await db.carrousel_campagnes.find_one({"id": campagne_id}, {"_id": 0})
-        if not c:
-            return
-        comps = composants(c["expediteur"], c["message"], c["cartes"])
-        envoyes = echecs = 0
-        for i, d in enumerate(c["destinataires"]):
-            try:
-                r = await wa_send_template(d["telephone"], c["modele"], c["langue"], comps,
-                                           tenant_id=c.get("creds_tenant"))
-            except Exception as exc:  # noqa: BLE001
-                r = {"ok": False, "status": None, "message_id": None, "error": str(exc)[:300]}
-            statut = "ENVOYE" if r.get("ok") else "ECHEC"
-            envoyes += statut == "ENVOYE"
-            echecs += statut == "ECHEC"
-            if statut == "ENVOYE" and c.get("regie_id"):
-                # Lot 111 — carrousel sponsorisé : envoi accepté par Meta = un envoi compté (et facturé au coût
-                # par envoi s'il y en a un), jamais bloquant pour la suite des envois
+        whatsapp_messages (compteurs d'usage de la plateforme).
+        Lot 114 — REPRENABLE : saute les destinataires déjà servis (ENVOYE / ECHEC), vérifie la plage horaire
+        et l'annulation avant chaque envoi, s'arrête proprement hors plage (EN_ATTENTE + reprise_le) et ne
+        tourne jamais deux fois en même temps pour la même campagne (verrou en base)."""
+        if not await _prendre_verrou(campagne_id):
+            return                                    # déjà en cours ailleurs, annulée, programmée ou terminée
+        try:
+            c = await db.carrousel_campagnes.find_one({"id": campagne_id}, {"_id": 0})
+            if not c:
+                return
+            restants = [d for d in c["destinataires"] if d.get("statut") not in STATUTS_DEST_SERVIS]
+            # Lot 114 — carrousel sponsorisé : budget et dates de la régie contrôlés AU MOMENT RÉEL de l'envoi
+            if c.get("regie_id") and restants:
                 try:
-                    await regie.enregistrer_envoi(db, c["regie_id"])
+                    await regie.regie_envoyable(db, c["regie_id"], len(restants))
+                except ValueError as exc:
+                    if not _regie_peut_attendre(str(exc)) or not c.get("programme_le"):
+                        await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+                            "statut": "ANNULEE", "annule_le": _maintenant(), "annule_par": "Régie publicitaire",
+                            "motif_arret": str(exc)[:300]}})
+                        logger.info("[carrousel] campagne %s annulée au moment de l'envoi : %s", campagne_id, exc)
+                        return
+                    # Régie pas encore commencée / en pause : on réessaie dans une heure
+                    reprise = datetime.now(timezone.utc) + timedelta(hours=1)
+                    await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+                        "statut": "EN_ATTENTE", "reprise_le": reprise.isoformat(), "motif_arret": str(exc)[:300]}})
+                    return
+            comps = composants(c["expediteur"], c["message"], c["cartes"])
+            for i, d in enumerate(c["destinataires"]):
+                if d.get("statut") in STATUTS_DEST_SERVIS:
+                    continue                                  # déjà servi : jamais renvoyé (reprise)
+                # Annulation demandée entre deux envois (relue en base : vaut aussi d'un autre serveur)
+                etat = await db.carrousel_campagnes.find_one({"id": campagne_id}, {"_id": 0, "statut": 1}) or {}
+                if etat.get("statut") != "EN_COURS":
+                    return
+                # Plage horaire refermée : arrêt propre, reprise automatique à l'ouverture suivante
+                ouverture = await _attente()
+                if ouverture is not None:
+                    await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+                        "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat()}})
+                    logger.info("[carrousel] campagne %s hors plage : reprise le %s", campagne_id, ouverture.isoformat())
+                    return
+                try:
+                    r = await wa_send_template(d["telephone"], c["modele"], c["langue"], comps,
+                                               tenant_id=c.get("creds_tenant"))
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("[carrousel] comptage de l'envoi sponsorisé impossible : %s", exc)
-            await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {
-                f"destinataires.{i}.statut": statut, f"destinataires.{i}.message_id": r.get("message_id"),
-                f"destinataires.{i}.erreur": (r.get("error") or None) and str(r["error"])[:300],
-                "compte.envoyes": envoyes, "compte.echecs": echecs}})
+                    r = {"ok": False, "status": None, "message_id": None, "error": str(exc)[:300]}
+                statut = "ENVOYE" if r.get("ok") else "ECHEC"
+                if statut == "ENVOYE" and c.get("regie_id"):
+                    # Lot 111 — carrousel sponsorisé : envoi accepté par Meta = un envoi compté (et facturé au coût
+                    # par envoi s'il y en a un), jamais bloquant pour la suite des envois
+                    try:
+                        await regie.enregistrer_envoi(db, c["regie_id"])
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[carrousel] comptage de l'envoi sponsorisé impossible : %s", exc)
+                # Lot 114 — compteurs INCRÉMENTÉS (et non recalculés) : justes même après une reprise
+                await db.carrousel_campagnes.update_one({"id": campagne_id}, {
+                    "$set": {f"destinataires.{i}.statut": statut, f"destinataires.{i}.message_id": r.get("message_id"),
+                             f"destinataires.{i}.erreur": (r.get("error") or None) and str(r["error"])[:300],
+                             f"destinataires.{i}.envoye_le": _maintenant()},
+                    "$inc": {"compte.envoyes": 1 if statut == "ENVOYE" else 0,
+                             "compte.echecs": 1 if statut == "ECHEC" else 0}})
+                await _prolonger_verrou(campagne_id)
+                try:
+                    await db.whatsapp_messages.insert_one({
+                        "id": secrets.token_hex(12), "client_id": c.get("tenant_id"),
+                        "sender_id": c["cree_par"], "sender_label": c.get("cree_par_nom"), "to": d["telephone"],
+                        "template_name": c["modele"], "language_code": c["langue"],
+                        "contact_id": d["id"] if c["perimetre"] == "client" else None,
+                        "recipient_kind": "contact" if c["perimetre"] == "client" else "client",
+                        "recipient_label": d["nom"], "bulk": True, "carrousel_id": campagne_id,
+                        "ok": bool(r.get("ok")), "status": r.get("status"), "message_id": r.get("message_id"),
+                        "error": r.get("error"), "created_at": _maintenant()})
+                except Exception:  # noqa: BLE001 — le journal ne bloque jamais l'envoi
+                    pass
+            # Tous servis : terminée (sauf si annulée entre-temps)
+            await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+                "statut": "TERMINEE", "termine_le": _maintenant(), "reprise_le": None}})
+        finally:
+            # Verrou libéré dans tous les cas (fin, arrêt hors plage, annulation, erreur)
+            await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": None}})
+
+    # Tâches d'envoi lancées par CE serveur (évite de recréer une tâche déjà vivante)
+    _taches: Dict[str, asyncio.Task] = {}
+
+    def _lancer(campagne_id: str) -> None:
+        """Lance _executer en tâche de fond (sans attendre) si elle ne tourne pas déjà ici."""
+        t = _taches.get(campagne_id)
+        if t is not None and not t.done():
+            return
+        _taches[campagne_id] = asyncio.create_task(_executer(campagne_id))
+        _taches[campagne_id].add_done_callback(lambda _t, cid=campagne_id: _taches.pop(cid, None))
+
+    async def lancer_echus(attendre: bool = False) -> int:
+        """Lot 114 — appelé par le planificateur (toutes les minutes) :
+          1. passe EN_COURS les campagnes PROGRAMMEE / EN_ATTENTE dont l'heure de reprise est arrivée ;
+          2. relance les campagnes EN_COURS du lot 114 sans verrou vivant (serveur redémarré en plein envoi).
+        `attendre=True` (tests) : les envois sont faits avant de rendre la main. Renvoie le nombre lancé."""
+        maintenant = _maintenant()
+        a_lancer: List[str] = []
+        async for c in db.carrousel_campagnes.find(
+                {"statut": {"$in": ["PROGRAMMEE", "EN_ATTENTE"]}, "reprise_le": {"$lte": maintenant}},
+                {"_id": 0, "id": 1}):
+            # Passage conditionnel : un seul serveur gagne si deux planificateurs tournent en même temps
+            r = await db.carrousel_campagnes.update_one(
+                {"id": c["id"], "statut": {"$in": ["PROGRAMMEE", "EN_ATTENTE"]}},
+                {"$set": {"statut": "EN_COURS", "reprise_le": None, "repris_le": maintenant}})
+            if r.modified_count:
+                a_lancer.append(c["id"])
+        async for c in db.carrousel_campagnes.find(
+                {"statut": "EN_COURS", "reprenable": True,
+                 "$or": [{"verrou_jusqu_a": None}, {"verrou_jusqu_a": {"$lt": maintenant}}]},
+                {"_id": 0, "id": 1}):
+            if c["id"] not in a_lancer:
+                a_lancer.append(c["id"])
+        for cid in a_lancer:
+            if attendre:
+                await _executer(cid)
+            else:
+                _lancer(cid)
+        return len(a_lancer)
+
+    async def _annuler(filtre: dict, user: dict) -> dict:
+        """Lot 114 — annule une campagne programmée, en attente ou en cours (l'envoi en cours s'arrête avant
+        le destinataire suivant : ceux déjà servis le restent)."""
+        c = await db.carrousel_campagnes.find_one(filtre, {"_id": 0, "id": 1, "statut": 1})
+        if not c:
+            raise HTTPException(status_code=404, detail="Campagne introuvable")
+        r = await db.carrousel_campagnes.update_one(
+            {"id": c["id"], "statut": {"$in": STATUTS_ANNULABLES}},
+            {"$set": {"statut": "ANNULEE", "annule_le": _maintenant(), "reprise_le": None,
+                      "annule_par": user.get("full_name") or user.get("email") or user.get("id")}})
+        if not r.modified_count:
+            raise HTTPException(status_code=409, detail=f"Cet envoi est déjà {STATUTS_CAMPAGNE.get(c.get('statut'), 'terminé').lower()} : "
+                                                        "il ne peut plus être annulé")
+        logger.info("[carrousel] campagne %s annulée par %s", c["id"], user.get("email") or user.get("id"))
+        return {"ok": True, "id": c["id"], "statut": "ANNULEE", "statut_libelle": STATUTS_CAMPAGNE["ANNULEE"]}
+
+    async def _planificateur() -> None:
+        """Boucle de fond : démarre les campagnes échues et reprend les interrompues, toutes les minutes."""
+        while True:
             try:
-                await db.whatsapp_messages.insert_one({
-                    "id": secrets.token_hex(12), "client_id": c.get("tenant_id"),
-                    "sender_id": c["cree_par"], "sender_label": c.get("cree_par_nom"), "to": d["telephone"],
-                    "template_name": c["modele"], "language_code": c["langue"],
-                    "contact_id": d["id"] if c["perimetre"] == "client" else None,
-                    "recipient_kind": "contact" if c["perimetre"] == "client" else "client",
-                    "recipient_label": d["nom"], "bulk": True, "carrousel_id": campagne_id,
-                    "ok": bool(r.get("ok")), "status": r.get("status"), "message_id": r.get("message_id"),
-                    "error": r.get("error"), "created_at": _maintenant()})
-            except Exception:  # noqa: BLE001 — le journal ne bloque jamais l'envoi
-                pass
-        await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {
-            "statut": "TERMINEE", "termine_le": _maintenant()}})
+                await lancer_echus()
+            except Exception:  # noqa: BLE001 — une erreur ne doit jamais arrêter la boucle
+                logger.warning("[carrousel] planificateur des envois programmés", exc_info=True)
+            await asyncio.sleep(PLANIFICATEUR_SECONDES)
+
+    _planif: Dict[str, Any] = {}
+
+    async def demarrer() -> None:
+        """Lot 114 — au démarrage du serveur : lance le planificateur (qui reprend aussitôt les campagnes
+        restées EN_COURS / EN_ATTENTE). Jamais dans la preview : sa base est une copie de la production."""
+        if is_preview_env() or _planif.get("tache"):
+            return
+        _planif["tache"] = asyncio.create_task(_planificateur())
 
     async def _campagnes(filtre: dict) -> List[dict]:
         lignes = await db.carrousel_campagnes.find(filtre, {"_id": 0, "destinataires": 0}).sort(
@@ -924,6 +1146,10 @@ def attach_carrousel_whatsapp_routes(
                 x["vues"] = int(s.get("vues") or 0)
                 x["interesses"] = int(s.get("interesses") or 0)
             c["regie_nom"] = noms_regie.get(c.get("regie_id"), "")
+            # Lot 114 — libellé français du statut (pastille) et possibilité d'annuler
+            c["statut_libelle"] = STATUTS_CAMPAGNE.get(c.get("statut"), c.get("statut") or "")
+            c["annulable"] = c.get("statut") in STATUTS_ANNULABLES
+            c.pop("verrou_jusqu_a", None)
             c["url_presentation"] = f"{base}{regie.CHEMIN_PRESENTATION_CAMPAGNE}{c['id_public']}" if c.get("id_public") else ""
         return lignes
 
@@ -1207,6 +1433,11 @@ def attach_carrousel_whatsapp_routes(
     async def campagne_portail(cid: str, user: dict = Depends(utilisateur)):
         return await _campagne({"id": cid, "perimetre": "client", "tenant_id": _tenant_id(user)})
 
+    @api.post("/me/whatsapp/carrousel/campagnes/{cid}/annuler", tags=["Portail Client — Carrousel WhatsApp"])
+    async def annuler_portail(cid: str, user: dict = Depends(utilisateur)):
+        """Lot 114 — annule un envoi programmé, en attente ou en cours : seulement les campagnes du client."""
+        return await _annuler({"id": cid, "perimetre": "client", "tenant_id": _tenant_id(user)}, user)
+
     # =======================================================================
     # Administration SAWALI → ses clients
     # =======================================================================
@@ -1367,6 +1598,27 @@ def attach_carrousel_whatsapp_routes(
     async def campagne_admin(cid: str, _: dict = Depends(get_current_admin)):
         return await _campagne({"id": cid, "perimetre": "admin"})
 
+    @api.post("/admin/whatsapp/carrousel/campagnes/{cid}/annuler", tags=["Admin — Carrousel WhatsApp"])
+    async def annuler_admin(cid: str, user: dict = Depends(get_current_admin)):
+        """Lot 114 — l'administration peut annuler TOUTE campagne (la sienne ou celle d'un client)."""
+        return await _annuler({"id": cid}, user)
+
+    @api.get("/admin/whatsapp/carrousel/programmation/etat", tags=["Admin — Carrousel WhatsApp"])
+    async def etat_programmation_admin(_: dict = Depends(get_current_admin)):
+        """Lot 114 — état pour la rubrique « Plages horaires d'envoi » des Paramètres : nombre de campagnes de
+        carrousel par statut (toutes, portail et administration) et prochaine reprise prévue."""
+        compte = {k: await db.carrousel_campagnes.count_documents({"statut": k}) for k in STATUTS_ANNULABLES}
+        prochaine = await db.carrousel_campagnes.find(
+            {"statut": {"$in": ["PROGRAMMEE", "EN_ATTENTE"]}, "reprise_le": {"$ne": None}},
+            {"_id": 0, "reprise_le": 1}).sort("reprise_le", 1).limit(1).to_list(1)
+        ouverture = await _attente()
+        return {"programmees": compte["PROGRAMMEE"], "en_attente": compte["EN_ATTENTE"], "en_cours": compte["EN_COURS"],
+                "prochaine_reprise": prochaine[0]["reprise_le"] if prochaine else None,
+                "plages_actives": plages is not None and bool((await plages["config"]()).get("actif")),
+                "ouvert_maintenant": ouverture is None,
+                "prochaine_ouverture": ouverture.isoformat() if ouverture else None,
+                "statuts": STATUTS_CAMPAGNE}
+
     # Lot 111 — carrousel sponsorisé : campagnes de la régie publicitaire (placement « carrousel_wa »)
     @api.get("/admin/whatsapp/carrousel/regies", tags=["Admin — Carrousel WhatsApp"])
     async def regies_admin(_: dict = Depends(get_current_admin)):
@@ -1412,4 +1664,5 @@ def attach_carrousel_whatsapp_routes(
                 {"interesses": {"$gt": 0}}, {"_id": 0, "interesses": 1})]),
         }
 
-    return {"executer": _executer}
+    # Lot 114 — pour le branchement (démarrage du planificateur) et les tests
+    return {"executer": _executer, "lancer_echus": lancer_echus, "demarrer": demarrer}

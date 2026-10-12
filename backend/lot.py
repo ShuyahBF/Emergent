@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "113"
-LOT_LIBELLE = "🧹 Libérer l'Espace : un seul bouton pour nettoyer les sauvegardes R2 et les bases Atlas obsolètes ; outils de sauvegarde désencombrés"
+LOT = "114"
+LOT_LIBELLE = "Carrousels WhatsApp : plages horaires d'envoi respectées, envois programmés (date et heure) et annulables"

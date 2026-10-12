@@ -104,7 +104,7 @@ const NEW_LOTS = {
   "🧹 Libérer l'Espace": "113",   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "111",   // lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "114",   // lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
@@ -140,14 +140,14 @@ const NEW_LOTS = {
   "Maintenance — Déconnexion de tous les utilisateurs": "50",
   "Abonnements (grâce et coupure) et sessions des comptes": "50",
   "Sauvegarde / transfert des données": "49",
-  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "42",
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "114",   // lot 42 ; lot 114 : carrousels soumis aux plages et programmables
 };
 
 const NEW_SECTIONS = {
   "🧹 Libérer l'Espace": "2026-10-12",
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-11",   // lot 94 ; lot 111
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-12",   // lot 94 ; lot 111
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
@@ -191,7 +191,7 @@ const NEW_SECTIONS = {
   // Lot 49 — export / import complets chiffrés, sauvegarde quotidienne vers R2
   "Sauvegarde / transfert des données": "2026-10-02",
   // Lot 42 — plages horaires d'envoi des sondages et formulaires
-  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-09-30",
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-10-12",   // lot 114
   // 2026-02 (fork) — Configurable WhatsApp inbound notification sound
   "🔔 WhatsApp — Son de notification (message entrant)": "2026-02-14",
   // S-iter39o (2026-02 post-handoff) — Qdrant RAG

@@ -4,10 +4,14 @@
   15:00–19:00), heure de Ouagadougou par défaut. Hors plage, les envois attendent et
   reprennent seuls à l'ouverture suivante (le lendemain si besoin).
   API : GET/PUT /admin/plages-envoi (backend/routes/plages_envoi.py).
+  Lot 114 — les mêmes plages s'appliquent aux CARROUSELS WhatsApp (portail et administration, sponsorisés compris),
+  qui peuvent aussi être programmés : état des carrousels programmés / en attente / en cours et bouton vers l'écran
+  d'envoi. API : GET /admin/whatsapp/carrousel/programmation/etat (backend/routes/carrousel_whatsapp.py).
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Clock, Plus, Save, Trash2, Loader2 } from "lucide-react";
+import { Clock, ExternalLink, GalleryHorizontalEnd, Plus, Save, Trash2, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";   // lot 114 : bouton vers l'écran Carrousel WhatsApp
 import { apiClient } from "@/lib/api";
 
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
@@ -15,10 +19,15 @@ const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dim
 export default function PlagesEnvoiSection() {
   const [cfg, setCfg] = useState(null);
   const [enreg, setEnreg] = useState(false);
+  const [carrousels, setCarrousels] = useState(null);   // lot 114 : état des carrousels programmés / en attente
 
   useEffect(() => {
     apiClient.get("/admin/plages-envoi").then((r) => setCfg(r.data)).catch(() => toast.error("Réglage des plages indisponible"));
+    // Lot 114 — état des carrousels (facultatif : la rubrique reste utilisable sans)
+    apiClient.get("/admin/whatsapp/carrousel/programmation/etat").then((r) => setCarrousels(r.data)).catch(() => setCarrousels(null));
   }, []);
+  // Lot 114 — date et heure françaises d'un instant ISO
+  const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
   if (!cfg) return <Loader2 className="h-5 w-5 animate-spin text-slate-400" />;
 
   const basculerJour = (j) => setCfg({ ...cfg, jours: cfg.jours.includes(j) ? cfg.jours.filter((x) => x !== j) : [...cfg.jours, j].sort() });
@@ -37,7 +46,8 @@ export default function PlagesEnvoiSection() {
   return (
     <div className="space-y-3 text-sm" data-testid="plages-envoi-section">
       <p className="text-xs text-slate-600">
-        Les envois de <b>sondages</b> et de <b>liens de formulaires</b> (WhatsApp et SMS) ne partent que pendant ces plages,
+        Les envois de <b>sondages</b>, de <b>liens de formulaires</b> (WhatsApp et SMS) et de <b>carrousels WhatsApp</b>
+        (portail, administration et carrousels sponsorisés) ne partent que pendant ces plages,
         pour ne pas déranger les contacts. Hors plage, un envoi lancé ou programmé attend, et un envoi en cours s'arrête puis
         reprend automatiquement à l'ouverture suivante (le lendemain si besoin).
       </p>
@@ -76,6 +86,27 @@ export default function PlagesEnvoiSection() {
           {enreg ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Enregistrer
         </button>
         <span className="text-[11px] text-slate-500">Actuellement : {cfg.resume}</span>
+      </div>
+      {/* Lot 114 — carrousels WhatsApp programmés ou en attente d'une plage : état et accès à l'écran d'envoi */}
+      <div className="rounded-lg ring-1 ring-slate-200 p-3 space-y-1.5" data-testid="plages-carrousels-etat">
+        <p className="flex items-center gap-1.5 font-semibold text-slate-800">
+          <GalleryHorizontalEnd className="h-4 w-4" /> Carrousels WhatsApp programmés
+        </p>
+        <p className="text-xs text-slate-600">
+          Un carrousel peut partir « maintenant » ou être programmé à une date et une heure (heure de Ouagadougou).
+          Hors plage, il passe « En attente » et reprend seul à l'ouverture suivante, sans jamais renvoyer aux destinataires
+          déjà servis. Un envoi programmé ou en attente peut être annulé depuis l'écran Carrousel WhatsApp.
+        </p>
+        {carrousels ? (
+          <p className="text-xs text-slate-700">
+            <b>{carrousels.programmees}</b> programmé(s) · <b>{carrousels.en_attente}</b> en attente · <b>{carrousels.en_cours}</b> en cours
+            {carrousels.prochaine_reprise && <> · prochain départ le <b>{dateFr(carrousels.prochaine_reprise)}</b></>}
+            {" · "}{carrousels.ouvert_maintenant ? "envois ouverts maintenant" : `prochaine ouverture le ${dateFr(carrousels.prochaine_ouverture)}`}
+          </p>
+        ) : <p className="text-xs text-slate-400">État des carrousels indisponible.</p>}
+        <Link to="/admin/whatsapp-carrousel" data-testid="ouvrir-carrousel-wa" className="inline-flex items-center gap-1 text-xs text-sawali-blue hover:underline">
+          <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l'écran Carrousel WhatsApp
+        </Link>
       </div>
     </div>
   );

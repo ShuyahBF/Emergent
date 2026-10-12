@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "114", "date": "2026-10-12",
+        "titre": "🕗 Carrousels : plages horaires et envois programmés",
+        "description": "Les carrousels WhatsApp respectent les plages horaires d'envoi (hors plage : en attente, reprise automatique sans renvoi) et se programment à une date et une heure ; envois programmés listés et annulables (portail, administration, régie).",
+        "rubrique": "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)",
+    },
+    {
         "lot": "113", "date": "2026-10-12",
         "titre": "🧹 Libérer l'Espace",
         "description": "Un seul bouton analyse les sauvegardes R2 (migration et quotidiennes) et les bases Atlas obsolètes, coche ce que la règle de rétention supprimerait, protège la dernière sauvegarde réussie, affiche l'espace et les collections libérés, puis nettoie après confirmation (LIBERER).",

@@ -1225,13 +1225,22 @@ setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, sa
 # Voir routes/carrousel_whatsapp.py.
 # ============================================================
 from routes.carrousel_whatsapp import attach_carrousel_whatsapp_routes as _attach_carrousel_wa  # noqa: E402
-_attach_carrousel_wa(
+_carrousel_wa = _attach_carrousel_wa(
     api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin,
     fonction_active=_fonction_active, visible_client_ids=_resolve_visible_client_ids,
     wa_send_template=_wa_send_template, resolve_wa_credentials=_resolve_wa_credentials,
     base_publique=lambda: _public_base_url() or _PUBLIC_BASE_URL,   # adresse publique (réglage Admin, sinon PUBLIC_BASE_URL)
     save_and_log=_obj_storage.save_and_log,
+    # Lot 114 — mêmes plages horaires d'envoi que les sondages / formulaires (lot 42) et envois programmés
+    plages=_plages_envoi, is_preview_env=_is_preview_environment,
 )
+
+
+@app.on_event("startup")
+async def _demarrer_carrousels_programmes():
+    """Lot 114 — planificateur des carrousels : démarre les envois programmés échus, reprend ceux en attente
+    d'une plage horaire et ceux interrompus par un redémarrage (hors preview)."""
+    asyncio.create_task(_carrousel_wa["demarrer"]())
 
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).

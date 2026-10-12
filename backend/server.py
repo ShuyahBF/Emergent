@@ -1314,6 +1314,11 @@ async def admin_sentinelle(_: dict = Depends(get_admin_or_supervisor)):
     return sentinelle_boucle.etat()
 
 
+# Lot 131 — contrôle à distance des postes Loois (« Prendre la main ») : consentement du poste, jetons à usage unique,
+# relais WebSocket, mode « voir seulement » imposé par le serveur, journal des sessions
+from routes import controle_distance as _controle_distance
+api.include_router(_controle_distance.creer_routeur(db=db, get_current_user=get_current_user))
+
 app.include_router(api)
 
 

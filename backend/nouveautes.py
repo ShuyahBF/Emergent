@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "131", "date": "2026-10-12",
+        "titre": "🖥️ Contrôle à distance des postes Loois",
+        "description": "Voir l'écran d'un poste Loois ou en prendre le contrôle depuis le navigateur, avec l'accord de son utilisateur ; journal des prises en main.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "130", "date": "2026-10-12",
         "titre": "⌨️ Reprendre le texte par défaut d'un champ",
         "description": "Dans tout champ qui affiche un texte gris par défaut, Ctrl + Espace (ou double-clic sur le champ vide) recopie ce texte pour le modifier.",

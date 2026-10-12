@@ -10,7 +10,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, FileText, Download, Sparkles, Paperclip } from "lucide-react";
+import { Loader2, FileText, Download, Sparkles, Paperclip, MonitorSmartphone } from "lucide-react";
+// Lot 131 — visionneuse du contrôle à distance (prise en main du poste Loois)
+import ControleDistance from "@/components/ControleDistance";
 
 // Durée mm:ss (temps restant de la session)
 function formaterDuree(secondes) {
@@ -48,6 +50,8 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
   const [historique, setHistorique] = useState([]);
   const [voirHistorique, setVoirHistorique] = useState(false);
   const [detailsOuverts, setDetailsOuverts] = useState(null);   // id de la session dont on lit les détails
+  // Lot 131 — visionneuse « Prendre la main » ouverte
+  const [priseEnMain, setPriseEnMain] = useState(false);
 
   // ---- Chargement de la session du poste (et du client retenu pour ce poste) ----
   const charger = useCallback(async () => {
@@ -203,6 +207,9 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
 
   return (
     <div className="mx-4 mt-3 mb-1 rounded-lg ring-1 px-3 py-2 text-xs bg-white ring-slate-200" data-testid="support-loois-bandeau">
+      {priseEnMain && (
+        <ControleDistance posteId={posteId} posteNom={session?.poste_nom || session?.client_nom} onClose={() => setPriseEnMain(false)} />
+      )}
       {statut === "attente" && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-amber-700">⏳ Demande d'assistance en attente</span>
@@ -255,6 +262,11 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
                    onChange={(e) => envoyerFichier(e.target.files?.[0])} />
             <button onClick={() => fichierRef.current?.click()} disabled={occupe} className={`${bouton} bg-slate-100 text-slate-700 hover:bg-slate-200`} data-testid="support-loois-fichier">
               <Paperclip className="h-3 w-3" /> Fichier
+            </button>
+            {/* Lot 131 — prise en main à distance (l'utilisateur du poste doit l'accepter) */}
+            <button onClick={() => setPriseEnMain(true)} className={`${bouton} bg-sky-600 text-white hover:bg-sky-700`} data-testid="support-loois-prendre-la-main"
+                    title="Voir l'écran du poste et le contrôler, avec l'accord de son utilisateur">
+              <MonitorSmartphone className="h-3 w-3" /> Prendre la main
             </button>
             <button onClick={terminer} disabled={occupe} className={`${bouton} bg-slate-900 text-white hover:bg-black`} data-testid="support-loois-terminer">
               Terminer la session

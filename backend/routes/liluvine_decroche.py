@@ -386,13 +386,44 @@ async def repondre_llm(systeme: str, historique: List[Dict[str, str]], texte: st
     return {"texte": rep.content or "", "entree": rep.usage.input_tokens, "sortie": rep.usage.output_tokens}
 
 
-async def resumer(transcription: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Résumé de l'appel en 1 à 3 lignes (même modèle) → {texte, entree, sortie}."""
-    lignes = "\n".join(f"{'Appelant' if t['qui'] == 'appelant' else 'Liluvine'} : {t['texte']}" for t in transcription)
-    systeme = ("Tu résumes un appel téléphonique reçu par Liluvine, l'assistante de SAWALI, pour l'équipe. "
-               "Réponds en français, 1 à 3 lignes courtes, sans markdown : qui appelle (si connu), la demande, "
-               "la réponse donnée et l'action à faire (rappel…).")
-    return await repondre_llm(systeme, [], lignes[:12000])
+def consigne_resume(appelant: Optional[str] = None) -> str:
+    """Lot 125 — consigne du résumé d'appel (fonction pure, testée).
+    Avant : le résumé ne recevait QUE la transcription ; il écrivait « Appelant non identifié » même pour un contact
+    connu (ex. « Flotte Pharmacie AMY », qui avait autorisé les appels). Désormais l'identité connue de l'appelant
+    (nom du contact, société, numéro) lui est donnée, et il ne doit rien inventer au-delà de ce qui a été dit."""
+    base = ("Tu résumes un appel téléphonique reçu par Liluvine, l'assistante de SAWALI, pour l'équipe. "
+            "Réponds en français, 1 à 3 lignes courtes, sans markdown : qui appelle, la demande, "
+            "la réponse donnée et l'action à faire (rappel…). "
+            "Appuie-toi UNIQUEMENT sur ce que l'appelant a réellement dit : n'invente ni problème, ni demande. "
+            "Si ses paroles sont incompréhensibles ou incohérentes (son de mauvaise qualité), écris-le simplement.")
+    if appelant:
+        base += (f" L'appelant est CONNU : {appelant}. Nomme-le ainsi ; n'écris jamais « appelant non identifié » "
+                 "ni « inconnu ».")
+    return base
+
+
+def identite_appelant(appel: Dict[str, Any], contact: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Lot 125 — « Flotte Pharmacie AMY (société : Pharmacie AMY, +22678836072) » ; None si rien n'est connu.
+    Un nom qui n'est qu'un numéro n'est pas un nom (même règle que le lot 70)."""
+    nom = str((contact or {}).get("name") or appel.get("contact_nom") or "").strip()
+    if nom and re.fullmatch(r"\+?[\d\s().-]+", nom):
+        nom = ""
+    societe = str((contact or {}).get("company") or "").strip()
+    tel = str(appel.get("telephone") or "").strip()
+    if not nom and not societe:
+        return None
+    details = [f"société : {societe}"] if societe and societe.lower() != nom.lower() else []
+    if tel:
+        details.append(f"+{tel.lstrip('+')}")
+    return f"{nom or societe}" + (f" ({', '.join(details)})" if details else "")
+
+
+async def resumer(transcription: List[Dict[str, Any]], appelant: Optional[str] = None) -> Dict[str, Any]:
+    """Résumé de l'appel en 1 à 3 lignes (même modèle) → {texte, entree, sortie}.
+    Lot 125 : `appelant` = identité connue de l'appelant (nom, société, numéro), donnée au modèle."""
+    nom = (appelant or "Appelant").split(" (")[0] if appelant else "Appelant"
+    lignes = "\n".join(f"{nom if t['qui'] == 'appelant' else 'Liluvine'} : {t['texte']}" for t in transcription)
+    return await repondre_llm(consigne_resume(appelant), [], lignes[:12000])
 
 
 async def synthese_vocale(texte: str, s: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[bytes, str]:
@@ -1007,7 +1038,12 @@ async def _cloturer(db, s: Dict[str, Any], cfg: Dict[str, Any], appel: Dict[str,
     resume = ""
     if any(t["qui"] == "appelant" for t in transcription):
         try:
-            r = await resumer(transcription)
+            # Lot 125 — identité connue de l'appelant (fiche contact : nom, société ; numéro) donnée au résumé
+            contact = None
+            if appel.get("contact_id"):
+                contact = await db.directory_contacts.find_one({"id": appel["contact_id"]},
+                                                               {"_id": 0, "name": 1, "company": 1})
+            r = await resumer(transcription, identite_appelant(appel, contact))
             mesures["llm_entree"] += int(r.get("entree") or 0)
             mesures["llm_sortie"] += int(r.get("sortie") or 0)
             resume = analyser_reponse(r.get("texte") or "")[0]

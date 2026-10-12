@@ -41,6 +41,9 @@
 #     trop), puis l'e-mail et le téléphone servent de secours si la société ne correspond à aucun client.
 #   - Lot 126 : un contact AVEC société n'est jamais écarté parce que son e-mail / téléphone correspond à un compte de
 #     l'équipe : seule une société qui désigne SAWALI elle-même masque la puce ; sinon, sans contrat → puce ROUGE.
+#   - Lot 127 : « interne » = UNIQUEMENT le locataire SAWALI (super-admin, son locataire, son compte parent).
+#     Avant, c'étaient TOUS les comptes visibles par l'utilisateur — pour le super-admin, tous les clients : la puce
+#     d'un contact relié à un vrai client (ex. Pharmacie AMITIÉ MIYOUGOU) était donc masquée à tort.
 #   - Efficacité : UNE requête groupée sur les comptes (index mémorisé 60 s), puis tout se calcule en mémoire.
 from __future__ import annotations
 
@@ -337,11 +340,12 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         visibles_ids = await resolve_visible_client_ids(user)
         email_user = str(user.get("email") or "").strip().lower()
         autorise = email_user == _email_super_admin() or (email_user and email_user.rsplit("@", 1)[-1] in domaines)
+        # Comptes du locataire SAWALI lui-même : le super-admin, son locataire et son compte parent
+        sa = await db.users.find_one({"email": _email_super_admin()},
+                                     {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1}) or {}
+        ids_sa = {v for v in (sa.get("id"), sa.get("client_id"), sa.get("parent_client_id")) if v}
         if not autorise:
             # Compte du locataire SAWALI : son périmètre contient le compte du super-admin (ou son locataire)
-            sa = await db.users.find_one({"email": _email_super_admin()},
-                                         {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1}) or {}
-            ids_sa = {v for v in (sa.get("id"), sa.get("client_id"), sa.get("parent_client_id")) if v}
             autorise = bool(ids_sa & set(visibles_ids))
         if not autorise:
             return None
@@ -350,7 +354,7 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         except (TypeError, ValueError):
             seuil_defaut = SEUIL_RETARD_DEFAUT
         return {"settings": s, "domaines": domaines, "visibles_ids": visibles_ids,
-                "internes": set(visibles_ids), "seuil_defaut": seuil_defaut}
+                "internes": ids_sa, "seuil_defaut": seuil_defaut}
 
     @api.post("/me/contacts-contrats", tags=["Portail Client"])
     async def contrats_des_contacts(payload: DemandeContrats, user: dict = Depends(get_current_user)):

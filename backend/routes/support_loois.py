@@ -449,7 +449,9 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
             {"$set": {"nom": nom, "ecole": ecole, "poste": poste, "utilisateur": utilisateur,
                       "version_loois": version, "dernier_contact": now_iso(),
                       # Lot 68.1 : client identifié par sa clé (None avec la clé commune)
-                      "cle_client_code": identite.get("code"), "cle_client_libelle": identite.get("libelle")},
+                      "cle_client_code": identite.get("code"), "cle_client_libelle": identite.get("libelle"),
+                      # Lot 131.1 : poste installé avec la clé « LKS-… » (prise en main sans accord)
+                      "sans_surveillance": bool(identite.get("sans_surveillance"))},
              "$setOnInsert": {"id": pid, "premier_contact": now_iso()}},
             upsert=True,
         )

@@ -35,6 +35,16 @@
 #   POST /api/admin/loois-cles-clients/{id}/revoquer         → clé refusée désormais
 #   POST /api/admin/loois-cles-clients/{id}/reactiver        → clé de nouveau acceptée
 #   PUT  /api/admin/loois-cles-clients-reglages              → réglage de transition (clé commune pour la synchro)
+#   POST /api/admin/loois-cles-clients/{id}/sans-surveillance          → lot 131.1 : (re)génère la CLÉ SANS SURVEILLANCE
+#   POST /api/admin/loois-cles-clients/{id}/sans-surveillance/revoquer → lot 131.1 : la révoque
+#
+# Lot 131.1 (12/10/2026) — demande du propriétaire : « grâce à la clé générée, signifier qu'un poste est
+# 'sans surveillance' ou avec ». Chaque client peut recevoir une SECONDE clé, « LKS-… » (sans surveillance) :
+#   - elle donne les mêmes droits que la clé client (support, synchro, présence) ;
+#   - un poste installé avec elle accepte la prise en main à distance SANS que personne ne clique (postes administrés
+#     dont les utilisateurs partent le soir) ; le bandeau rouge « Arrêter » reste affiché sur le poste ;
+#   - les postes installés avec la clé « LK-… » continuent de demander l'accord de leur utilisateur ;
+#   - révocable séparément (les postes repassent alors en refus : il faut leur saisir la clé « LK-… »).
 from __future__ import annotations
 
 import hashlib
@@ -52,6 +62,7 @@ from fastapi import Request  # au niveau du module : l'annotation de la route do
 # Constantes
 # ---------------------------------------------------------------------------
 PREFIXE_CLE = "LK-"                    # toutes les clés clients commencent par « LK- »
+PREFIXE_CLE_SS = "LKS-"                # lot 131.1 : clé « sans surveillance » (prise en main sans accord sur le poste)
 LONGUEUR_ALEATOIRE = 32                # caractères aléatoires après « LK- » (token_urlsafe(24) = 32 caractères)
 LONGUEUR_PREFIXE_AFFICHE = 6           # « LK-a1B… » : seul ce début est montré dans la liste (jamais la clé entière)
 MAX_CLES = 1000                        # plafond de fiches (protection)
@@ -83,6 +94,11 @@ def _maintenant() -> datetime:
 def generer_cle() -> str:
     """Nouvelle clé client : « LK- » + 32 caractères aléatoires sûrs pour une adresse (A-Z, a-z, 0-9, « - », « _ »)."""
     return PREFIXE_CLE + secrets.token_urlsafe(24)[:LONGUEUR_ALEATOIRE]
+
+
+def generer_cle_sans_surveillance() -> str:
+    """Lot 131.1 — nouvelle clé SANS SURVEILLANCE : « LKS- » + 32 caractères aléatoires."""
+    return PREFIXE_CLE_SS + secrets.token_urlsafe(24)[:LONGUEUR_ALEATOIRE]
 
 
 def poivre() -> str:
@@ -173,7 +189,7 @@ def nettoyer_fiche(corps: Any, *, creation: bool) -> Dict[str, Any]:
 
 def fiche_publique(fiche: Dict[str, Any]) -> Dict[str, Any]:
     """Fiche renvoyée à la page : SANS l'empreinte (ni, évidemment, la clé)."""
-    return {k: v for k, v in fiche.items() if k not in ("_id", "cle_hash")}
+    return {k: v for k, v in fiche.items() if k not in ("_id", "cle_hash", "ss_cle_hash")}
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +199,8 @@ async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str]
     """Identifie l'émetteur d'une clé Loois.
 
     Renvoie :
-      {"type": "client", "id", "code", "libelle", "applications"} — clé client valide et active ;
+      {"type": "client", "id", "code", "libelle", "applications", "sans_surveillance"} — clé client valide et active
+        (sans_surveillance = vrai pour la clé « LKS-… » du lot 131.1) ;
       {"type": "commune"}                                          — clé commune LOOIS_SUPPORT_CLE ;
       None                                                         — clé absente, inconnue, révoquée.
     Met à jour « dernière utilisation » (au plus une fois par minute) ; ne lève jamais pour une base indisponible
@@ -191,11 +208,14 @@ async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str]
     cle = (cle_recue or "").strip()
     if not cle or len(cle) > MAX_LONGUEUR_CLE:
         return None
-    if cle.startswith(PREFIXE_CLE):
+    sans_surveillance = cle.startswith(PREFIXE_CLE_SS)
+    if cle.startswith(PREFIXE_CLE) or sans_surveillance:
         try:
             for empreinte in empreintes_candidates(cle):
-                fiche = await db.loois_cles_clients.find_one({"cle_hash": empreinte, "actif": True},
-                                                             {"_id": 0, "cle_hash": 0, "historique": 0})
+                # Clé « LK- » : empreinte principale ; clé « LKS- » : empreinte sans surveillance (active séparément)
+                filtre = ({"ss_cle_hash": empreinte, "actif": True, "ss_actif": True} if sans_surveillance
+                          else {"cle_hash": empreinte, "actif": True})
+                fiche = await db.loois_cles_clients.find_one(filtre, {"_id": 0, "cle_hash": 0, "ss_cle_hash": 0, "historique": 0})
                 if not fiche:
                     continue
                 ETAT["clients_actifs"] = True
@@ -207,7 +227,7 @@ async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str]
                     {"$set": {"derniere_utilisation": maintenant.isoformat(),
                               "derniere_machine": (str(machine or "").strip()[:80] or fiche.get("derniere_machine"))}})
                 return {"type": "client", "id": fiche["id"], "code": fiche["code"], "libelle": fiche.get("libelle") or fiche["code"],
-                        "applications": fiche.get("applications") or []}
+                        "applications": fiche.get("applications") or [], "sans_surveillance": sans_surveillance}
         except Exception:  # noqa: BLE001 — base indisponible : la clé client ne peut pas être vérifiée
             pass
     if cle_commune_valide(cle):
@@ -371,6 +391,42 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
             "$set": {"actif": True, "revoquee_le": None},
             "$push": {"historique": {"action": "reactivation", "le": maintenant, "par": auteur(user)}}})
         ETAT["clients_actifs"] = True
+        return {"ok": True, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}
+
+    # --- Lot 131.1 : clé SANS SURVEILLANCE ------------------------------------------------------------------------
+    @api.post("/admin/loois-cles-clients/{id_fiche}/sans-surveillance", tags=["Loois clés clients"])
+    async def generer_sans_surveillance(id_fiche: str, user: dict = Depends(get_current_user)):
+        """(Re)génère la clé « LKS-… » du client : l'ancienne (s'il y en avait une) est refusée immédiatement.
+        Renvoyée UNE SEULE FOIS (seule l'empreinte est gardée)."""
+        admin(user)
+        # Propriétaire (12/10/2026) : créer et saisir cette clé est la preuve du rôle de super-admin → lui seul la génère
+        from routes.controle_distance import est_super_admin
+        if not est_super_admin(user):
+            raise HTTPException(status_code=403, detail="Clé sans surveillance : réservée au super-admin")
+        fiche = await fiche_ou_404(id_fiche)
+        cle = generer_cle_sans_surveillance()
+        p = poivre()
+        maintenant = _maintenant().isoformat()
+        try:
+            await db.loois_cles_clients.create_index("ss_cle_hash", sparse=True)
+        except Exception:  # noqa: BLE001
+            pass
+        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+            "$set": {"ss_cle_hash": hacher_cle(cle, p), "ss_cle_poivree": bool(p), "ss_prefixe": prefixe_affiche(cle),
+                     "ss_actif": True, "ss_cree_le": maintenant, "ss_cree_par": auteur(user), "ss_revoquee_le": None},
+            "$push": {"historique": {"action": "sans_surveillance_generation", "le": maintenant, "par": auteur(user),
+                                     "ancien_prefixe": fiche.get("ss_prefixe"), "prefixe": prefixe_affiche(cle)}}})
+        return {"ok": True, "cle": cle, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}
+
+    @api.post("/admin/loois-cles-clients/{id_fiche}/sans-surveillance/revoquer", tags=["Loois clés clients"])
+    async def revoquer_sans_surveillance(id_fiche: str, user: dict = Depends(get_current_user)):
+        """Révoque la clé « LKS-… » : les postes qui l'utilisent sont refusés dès la requête suivante."""
+        admin(user)
+        await fiche_ou_404(id_fiche)
+        maintenant = _maintenant().isoformat()
+        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+            "$set": {"ss_actif": False, "ss_revoquee_le": maintenant},
+            "$push": {"historique": {"action": "sans_surveillance_revocation", "le": maintenant, "par": auteur(user)}}})
         return {"ok": True, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}
 
     @api.put("/admin/loois-cles-clients-reglages", tags=["Loois clés clients"])

@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import {
   X, Maximize, Minimize, Monitor, Eye, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
   Timer, Film, ArrowDownToLine, PenLine, Send, Handshake, Plug, TimerOff, ShieldX, CheckCircle2, WifiOff,
-  RotateCcw, Lock,
+  RotateCcw, Lock, UserX,
 } from "lucide-react";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -54,6 +54,13 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
   const [stats, setStats] = useState({ ips: 0, latence: null, debit: 0 });
   const [pleinEcran, setPleinEcran] = useState(false);
   const [motifFin, setMotifFin] = useState("");
+  // Lot 131.1 — poste sans surveillance (clé LKS-) : il accepte seul, sans bandeau ; réservé au super-admin
+  const [sansSurveillance, setSansSurveillance] = useState(false);
+  useEffect(() => {
+    if (!posteId) return;
+    apiClient.get(`/controle-distance/postes/${encodeURIComponent(posteId)}`)
+      .then((r) => setSansSurveillance(Boolean(r.data?.sans_surveillance))).catch(() => {});
+  }, [posteId]);
 
   const sessionRef = useRef(null);       // identifiant de la session
   const wsRef = useRef(null);            // WebSocket du relais
@@ -293,6 +300,12 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
           <Monitor className="h-5 w-5" />
         </span>
         <span className="text-sm font-semibold">{posteNom || "Poste Loois"}</span>
+        {sansSurveillance && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2.5 py-1 text-xs font-semibold text-indigo-200 ring-1 ring-indigo-400/40"
+                title="Poste sans surveillance : accord automatique, aucun bandeau sur le poste (notification discrète seulement)">
+            <UserX className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        )}
         {etat === "active" && (
           <span title={mode === "controler" ? "Vous contrôlez le poste" : "Vous voyez le poste sans agir"}
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${mode === "controler" ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40" : "bg-amber-500/20 text-amber-300 ring-1 ring-amber-400/40"}`}>
@@ -365,7 +378,9 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
             </div>
             <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[11px] text-slate-400">
               <Handshake className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
-              L'utilisateur du poste accepte, voit un bandeau et peut arrêter à tout moment.
+              {sansSurveillance
+                ? "Poste sans surveillance : connexion sans accord, une notification discrète s'affiche sur le poste."
+                : "L'utilisateur du poste accepte, voit un bandeau et peut arrêter à tout moment."}
             </p>
           </div>
         )}
@@ -386,7 +401,9 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
                   <Icone className="h-10 w-10" aria-hidden="true" />
                 </span>
               </div>
-              <p className="text-sm text-slate-200">{LIBELLES[etat]}</p>
+              <p className="text-sm text-slate-200">
+              {etat === "demande" && sansSurveillance ? "Poste sans surveillance — connexion automatique…" : LIBELLES[etat]}
+            </p>
               {motifFin && <p className="text-xs text-slate-400">{motifFin}</p>}
               {!enCours && (
                 <div className="flex gap-6">

@@ -138,6 +138,37 @@ def base_protegee(nom: str, base_courante: str, autres: Optional[List[str]] = No
     return nom in BASES_PROTEGEES or nom == base_courante or nom in set(autres or [])
 
 
+# Lot 113 — fonctions partagées avec « 🧹 Libérer l'Espace » (routes/liberer_espace.py). Elles reprennent À L'IDENTIQUE
+# le code des routes du lot 85 ci-dessous, qui les appellent désormais (aucun changement de comportement).
+async def bases_protegees_reglage(db) -> List[str]:
+    """Bases protégées en plus de la liste fixe (réglage atlas_bases_protegees, séparées par des virgules)."""
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "atlas_bases_protegees": 1}) or {}
+    return [x.strip() for x in str(s.get("atlas_bases_protegees") or "").split(",") if x.strip()]
+
+
+async def vider_base(client, nom: str) -> tuple:
+    """Supprime les collections de la base une à une → (nombre supprimées, [refus « collection (code) »]).
+    Lot 85.1 : le compte Atlas de SAWALI n'a pas le droit « dropDatabase » (constaté le 08/10/2026) mais peut
+    supprimer les collections une à une ; une base sans collection disparaît d'elle-même.
+    ATTENTION : aucun contrôle de protection ici — l'appelant DOIT avoir vérifié base_protegee() avant."""
+    noms = await client[nom].list_collection_names()
+    supprimees, refusees = 0, []
+    for c in noms:
+        try:
+            await client[nom].drop_collection(c)
+            supprimees += 1
+        except Exception as exc:  # noqa: BLE001 — on continue avec les autres, refus listés à la fin
+            refusees.append(f"{c} ({getattr(exc, 'code', None) or type(exc).__name__})")
+    return supprimees, refusees
+
+
+async def noter_purge(db, nom: str, collections: int, par: Optional[str]) -> None:
+    """Trace de la purge d'une base dans db.settings {_id: "quota_atlas"} (aucune nouvelle collection)."""
+    await db.settings.update_one({"_id": DOC_ID}, {"$push": {"purges": {
+        "base": nom, "collections": collections, "par": par, "le": datetime.now(timezone.utc).isoformat()}}},
+        upsert=True)
+
+
 def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante: str) -> None:
     """Route de la jauge (administrateurs)."""
     from fastapi import Depends, HTTPException
@@ -169,8 +200,7 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
 
     async def _protegees() -> List[str]:
         """Bases protégées en plus de la liste fixe (réglage atlas_bases_protegees, séparées par des virgules)."""
-        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "atlas_bases_protegees": 1}) or {}
-        return [x.strip() for x in str(s.get("atlas_bases_protegees") or "").split(",") if x.strip()]
+        return await bases_protegees_reglage(db)
 
     @api.get("/admin/atlas/bases/{nom}", tags=["Admin — Santé"])
     async def contenu_base(nom: str, user: dict = Depends(get_current_user)):
@@ -200,16 +230,8 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
             raise HTTPException(status_code=422, detail="Retapez exactement le nom de la base pour confirmer")
         if nom not in await client.list_database_names():
             raise HTTPException(status_code=404, detail="Base introuvable")
-        # Lot 85.1 : le compte Atlas de SAWALI n'a pas le droit « dropDatabase » (constaté le 08/10/2026) mais peut
-        # supprimer les collections une à une ; une base sans collection disparaît d'elle-même.
-        noms = await client[nom].list_collection_names()
-        supprimees, refusees = 0, []
-        for c in noms:
-            try:
-                await client[nom].drop_collection(c)
-                supprimees += 1
-            except Exception as exc:  # noqa: BLE001 — on continue avec les autres, refus listés à la fin
-                refusees.append(f"{c} ({getattr(exc, 'code', None) or type(exc).__name__})")
+        # Lot 85.1 : suppression collection par collection (pas de droit « dropDatabase ») — lot 113 : fonction partagée
+        supprimees, refusees = await vider_base(client, nom)
         nb = supprimees
         logger.warning("[quota_atlas] base %s purgée par %s : %s collections supprimées, %s refusées",
                        nom, user.get("email"), supprimees, len(refusees))
@@ -217,8 +239,6 @@ def setup_quota_atlas_routes(*, db, client, api, get_current_user, base_courante
             raise HTTPException(status_code=403, detail=(
                 "Le compte Atlas de SAWALI n'a pas le droit de supprimer ces collections. Supprimez la base depuis "
                 f"le site MongoDB Atlas (Browse Collections → {nom} → Drop Database)."))
-        await db.settings.update_one({"_id": DOC_ID}, {"$push": {"purges": {
-            "base": nom, "collections": nb, "par": user.get("email"), "le": datetime.now(timezone.utc).isoformat()}}},
-            upsert=True)
+        await noter_purge(db, nom, nb, user.get("email"))
         return {"ok": True, "base": nom, "collections_liberees": nb, "refusees": refusees,
                 "mesure": await mesurer(db, client, base_courante)}

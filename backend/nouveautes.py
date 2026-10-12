@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "113", "date": "2026-10-12",
+        "titre": "🧹 Libérer l'Espace",
+        "description": "Un seul bouton analyse les sauvegardes R2 (migration et quotidiennes) et les bases Atlas obsolètes, coche ce que la règle de rétention supprimerait, protège la dernière sauvegarde réussie, affiche l'espace et les collections libérés, puis nettoie après confirmation (LIBERER).",
+        "rubrique": "🧹 Libérer l'Espace",
+    },
+    {
         "lot": "112.1", "date": "2026-10-12",
         "titre": "📨 Transmission universelle : texte libre si la personne a écrit",
         "description": "Quand le destinataire a écrit à SAWALI depuis moins de 24 h, le message d'une plateforme part en texte libre (toujours remis, gratuit) au lieu du modèle Meta, qui peut être bloqué pour certains numéros.",

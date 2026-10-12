@@ -8,6 +8,8 @@
 //   • la limite et le seuil d'alerte, réglables (alerte WhatsApp au super-admin une fois par jour au-delà du seuil).
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+// Lot 113 — encadré-renvoi vers le bouton unique « 🧹 Libérer l'Espace »
+import { RenvoiLibererEspace } from "@/pages/admin/sections/LibererEspaceSection";
 
 // Couleurs par niveau (vert, orange, rouge)
 const COULEURS = {
@@ -136,6 +138,10 @@ export default function QuotaAtlasSection({ reglages, maj }) {
           </p>
         </div>
       </div>
+
+      {/* Lot 113 — renvoi : les bases obsolètes se suppriment aussi depuis « Libérer l'Espace » (avec les sauvegardes R2) */}
+      <RenvoiLibererEspace texte={<>Pour faire de la place, utilisez <b>🧹 Libérer l'Espace</b> : il liste les bases non protégées
+        (« libère N collections ») avec les sauvegardes R2 à purger. Le bouton « Contenu » ci-dessous reste disponible pour examiner une base.</>} />
 
       {/* Détail par base : barres proportionnelles */}
       <div className="space-y-1.5" data-testid="bases-atlas">

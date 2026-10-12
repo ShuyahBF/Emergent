@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "132", "date": "2026-10-12",
+        "titre": "📣 Facebook : ZandGo, adLyn et bfmobility animées par Liluvine",
+        "description": "Une configuration par plateforme (page Facebook propre, jours et heure, validation, légende) : Liluvine publie les produits de ZandGo et d'adLyn et les véhicules de bfmobility, relus par l'IA (jamais de prix inventé), avec un kit d'annonces de lancement par plateforme et le filtre de la file par plateforme.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "131.1", "date": "2026-10-12",
         "titre": "🖥️ Postes Loois sans surveillance",
         "description": "Clé « LKS-… » : le super-admin prend la main sans accord ni bandeau (notification discrète sur le poste) ; liste des postes à prendre en main.",

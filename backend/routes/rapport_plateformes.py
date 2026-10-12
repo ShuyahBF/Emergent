@@ -36,6 +36,23 @@ async def _compter(db, collection: str, filtre: Dict[str, Any]) -> int:
         return 0
 
 
+async def robots_plateforme(db, code: str, periode: Dict[str, Any]) -> Dict[str, Any]:
+    """Lot 119 — visites de robots MASQUÉES (aucun WhatsApp) pour une plateforme sur la période :
+    nombre et principaux hébergeurs (« Google LLC ×2 »). Source : journal des alertes de connexion."""
+    try:
+        lignes = [a async for a in db.alertes_connexions.find(
+            {"code": code, "le": periode, "$or": [{"robot": True}, {"raison": {"$regex": "^robot"}}]},
+            {"_id": 0, "operateur": 1}).limit(2000)]
+    except Exception:  # noqa: BLE001
+        return {"nombre": 0, "hebergeurs": []}
+    compte: Dict[str, int] = {}
+    for a in lignes:
+        nom = a.get("operateur") or "hébergeur inconnu"
+        compte[nom] = compte.get(nom, 0) + 1
+    tri = sorted(compte.items(), key=lambda x: -x[1])[:4]
+    return {"nombre": len(lignes), "hebergeurs": [f"{n} ×{c}" if c > 1 else n for n, c in tri]}
+
+
 async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: bool = True,
                                cache_s: int = 600, sans_attendre: bool = False) -> List[Dict[str, Any]]:
     """Activité de chaque plateforme entre debut_iso (inclus) et fin_iso (exclu).
@@ -72,7 +89,9 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             _compter(db, "liluvine_desinscriptions", {"emetteur": code, "actif": True, "date": periode}),
             _compter(db, "liluvine_incidents", {"emetteur": code, "date": periode}))
         quota = int(e.get("quota_jour") or 0)
+        robots = await robots_plateforme(db, code, periode)    # lot 119 : visites de robots masquées
         resultat.append({
+            "robots": robots,
             "code": code,
             "nom": e.get("nom") or code,
             "actif": bool(e.get("actif", True)),
@@ -111,6 +130,14 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
     return resultat
 
 
+def ligne_robots(p: Dict[str, Any]) -> str:
+    """Lot 119 — « 🤖 3 visite(s) de robots masquée(s) (Google LLC ×2, cleardocks LLC) » ; vide s'il n'y en a pas."""
+    r = p.get("robots") or {}
+    if not r.get("nombre"):
+        return ""
+    return f"   🤖 {r['nombre']} visite(s) de robots masquée(s)" + (f" ({', '.join(r['hebergeurs'])})" if r.get("hebergeurs") else "")
+
+
 def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
     """Texte « 🌐 Activité des plateformes », ajouté tel quel à la synthèse (chiffres exacts)."""
     if not plateformes:
@@ -132,6 +159,8 @@ def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
             if interne:
                 lignes.append(f"   Activité interne : {interne}")
             lignes += [f"   ◦ {f}" for f in faits]
+            if ligne_robots(p):
+                lignes.append(ligne_robots(p))
             continue
         ligne = (f"• {p['nom']}{etat} : {p['envois']} envoi(s), {p['reussis']} réussi(s), {p['echecs']} échec(s), "
                  f"{p['remis']} remis, {p['lus']} lu(s), {p['reponses']} réponse(s) client, "
@@ -144,6 +173,8 @@ def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
         if interne:
             lignes.append(f"   Activité interne : {interne}")
         lignes += [f"   ◦ {f}" for f in faits]
+        if ligne_robots(p):
+            lignes.append(ligne_robots(p))
     return "\n".join(lignes)
 
 

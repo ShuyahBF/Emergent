@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "119", "date": "2026-10-12",
+        "titre": "🤖 Visites de robots masquées",
+        "description": "Une visite anonyme venant d'un centre de données (Google Cloud, Amazon, Azure, hébergeurs, VPN…) n'envoie plus de WhatsApp : elle reste dans le journal (« robot ») et Liluvine la compte, plateforme par plateforme, dans sa synthèse quotidienne.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
+        "lot": "118", "date": "2026-10-12",
+        "titre": "🔑 Postes Loois : ignorer un poste",
+        "description": "Dans l'alerte des postes Loois sans clé client : bouton « × » pour fermer le toast et, dans la rubrique, « Ignorer ce poste » (serveur, clé commune voulue) ; le poste reste listé, grisé, et se « Réactive » d'un clic ; les nouveaux postes continuent d'alerter.",
+        "rubrique": "🔑 Postes Loois sans clé client (alerte)",
+    },
+    {
         "lot": "117.1", "date": "2026-10-12",
         "titre": "🖼️ Carrousels : réutiliser la série approuvée",
         "description": "« Créer les modèles chez Meta » vérifie d'abord si une série de carrousel est déjà approuvée et propose de la réutiliser (Meta refuse une copie aux mêmes textes) ; l'adresse réelle du bouton de la série déposée est affichée.",

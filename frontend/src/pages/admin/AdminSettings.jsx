@@ -105,12 +105,12 @@ const NEW_LOTS = {
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
   "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "110",   // lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "119",   // lot 119 : robots (centres de données) masqués ; lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "117.1",   // lot 117.1 : série approuvée réutilisée ; lot 117 : modèles conformes ; lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
-  "🔑 Postes Loois sans clé client (alerte)": "89",   // lot 89 : alerte admin + superviseur, aucun message sur le poste
+  "🔑 Postes Loois sans clé client (alerte)": "118",   // lot 118 : Ignorer / Réactiver un poste, bouton × ; lot 89 : alerte admin + superviseur, aucun message sur le poste
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
@@ -149,12 +149,12 @@ const NEW_SECTIONS = {
   "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
   "🧹 Libérer l'Espace": "2026-10-12",   // lots 113 et 116
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-11",   // lot 109
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-12",   // lot 119 (créée au lot 109)
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-12",   // lot 94 ; lot 111
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
-  "🔑 Postes Loois sans clé client (alerte)": "2026-10-09",   // lot 89
+  "🔑 Postes Loois sans clé client (alerte)": "2026-10-12",   // lot 118 (créée au lot 89)
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
@@ -244,8 +244,8 @@ const NEW_DESCRIPTIONS = {
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
-  "🔑 Postes Loois sans clé client (alerte)": "Loois n'affiche plus rien sur le poste ; l'administrateur et le superviseur sont alertés des postes sans clé client valable (lot 89).",
-  "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, pays et opérateur, utilisateur, bouton « Visiter le site » (lots 109-110).",
+  "🔑 Postes Loois sans clé client (alerte)": "« Ignorer ce poste » (serveur, clé commune voulue) : il reste listé, grisé, et se réactive d'un clic ; bouton × sur l'alerte (lot 118).",
+  "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, pays et opérateur, utilisateur, bouton « Visiter le site » (lots 109-110). Les visites de robots (centres de données) sont masquées et comptées dans la synthèse de Liluvine (lot 119).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",

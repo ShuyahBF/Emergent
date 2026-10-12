@@ -131,7 +131,7 @@ const NEW_LOTS = {
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
   "📈 Disponibilité (/uptime) — journal des sondes": "95",
-  "📣 Page Facebook animée par Liluvine": "105",  // lot 96 ; lot 99 : « Reconnecter Facebook » ; lot 105 : kit de lancement beAuthentik
+  "📣 Page Facebook animée par Liluvine": "132",  // lot 132 : une configuration par plateforme (ZandGo, adLyn, bfmobility) ; lot 96 ; lot 99 : « Reconnecter Facebook » ; lot 105 : kit de lancement beAuthentik
   "🧮 Consommation de l'IA (requêtes à Claude)": "98",   // lot 95 : sondes corrigées + remise à zéro du journal
   "📞 Liluvine appelle le propriétaire à chaque message": "67",
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
@@ -178,7 +178,7 @@ const NEW_SECTIONS = {
   "🖥️ Postes et serveurs — signal de présence": "2026-10-07",
   "⚡ Santé du serveur — blocages": "2026-10-07",
   "📈 Disponibilité (/uptime) — journal des sondes": "2026-10-09",
-  "📣 Page Facebook animée par Liluvine": "2026-10-10",
+  "📣 Page Facebook animée par Liluvine": "2026-10-12",   // lot 132 (créée au lot 96)
   "🧮 Consommation de l'IA (requêtes à Claude)": "2026-10-10",
   // Lots 67 et 67.1 (06/10/2026) — Liluvine appelle le propriétaire, historique des appels (durée, coût)
   "📞 Liluvine appelle le propriétaire à chaque message": "2026-10-06",
@@ -249,7 +249,7 @@ const NEW_DESCRIPTIONS = {
   "🚨 Bandeau d'incident et historique (/uptime)": "Historique des incidents de /uptime : Résoudre, Supprimer, Réinitialiser ; un bandeau « Info » est une annonce et ne crée plus d'incident (lot 115).",
   "🧹 Libérer l'Espace": "Un seul bouton : analyse des sauvegardes R2 et des bases Atlas obsolètes, sélection selon la règle de rétention, espace et collections libérés, nettoyage après confirmation (lot 113).",
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
-  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105).",
+  "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105) ; une configuration par plateforme — beAuthentik, ZandGo, adLyn, bfmobility — avec sa page, ses jours et heure, sa légende, la publication de produits ou de véhicules relus par l'IA, un kit de lancement par plateforme et le filtre de la file par plateforme (lot 132).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
   "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; lot 100 : carrousels hors des listes ordinaires de modèles ; lot 111 : description détaillée par carte et page de présentation de tout le carrousel, ouverte sur la carte (#carte-n), avec « Je suis intéressé ».",
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "Carrousel WhatsApp vendu à un annonceur : clics facturés au coût par clic (une fois par appareil et par carte sur 24 h), coût par envoi, envoi bloqué si budget épuisé, rapport public de l'annonceur (lot 111).",

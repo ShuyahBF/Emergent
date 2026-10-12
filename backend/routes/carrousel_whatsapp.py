@@ -183,6 +183,42 @@ def motifs_depuis_liste(prefixe: str, langue: str, modeles: List[dict]) -> Dict[
     return sortie
 
 
+def _est_carrousel(m: dict) -> bool:
+    """Lot 117.1 — vrai si le modèle Meta est un carrousel (composant CAROUSEL)."""
+    return any(str(c.get("type") or "").upper() == "CAROUSEL" for c in (m.get("components") or []))
+
+
+def series_carrousel_approuvees(modeles: List[dict], langue: str, sauf: str = "") -> Dict[str, int]:
+    """Lot 117.1 — {préfixe: nombre de modèles APPROUVÉS} des séries de carrousel du compte (noms <préfixe>_2 … _10).
+    Constat du 12/10/2026 : Meta refuse aussitôt (« format non conforme ») une nouvelle série qui recopie les textes d'une
+    série déjà approuvée ; il faut alors réutiliser celle-ci au lieu d'en déposer une autre."""
+    series: Dict[str, int] = {}
+    for m in modeles or []:
+        nom = str(m.get("name") or "")
+        prefixe, _, n = nom.rpartition("_")
+        if (not prefixe or prefixe == sauf or not n.isdigit() or not (CARTES_MIN <= int(n) <= CARTES_MAX)
+                or str(m.get("status") or "").upper() != "APPROVED" or (langue and (m.get("language") or langue) != langue)
+                or (m.get("components") is not None and not _est_carrousel(m))):
+            continue
+        series[prefixe] = series.get(prefixe, 0) + 1
+    return series
+
+
+def url_bouton_reelle(modeles: List[dict], prefixe: str) -> Optional[str]:
+    """Lot 117.1 — adresse RÉELLE du bouton des cartes dans les modèles <préfixe>_N déjà déposés chez Meta
+    (une série approuvée garde l'adresse de son dépôt, même si SAWALI en propose une autre pour les nouvelles séries)."""
+    for m in modeles or []:
+        if not str(m.get("name") or "").startswith(f"{prefixe}_"):
+            continue
+        for c in m.get("components") or []:
+            for carte in c.get("cards") or []:
+                for sc in carte.get("components") or []:
+                    for b in sc.get("buttons") or []:
+                        if str(b.get("type") or "").upper() == "URL" and b.get("url"):
+                            return str(b["url"])
+    return None
+
+
 def prompt_image_carte(description: str, titre: str = "") -> str:
     """Lot 75 — consigne envoyée à l'IA : la description saisie, le titre de la carte (contexte)
     et la consigne de format (carré, sans texte : WhatsApp affiche déjà titre et texte sous l'image)."""
@@ -339,6 +375,7 @@ class ReglagesIn(BaseModel):
     modele: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-z0-9_]+$")
     langue: str = Field(LANGUE_DEFAUT, min_length=2, max_length=10)
     tenant_id: Optional[str] = None     # modèles propres à un client qui a son numéro WhatsApp
+    forcer: bool = False                # lot 117.1 : déposer une nouvelle série même si une série approuvée existe
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +519,8 @@ def attach_carrousel_whatsapp_routes(
         cle = f"{tenant_id or 'plateforme'}:{prefixe}:{langue}"
         cache = _cache_statuts.get(cle)
         if cache and not rafraichir and time.time() - cache[0] < 120:
-            return {"prefixe": prefixe, "statuts": cache[1], "motifs": cache[2] if len(cache) > 2 else {}, "erreur": None}
+            return {"prefixe": prefixe, "statuts": cache[1], "motifs": cache[2] if len(cache) > 2 else {},
+                    "url_bouton_reelle": cache[3] if len(cache) > 3 else None, "erreur": None}
         creds = await resolve_wa_credentials(tenant_id)
         jeton, waba = (creds.get("access_token") or "").strip(), (creds.get("waba_id") or "").strip()
         if not jeton or not waba:
@@ -493,17 +531,18 @@ def attach_carrousel_whatsapp_routes(
             import httpx
             async with httpx.AsyncClient(timeout=15) as http:
                 rep = await http.get(f"https://graph.facebook.com/{version}/{waba}/message_templates",
-                                     params={"name": prefixe, "fields": "name,status,language,rejected_reason", "limit": 200},   # lot 115.1 : motif du refus
+                                     params={"name": prefixe, "fields": "name,status,language,rejected_reason,components", "limit": 200},   # lot 115.1 : motif ; 117.1 : adresse du bouton
                                      headers={"Authorization": f"Bearer {jeton}"})
             if rep.status_code >= 300:
                 return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta : HTTP {rep.status_code}"}
             donnees = (rep.json() or {}).get("data") or []
             statuts = statuts_depuis_liste(prefixe, langue, donnees)
             motifs = motifs_depuis_liste(prefixe, langue, donnees)          # lot 115.1
+            url_reelle = url_bouton_reelle(donnees, prefixe)                 # lot 117.1
         except Exception as exc:  # noqa: BLE001 — l'écran reste utilisable sans les pastilles
             return {"prefixe": prefixe, "statuts": {}, "erreur": f"Meta injoignable : {type(exc).__name__}"}
-        _cache_statuts[cle] = (time.time(), statuts, motifs)
-        return {"prefixe": prefixe, "statuts": statuts, "motifs": motifs, "erreur": None}
+        _cache_statuts[cle] = (time.time(), statuts, motifs, url_reelle)
+        return {"prefixe": prefixe, "statuts": statuts, "motifs": motifs, "url_bouton_reelle": url_reelle, "erreur": None}
 
     def _filtre_brouillons(perimetre: str, tenant_id: Optional[str]) -> dict:
         return {"perimetre": perimetre, **({"tenant_id": tenant_id} if perimetre == "client" else {})}
@@ -1522,6 +1561,26 @@ def attach_carrousel_whatsapp_routes(
         # Lot 76.1 — App ID saisi dans « Intégration Meta » ; sinon retrouvé à partir du jeton WhatsApp
         app_id = (s_glob.get("meta_app_id") or "").strip() or None
         version = (s_glob.get("wa_graph_version") or "v22.0").strip()
+        # Lot 117.1 — une série de carrousel APPROUVÉE existe déjà (autre nom) : on ne dépose rien, on propose de la
+        # réutiliser (Meta refuse une série qui recopie ses textes). « forcer » permet de déposer quand même.
+        if not data.forcer:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=20) as http:
+                    rep = await http.get(f"https://graph.facebook.com/{version}/{waba}/message_templates",
+                                         params={"fields": "name,status,language,components", "limit": 250},
+                                         headers={"Authorization": f"Bearer {jeton}"})
+                series = (series_carrousel_approuvees((rep.json() or {}).get("data") or [], data.langue, sauf=data.modele)
+                          if rep.status_code < 300 else {})
+            except Exception:  # noqa: BLE001 — Meta muet : on ne bloque pas le dépôt
+                series = {}
+            if series:
+                meilleure = max(series, key=lambda p: series[p])
+                raise HTTPException(status_code=409, detail={
+                    "message": (f"Une série de carrousel est déjà approuvée par Meta : « {meilleure} » "
+                                f"({series[meilleure]} modèle(s)). Réutilisez-la : une nouvelle série aux mêmes textes "
+                                "serait refusée (« format non conforme »)."),
+                    "serie_approuvee": meilleure, "series": series})
         try:
             resultats = await cmm.creer_modeles(version=version, app_id=app_id, waba_id=waba, jeton=jeton,
                                                 prefixe=data.modele, langue=data.langue, url_bouton=_url_bouton())

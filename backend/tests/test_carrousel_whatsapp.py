@@ -122,7 +122,7 @@ def test_fonction_non_activee_refusee(env):
     assert client.get("/api/me/whatsapp/carrousel", headers=h("cli_b")).status_code == 403
     r = client.get("/api/me/whatsapp/carrousel", headers=h("suivi_a"))   # hérite de son client
     assert r.status_code == 200 and r.json()["pret"] is True
-    assert r.json()["url_bouton_modele"] == f"{BASE}/api/public/carrousel/l/{{{{1}}}}"
+    assert r.json()["url_bouton_modele"] == f"{BASE}/l/{{{{1}}}}"   # lot 117 : page du site
 
 
 def test_produits_du_client_seulement(env):

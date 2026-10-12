@@ -142,7 +142,11 @@ def _app(utilisateur):
         return utilisateur
 
     async def visibles(user):
-        return [SAWALI, user.get("id")] if user.get("client_id") == SAWALI else [user.get("client_id")]
+        # Lot 127 : comme en production, l'équipe SAWALI voit AUSSI les comptes de tous ses clients ; ils ne doivent
+        # pas pour autant être pris pour des comptes « internes » (sinon leurs contacts n'ont plus de puce)
+        if user.get("client_id") == SAWALI:
+            return [SAWALI, user.get("id"), "pA", "pA-suivi", "pB", "pC"]
+        return [user.get("client_id")]
 
     api = APIRouter(prefix="/api")
     outils = setup_puce_contrat_routes(db=db, api=api, get_current_user=courant, resolve_visible_client_ids=visibles)

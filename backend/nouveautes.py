@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "127", "date": "2026-10-12",
+        "titre": "🟩 Puce de contrat : tous les clients analysés",
+        "description": "Correction : les contacts dont la société correspond à un vrai client (ex. Pharmacie AMITIÉ MIYOUGOU, Centre médical diocésain de Temnoore) étaient pris pour des comptes internes et n'avaient pas de puce ; seul le compte SAWALI lui-même est désormais « interne ».",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "126", "date": "2026-10-12",
         "titre": "🟥 Puce rouge : société sans contrat",
         "description": "Un contact dont la « Société » est renseignée mais sans contrat valable reçoit désormais la puce rouge, même si son numéro ou son e-mail correspond à un compte de l'équipe ; seule une société qui désigne SAWALI elle-même n'a pas de puce.",

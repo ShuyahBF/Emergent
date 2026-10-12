@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "126"
-LOT_LIBELLE = "Puce de contrat : un contact avec Société sans contrat valable reçoit toujours la puce rouge"
+LOT = "127"
+LOT_LIBELLE = "Puce de contrat : les contacts reliés à un vrai client ne sont plus pris pour des comptes internes"

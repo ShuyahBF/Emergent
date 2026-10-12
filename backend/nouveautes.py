@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "132.1", "date": "2026-10-12",
+        "titre": "🔑 Clé Loois : copie en un clic",
+        "description": "À la création d'une clé client ou sans surveillance, la clé s'affiche dans une fenêtre au centre de l'écran avec le pictogramme « Copier ».",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "132", "date": "2026-10-12",
         "titre": "📣 Facebook : ZandGo, adLyn et bfmobility animées par Liluvine",
         "description": "Une configuration par plateforme (page Facebook propre, jours et heure, validation, légende) : Liluvine publie les produits de ZandGo et d'adLyn et les véhicules de bfmobility, relus par l'IA (jamais de prix inventé), avec un kit d'annonces de lancement par plateforme et le filtre de la file par plateforme.",

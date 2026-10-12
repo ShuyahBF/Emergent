@@ -102,6 +102,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "⌨️ Saisie — reprendre le texte par défaut d'un champ": "130",   // lot 130 : Ctrl + Espace / double-clic recopie le texte gris (placeholder) dans le champ
   "🤖📞 Liluvine décroche les appels WhatsApp": "125",   // lot 125 : résumé d'appel avec l'identité de l'appelant
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
   "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
@@ -147,6 +148,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "⌨️ Saisie — reprendre le texte par défaut d'un champ": "2026-10-12",   // lot 130
   "🤖📞 Liluvine décroche les appels WhatsApp": "2026-10-12",   // lot 125
   "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
   "🧹 Libérer l'Espace": "2026-10-12",   // lots 113 et 116
@@ -236,6 +238,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
   "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124).",
@@ -1890,6 +1893,21 @@ export default function AdminSettings() {
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
       {/* Lot 113 — un seul bouton pour faire de la place (sauvegardes R2 + bases Atlas obsolètes), placé
           juste avant les rubriques de sauvegarde dont il regroupe les outils de nettoyage */}
+      {/* Lot 130 (règle 9) — reprendre le texte par défaut (placeholder) d'un champ pour le modifier */}
+      <Filterable title="⌨️ Saisie — reprendre le texte par défaut d'un champ" anchorId="s-saisie-valeur-defaut" category="diagnostics">
+        <div className="space-y-2 text-sm text-slate-700" data-testid="saisie-valeur-defaut">
+          <p>
+            Beaucoup de champs affichent en <span className="text-slate-400">gris</span> le texte utilisé par défaut
+            (ex. « Message de rappel », « Message de fermeture automatique »). Pour partir de ce texte et le modifier :
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li><kbd className="rounded border bg-slate-100 px-1.5 font-mono text-xs">Ctrl</kbd> + <kbd className="rounded border bg-slate-100 px-1.5 font-mono text-xs">Espace</kbd> dans le champ : le texte gris est recopié dans le champ ;</li>
+            <li>ou <b>double-clic</b> (double appui sur téléphone) dans le champ vide.</li>
+          </ul>
+          <p>Le texte recopié devient une vraie valeur : corrigez-le puis enregistrez. Une infobulle rappelle le raccourci quand le champ est vide.</p>
+          <p className="text-xs text-slate-500">Toujours actif, sur toutes les pages et toutes les plateformes (règle 9). Rien à régler.</p>
+        </div>
+      </Filterable>
       <Filterable title="🧹 Libérer l'Espace" anchorId="s-liberer-espace" category="diagnostics">
         <LibererEspaceSection />
       </Filterable>

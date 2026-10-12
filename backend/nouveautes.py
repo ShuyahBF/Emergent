@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "130", "date": "2026-10-12",
+        "titre": "⌨️ Reprendre le texte par défaut d'un champ",
+        "description": "Dans tout champ qui affiche un texte gris par défaut, Ctrl + Espace (ou double-clic sur le champ vide) recopie ce texte pour le modifier.",
+        "rubrique": "⌨️ Saisie — reprendre le texte par défaut d'un champ",
+    },
+    {
         "lot": "129", "date": "2026-10-12",
         "titre": "📅 Retard de paiement : la même règle partout",
         "description": "Admin → Clients (colonne Retard), l'alerte quotidienne des retards, la suspension automatique et Liluvine comptent le retard depuis l'échéance (dernier règlement + périodicité), comme la puce ; Admin → Clients se filtre aussi par « Avec / Sans contrat ».",

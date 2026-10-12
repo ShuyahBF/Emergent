@@ -56,6 +56,28 @@ API_PUBLIQUE = (os.environ.get("SAWALI_API_PUBLIQUE") or "https://api.sawalismar
 ROBOTS = re.compile(r"bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|curl|wget|python|httpx|"
                     r"headless|lighthouse|uptime|monitor|render", re.I)
 
+# Lot 119 — visites venant d'un CENTRE DE DONNÉES (serveurs loués : Google Cloud, AWS, Azure, hébergeurs, VPN…).
+# Un vrai visiteur navigue depuis un opérateur (Orange, Moov, Telecel…), pas depuis un serveur : une visite ANONYME
+# dont l'opérateur est l'un de ceux-ci est un robot (sonde, scanner, robot d'indexation). Elle est masquée (aucun
+# message WhatsApp) mais journalisée et comptée dans la synthèse quotidienne de Liluvine.
+CENTRES_DONNEES = re.compile(
+    r"google|amazon|aws|microsoft|azure|digitalocean|digital ocean|ovh|hetzner|linode|akamai|cloudflare|oracle|"
+    r"alibaba|tencent|huawei cloud|contabo|vultr|choopa|leaseweb|scaleway|online s\.a\.s|ionos|hostinger|godaddy|"
+    r"colocrossing|m247|datacamp|cleardocks|censys|shodan|palo alto|fastly|ovhcloud|hosting|datacenter|"
+    r"data center|cloud|server|vps", re.I)
+
+
+def est_centre_donnees(operateur: Any) -> bool:
+    """Vrai si l'opérateur de l'IP est un centre de données / hébergeur (ex. « Google LLC », « cleardocks LLC »)."""
+    return bool(operateur) and bool(CENTRES_DONNEES.search(str(operateur)))
+
+
+def robot_centre_donnees(evt: Dict[str, Any]) -> bool:
+    """Lot 119 — visite anonyme (personne connectée) venant d'un centre de données : robot à masquer.
+    Les CONNEXIONS à un compte ne sont jamais masquées (un utilisateur peut passer par un VPN)."""
+    return evt.get("type") == "visite" and not evt.get("utilisateur") and not evt.get("telephone") \
+        and est_centre_donnees(evt.get("operateur"))
+
 
 # ---------------------------------------------------------------------------
 # Réglages (db.settings {_id: "global"}, clés alerte_cnx_*)
@@ -425,6 +447,11 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
         """Géolocalisation puis envoi en arrière-plan, et mise à jour du journal (jamais bloquant pour la plateforme)."""
         lieu = await completer_lieu(alerte_id, evt)
         evt = {**evt, **lieu}
+        # Lot 119 — visite depuis un centre de données : robot masqué (pas de WhatsApp), compté dans la synthèse
+        if robot_centre_donnees(evt):
+            await db[COLLECTION].update_one({"id": alerte_id}, {"$set": {
+                "statut": "ignoree", "raison": "robot (centre de données)", "robot": True}})
+            return
         try:
             envois = await envoyer(s, code, nom, evt, url_site, quand)
             statut = "envoyee" if any(e["ok"] for e in envois) else "echec"
@@ -499,11 +526,12 @@ def setup_alertes_connexions_routes(*, api, db, get_current_user):
         await db[COLLECTION].insert_one({
             "id": alerte_id, "code": code, "plateforme": nom, **evt, "cle": cle, "url_site": url_site,
             "le": quand.isoformat(), "le_date": quand, "statut": "ignoree" if raison else "en_cours",
-            "raison": raison, "envois": []})
+            "raison": raison, "envois": [], "robot": raison == "robot"})
         if raison is None:
             asyncio.create_task(traiter(alerte_id, s, code, nom, evt, url_site, quand))
-        elif raison != "robot":
-            # Ligne ignorée (répétition, exclusion…) : on renseigne quand même le pays et l'opérateur du journal
+        else:
+            # Ligne ignorée (robot, répétition, exclusion…) : on renseigne quand même le pays et l'opérateur du journal
+            # (lot 119 : aussi pour les robots, afin que la synthèse de Liluvine nomme leur hébergeur)
             asyncio.create_task(completer_lieu(alerte_id, evt))
         return {"ok": True, "alerte": raison is None, "raison": raison}
 

@@ -118,7 +118,7 @@ const NEW_LOTS = {
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
-  "Contrats — Seuil de retard de paiement (par défaut)": "128",   // lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
+  "Contrats — Seuil de retard de paiement (par défaut)": "128.1",   // lot 128.1 : formes juridiques ignorées ; lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "106",

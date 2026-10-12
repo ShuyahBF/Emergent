@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "128.1", "date": "2026-10-12",
+        "titre": "🏷️ Puces de contrat : SARL, SA… ignorés",
+        "description": "La forme juridique en fin de nom (SARL, SA, SAS, ETS…) n'empêche plus de retrouver le client : « SAWALI SMART SYSTEMS SARL » = « Sawali Smart Systems ».",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "128", "date": "2026-10-12",
         "titre": "🏢 Puces de contrat : la Société du contact retrouve son client",
         "description": "La « Société » d'un contact est comparée aux mêmes valeurs que la liste « Société (client) » du formulaire contact (raison sociale, à défaut nom du client, code client), comptes rattachés et clients créés par l'équipe compris.",

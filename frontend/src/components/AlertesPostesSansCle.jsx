@@ -44,6 +44,7 @@ export default function AlertesPostesSansCle({ admin = false }) {
     toast.warning(`🔑 ${postes.length} poste(s) Loois sans clé client valable`, {
       id: ID_TOAST,
       duration: Infinity,
+      closeButton: true,          // lot 118 : bouton « × » toujours visible pour fermer l'alerte
       description: (
         <div className="space-y-0.5 text-xs" data-testid="alerte-postes-sans-cle">
           {postes.slice(0, MAX_LIGNES).map((p) => (
@@ -53,6 +54,7 @@ export default function AlertesPostesSansCle({ admin = false }) {
           ))}
           {autres > 0 && <div>… et {autres} autre(s)</div>}
           <div className="opacity-80">
+            {admin ? "Un poste voulu ainsi (serveur, clé commune) ? « Ignorer ce poste » dans la rubrique. " : ""}
             Rien n'est affiché sur ces postes : {admin ? "créez puis saisissez leur clé client." : "prévenez l'administrateur (clé client à créer)."}
           </div>
         </div>

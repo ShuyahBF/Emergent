@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "120", "date": "2026-10-12",
+        "titre": "🟩 Puce de contrat dans la messagerie",
+        "description": "Centre de messagerie : une puce carrée devant chaque contact — vert contrat valide, orange retard de paiement, rouge aucun contrat ou annulé ; au survol, n° de contrat, statut, dates, mois écoulés et restants, retard, échéance (jamais de montant). Le passage à l'orange suit ce seuil de retard.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "119", "date": "2026-10-12",
         "titre": "🤖 Visites de robots masquées",
         "description": "Une visite anonyme venant d'un centre de données (Google Cloud, Amazon, Azure, hébergeurs, VPN…) n'envoie plus de WhatsApp : elle reste dans le journal (« robot ») et Liluvine la compte, plateforme par plateforme, dans sa synthèse quotidienne.",

@@ -89,14 +89,28 @@ const ControleCollections = ({ lignes }) => {
   // Total des archives, pour situer le poids de chaque collection
   const total = (lignes || []).reduce((s, r) => s + (Number(r.archive_octets) || 0), 0);
   return (
+    <>
+    {/* Lot 112.1 — tri VISIBLE (constat du propriétaire : « je ne vois pas où cliquer pour trier ») :
+        liste « Trier par » + sens, au-dessus du tableau ; les en-têtes restent cliquables (⇅ = triable) */}
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <label htmlFor="tri-controle" className="font-semibold text-slate-700">Trier par</label>
+      <select id="tri-controle" value={tri.cle} className="rounded-md border border-slate-300 bg-white px-2 py-1"
+              onChange={(e) => { const col = COLONNES_CONTROLE.find((c) => c.cle === e.target.value); setTri({ cle: col.cle, sens: col.texte ? 1 : -1 }); }}>
+        {COLONNES_CONTROLE.map((col) => <option key={col.cle} value={col.cle}>{col.cle === "archive_octets" ? "Taille de l'archive" : col.libelle}</option>)}
+      </select>
+      <button type="button" onClick={() => setTri((t) => ({ ...t, sens: -t.sens }))}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 font-semibold hover:bg-slate-50">
+        {tri.sens > 0 ? "▲ Croissant" : "▼ Décroissant"}
+      </button>
+    </div>
     <table className="mt-2 w-full text-xs">
       <thead>
         <tr className="text-left text-slate-500">
           {COLONNES_CONTROLE.map((col) => (
             <th key={col.cle} aria-sort={tri.cle === col.cle ? (tri.sens > 0 ? "ascending" : "descending") : "none"}>
               <button type="button" onClick={() => choisir(col)} title="Cliquer pour trier"
-                      className={`inline-flex items-center gap-1 hover:text-slate-900 ${tri.cle === col.cle ? "font-bold text-slate-900" : ""}`}>
-                {col.libelle}{tri.cle === col.cle ? (tri.sens > 0 ? " ▲" : " ▼") : ""}
+                      className={`inline-flex cursor-pointer items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-sky-700 ${tri.cle === col.cle ? "font-bold text-slate-900" : ""}`}>
+                {col.libelle}<span aria-hidden="true">{tri.cle === col.cle ? (tri.sens > 0 ? "▲" : "▼") : "⇅"}</span>
               </button>
             </th>
           ))}
@@ -117,6 +131,7 @@ const ControleCollections = ({ lignes }) => {
         <tr className="border-t border-slate-300 font-semibold"><td colSpan={4}>Total des archives</td><td className="whitespace-nowrap">{taille(total)}</td><td /></tr>
       </tfoot>
     </table>
+    </>
   );
 };
 

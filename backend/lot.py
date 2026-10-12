@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "112"
-LOT_LIBELLE = "Sauvegarde complète : contrôle par collection triable (taille d'archive, part du total)"
+LOT = "112.1"
+LOT_LIBELLE = "Tri du contrôle par collection rendu visible (« Trier par ») ; Transmission universelle : texte libre quand la fenêtre de 24 h est ouverte"

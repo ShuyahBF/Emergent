@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "112.1", "date": "2026-10-12",
+        "titre": "📨 Transmission universelle : texte libre si la personne a écrit",
+        "description": "Quand le destinataire a écrit à SAWALI depuis moins de 24 h, le message d'une plateforme part en texte libre (toujours remis, gratuit) au lieu du modèle Meta, qui peut être bloqué pour certains numéros.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
+        "lot": "112.1", "date": "2026-10-12",
+        "titre": "🗂️ Tri du contrôle par collection bien visible",
+        "description": "Au-dessus du tableau « Contrôle par collection » : liste « Trier par » (taille de l'archive par défaut) et bouton Croissant / Décroissant ; les en-têtes cliquables portent ⇅.",
+        "rubrique": "Sauvegarde complète (base de secours Atlas + R2)",
+    },
+    {
         "lot": "112", "date": "2026-10-12",
         "titre": "🗂️ Contrôle par collection triable",
         "description": "Dans le détail d'une sauvegarde, cliquez un en-tête (Collection, Source, Cible, Index, Archive) pour trier ; par défaut les plus grosses archives d'abord, avec leur part du total.",

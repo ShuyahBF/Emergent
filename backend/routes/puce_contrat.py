@@ -247,12 +247,30 @@ class IndexComptes:
                     lst = self.par_tel.setdefault(fin, [])
                     if u not in lst:
                         lst.append(u)
-            # Société / code client : uniquement les comptes PRINCIPAUX (pas de parent)
+            # Société / code client : d'abord les comptes PRINCIPAUX (pas de parent)
             if self.principal(u) is u:
                 for nom in (u.get("company"), u.get("client_code")):
                     cle = cle_societe(nom)
                     if cle:
                         self.par_societe.setdefault(cle, []).append(u)
+        # Lot 128 — MÊMES valeurs que la liste « Société (client) » du formulaire contact (GET /me/clients-roster) :
+        # « company », à défaut « full_name », et « client_code » de TOUS les comptes, y compris les comptes rattachés.
+        # Avant, une société choisie dans cette liste depuis un compte rattaché (ou un client sans « company », dont
+        # la liste affiche le nom) ne retrouvait jamais sa fiche : le contact restait sans contrat. Chaque valeur
+        # pointe vers le compte lui-même ET vers son compte principal ; _choisir() garde celui qui porte le contrat.
+        for u in comptes:
+            if self.principal(u) is u and str(u.get("company") or "").strip():
+                continue                                   # déjà indexé ci-dessus
+            for nom in (u.get("company") or u.get("full_name"), u.get("client_code")):
+                cle = cle_societe(nom)
+                if not cle:
+                    continue
+                lst = self.par_societe.setdefault(cle, [])
+                # le compte lui-même EN PREMIER : si son « client_id » désigne le locataire SAWALI (client créé par
+                # l'équipe), son compte « principal » serait SAWALI et le contact passerait pour interne
+                for cand in (u, self.principal(u)):
+                    if cand not in lst:
+                        lst.append(cand)
 
     def principal(self, u: Dict[str, Any]) -> Dict[str, Any]:
         """Compte principal (porteur du contrat) d'un compte : son parent, sinon son client, sinon lui-même."""
@@ -284,14 +302,15 @@ class IndexComptes:
         #    toujours le locataire de l'utilisateur lui-même, jamais le client concerné)
         email = str(contact.get("email") or "").strip().lower()
         if email and email in self.par_email:
-            p = self._choisir([self.principal(u) for u in self.par_email[email]])
+            # lot 128 : le compte lui-même reste candidat (s'il porte le contrat, _choisir le garde)
+            p = self._choisir([x for u in self.par_email[email] for x in (self.principal(u), u)])
             if p:
                 return p, "email"
         # 2. numéro WhatsApp / téléphone (8 derniers chiffres)
         for tel in (contact.get("whatsapp"), contact.get("phone")):
             fin = _chiffres(tel)
             if len(fin) >= 8 and fin in self.par_tel:
-                p = self._choisir([self.principal(u) for u in self.par_tel[fin]])
+                p = self._choisir([x for u in self.par_tel[fin] for x in (self.principal(u), u)])
                 if p:
                     return p, "telephone"
         return None, "aucun"
@@ -409,6 +428,7 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         seuil_defaut = ctx["seuil_defaut"]
         resultat: Dict[str, Optional[Dict[str, Any]]] = {}
         raisons: Dict[str, int] = {}          # lot 127.2 : pourquoi un contact n'a pas de puce (comptages)
+        inconnues: set = set()                # lot 128 : sociétés des contacts introuvables parmi les clients
         for c in contacts:
             # Lot 124 — contact sans « Société » : non analysé (ni puce ni bandeau)
             if not a_une_societe(c):
@@ -416,6 +436,10 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
                 raisons["sans_societe"] = raisons.get("sans_societe", 0) + 1     # lot 127.2 : diagnostic
                 continue
             client, critere = index.client_du_contact(c)
+            if critere != "societe":
+                # Lot 128 — diagnostic : société saisie sur le contact mais retrouvée chez AUCUN client (nom d'entreprise
+                # seulement, aucune donnée personnelle) → permet de corriger l'orthographe dans la fiche du contact
+                inconnues.add(cle_societe(c.get("company")))
             if est_interne(client, internes, domaines):
                 if critere == "societe":
                     resultat[c["id"]] = None                 # la SOCIÉTÉ est SAWALI elle-même : pas de puce
@@ -435,6 +459,9 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         logger.info("[puce_contrat] demandés=%s visibles=%s comptes_indexés=%s sociétés_indexées=%s bilan=%s sans_puce=%s",
                     len(payload.contact_ids or []), len(contacts), len(index.par_id), len(index.par_societe), bilan,
                     raisons)
+        if inconnues:
+            logger.info("[puce_contrat] sociétés sans client correspondant (%s) : %s", len(inconnues),
+                        ", ".join(sorted(inconnues)[:40]))
         return {"actif": True, "contrats": resultat}
 
     # Lot 121 — même puce dans la fenêtre de chat « Support Loois » (postes Loois → client SAWALI) : mêmes droits

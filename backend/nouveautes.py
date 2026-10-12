@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "128", "date": "2026-10-12",
+        "titre": "🏢 Puces de contrat : la Société du contact retrouve son client",
+        "description": "La « Société » d'un contact est comparée aux mêmes valeurs que la liste « Société (client) » du formulaire contact (raison sociale, à défaut nom du client, code client), comptes rattachés et clients créés par l'équipe compris.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "127.3", "date": "2026-10-12",
         "titre": "🟧 Puce orange : retard après l'échéance",
         "description": "La puce passe à l'orange seulement quand l'échéance (dernier règlement + périodicité, mensuelle par défaut) est dépassée de plus que le seuil de retard ; un client qui vient de payer reste vert.",

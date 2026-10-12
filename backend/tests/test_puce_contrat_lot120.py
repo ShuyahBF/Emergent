@@ -109,6 +109,9 @@ def _app(utilisateur):
     _run(base.users.insert_many([
         {"id": "sa", "email": "admin@sawalismartsystems.com", "role": "admin", "company": "SAWALI SMART SYSTEMS",
          "client_id": SAWALI},
+        # Lot 126 : utilisatrice suivie de l'équipe SAWALI (même numéro que le contact « Diane »)
+        {"id": "diane-u", "email": "diane@exemple.bf", "role": "client", "parent_client_id": "sa",
+         "whatsapp_number": "22655264438"},
         {"id": "pA", "email": "dg@pharma-a.bf", "role": "client", "company": "Pharmacie A", "phone": "+226 70 11 11 11",
          "contract_number": "C-A", "last_payment_at": _jours(2), "contract_amount": 500000},
         {"id": "pA-suivi", "email": "caisse@pharma-a.bf", "role": "client", "parent_client_id": "pA",
@@ -129,6 +132,10 @@ def _app(utilisateur):
         {"id": "k4", "client_id": SAWALI, "name": "C", "company": "pharmacie c"},            # société, résilié
         {"id": "k5", "client_id": SAWALI, "name": "Collègue", "email": "jean@sawalismartsystems.com"},  # interne
         {"id": "k6", "client_id": "autre-locataire", "name": "Invisible", "company": "Ailleurs"},     # hors périmètre
+        # Lot 126 : société sans contrat, numéro d'un compte de l'équipe → puce ROUGE (et non « pas de puce »)
+        {"id": "k8", "client_id": SAWALI, "name": "Diane", "company": "ECOLE DES METIERS", "whatsapp": "22655264438"},
+        # La société désigne SAWALI elle-même → pas de puce
+        {"id": "k9", "client_id": SAWALI, "name": "Ines", "company": "Sawali Smart Systems"},
     ]))
 
     async def courant():
@@ -169,6 +176,8 @@ def test_route_couleurs_liens_et_aucun_montant():
     assert c["k4"]["etat"] == "aucun" and c["k4"]["statut"] == "annule" and c["k4"]["relie_par"] == "societe"
     assert c["k5"] is None                                          # membre de l'équipe : pas de puce
     assert c["k7"] is None                                          # lot 124 : sans « Société », pas analysé
+    assert c["k8"]["etat"] == "aucun" and c["k8"]["couleur"] == "rouge"   # lot 126 : société sans contrat
+    assert c["k9"] is None                                          # lot 126 : la société est SAWALI
     assert "k6" not in c                                            # contact hors périmètre : jamais renvoyé
     # Aucun montant, nulle part dans la réponse
     for cle in _cles(corps):

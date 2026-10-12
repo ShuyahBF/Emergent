@@ -29,6 +29,7 @@ import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSectio
 import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSection";   // Lot 88
 import PostesSansCleSection from "@/pages/admin/sections/PostesSansCleSection";   // Lot 89
 import ControleDistanceSection from "@/pages/admin/sections/ControleDistanceSection";   // Lot 131
+import PortailEkolSection from "@/pages/admin/sections/PortailEkolSection";   // Lot 134
 import SupportPlateformesSection from "@/pages/admin/sections/SupportPlateformesSection";   // Lot 90
 import AvisClaudeSection from "@/pages/admin/sections/AvisClaudeSection";   // Lot 91
 import SyntheseSupport from "@/components/SyntheseSupport";   // Lot 92
@@ -103,6 +104,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
   "🖥️ Contrôle à distance Loois": "131.1",   // lot 131 : voir / contrôler un poste Loois depuis le navigateur, avec l'accord de son utilisateur
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "130",   // lot 130 : Ctrl + Espace / double-clic recopie le texte gris (placeholder) dans le champ
   "🤖📞 Liluvine décroche les appels WhatsApp": "125",   // lot 125 : résumé d'appel avec l'identité de l'appelant
@@ -150,6 +152,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
   "🖥️ Contrôle à distance Loois": "2026-10-12",   // lot 131
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "2026-10-12",   // lot 130
   "🤖📞 Liluvine décroche les appels WhatsApp": "2026-10-12",   // lot 125
@@ -241,6 +244,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
   "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1).",
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
@@ -1377,6 +1381,10 @@ export default function AdminSettings() {
         </div>
       </Filterable>
 
+      {/* Lot 134 — portail e-Kol : état de la liaison signée et des tables synchronisées */}
+      <Filterable title="🎓 Portail e-Kol (élèves et parents)" anchorId="s-portail-ekol" category="modules">
+        <PortailEkolSection />
+      </Filterable>
       {/* Lot 131 — contrôle à distance des postes Loois (voir / contrôler, accord du poste, journal) */}
       <Filterable title="🖥️ Contrôle à distance Loois" anchorId="s-controle-distance" category="modules">
         <ControleDistanceSection />

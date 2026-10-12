@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
+from fastapi import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 mongomock_motor = pytest.importorskip("mongomock_motor")
@@ -38,10 +39,13 @@ def db(monkeypatch):
 
 def client(db):
     """Application FastAPI minimale avec la seule route d'export."""
-    from fastapi import APIRouter, FastAPI
+    from fastapi import APIRouter, FastAPI, Request
     from fastapi.testclient import TestClient
     api = APIRouter(prefix="/api")
-    ex.setup_ekol_portail_export_routes(db=db, api=api)
+    async def utilisateur(request: Request):
+        """Lot 134 : utilisateur simulé (en-tête X-Role : admin par défaut)."""
+        return {"id": "u", "role": request.headers.get("X-Role", "admin")}
+    ex.setup_ekol_portail_export_routes(db=db, api=api, get_current_user=utilisateur)
     app = FastAPI()
     app.include_router(api)
     return TestClient(app)
@@ -137,3 +141,14 @@ def test_message_signe_logique_pure():
     assert ex.verifier_signature(CLE, "100", ex.calculer_signature(CLE, "100", "GET", "/p", "q=1"), "GET", "/p", "q=1",
                                  maintenant=200) is True
     assert ex.decoder_curseur(ex.coder_curseur(datetime(2026, 1, 1), "K")) == (datetime(2026, 1, 1), "K")
+
+
+def test_etat_pour_la_rubrique_lot134(db):
+    """Lot 134 : l'administrateur voit la clé configurée et les tables utiles synchronisées par école."""
+    remplir(db, n=3, site="ECOLE-X")
+    c = client(db)
+    assert c.get("/api/admin/ekol-portail/etat", headers={"X-Role": "pharmacien"}).status_code == 403
+    r = c.get("/api/admin/ekol-portail/etat").json()
+    assert r["cle_configuree"] is True and "NotesExamens" in r["tables_utiles"]
+    ecole = r["ecoles"][0]
+    assert ecole["site"] == "ECOLE-X" and ecole["tables"]["ElèveEdu"]["nb_documents"] == 3

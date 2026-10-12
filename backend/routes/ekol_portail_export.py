@@ -42,6 +42,10 @@ from routes.loois_synchro import code_site, colonnes_binaires, json_sur, nom_col
 VALIDITE_SECONDES = 300        # une signature vaut 5 minutes (horloges des deux serveurs à l'heure)
 LIMITE_DEFAUT = 500            # lignes par page
 LIMITE_MAX = 1000              # lignes par page, au plus
+# Lot 134 : tables e-Kol lues par le portail (rubrique « 🎓 Portail e-Kol » : lesquelles sont déjà synchronisées)
+TABLES_PORTAIL = ("ElèveEdu", "Tuteur", "Elève_Tuteur", "Inscription", "Paiements", "ClassesOffertes", "ClasseEdu",
+                  "Ecole", "Session", "Matières", "MatièresClasse", "Examens", "NotesExamens", "BulletinElève",
+                  "BulletinElèveClassement", "Bulletin")
 APPLICATION = "eKol"           # seules les tables e-Kol sont exportées
 
 
@@ -115,8 +119,30 @@ def _sans_fuseau(valeur: Any) -> Optional[datetime]:
 # ---------------------------------------------------------------------------
 # Route
 # ---------------------------------------------------------------------------
-def setup_ekol_portail_export_routes(*, db, api) -> None:
+def setup_ekol_portail_export_routes(*, db, api, get_current_user=None) -> None:
     """Branche la route d'export sur le routeur /api de SAWALI."""
+
+    # --- Lot 134 : état pour la rubrique des Paramètres (administrateur) ------------------------------------------
+    from fastapi import Depends
+    if get_current_user is None:   # appel sans dépendance fournie : celle du serveur SAWALI
+        from auth import get_current_user
+
+    @api.get("/admin/ekol-portail/etat", tags=["Portail e-Kol"])
+    async def etat(user: dict = Depends(get_current_user)):
+        """Clé configurée ? et, par école e-Kol, tables utiles au portail déjà synchronisées par Loois."""
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        ecoles: Dict[str, Dict[str, Any]] = {}
+        async for t in db.loois_synchro_tables.find({"application": APPLICATION},
+                                                    {"_id": 0, "site": 1, "table": 1, "collection": 1,
+                                                     "derniere_synchro": 1, "nb_documents": 1}):
+            site = t.get("site") or "?"
+            nom = t.get("table") or str(t.get("collection") or "").split("_")[-1]
+            ecoles.setdefault(site, {})[nom] = {"derniere_synchro": t.get("derniere_synchro"),
+                                                "nb_documents": t.get("nb_documents")}
+        return {"cle_configuree": bool(os.environ.get("EKOL_PORTAIL_HMAC", "").strip()),
+                "tables_utiles": list(TABLES_PORTAIL),
+                "ecoles": [{"site": s, "tables": ecoles[s]} for s in sorted(ecoles)]}
 
     @api.get("/ekol-portail/export", tags=["Portail e-Kol"])
     async def exporter(request: Request, site: str, table: str, depuis: str = "", limite: int = LIMITE_DEFAUT):

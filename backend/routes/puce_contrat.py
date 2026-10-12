@@ -300,9 +300,11 @@ def est_interne(compte: Optional[Dict[str, Any]], locataires_internes: set, doma
     email = str(compte.get("email") or "").strip().lower()
     if email == _email_super_admin():
         return True
-    if compte.get("id") in locataires_internes:
-        return True
-    return bool(email) and email.rsplit("@", 1)[-1] in domaines
+    # Lot 127.2 — SEUL le locataire SAWALI lui-même est interne. Avant, une fiche client dont l'e-mail avait un domaine
+    # « interne » (réglage internal_domains) était prise pour un membre de l'équipe : ses contacts n'avaient AUCUNE
+    # puce (diagnostic du 12/10 : 364 contacts sur 377 sans puce). Le domaine de l'e-mail ne sert plus qu'aux droits
+    # d'accès (qui voit les puces), plus au classement des clients. `domaines` est gardé pour compatibilité.
+    return compte.get("id") in locataires_internes
 
 
 # =====================================================================================================================
@@ -398,15 +400,18 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         aujourdhui = datetime.now(timezone.utc).date()
         seuil_defaut = ctx["seuil_defaut"]
         resultat: Dict[str, Optional[Dict[str, Any]]] = {}
+        raisons: Dict[str, int] = {}          # lot 127.2 : pourquoi un contact n'a pas de puce (comptages)
         for c in contacts:
             # Lot 124 — contact sans « Société » : non analysé (ni puce ni bandeau)
             if not a_une_societe(c):
                 resultat[c["id"]] = None
+                raisons["sans_societe"] = raisons.get("sans_societe", 0) + 1     # lot 127.2 : diagnostic
                 continue
             client, critere = index.client_du_contact(c)
             if est_interne(client, internes, domaines):
                 if critere == "societe":
                     resultat[c["id"]] = None                 # la SOCIÉTÉ est SAWALI elle-même : pas de puce
+                    raisons["societe_sawali"] = raisons.get("societe_sawali", 0) + 1   # lot 127.2 : diagnostic
                     continue
                 # Lot 126 — relié à un compte de l'équipe seulement par son e-mail / téléphone (ex. Diane, ÉCOLE DES
                 # MÉTIERS ; Sonia, Alimentation DELI GROCERY) : sa société n'a pas de contrat → puce ROUGE, pas d'oubli
@@ -419,8 +424,9 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         for f in resultat.values():
             cle = "sans_puce" if f is None else f"{f.get('etat')}_{f.get('relie_par')}"
             bilan[cle] = bilan.get(cle, 0) + 1
-        logger.info("[puce_contrat] demandés=%s visibles=%s comptes_indexés=%s sociétés_indexées=%s bilan=%s",
-                    len(payload.contact_ids or []), len(contacts), len(index.par_id), len(index.par_societe), bilan)
+        logger.info("[puce_contrat] demandés=%s visibles=%s comptes_indexés=%s sociétés_indexées=%s bilan=%s sans_puce=%s",
+                    len(payload.contact_ids or []), len(contacts), len(index.par_id), len(index.par_societe), bilan,
+                    raisons)
         return {"actif": True, "contrats": resultat}
 
     # Lot 121 — même puce dans la fenêtre de chat « Support Loois » (postes Loois → client SAWALI) : mêmes droits

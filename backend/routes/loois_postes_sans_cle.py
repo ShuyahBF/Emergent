@@ -100,9 +100,24 @@ def regrouper(fiches: List[Dict[str, Any]], maintenant: datetime) -> List[Dict[s
 
 
 async def lire_reglage(db) -> Dict[str, Any]:
-    """Réglage de l'alerte (activée par défaut)."""
+    """Réglage de l'alerte (activée par défaut) et postes IGNORÉS (lot 118)."""
     doc = await db.loois_reglages.find_one({"id": ID_REGLAGE}, {"_id": 0}) or {}
-    return {"actif": bool(doc.get("actif", True)), "maj_le": doc.get("maj_le"), "maj_par": doc.get("maj_par")}
+    return {"actif": bool(doc.get("actif", True)), "maj_le": doc.get("maj_le"), "maj_par": doc.get("maj_par"),
+            "ignores": doc.get("ignores") or {}}
+
+
+def separer_ignores(postes: List[Dict[str, Any]], ignores: Dict[str, Any]) -> tuple:
+    """Lot 118 — sépare les postes qui alertent de ceux que l'administrateur a choisi d'IGNORER (ex. un serveur, ou un
+    poste qui utilise volontairement la clé commune du support). Un poste ignoré reste listé (grisé) dans la rubrique
+    mais ne déclenche plus l'alerte du portail. Comparaison sur le nom de machine en MAJUSCULES."""
+    alertent, ignores_liste = [], []
+    for p in postes:
+        info = ignores.get(str(p["machine"]).upper().replace(".", "_").replace("$", "_"))   # même clé que la route « ignorer »
+        if info:
+            ignores_liste.append({**p, "ignore": True, "ignore_le": info.get("le"), "ignore_par": info.get("par")})
+        else:
+            alertent.append({**p, "ignore": False})
+    return alertent, ignores_liste
 
 
 async def postes_sans_cle(db, maintenant: Optional[datetime] = None) -> List[Dict[str, Any]]:
@@ -129,10 +144,33 @@ def setup_loois_postes_sans_cle_routes(*, db, api, get_current_user) -> None:
         if user.get("role") not in ROLES:
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur et au superviseur")
         reglage = await lire_reglage(db)
-        postes = await postes_sans_cle(db)
+        # Lot 118 — « postes » = ceux qui ALERTENT ; les postes ignorés sont renvoyés à part (rubrique, grisés)
+        postes, ignores = separer_ignores(await postes_sans_cle(db), reglage["ignores"])
         return {"actif": reglage["actif"], "reglage": reglage, "postes": postes, "total": len(postes),
+                "postes_ignores": ignores,
                 "en_ligne": sum(1 for p in postes if p["en_ligne"]), "jours_suivi": JOURS_SUIVI,
                 "en_ligne_minutes": EN_LIGNE_MINUTES}
+
+    @api.put("/admin/loois-postes-sans-cle/ignorer", tags=["Loois"])
+    async def ignorer(request: Request, user: dict = Depends(get_current_user)):
+        """Lot 118 — « Ignorer ce poste » / « Réactiver » (administrateur seulement). Corps : {machine, ignorer: bool}."""
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        machine = str((corps or {}).get("machine") or "").strip()[:120]
+        if not machine:
+            raise HTTPException(status_code=422, detail="Nom de machine obligatoire")
+        cle = machine.upper().replace(".", "_").replace("$", "_")    # clé de document Mongo sans « . » ni « $ »
+        if (corps or {}).get("ignorer", True):
+            maj = {"$set": {"id": ID_REGLAGE, f"ignores.{cle}": {"machine": machine, "le": _maintenant().isoformat(),
+                                                                   "par": user.get("email") or user.get("id")}}}
+        else:
+            maj = {"$unset": {f"ignores.{cle}": ""}, "$set": {"id": ID_REGLAGE}}
+        await db.loois_reglages.update_one({"id": ID_REGLAGE}, maj, upsert=True)
+        return await lire_reglage(db)
 
     @api.put("/admin/loois-postes-sans-cle/reglage", tags=["Loois"])
     async def enregistrer(request: Request, user: dict = Depends(get_current_user)):

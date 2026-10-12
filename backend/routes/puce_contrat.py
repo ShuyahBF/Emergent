@@ -311,17 +311,13 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         return [d.strip().lower().lstrip("@") for d in
                 str(s.get("internal_domains") or "sawalismartsystems.com").split(",") if d.strip()]
 
-    @api.post("/me/contacts-contrats", tags=["Portail Client"])
-    async def contrats_des_contacts(payload: DemandeContrats, user: dict = Depends(get_current_user)):
-        """Lot 120 — puce « contrat » des contacts du Centre de messagerie, en UNE requête pour toute la liste.
-
-        Réponse : {actif, contrats: {contact_id: {etat, couleur, numero, statut_libelle, …} | null}} — null = contact
-        interne (pas de puce). Aucun montant. `actif` = False pour un utilisateur qui n'est pas de l'équipe SAWALI."""
+    async def _contexte(user: dict) -> Optional[Dict[str, Any]]:
+        """Qui voit les puces : super-admin, comptes du locataire SAWALI, e-mails des domaines internes.
+        Renvoie None pour tout autre utilisateur, sinon {settings, domaines, visibles_ids, internes, seuil_defaut}.
+        (Lot 121 : bloc extrait de la route du lot 120, sans changement, pour être partagé avec le Support Loois.)"""
         s = await db.settings.find_one({"_id": "global"}) or {}
         domaines = await _domaines_internes(s)
         visibles_ids = await resolve_visible_client_ids(user)
-
-        # --- Qui voit les puces : super-admin, comptes du locataire SAWALI, e-mails des domaines internes ----------
         email_user = str(user.get("email") or "").strip().lower()
         autorise = email_user == _email_super_admin() or (email_user and email_user.rsplit("@", 1)[-1] in domaines)
         if not autorise:
@@ -331,7 +327,24 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             ids_sa = {v for v in (sa.get("id"), sa.get("client_id"), sa.get("parent_client_id")) if v}
             autorise = bool(ids_sa & set(visibles_ids))
         if not autorise:
+            return None
+        try:
+            seuil_defaut = int(s.get("contract_overdue_days_default") or SEUIL_RETARD_DEFAUT)
+        except (TypeError, ValueError):
+            seuil_defaut = SEUIL_RETARD_DEFAUT
+        return {"settings": s, "domaines": domaines, "visibles_ids": visibles_ids,
+                "internes": set(visibles_ids), "seuil_defaut": seuil_defaut}
+
+    @api.post("/me/contacts-contrats", tags=["Portail Client"])
+    async def contrats_des_contacts(payload: DemandeContrats, user: dict = Depends(get_current_user)):
+        """Lot 120 — puce « contrat » des contacts du Centre de messagerie, en UNE requête pour toute la liste.
+
+        Réponse : {actif, contrats: {contact_id: {etat, couleur, numero, statut_libelle, …} | null}} — null = contact
+        interne (pas de puce). Aucun montant. `actif` = False pour un utilisateur qui n'est pas de l'équipe SAWALI."""
+        ctx = await _contexte(user)
+        if ctx is None:
             return {"actif": False, "contrats": {}}
+        s, domaines, visibles_ids = ctx["settings"], ctx["domaines"], ctx["visibles_ids"]
 
         # --- Contacts : SEULEMENT ceux que l'utilisateur voit déjà (même périmètre que GET /me/contacts) -----------
         filtre: Dict[str, Any] = {"client_id": {"$in": visibles_ids}}
@@ -350,12 +363,9 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
 
         # --- Calcul : une seule lecture des comptes, puis tout en mémoire -------------------------------------------
         index = await _index()
-        internes = set(visibles_ids)
+        internes = ctx["internes"]
         aujourdhui = datetime.now(timezone.utc).date()
-        try:
-            seuil_defaut = int(s.get("contract_overdue_days_default") or SEUIL_RETARD_DEFAUT)
-        except (TypeError, ValueError):
-            seuil_defaut = SEUIL_RETARD_DEFAUT
+        seuil_defaut = ctx["seuil_defaut"]
         resultat: Dict[str, Optional[Dict[str, Any]]] = {}
         for c in contacts:
             client, critere = index.client_du_contact(c)
@@ -367,5 +377,10 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             fiche["relie_par"] = critere
             resultat[c["id"]] = fiche
         return {"actif": True, "contrats": resultat}
+
+    # Lot 121 — même puce dans la fenêtre de chat « Support Loois » (postes Loois → client SAWALI) : mêmes droits
+    # (_contexte), même index des comptes (_index), même calcul (fiche_contrat). Voir puce_contrat_support.py.
+    from routes.puce_contrat_support import installer_routes_support
+    installer_routes_support(db=db, api=api, get_current_user=get_current_user, contexte=_contexte, index=_index)
 
     return {"vider_cache": vider_cache}

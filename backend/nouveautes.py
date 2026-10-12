@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "134", "date": "2026-10-12",
+        "titre": "🎓 Liaison avec le portail e-Kol (élèves et parents)",
+        "description": "Le portail e-Kol lit, par une liaison signée, les tables e-Kol synchronisées par Loois ; la rubrique montre les tables prêtes par école.",
+        "rubrique": "🎓 Portail e-Kol (élèves et parents)",
+    },
+    {
         "lot": "133", "date": "2026-10-12",
         "titre": "☁️ Sauvegarde complète vers R2 seulement",
         "description": "Adresse Atlas laissée vide : la base est archivée dans R2 (une archive par collection), sans base de secours Atlas ; la sauvegarde programmée continue.",

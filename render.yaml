@@ -196,6 +196,10 @@ services:
         sync: false
       - key: PISPI_CLIENT_SECRET
         sync: false
+      # --- Portail e-Kol élèves et parents : clé partagée de l'export signé /api/ekol-portail/export ---
+      # Même valeur que EKOL_PORTAIL_HMAC du service ekol-portail-backend (saisie par le propriétaire).
+      - key: EKOL_PORTAIL_HMAC
+        sync: false
 
   # ---------------------------------------------------------------------------
   # 2) Frontend React (site statique)

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "133"
-LOT_LIBELLE = "Sauvegarde complète en mode R2 seulement (sans base de secours Atlas)"
+LOT = "134"
+LOT_LIBELLE = "Portail e-Kol : export signé des tables e-Kol synchronisées"

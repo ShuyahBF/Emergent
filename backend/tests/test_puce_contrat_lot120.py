@@ -121,9 +121,11 @@ def _app(utilisateur):
         {"id": "autre", "email": "x@ailleurs.bf", "role": "client", "company": "Ailleurs", "contract_number": "C-Z"},
     ]))
     _run(base.directory_contacts.insert_many([
-        {"id": "k1", "client_id": SAWALI, "name": "Caisse A", "whatsapp": "70 22 22 22"},     # tél. d'un suivi de A
-        {"id": "k2", "client_id": SAWALI, "name": "DG B", "email": "DG@pharma-b.bf"},         # e-mail du DG de B
-        {"id": "k3", "client_id": SAWALI, "name": "Prospect", "phone": "+226 76 00 00 00"},  # inconnu
+        # Lot 124 : seuls les contacts avec « Société » sont analysés ; la société inconnue laisse jouer tél. / e-mail
+        {"id": "k1", "client_id": SAWALI, "name": "Caisse A", "company": "Caisse A", "whatsapp": "70 22 22 22"},  # tél. d'un suivi de A
+        {"id": "k2", "client_id": SAWALI, "name": "DG B", "company": "Groupe B", "email": "DG@pharma-b.bf"},       # e-mail du DG de B
+        {"id": "k3", "client_id": SAWALI, "name": "Prospect", "company": "Prospect SARL", "phone": "+226 76 00 00 00"},  # inconnu
+        {"id": "k7", "client_id": SAWALI, "name": "Sans société", "email": "dg@pharma-a.bf"},  # lot 124 : non analysé
         {"id": "k4", "client_id": SAWALI, "name": "C", "company": "pharmacie c"},            # société, résilié
         {"id": "k5", "client_id": SAWALI, "name": "Collègue", "email": "jean@sawalismartsystems.com"},  # interne
         {"id": "k6", "client_id": "autre-locataire", "name": "Invisible", "company": "Ailleurs"},     # hors périmètre
@@ -166,6 +168,7 @@ def test_route_couleurs_liens_et_aucun_montant():
     assert c["k3"]["etat"] == "aucun" and c["k3"]["numero"] is None
     assert c["k4"]["etat"] == "aucun" and c["k4"]["statut"] == "annule" and c["k4"]["relie_par"] == "societe"
     assert c["k5"] is None                                          # membre de l'équipe : pas de puce
+    assert c["k7"] is None                                          # lot 124 : sans « Société », pas analysé
     assert "k6" not in c                                            # contact hors périmètre : jamais renvoyé
     # Aucun montant, nulle part dans la réponse
     for cle in _cles(corps):
@@ -198,3 +201,20 @@ def test_membre_de_l_equipe_sawali_voit_les_puces():
     client, _, _ = _app({"id": "u9", "email": "assistante@gmail.com", "role": "client", "client_id": SAWALI})
     r = client.post("/api/me/contacts-contrats", json={"contact_ids": ["k2"]})
     assert r.json()["actif"] is True and r.json()["contrats"]["k2"]["etat"] == "retard"
+
+
+def test_lot124_societe_normalisee_et_prioritaire():
+    """Lot 124 — la société est comparée sans accents ni casse, et passe AVANT l'e-mail ; sans société : non analysé."""
+    from routes.puce_contrat import IndexComptes, a_une_societe, cle_societe
+    assert cle_societe("  Pharmacie   ÉVASION ") == "pharmacie evasion"
+    assert a_une_societe({"company": "X"}) and not a_une_societe({"company": "  "}) and not a_une_societe({})
+    idx = IndexComptes([
+        {"id": "a", "email": "dg@a.bf", "company": "Pharmacie Évasion", "contract_number": "C-A"},
+        {"id": "b", "email": "dg@b.bf", "company": "Pharmacie B", "contract_number": "C-B"},
+    ])
+    # Société de A mais e-mail de B : la société l'emporte
+    client, critere = idx.client_du_contact({"company": "pharmacie evasion", "email": "dg@b.bf"})
+    assert client["id"] == "a" and critere == "societe"
+    # Société inconnue : l'e-mail sert de secours
+    client, critere = idx.client_du_contact({"company": "Groupe B", "email": "dg@b.bf"})
+    assert client["id"] == "b" and critere == "email"

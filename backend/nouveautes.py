@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "124", "date": "2026-10-12",
+        "titre": "🟩 Contrat : contacts avec « Société » seulement",
+        "description": "La puce et le bandeau de contrat ne concernent plus que les contacts dont le champ « Société » est renseigné ; la société sert en priorité à trouver le client (sans tenir compte des accents ni des majuscules), l'e-mail et le téléphone en secours.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "123", "date": "2026-10-12",
         "titre": "🟩 Contrat dans la conversation WhatsApp",
         "description": "Dans la fenêtre de conversation WhatsApp, un bandeau vert / orange / rouge au-dessus de la zone des Tickets rappelle le contrat du contact : n°, statut, client, fin, mois restants, retard, échéance (jamais de montant) ; détail complet au survol de la puce.",

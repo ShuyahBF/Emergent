@@ -35,6 +35,10 @@
 #     des domaines internes) : un membre de l'équipe n'a pas de contrat avec SAWALI.
 #   - Droits : seuls les contacts que l'utilisateur voit déjà dans le Centre de messagerie (même périmètre que
 #     GET /me/contacts : sociétés visibles + lignes WhatsApp autorisées) reçoivent une puce.
+#   - Lot 124 (12/10/2026, demande du propriétaire) : « les contacts sur lesquels il faut analyser, c'est ceux ayant le
+#     champ "Société" renseigné ». Un contact SANS société n'est pas analysé : pas de puce, pas de bandeau (null).
+#     Pour un contact avec société, la société passe EN PREMIER (comparaison sans accents, majuscules ni espaces en
+#     trop), puis l'e-mail et le téléphone servent de secours si la société ne correspond à aucun client.
 #   - Efficacité : UNE requête groupée sur les comptes (index mémorisé 60 s), puis tout se calcule en mémoire.
 from __future__ import annotations
 
@@ -192,6 +196,17 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
     return _resultat("valide", "a_jour", "À jour", None, seuil)
 
 
+def cle_societe(nom: Any) -> str:
+    """Lot 124 — société comparable : sans accents, en minuscules, espaces multiples réduits (« Pharmacie  Évasion » =
+    « pharmacie evasion »)."""
+    return " ".join(_sans_accent(str(nom or "")).lower().split())
+
+
+def a_une_societe(contact: Dict[str, Any]) -> bool:
+    """Lot 124 — seuls les contacts dont le champ « Société » est renseigné sont analysés."""
+    return bool(cle_societe(contact.get("company")))
+
+
 class IndexComptes:
     """Lot 120 — index en mémoire des comptes (UNE lecture de db.users) pour relier les contacts aux contrats."""
 
@@ -216,7 +231,7 @@ class IndexComptes:
             # Société / code client : uniquement les comptes PRINCIPAUX (pas de parent)
             if self.principal(u) is u:
                 for nom in (u.get("company"), u.get("client_code")):
-                    cle = str(nom or "").strip().lower()
+                    cle = cle_societe(nom)
                     if cle:
                         self.par_societe.setdefault(cle, []).append(u)
 
@@ -240,6 +255,12 @@ class IndexComptes:
 
     def client_du_contact(self, contact: Dict[str, Any]) -> Tuple[Optional[Dict], str]:
         """→ (fiche du compte principal ou None, critère utilisé : email | telephone | societe | aucun)."""
+        # Lot 124 — 1. la SOCIÉTÉ d'abord (c'est elle qui désigne le client), comparée sans accents ni casse
+        soc = cle_societe(contact.get("company"))
+        if soc and soc in self.par_societe:
+            p = self._choisir(self.par_societe[soc])
+            if p:
+                return p, "societe"
         # 1. e-mail (le client_id du contact n'est pas un critère : dans le Centre de messagerie il désigne
         #    toujours le locataire de l'utilisateur lui-même, jamais le client concerné)
         email = str(contact.get("email") or "").strip().lower()
@@ -254,12 +275,6 @@ class IndexComptes:
                 p = self._choisir([self.principal(u) for u in self.par_tel[fin]])
                 if p:
                     return p, "telephone"
-        # 3. société / code client
-        soc = str(contact.get("company") or "").strip().lower()
-        if soc and soc in self.par_societe:
-            p = self._choisir(self.par_societe[soc])
-            if p:
-                return p, "societe"
         return None, "aucun"
 
 
@@ -368,6 +383,10 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         seuil_defaut = ctx["seuil_defaut"]
         resultat: Dict[str, Optional[Dict[str, Any]]] = {}
         for c in contacts:
+            # Lot 124 — contact sans « Société » : non analysé (ni puce ni bandeau)
+            if not a_une_societe(c):
+                resultat[c["id"]] = None
+                continue
             client, critere = index.client_du_contact(c)
             if est_interne(client, internes, domaines) or (client is None and est_interne(
                     {"email": c.get("email")}, set(), domaines)):

@@ -631,7 +631,9 @@ const MigrationRenderSection = () => {
       {/* ---------- Cible ---------- */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-2 rounded-xl border border-slate-200 p-4">
-          <p className="font-semibold">MongoDB Atlas (base de secours)</p>
+          <p className="font-semibold">MongoDB Atlas (base de secours) — facultatif</p>
+          {/* Lot 133 : champ vide = mode « R2 seulement » (la base est archivée dans R2, sans copie Atlas) */}
+          <p className="text-xs text-slate-500">Laissez l'adresse vide pour archiver la base dans R2 seulement (aucune base de secours Atlas).</p>
           <PasswordInput className={champ} placeholder="mongodb+srv://utilisateur:motdepasse@cluster.xxxxx.mongodb.net" value={form.mongo_uri} onChange={maj("mongo_uri")} autoComplete="off" />
           <input className={champ} placeholder="Nom de la base (ex. sawali)" value={form.mongo_db} onChange={maj("mongo_db")} />
           <label className="flex items-start gap-2 text-sm">

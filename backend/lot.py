@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "132.1"
-LOT_LIBELLE = "Clé Loois affichée dans une fenêtre centrale avec copie en un clic"
+LOT = "133"
+LOT_LIBELLE = "Sauvegarde complète en mode R2 seulement (sans base de secours Atlas)"

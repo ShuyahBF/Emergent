@@ -587,8 +587,7 @@ async def lire_reglage() -> Dict[str, Any]:
 
 def _cible_programmee(cfg: Dict[str, Any], ids: Dict[str, str]) -> "mr.Cible":
     """Demande de sauvegarde d'une exécution programmée : toujours en fusion, jamais les secrets."""
-    if cfg["base"] and len(ids.get("mongo_uri") or "") < 10:
-        raise RuntimeError("Base demandée mais aucune URI Atlas enregistrée pour les sauvegardes programmées")
+    # Lot 133 : sans URI Atlas, la base est archivée dans R2 seulement (plus d'erreur)
     return mr.Cible(mongo_uri=ids.get("mongo_uri") or "", mongo_db=ids.get("mongo_db") or "sawali", remplacer=False,
                     r2_account_id=ids.get("r2_account_id") or "", r2_access_key_id=ids.get("r2_access_key_id") or "",
                     r2_secret_access_key=ids.get("r2_secret_access_key") or "", r2_bucket=ids.get("r2_bucket") or "",
@@ -760,8 +759,7 @@ async def enregistrer(corps: ReglageIn, admin: dict = Depends(get_current_admin)
     ids_doc = await mr.db.migration_programmation.find_one({"_id": IDENTIFIANTS_ID})
     if cfg["actif"] and not ids_doc:
         raise HTTPException(400, "Enregistrez d'abord les identifiants des sauvegardes programmées")
-    if cfg["actif"] and cfg["base"] and "mongo_uri" not in (ids_doc.get("champs") or []):
-        raise HTTPException(400, "Base demandée : les identifiants enregistrés n'ont pas d'URI Atlas")
+    # Lot 133 : base demandée sans URI Atlas = archive de la base dans R2 seulement (accepté)
     prochaine = avant.get("prochaine_execution")
     change = any(avant.get(k) != cfg[k] for k in ("actif", "tous_les", "heure", "fuseau"))
     if not cfg["actif"]:

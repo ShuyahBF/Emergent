@@ -105,7 +105,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
   "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
-  "🖥️ Contrôle à distance Loois": "131.1",   // lot 131 : voir / contrôler un poste Loois depuis le navigateur, avec l'accord de son utilisateur
+  "🖥️ Contrôle à distance Loois": "135",   // lot 131 : voir / contrôler un poste Loois ; lot 135 : écran verrouillé, fichiers, onglets, vidéo, actions système
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "130",   // lot 130 : Ctrl + Espace / double-clic recopie le texte gris (placeholder) dans le champ
   "🤖📞 Liluvine décroche les appels WhatsApp": "125",   // lot 125 : résumé d'appel avec l'identité de l'appelant
   "🚨 Bandeau d'incident et historique (/uptime)": "115",   // lot 115 : historique gérable, annonces « info » hors incidents
@@ -153,7 +153,7 @@ const NEW_LOTS = {
 
 const NEW_SECTIONS = {
   "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
-  "🖥️ Contrôle à distance Loois": "2026-10-12",   // lot 131
+  "🖥️ Contrôle à distance Loois": "2026-10-12",   // lot 131 ; lot 135
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "2026-10-12",   // lot 130
   "🤖📞 Liluvine décroche les appels WhatsApp": "2026-10-12",   // lot 125
   "🚨 Bandeau d'incident et historique (/uptime)": "2026-10-12",
@@ -245,7 +245,7 @@ const NEW_SECTIONS = {
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
   "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
-  "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1).",
+  "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1) ; écran verrouillé et session fermée par le service Windows, fichiers, image DXGI, onglets, vidéo, clavier virtuel, blocage clavier/souris, actions système, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat (lot 135).",
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",

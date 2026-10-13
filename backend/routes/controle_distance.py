@@ -33,6 +33,24 @@ Format des trames binaires (images) — décrit ici pour Loois et la visionneuse
   puis les octets JPEG de la tuile.
 Le transport est isolé dans la classe Relais : un lot suivant pourra passer en pair-à-pair (WebRTC) sans changer
 les droits, le consentement ni le journal.
+
+Lot 135 (propriétaire, 12/10/2026) — EXTENSIONS :
+  - commandes système (mode « contrôler ») : {"type":"systeme","action":"deconnecter|redemarrer|eteindre|verrouiller|
+    ctrl_alt_suppr"} ; blocage du clavier et de la souris du poste {"type":"bloquer_entrees","valeur":1|0} ;
+  - transfert de fichiers dans les deux sens : technicien → poste {"type":"fichier_debut","id","nom","taille"}, trames
+    binaires de type 2 (octet 0 = 2, octets 1-4 = id u32 petit-boutiste, puis les données), {"type":"fichier_fin","id"} ;
+    poste → technicien : {"type":"fichiers_lister","chemin"} / {"type":"fichier_demander","chemin"} puis trames de type 3 ;
+  - réglages d'affichage : {"type":"echelle","valeur":100|75|50|25} (connexions lentes), {"type":"infos_demander"} ;
+  - le poste envoie {"type":"infos_poste",…} (matériel, logiciels), {"type":"perf",…} (processeur, mémoire, disques,
+    réseau), {"type":"bureau","nom","securise"} (écran de connexion ou verrouillé), {"type":"capture","moteur"} ;
+  - identifiants Windows mémorisés par poste (chiffrés) : le technicien envoie {"type":"identifiants_windows"} et c'est LE
+    SERVEUR qui transmet {"type":"saisir_identifiants",…} au poste — le mot de passe ne passe jamais par le navigateur ;
+    avec « saisie automatique », il est saisi dès que le poste signale l'écran de connexion ;
+  - numéro « CD-AAAA-NNNNN », ticket du client ouvert au début et clôturé à la fin (intervention dans la fiche client) ;
+  - délais mesurés (accord, connexion, durée) + mesures de la visionneuse, résumé dans le journal d'activités ;
+  - vidéo de la session envoyée par parties par la visionneuse, relue par un lien signé de courte durée ;
+  - agent du SERVICE WINDOWS Loois (en-tête X-Loois-Agent: service) : fiche « machine » distincte, qui fonctionne
+    écran verrouillé, à l'écran de connexion et session fermée.
 """
 from __future__ import annotations
 
@@ -47,8 +65,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from routes import controle_distance_outils as outils   # lot 135 : numéro, mesures, identifiants, vidéo, réglages
 
 logger = logging.getLogger("sawali.controle_distance")
 
@@ -61,11 +82,24 @@ DELAI_CONNEXION_S = 120          # après l'accord, 2 minutes pour ouvrir les de
 DUREE_MAX_S = 4 * 3600           # une session dure au plus 4 heures
 TAILLE_MAX_TRAME = 2 * 1024 * 1024   # 2 Mo par trame binaire (une tuile JPEG est bien plus petite)
 # Commandes du technicien qui AGISSENT sur le poste : refusées en mode « voir seulement »
-COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte"}
+COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte",
+                    # Lot 135 : système, blocage des entrées, fichiers
+                    "systeme", "bloquer_entrees", "fichier_debut", "fichier_fin", "fichier_annuler",
+                    "fichiers_lister", "fichier_demander"}
 # Commandes du technicien autorisées dans tous les modes (réglages de l'affichage)
-COMMANDES_AFFICHAGE = {"choix_ecran", "qualite", "image_complete", "ping", "arreter"}
+COMMANDES_AFFICHAGE = {"choix_ecran", "qualite", "image_complete", "ping", "arreter",
+                       "echelle", "infos_demander"}   # lot 135
+# Lot 135 — commandes TRAITÉES PAR LE SERVEUR (jamais relayées telles quelles), mode « contrôler » seulement
+COMMANDES_SERVEUR = {"identifiants_windows"}
+# Lot 135 — actions système acceptées
+ACTIONS_SYSTEME = {"deconnecter", "redemarrer", "eteindre", "verrouiller", "ctrl_alt_suppr"}
 # Informations que le poste peut envoyer au technicien
-MESSAGES_POSTE = {"ecrans", "curseur", "stats", "presse_papiers", "pong", "arreter", "erreur"}
+MESSAGES_POSTE = {"ecrans", "curseur", "stats", "presse_papiers", "pong", "arreter", "erreur",
+                  # Lot 135
+                  "infos_poste", "perf", "bureau", "capture", "fichier_debut", "fichier_fin", "fichier_recu",
+                  "fichiers_liste", "systeme_resultat", "entrees_bloquees"}
+# Lot 135 — types des trames binaires (octet 0)
+TRAME_TUILE, TRAME_FICHIER_VERS_POSTE, TRAME_FICHIER_VERS_TECHNICIEN = 1, 2, 3
 
 
 def maintenant() -> datetime:
@@ -113,9 +147,37 @@ def commande_autorisee(mode: str, message: Dict[str, Any]) -> bool:
     type_ = str(message.get("type") or "")
     if type_ in COMMANDES_AFFICHAGE:
         return True
+    if type_ == "systeme" and str(message.get("action") or "") not in ACTIONS_SYSTEME:
+        return False   # lot 135 : action système inconnue, jamais relayée
     if type_ in COMMANDES_ENTREE:
         return mode == "controler"
     return False   # type inconnu : jamais relayé
+
+
+def trame_binaire_autorisee(role: str, mode: str, donnees: bytes) -> bool:
+    """Lot 135 — trames binaires : tuiles et fichiers du poste vers le technicien ; fichiers du technicien vers le poste
+    seulement en mode « contrôler » ; taille bornée."""
+    if not donnees or len(donnees) > TAILLE_MAX_TRAME:
+        return False
+    if role == "poste":
+        return donnees[0] in (TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN)
+    return donnees[0] == TRAME_FICHIER_VERS_POSTE and mode == "controler"
+
+
+def action_journal(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Lot 135 — commande du technicien à garder dans le journal de la session (sans contenu sensible) ; None sinon."""
+    type_ = str(message.get("type") or "")
+    if type_ == "systeme":
+        return {"type": "systeme", "detail": str(message.get("action") or "")}
+    if type_ == "bloquer_entrees":
+        return {"type": "bloquer_entrees", "detail": "bloquées" if message.get("valeur") else "débloquées"}
+    if type_ == "fichier_debut":
+        dossier = str(message.get("chemin") or "")[:260]
+        return {"type": "fichier_envoye", "detail": f"{str(message.get('nom') or '')[:120]} ({message.get('taille') or 0} o)"
+                + (f" → {dossier}" if dossier else "")}
+    if type_ == "fichier_demander":
+        return {"type": "fichier_recupere", "detail": str(message.get("chemin") or "")[:260]}
+    return None
 
 
 def message_poste_autorise(message: Dict[str, Any]) -> bool:
@@ -181,6 +243,16 @@ class DemandeSession(BaseModel):
     poste_id: str = Field(..., min_length=1, max_length=200)
     mode: str = Field("controler", pattern="^(voir|controler)$")
     motif: Optional[str] = Field(None, max_length=200)
+    # Lot 135 : client SAWALI du poste (ticket automatique) — facultatif si le poste est déjà rattaché à un client
+    client_id: Optional[str] = Field(None, max_length=100)
+
+
+class IdentifiantsWindows(BaseModel):
+    """Lot 135 — identifiant Windows mémorisé pour un poste (mot de passe vide = garder celui déjà enregistré)."""
+    utilisateur: str = Field("", max_length=outils.MAX_UTILISATEUR)
+    domaine: str = Field("", max_length=80)
+    mot_de_passe: Optional[str] = Field(None, max_length=outils.MAX_MOT_DE_PASSE)
+    saisie_auto: bool = True
 
 
 class ReponsePoste(BaseModel):
@@ -191,13 +263,29 @@ class ReponsePoste(BaseModel):
     automatique: bool = False
 
 
+class StockageR2:
+    """Lot 135 — accès au stockage des vidéos (R2 via storage.py) ; remplacé par un faux stockage dans les tests."""
+
+    async def ecrire(self, chemin: str, donnees: bytes, type_mime: str) -> None:
+        import storage
+        await asyncio.to_thread(storage.upload_bytes, chemin, donnees, type_mime, False)
+
+    async def lire(self, chemin: str) -> bytes:
+        import storage
+        donnees, _ = await asyncio.to_thread(storage.fetch_bytes, chemin)
+        return donnees
+
+
 def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any]]],
                   identifier_cle: Optional[Callable[..., Awaitable[Optional[Dict[str, Any]]]]] = None,
-                  decode_token: Optional[Callable[[str], Dict[str, Any]]] = None) -> APIRouter:
-    """Routes du contrôle à distance. Dépendances injectées pour que les tests puissent les simuler."""
+                  decode_token: Optional[Callable[[str], Dict[str, Any]]] = None,
+                  tickets: Any = None, stockage: Any = None) -> APIRouter:
+    """Routes du contrôle à distance. Dépendances injectées pour que les tests puissent les simuler.
+    Lot 135 : `tickets` (module tickets_clients, clôture du ticket) et `stockage` (vidéos) injectables."""
     router = APIRouter(tags=["Contrôle à distance"])
     relais = Relais()
     router.relais = relais  # accès pour les tests
+    stockage = stockage or StockageR2()
 
     if identifier_cle is None:
         from routes.loois_cles_clients import identifier_cle as _identifier
@@ -221,6 +309,134 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             raise HTTPException(status_code=401, detail="Clé client Loois requise")
         return identite
 
+    # --- Lot 135 : outils internes des extensions --------------------------------------------------------------------
+    _identifiants_saisis: set = set()      # sessions où l'identifiant Windows a déjà été saisi automatiquement
+
+    async def _reglages() -> Dict[str, Any]:
+        doc = await db.controle_distance_reglages.find_one({"id": "reglages"}, {"_id": 0}) or {}
+        return outils.reglages_valides(doc)
+
+    async def _numero() -> str:
+        """Numéro « CD-AAAA-NNNNN » tiré d'un compteur atomique annuel."""
+        annee = maintenant().year
+        res = await db.counters.find_one_and_update({"_id": outils.compteur_annuel(annee)}, {"$inc": {"seq": 1}},
+                                                    upsert=True, return_document=True)
+        if res is None:   # certains pilotes renvoient None à la création
+            res = await db.counters.find_one({"_id": outils.compteur_annuel(annee)})
+        return outils.numero_session(annee, int((res or {}).get("seq", 1)))
+
+    async def _client_du_poste(poste: Dict[str, Any], demande: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Client SAWALI de la prise en main : choisi par le technicien, sinon celui du poste, sinon par le nom du site."""
+        candidats = [demande, poste.get("client_id")]
+        for cid in candidats:
+            if cid:
+                c = await db.users.find_one({"id": cid}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
+                if c:
+                    return c
+        try:
+            from routes.support_loois_sessions import client_par_nom
+            cid = await client_par_nom(db, poste.get("ecole"))
+        except Exception:  # noqa: BLE001 — recherche facultative
+            cid = None
+        if cid:
+            return await db.users.find_one({"id": cid}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
+        return None
+
+    def _id_machine(poste: Dict[str, Any]) -> str:
+        """Identifiant de l'ORDINATEUR (sans l'utilisateur Windows) : sert aux identifiants Windows mémorisés,
+        communs à toutes les fiches d'un même poste (icône de l'utilisateur et service Windows)."""
+        if poste.get("ecole") is not None and poste.get("poste"):
+            from routes.support_loois import poste_id as calculer_poste_id
+            return calculer_poste_id(poste.get("ecole") or "", poste.get("poste") or "", "")
+        return str(poste.get("id") or "")
+
+    async def _ouvrir_ticket(session: Dict[str, Any]) -> None:
+        """Ticket du client ouvert au DÉBUT de la prise en main (même forme que les tickets du support Loois)."""
+        if session.get("ticket_id") or not session.get("client_id") or not (await _reglages())["ticket_automatique"]:
+            return
+        client_doc = await db.users.find_one({"id": session["client_id"]}, {"_id": 0, "password_hash": 0})
+        if not client_doc:
+            return
+        try:
+            from routes.support_loois_sessions import numero_ticket
+            numero_tk = await numero_ticket(db, client_doc)
+        except Exception:  # noqa: BLE001
+            numero_tk = f"TKT-{session.get('numero')}"
+        quand = iso(maintenant())
+        motif = f"Prise en main {session.get('numero') or ''} — {session.get('poste_nom') or 'poste Loois'}"
+        if session.get("motif"):
+            motif += f" ({session['motif']})"
+        ticket = {
+            "id": uuid.uuid4().hex, "number": numero_tk, "client_id": client_doc["id"],
+            "contact_id": session.get("poste_id"), "contact_name": session.get("poste_nom"), "contact_phone": None,
+            "contact_ids": [], "motif": motif[:300], "status": "open", "notes": None,
+            "opened_at": quand, "opened_by_id": session.get("technicien_id"), "opened_by_label": session.get("technicien_nom"),
+            "closed_at": None, "closed_by_id": None, "closed_by_label": None, "outcome": None, "resolution_note": None,
+            "created_at": quand, "updated_at": quand, "session_wa_minutes": None, "session_wa_debut": None,
+            "session_wa_fin": None, "rappels_envoyes": [],
+            "source": "controle_distance", "controle_distance_id": session["id"], "poste_id": session.get("poste_id"),
+        }
+        await db.support_tickets.insert_one(dict(ticket))
+        await db.controle_distance_sessions.update_one(
+            {"id": session["id"]}, {"$set": {"ticket_id": ticket["id"], "ticket_number": numero_tk}})
+        await _evenement(client_doc["id"], "ticket", "created", f"{numero_tk} — {motif[:80]}", ticket["id"], session)
+
+    async def _evenement(client_id: Optional[str], kind: str, action: str, libelle: str, cible: str,
+                         session: Dict[str, Any]) -> None:
+        """Fil d'activité du client (journal d'activités) ; jamais bloquant."""
+        if not client_id:
+            return
+        try:
+            await db.activity_events.insert_one({
+                "id": uuid.uuid4().hex, "client_id": client_id, "kind": kind, "action": action, "label": libelle,
+                "target_id": cible, "actor_id": session.get("technicien_id"), "actor_label": session.get("technicien_nom"),
+                "ts": iso(maintenant())})
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def _cloturer_ticket(session: Dict[str, Any], motif: str) -> None:
+        """Ticket clôturé à la fin (intervention créée dans l'historique du client)."""
+        if not session.get("ticket_id"):
+            return
+        ticket = await db.support_tickets.find_one({"id": session["ticket_id"]}, {"_id": 0})
+        if not ticket:
+            return
+        try:
+            module = tickets
+            if module is None:
+                import tickets_clients as module  # noqa: PLW0127 — import tardif (base réelle)
+            bilan = await module.cloturer_ticket(
+                ticket, outcome="done",
+                acteur={"id": session.get("technicien_id"), "full_name": session.get("technicien_nom")},
+                note=f"Prise en main {session.get('numero') or ''} terminée ({motif})")
+            inter = (bilan or {}).get("intervention") or {}
+            if inter:
+                await db.controle_distance_sessions.update_one({"id": session["id"]}, {"$set": {
+                    "intervention_id": inter.get("id"), "intervention_number": inter.get("intervention_number")}})
+        except Exception:  # noqa: BLE001 — la session se termine même si l'historique échoue
+            logger.exception("[controle_distance] clôture du ticket %s impossible", session.get("ticket_id"))
+
+    async def _noter_action(sid: str, action: Dict[str, Any]) -> None:
+        """Action du technicien gardée dans le journal de la session (200 dernières)."""
+        try:
+            await db.controle_distance_sessions.update_one(
+                {"id": sid}, {"$push": {"actions": {"$each": [{**action, "le": iso(maintenant())}], "$slice": -200}}})
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def _injecter_identifiants(sid: str, session: Dict[str, Any], origine: str) -> Optional[str]:
+        """Envoie au POSTE l'identifiant Windows mémorisé (le navigateur ne le reçoit jamais). Renvoie une erreur lisible."""
+        poste = await db.support_loois_postes.find_one({"id": session.get("poste_id")}, {"_id": 0}) or {}
+        doc = await db.controle_distance_identifiants.find_one({"id": _id_machine(poste or {"id": session.get("poste_id")})},
+                                                               {"_id": 0})
+        trame = outils.trame_identifiants(doc or {})
+        if not trame:
+            return "Aucun identifiant Windows mémorisé pour ce poste (ou à saisir de nouveau)."
+        if not await relais.envoyer_json(sid, "poste", trame):
+            return "Poste injoignable."
+        await _noter_action(sid, {"type": "identifiants_windows", "detail": origine})
+        return None
+
     async def _expirer(session: Dict[str, Any]) -> Dict[str, Any]:
         """Passe en « expiree » une demande sans réponse ou un accord sans connexion, au-delà du délai."""
         if session.get("statut") == "demandee" and session.get("expire_le", "") < iso(maintenant()):
@@ -242,11 +458,22 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             duree = int((fin - datetime.fromisoformat(debut)).total_seconds()) if debut else 0
         except ValueError:
             duree = 0
-        await db.controle_distance_sessions.update_one(
-            {"id": sid}, {"$set": {"statut": "terminee", "fin_le": iso(fin), "duree_s": max(0, duree),
-                                   "motif_fin": motif}})
+        # Lot 135 : délais mesurés (accord, connexion) gardés avec la session
+        delais = outils.delais_session(s, iso(fin))
+        resultat = await db.controle_distance_sessions.update_one(
+            {"id": sid, "statut": {"$nin": ["terminee", "refusee", "expiree"]}},
+            {"$set": {"statut": "terminee", "fin_le": iso(fin), "duree_s": max(0, duree),
+                      "delai_accord_s": delais["delai_accord_s"], "delai_connexion_s": delais["delai_connexion_s"],
+                      "motif_fin": motif}})
         await relais.fermer(sid, motif)
+        _identifiants_saisis.discard(sid)
+        if not resultat.modified_count:
+            return   # déjà clôturée par l'autre bout
         logger.info("[controle_distance] session %s terminée (%s, %s s)", sid, motif, duree)
+        # Lot 135 : ticket clôturé + journal d'activités du client (temps de connexion)
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0}) or s
+        await _cloturer_ticket(s, motif)
+        await _evenement(s.get("client_id"), "controle_distance", "terminee", outils.resume_mesures(s), sid, s)
 
     # --- 1. Le technicien demande une session -------------------------------------------------------------------
     @router.post("/controle-distance/sessions")
@@ -267,8 +494,16 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             ouverte = await _expirer(ouverte)
             if ouverte.get("statut") != "expiree":
                 raise HTTPException(status_code=409, detail="Une session est déjà ouverte pour ce poste")
+        # Lot 135 : client SAWALI de la prise en main (ticket automatique) ; le choix du technicien est retenu pour le poste
+        client = await _client_du_poste(poste, payload.client_id)
+        if client and payload.client_id and client["id"] == payload.client_id and poste.get("client_id") != client["id"]:
+            await db.support_loois_postes.update_one({"id": payload.poste_id}, {"$set": {"client_id": client["id"]}})
         session = {
-            "id": str(uuid.uuid4()), "poste_id": payload.poste_id, "poste_nom": poste.get("nom"),
+            "id": str(uuid.uuid4()), "numero": await _numero(),   # lot 135 : « CD-AAAA-NNNNN »
+            "poste_id": payload.poste_id, "poste_nom": poste.get("nom"),
+            "agent_service": bool(poste.get("agent_service")),
+            "client_id": (client or {}).get("id"),
+            "client_nom": (client or {}).get("company") or (client or {}).get("full_name"),
             "cle_client_code": poste.get("cle_client_code"),
             "technicien_id": user.get("id"), "technicien_nom": user.get("full_name") or user.get("email"),
             "mode_demande": payload.mode, "mode": payload.mode, "motif": (payload.motif or "").strip(),
@@ -278,7 +513,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         }
         await db.controle_distance_sessions.insert_one(dict(session))
         session.pop("_id", None)
-        return {"session_id": session["id"], "statut": "demandee", "delai_reponse_s": DELAI_REPONSE_S}
+        return {"session_id": session["id"], "numero": session["numero"], "statut": "demandee",
+                "delai_reponse_s": DELAI_REPONSE_S, "client_nom": session["client_nom"]}
 
     # --- 2. Le poste vérifie s'il a une demande en attente --------------------------------------------------------
     @router.get("/controle-distance/poste/demande")
@@ -293,6 +529,11 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             ecole = nettoyer(unquote(h.get("x-loois-ecole") or ""), 80)
             nom_poste = nettoyer(unquote(h.get("x-loois-poste") or ""), 60)
             utilisateur = nettoyer(unquote(h.get("x-loois-utilisateur") or ""), 60)
+            # Lot 135 : agent du SERVICE WINDOWS Loois → fiche « machine » (sans utilisateur), qui fonctionne écran
+            # verrouillé, à l'écran de connexion et session fermée
+            agent_service = (h.get("x-loois-agent") or "").strip().lower() == "service"
+            if agent_service:
+                utilisateur = ""
             poste_id = calculer_poste_id(ecole, nom_poste, utilisateur)
             # Lot 131.1 : fiche du poste tenue à jour (au plus une écriture par minute), même s'il n'a jamais ouvert le
             # chat du support : il apparaît ainsi dans la liste des postes de la rubrique « Contrôle à distance »
@@ -300,7 +541,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                 _derniere_fiche[poste_id] = time.monotonic()
                 await db.support_loois_postes.update_one(
                     {"id": poste_id},
-                    {"$set": {"nom": nom_affiche(ecole, nom_poste, utilisateur), "ecole": ecole, "poste": nom_poste,
+                    {"$set": {"nom": nom_affiche(ecole, nom_poste, utilisateur) + (" · service Windows" if agent_service else ""),
+                              "agent_service": agent_service, "ecole": ecole, "poste": nom_poste,
                               "utilisateur": utilisateur, "cle_client_code": identite.get("code"),
                               "cle_client_libelle": identite.get("libelle"),
                               "sans_surveillance": bool(identite.get("sans_surveillance")),
@@ -317,6 +559,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             return {"demande": None}
         return {"demande": {"session_id": s["id"], "technicien": s.get("technicien_nom"), "mode": s.get("mode"),
                             "motif": s.get("motif"), "expire_le": s.get("expire_le"),
+                            "numero": s.get("numero"),   # lot 135 : affiché dans la fenêtre d'accord
+                            "enregistree": bool((await _reglages())["enregistrement_video"]),   # lot 135 : bandeau « REC »
                             # Lot 131.1 : vrai si CE poste utilise la clé sans surveillance → Loois accepte seul
                             "sans_surveillance": bool(identite.get("sans_surveillance"))}}
 
@@ -368,7 +612,9 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             raise HTTPException(status_code=404, detail="Session introuvable")
         s = await _expirer(s)
         reponse = {"session_id": sid, "statut": s["statut"], "mode": s.get("mode"), "poste_nom": s.get("poste_nom"),
-                   "motif_fin": s.get("motif_fin")}
+                   "motif_fin": s.get("motif_fin"),
+                   # Lot 135
+                   "numero": s.get("numero"), "client_nom": s.get("client_nom"), "ticket_number": s.get("ticket_number")}
         if s["statut"] == "acceptee" and not s.get("jeton_tech_remis"):
             jeton = _jetons_tech_a_remettre.pop(sid, None)
             if jeton:
@@ -395,28 +641,195 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         curseur = db.support_loois_postes.find(
             {"cle_client_code": {"$nin": [None, ""]}},
             {"_id": 0, "id": 1, "nom": 1, "cle_client_code": 1, "cle_client_libelle": 1, "sans_surveillance": 1,
-             "signal_controle_distance": 1, "dernier_contact": 1}).sort("signal_controle_distance", -1).limit(500)
+             "signal_controle_distance": 1, "dernier_contact": 1,
+             # Lot 135 : agent du service Windows, site, ordinateur, client
+             "agent_service": 1, "ecole": 1, "poste": 1, "client_id": 1}).sort("signal_controle_distance", -1).limit(500)
         return {"postes": [p async for p in curseur], "super_admin": est_super_admin(user)}
 
     # --- Lot 131.1 : le technicien peut-il prendre la main sur ce poste ? ---------------------------------------------
     @router.get("/controle-distance/postes/{poste_id}")
     async def etat_poste(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
         """Bouton « Prendre la main » : visible si le poste a une clé client ; « sans surveillance » si sa clé est LKS-."""
-        p = await db.support_loois_postes.find_one(
-            {"id": poste_id}, {"_id": 0, "nom": 1, "cle_client_code": 1, "sans_surveillance": 1, "dernier_contact": 1})
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
         if not p:
             return {"possible": False, "sans_surveillance": False}
         ouverte = await db.controle_distance_sessions.find_one(
             {"poste_id": poste_id, "statut": {"$in": ["demandee", "acceptee", "en_cours"]}}, {"_id": 0, "id": 1})
+        # Lot 135 : fil du chat du support (pour une fiche « service Windows », celui de l'utilisateur du même ordinateur),
+        # client rattaché et identifiant Windows mémorisé (sans le mot de passe)
+        fil_id, fiche_service = poste_id, None
+        if p.get("agent_service"):
+            autre = await db.support_loois_postes.find_one(
+                {"ecole": p.get("ecole"), "poste": p.get("poste"), "agent_service": {"$ne": True}, "id": {"$ne": poste_id}},
+                {"_id": 0, "id": 1}, sort=[("dernier_contact", -1)])
+            fil_id = (autre or {}).get("id")
+        elif p.get("poste"):
+            # Fiche « service Windows » du même ordinateur (proposée quand l'écran de connexion est affiché)
+            fiche_service = await db.support_loois_postes.find_one(
+                {"ecole": p.get("ecole"), "poste": p.get("poste"), "agent_service": True}, {"_id": 0, "id": 1, "nom": 1})
+        client = await _client_du_poste(p, None)
+        identifiants = await db.controle_distance_identifiants.find_one({"id": _id_machine(p)}, {"_id": 0})
         return {"possible": bool(p.get("cle_client_code")), "sans_surveillance": bool(p.get("sans_surveillance")),
                 "poste_nom": p.get("nom"), "dernier_contact": p.get("dernier_contact"),
-                "session_ouverte": bool(ouverte)}
+                "session_ouverte": bool(ouverte),
+                "agent_service": bool(p.get("agent_service")), "fil_id": fil_id, "fiche_service": fiche_service,
+                "client_id": (client or {}).get("id"),
+                "client_nom": (client or {}).get("company") or (client or {}).get("full_name"),
+                "identifiants": outils.identifiants_publics(identifiants)}
+
+    # --- Lot 135 : identifiants Windows mémorisés par ordinateur (item 7) ----------------------------------------------
+    @router.get("/controle-distance/postes/{poste_id}/identifiants")
+    async def lire_identifiants(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        doc = await db.controle_distance_identifiants.find_one({"id": _id_machine(p)}, {"_id": 0})
+        return outils.identifiants_publics(doc)
+
+    @router.put("/controle-distance/postes/{poste_id}/identifiants")
+    async def enregistrer_identifiants(poste_id: str, payload: IdentifiantsWindows,
+                                       user: Dict[str, Any] = Depends(_technicien)):
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        mid = _id_machine(p)
+        champs: Dict[str, Any] = {"utilisateur": payload.utilisateur.strip(), "domaine": payload.domaine.strip(),
+                                  "saisie_auto": payload.saisie_auto, "maj_le": iso(maintenant()),
+                                  "maj_par": user.get("full_name") or user.get("email"), "poste_nom": p.get("nom")}
+        if payload.mot_de_passe:
+            champs["mdp_chiffre"] = outils.chiffrer(payload.mot_de_passe)
+        else:
+            existant = await db.controle_distance_identifiants.find_one({"id": mid}, {"_id": 0, "mdp_chiffre": 1})
+            if not (existant or {}).get("mdp_chiffre"):
+                raise HTTPException(status_code=400, detail="Saisissez le mot de passe Windows.")
+        await db.controle_distance_identifiants.update_one({"id": mid}, {"$set": champs, "$setOnInsert": {"id": mid}},
+                                                           upsert=True)
+        logger.info("[controle_distance] identifiant Windows mémorisé pour %s par %s", p.get("nom"), champs["maj_par"])
+        return outils.identifiants_publics(await db.controle_distance_identifiants.find_one({"id": mid}, {"_id": 0}))
+
+    @router.delete("/controle-distance/postes/{poste_id}/identifiants")
+    async def oublier_identifiants(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        await db.controle_distance_identifiants.delete_one({"id": _id_machine(p)})
+        return outils.identifiants_publics(None)
+
+    # --- Lot 135 : dossiers des transferts de fichiers mémorisés par ordinateur ----------------------------------------
+    #   dossier_base   : lecteur + dossier où arrivent les fichiers envoyés au poste (vide = « Reçu du support SAWALI »
+    #                    sur le Bureau) et point de départ du parcours ;
+    #   dernier_chemin : dernier dossier parcouru, enregistré à la fermeture de la visionneuse (repris à l'ouverture).
+    @router.get("/controle-distance/postes/{poste_id}/dossiers")
+    async def lire_dossiers(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        doc = await db.controle_distance_dossiers.find_one({"id": _id_machine(p)}, {"_id": 0}) or {}
+        return {"dossier_base": doc.get("dossier_base") or "", "dernier_chemin": doc.get("dernier_chemin") or ""}
+
+    @router.put("/controle-distance/postes/{poste_id}/dossiers")
+    async def enregistrer_dossiers(poste_id: str, payload: Dict[str, Any] = Body(...),
+                                   user: Dict[str, Any] = Depends(_technicien)):
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        champs: Dict[str, Any] = {}
+        for cle in ("dossier_base", "dernier_chemin"):   # seuls les champs envoyés changent
+            if cle in (payload or {}):
+                champs[cle] = str(payload.get(cle) or "").strip()[:260]
+        if champs:
+            mid = _id_machine(p)
+            await db.controle_distance_dossiers.update_one(
+                {"id": mid}, {"$set": {**champs, "maj_le": iso(maintenant())}, "$setOnInsert": {"id": mid}}, upsert=True)
+        doc = await db.controle_distance_dossiers.find_one({"id": _id_machine(p)}, {"_id": 0}) or {}
+        return {"dossier_base": doc.get("dossier_base") or "", "dernier_chemin": doc.get("dernier_chemin") or ""}
+
+    # --- Lot 135 : réglages de la rubrique (vidéo, ticket automatique) ------------------------------------------------
+    @router.get("/controle-distance/reglages")
+    async def lire_reglages(user: Dict[str, Any] = Depends(_technicien)):
+        return await _reglages()
+
+    @router.put("/controle-distance/reglages")
+    async def enregistrer_reglages(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(_technicien)):
+        reglages = outils.reglages_valides(payload or {})
+        await db.controle_distance_reglages.update_one(
+            {"id": "reglages"}, {"$set": {**reglages, "maj_le": iso(maintenant()),
+                                          "maj_par": user.get("full_name") or user.get("email")}}, upsert=True)
+        return reglages
+
+    # --- Lot 135 : mesures de la visionneuse à la fin de la session (item 8) -------------------------------------------
+    @router.post("/controle-distance/sessions/{sid}/mesures")
+    async def enregistrer_mesures(sid: str, payload: Dict[str, Any] = Body(...),
+                                  user: Dict[str, Any] = Depends(_technicien)):
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0})
+        if not s or s.get("technicien_id") != user.get("id"):
+            raise HTTPException(status_code=404, detail="Session introuvable")
+        mesures = outils.nettoyer_mesures(payload or {})
+        await db.controle_distance_sessions.update_one({"id": sid}, {"$set": {"mesures": mesures}})
+        s["mesures"] = mesures
+        await _evenement(s.get("client_id"), "controle_distance", "mesures", outils.resume_mesures(s), sid, s)
+        return {"mesures": mesures, "resume": outils.resume_mesures(s)}
+
+    # --- Lot 135 : vidéo de la session (item 4), envoyée par parties par la visionneuse --------------------------------
+    @router.post("/controle-distance/sessions/{sid}/video/{index}")
+    async def recevoir_video(sid: str, index: int, request: Request, user: Dict[str, Any] = Depends(_technicien)):
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0})
+        if not s or s.get("technicien_id") != user.get("id"):
+            raise HTTPException(status_code=404, detail="Session introuvable")
+        if not 0 <= index <= 99_999:
+            raise HTTPException(status_code=400, detail="Numéro de partie invalide")
+        donnees = await request.body()
+        if not donnees or len(donnees) > outils.TAILLE_MAX_PARTIE_VIDEO:
+            raise HTTPException(status_code=413, detail="Partie de vidéo vide ou trop lourde")
+        try:
+            await stockage.ecrire(outils.chemin_partie_video(sid, index), donnees, "video/webm")
+        except Exception as exc:  # noqa: BLE001 — stockage indisponible : la prise en main continue sans vidéo
+            logger.warning("[controle_distance] vidéo %s partie %s non enregistrée : %s", sid, index, exc)
+            raise HTTPException(status_code=503, detail="Stockage des vidéos indisponible")
+        await db.controle_distance_sessions.update_one(
+            {"id": sid}, {"$addToSet": {"video_parties": index}, "$inc": {"video_octets": len(donnees)},
+                          "$set": {"video": True}})
+        return {"ok": True}
+
+    @router.get("/controle-distance/sessions/{sid}/video/lien")
+    async def lien_video(sid: str, user: Dict[str, Any] = Depends(_technicien)):
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0, "video_parties": 1})
+        if not s or not s.get("video_parties"):
+            raise HTTPException(status_code=404, detail="Aucune vidéo pour cette session")
+        p = outils.lien_video(sid)
+        return {"url": f"/api/controle-distance/videos/{sid}?exp={p['exp']}&sig={p['sig']}"}
+
+    @router.get("/controle-distance/videos/{sid}")
+    async def lire_video(sid: str, exp: int = 0, sig: str = ""):
+        """Lecture de la vidéo (lien signé de 15 minutes) : parties lues l'une après l'autre, bout à bout."""
+        if not outils.lien_video_valide(sid, exp, sig):
+            raise HTTPException(status_code=403, detail="Lien expiré ou invalide")
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0, "video_parties": 1})
+        parties = sorted(int(i) for i in (s or {}).get("video_parties") or [])
+        if not parties:
+            raise HTTPException(status_code=404, detail="Aucune vidéo")
+
+        async def flux():
+            for i in parties:
+                try:
+                    yield await stockage.lire(outils.chemin_partie_video(sid, i))
+                except Exception:  # noqa: BLE001 — partie manquante : on passe à la suivante
+                    continue
+        return StreamingResponse(flux(), media_type="video/webm")
+
+    # --- Lot 135 : historique des prises en main d'un client (fiche client, item 9) ------------------------------------
+    @router.get("/controle-distance/clients/{client_id}/sessions")
+    async def sessions_du_client(client_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        curseur = db.controle_distance_sessions.find(
+            {"client_id": client_id}, {"_id": 0, "jeton_poste_hash": 0, "jeton_tech_hash": 0}).sort("cree_le", -1).limit(200)
+        return {"sessions": [x async for x in curseur]}
 
     # --- Journal des sessions --------------------------------------------------------------------------------------
     @router.get("/controle-distance/journal")
-    async def journal(limite: int = 100, user: Dict[str, Any] = Depends(_technicien)):
+    async def journal(limite: int = 100, poste_id: Optional[str] = None, user: Dict[str, Any] = Depends(_technicien)):
+        filtre = {"poste_id": poste_id} if poste_id else {}   # lot 135 : historique d'un poste (onglet de la visionneuse)
         curseur = db.controle_distance_sessions.find(
-            {}, {"_id": 0, "jeton_poste_hash": 0, "jeton_tech_hash": 0}).sort("cree_le", -1).limit(max(1, min(limite, 500)))
+            filtre, {"_id": 0, "jeton_poste_hash": 0, "jeton_tech_hash": 0}).sort("cree_le", -1).limit(max(1, min(limite, 500)))
         return {"sessions": [s async for s in curseur]}
 
     # --- 5 à 7. Relais WebSocket -------------------------------------------------------------------------------------
@@ -459,6 +872,11 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                 {"id": sid}, {"$set": {"statut": "en_cours", "debut_le": iso(maintenant())}})
             await relais.envoyer_json(sid, "poste", {"type": "debut", "mode": mode})
             await relais.envoyer_json(sid, "technicien", {"type": "debut", "mode": mode})
+            # Lot 135 : ticket du client ouvert au début de la prise en main (jamais bloquant)
+            try:
+                await _ouvrir_ticket(await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0}) or session)
+            except Exception:  # noqa: BLE001
+                logger.exception("[controle_distance] ticket de la session %s non créé", sid)
         limite_fin = maintenant() + timedelta(seconds=DUREE_MAX_S)
         motif = "connexion fermée"
         try:
@@ -472,9 +890,10 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                     break
                 donnees_bin, texte = trame.get("bytes"), trame.get("text")
                 if donnees_bin is not None:
-                    # Images : seulement du poste vers le technicien, taille bornée
-                    if role == "poste" and len(donnees_bin) <= TAILLE_MAX_TRAME:
-                        await relais.envoyer_binaire(sid, "technicien", donnees_bin)
+                    # Images et fichiers du poste vers le technicien ; fichiers du technicien vers le poste (lot 135),
+                    # seulement en mode « contrôler » ; taille bornée
+                    if trame_binaire_autorisee(role, mode, donnees_bin):
+                        await relais.envoyer_binaire(sid, "technicien" if role == "poste" else "poste", donnees_bin)
                     continue
                 if texte is None:
                     continue
@@ -488,13 +907,38 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                     motif = f"arrêtée par le {role}"
                     break
                 if role == "technicien":
+                    # Lot 135 : identifiant Windows mémorisé — envoyé au poste PAR LE SERVEUR (jamais par le navigateur)
+                    if message.get("type") in COMMANDES_SERVEUR:
+                        if mode != "controler":
+                            await websocket.send_json({"type": "refuse", "detail": "Mode « voir seulement » : "
+                                                                                  "commande non transmise"})
+                            continue
+                        erreur = await _injecter_identifiants(sid, session, "demandée par le technicien")
+                        await websocket.send_json({"type": "refuse", "detail": erreur} if erreur
+                                                  else {"type": "info", "detail": "Identifiant Windows saisi sur le poste"})
+                        continue
                     if commande_autorisee(mode, message):
                         await relais.envoyer_json(sid, "poste", message)
+                        action = action_journal(message)   # lot 135 : actions sensibles gardées dans le journal
+                        if action:
+                            await _noter_action(sid, action)
                     else:
                         await websocket.send_json({"type": "refuse", "detail": "Mode « voir seulement » : "
                                                                               "commande non transmise"})
                 elif message_poste_autorise(message):
                     await relais.envoyer_json(sid, "technicien", message)
+                    # Lot 135 : écran de connexion ou verrouillé signalé par le poste → saisie automatique de l'identifiant
+                    # Windows mémorisé (une fois par session, mode « contrôler », option « saisie automatique »)
+                    # (agent du service Windows seulement : l'icône de l'utilisateur ne peut pas écrire sur cet écran)
+                    if (message.get("type") == "bureau" and message.get("securise") and mode == "controler"
+                            and session.get("agent_service") and sid not in _identifiants_saisis):
+                        poste = await db.support_loois_postes.find_one({"id": session.get("poste_id")}, {"_id": 0}) or {}
+                        doc = await db.controle_distance_identifiants.find_one({"id": _id_machine(poste)}, {"_id": 0})
+                        if doc and doc.get("saisie_auto", True) and doc.get("mdp_chiffre"):
+                            _identifiants_saisis.add(sid)
+                            if not await _injecter_identifiants(sid, session, "saisie automatique"):
+                                await relais.envoyer_json(sid, "technicien", {
+                                    "type": "info", "detail": "Identifiant Windows mémorisé saisi automatiquement"})
         except WebSocketDisconnect:
             motif = f"déconnexion du {role}"
         except Exception as exc:  # noqa: BLE001

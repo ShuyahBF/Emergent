@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135", "date": "2026-10-12",
+        "titre": "🖥️ Contrôle à distance : écran verrouillé, fichiers, onglets, vidéo",
+        "description": "Prise en main écran verrouillé ou session fermée (service Windows Loois), fichiers par glisser-déposer (dossier de base et dernier dossier mémorisés par poste, copie de poste à poste), image DXGI plus fluide, plusieurs postes en onglets, vidéo au journal, clavier virtuel, blocage clavier/souris, déconnecter / redémarrer / éteindre, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "134", "date": "2026-10-12",
         "titre": "🎓 Liaison avec le portail e-Kol (élèves et parents)",
         "description": "Le portail e-Kol lit, par une liaison signée, les tables e-Kol synchronisées par Loois ; la rubrique montre les tables prêtes par école.",

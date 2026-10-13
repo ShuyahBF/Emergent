@@ -1,5 +1,5 @@
 // =====================================================================
-// Lot 131 — Contrôle à distance Loois : visionneuse plein écran du technicien SAWALI.
+// Lot 131 — Contrôle à distance Loois : visionneuse du technicien SAWALI.
 //
 // Déroulé (voir backend/routes/controle_distance.py) :
 //   1. POST /controle-distance/sessions        → la demande part vers le poste Loois ;
@@ -10,15 +10,33 @@
 //      la souris et le clavier repartent en JSON (refusés par le serveur en mode « voir seulement »).
 //
 // Trame binaire d'une tuile : octet 0 = 1 ; puis u16 petit-boutiste : écran, x, y, largeur, hauteur ; puis le JPEG.
+//
+// Lot 135 (propriétaire, 12/10/2026) — extensions :
+//   - fichiers : glisser-déposer sur l'écran = envoi au poste ; volet « Fichiers » = récupération depuis le poste ;
+//   - échelle de l'image (connexions lentes), capture DXGI signalée, cadence adaptée côté poste ;
+//   - écran de connexion / verrouillé : fiche « service Windows » du poste (agent système) ;
+//   - onglets (plusieurs postes, voir ControleDistanceOnglets.jsx) et vidéo de la session envoyée au journal ;
+//   - clavier virtuel, blocage du clavier et de la souris du poste, actions système (déconnecter, verrouiller,
+//     redémarrer, éteindre, Ctrl+Alt+Suppr) avec confirmation ;
+//   - identifiant Windows mémorisé (saisi par le SERVEUR sur le poste, jamais montré ici) ;
+//   - mesures de la session (1re image, latence, images/s, débit) envoyées au journal à la fin ;
+//   - numéro « CD-… », client et ticket automatique ; volet repliable : caractéristiques, performances, chat.
 // =====================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  X, Maximize, Minimize, Monitor, Eye, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
+  X, Maximize, Minimize, Monitor, Eye, EyeOff, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
   Timer, Film, ArrowDownToLine, PenLine, Send, Handshake, Plug, TimerOff, ShieldX, CheckCircle2, WifiOff,
-  RotateCcw, Lock, UserX,
+  RotateCcw, Lock, UserX, Power, KeyRound, Ban, PanelRightOpen, PanelRightClose, Scaling, Upload, ServerCog,
+  Ticket, Circle, ShieldAlert, Cpu,
 } from "lucide-react";
+import ClavierVirtuel from "@/components/controleDistance/ClavierVirtuel";
+import VoletPoste from "@/components/controleDistance/VoletPoste";
+import {
+  TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN, TAILLE_MAX_FICHIER, envoyerFichier, lireTrameFichier, telecharger,
+  mesuresFinales, ACTIONS_SYSTEME, registrePostes,
+} from "@/components/controleDistance/outils";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -44,7 +62,10 @@ const LIBELLES = {
   erreur: "La connexion au poste a échoué.",
 };
 
-export default function ControleDistance({ posteId, posteNom, onClose }) {
+// Lot 135 — échelles proposées (connexions lentes : moins de pixels à envoyer)
+const ECHELLES = [[100, "Taille réelle"], [75, "Image à 75 %"], [50, "Image à 50 % (connexion lente)"], [25, "Image à 25 % (très lente)"]];
+
+export default function ControleDistance({ posteId, posteNom, onClose, embedded = false, visible = true, onEtat, onOuvrirPoste }) {
   const [etat, setEtat] = useState("choix");          // choix → demande → connexion → attente_poste → active → terminee
   const [mode, setMode] = useState("controler");      // mode demandé puis mode accordé par le poste
   const [motif, setMotif] = useState("");             // motif de l'intervention (journal)
@@ -56,20 +77,76 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
   const [motifFin, setMotifFin] = useState("");
   // Lot 131.1 — poste sans surveillance (clé LKS-) : il accepte seul, sans bandeau ; réservé au super-admin
   const [sansSurveillance, setSansSurveillance] = useState(false);
-  useEffect(() => {
+  // Lot 135 — fiche du poste (service Windows, chat, client, identifiant mémorisé), réglages, numéro et ticket
+  const [fiche, setFiche] = useState(null);
+  const [reglages, setReglages] = useState({ enregistrement_video: true, video_ips: 5 });
+  const [clients, setClients] = useState([]);
+  const [clientChoisi, setClientChoisi] = useState("");
+  const [numero, setNumero] = useState("");
+  const [ticket, setTicket] = useState("");
+  // Lot 135 — affichage et outils
+  const [echelle, setEchelle] = useState(100);
+  const [clavierOuvert, setClavierOuvert] = useState(false);
+  const [voletOuvert, setVoletOuvert] = useState(false);
+  const [ongletVolet, setOngletVolet] = useState("poste");
+  const [infos, setInfos] = useState(null);           // inventaire envoyé par le poste
+  const [perf, setPerf] = useState(null);             // performances (toutes les 2 s)
+  const [bureau, setBureau] = useState(null);         // {nom, securise, session_ouverte}
+  const [moteur, setMoteur] = useState("");           // « dxgi » ou « gdi »
+  const [entreesBloquees, setEntreesBloquees] = useState(false);
+  const [menuSysteme, setMenuSysteme] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);   // action système à confirmer
+  const [identifiantsOuvert, setIdentifiantsOuvert] = useState(false);
+  const [listeFichiers, setListeFichiers] = useState(null);
+  const [transferts, setTransferts] = useState([]);
+  const [survolDepot, setSurvolDepot] = useState(false);
+  const [enregistre, setEnregistre] = useState(false);
+  // Lot 135 — dossiers des transferts mémorisés pour ce poste : dossier de base + dernier dossier parcouru
+  const [dossiers, setDossiers] = useState({ dossier_base: "", dernier_chemin: "" });
+
+  const chargerFiche = useCallback(async () => {
     if (!posteId) return;
-    apiClient.get(`/controle-distance/postes/${encodeURIComponent(posteId)}`)
-      .then((r) => setSansSurveillance(Boolean(r.data?.sans_surveillance))).catch(() => {});
+    try {
+      const r = await apiClient.get(`/controle-distance/postes/${encodeURIComponent(posteId)}`);
+      setFiche(r.data);
+      setSansSurveillance(Boolean(r.data?.sans_surveillance));
+      if (!r.data?.client_id) {
+        apiClient.get("/support-loois/clients").then((c) => setClients(c.data || [])).catch(() => {});
+      }
+    } catch { /* fiche indisponible : la prise en main reste possible */ }
   }, [posteId]);
+  useEffect(() => {
+    chargerFiche();
+    apiClient.get("/controle-distance/reglages").then((r) => setReglages(r.data || {})).catch(() => {});
+    if (posteId) {
+      apiClient.get(`/controle-distance/postes/${encodeURIComponent(posteId)}/dossiers`)
+        .then((r) => { setDossiers(r.data); dernierCheminRef.current = r.data.dernier_chemin || ""; }).catch(() => {});
+    }
+  }, [chargerFiche, posteId]);
 
   const sessionRef = useRef(null);       // identifiant de la session
   const wsRef = useRef(null);            // WebSocket du relais
   const canvasRef = useRef(null);        // canvas où l'on dessine l'écran du poste
   const cadreRef = useRef(null);         // conteneur (pour le plein écran)
   const compteurRef = useRef({ images: 0, octets: 0, pingEnvoye: 0 });
+  const mesuresRef = useRef(null);       // lot 135 : mesures de la session (latences, images/s, 1re image…)
   const modeRef = useRef(mode);
   const dernierMouvementRef = useRef(0); // limite l'envoi des déplacements de souris (~60 / s)
+  const enregistreurRef = useRef(null);  // lot 135 : MediaRecorder de la vidéo
+  const partieVideoRef = useRef(0);
+  const receptionsRef = useRef(new Map());   // lot 135 : fichiers reçus du poste en cours {id → {nom, taille, morceaux, recu}}
+  const prochainFichierRef = useRef(1);
+  const destinationsRef = useRef([]);    // lot 135 : pour chaque fichier demandé au poste, poste de destination (ou null = téléchargement)
+  const dernierCheminRef = useRef("");   // lot 135 : dernier dossier parcouru, mémorisé à la fermeture
+  const cheminEnregistreRef = useRef("");
+  const moteurRef = useRef("");
+  const echelleRef = useRef(100);
   modeRef.current = mode;
+  moteurRef.current = moteur;
+  echelleRef.current = echelle;
+
+  // Lot 135 — l'onglet qui héberge la visionneuse suit son état (pastille de couleur)
+  useEffect(() => { onEtat?.(etat); }, [etat, onEtat]);
 
   // ---- Envoi d'une commande JSON au poste (via le relais) ----
   const envoyer = useCallback((message) => {
@@ -77,9 +154,36 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
   }, []);
 
+  // ---- Lot 135 : fin de l'enregistrement vidéo (la dernière partie part au serveur) ----
+  const arreterVideo = useCallback(() => {
+    const rec = enregistreurRef.current;
+    enregistreurRef.current = null;
+    try { if (rec && rec.state !== "inactive") rec.stop(); } catch { /* déjà arrêté */ }
+    setEnregistre(false);
+  }, []);
+
+  // ---- Lot 135 : mesures de la session envoyées une fois, à la fin ----
+  const envoyerMesures = useCallback((sid) => {
+    const c = mesuresRef.current;
+    mesuresRef.current = null;
+    if (!sid || !c) return;
+    apiClient.post(`/controle-distance/sessions/${sid}/mesures`, mesuresFinales(c, moteurRef.current, echelleRef.current)).catch(() => {});
+  }, []);
+
+  // ---- Lot 135 : dernier dossier parcouru, mémorisé pour ce poste (repris à la prochaine ouverture) ----
+  const memoriserDernierChemin = useCallback(() => {
+    const chemin = dernierCheminRef.current;
+    if (!posteId || !chemin || chemin === cheminEnregistreRef.current) return;
+    cheminEnregistreRef.current = chemin;
+    apiClient.put(`/controle-distance/postes/${encodeURIComponent(posteId)}/dossiers`, { dernier_chemin: chemin }).catch(() => {});
+  }, [posteId]);
+
   // ---- Fermeture propre : prévient le serveur et ferme la connexion ----
   const arreter = useCallback(async (silencieux = false) => {
     const sid = sessionRef.current;
+    memoriserDernierChemin();
+    arreterVideo();
+    envoyerMesures(sid);
     try { envoyer({ type: "arreter" }); } catch { /* connexion déjà fermée */ }
     try { wsRef.current?.close(); } catch { /* noop */ }
     wsRef.current = null;
@@ -88,15 +192,24 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
       try { await apiClient.post(`/controle-distance/sessions/${sid}/arreter`); } catch { /* déjà terminée */ }
     }
     if (!silencieux) setEtat("terminee");
-  }, [envoyer]);
+  }, [envoyer, arreterVideo, envoyerMesures, memoriserDernierChemin]);
 
   // Arrêt automatique si la visionneuse est fermée (démontage du composant)
   useEffect(() => () => { arreter(true); }, [arreter]);
 
+  // Lot 135 — fin de session côté poste ou serveur : vidéo et mesures bouclées
+  useEffect(() => {
+    if (["terminee", "erreur"].includes(etat)) {
+      memoriserDernierChemin();
+      arreterVideo();
+      envoyerMesures(sessionRef.current);
+    }
+  }, [etat, arreterVideo, envoyerMesures, memoriserDernierChemin]);
+
   // ---- Dessin d'une tuile JPEG reçue du poste ----
   const dessinerTuile = useCallback(async (tampon) => {
     const vue = new DataView(tampon);
-    if (vue.byteLength < 11 || vue.getUint8(0) !== 1) return;
+    if (vue.byteLength < 11 || vue.getUint8(0) !== TRAME_TUILE) return;
     const x = vue.getUint16(3, true), y = vue.getUint16(5, true);
     const jpeg = new Blob([tampon.slice(11)], { type: "image/jpeg" });
     const canvas = canvasRef.current;
@@ -111,6 +224,95 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
     } catch { /* tuile illisible : ignorée */ }
     compteurRef.current.images += 1;
     compteurRef.current.octets += tampon.byteLength;
+    // Lot 135 : délai de la première image et volume reçu (mesures de fin de session)
+    const m = mesuresRef.current;
+    if (m) {
+      m.octetsTotal += tampon.byteLength;
+      if (m.premiereImageMs === null && m.tDebut) m.premiereImageMs = performance.now() - m.tDebut;
+    }
+  }, []);
+
+  // ---- Lot 135 : morceau d'un fichier envoyé par le poste (trame de type 3) ----
+  const recevoirMorceau = useCallback((tampon) => {
+    const t = lireTrameFichier(tampon);
+    if (!t) return;
+    const r = receptionsRef.current.get(t.id);
+    if (!r) return;
+    r.morceaux.push(t.donnees);
+    r.recu += t.donnees.byteLength;
+    setTransferts((liste) => liste.map((x) => (x.sens === "reception" && x.id === t.id ? { ...x, fait: r.recu } : x)));
+  }, []);
+
+  // ---- Lot 135 : messages JSON du poste ----
+  const traiterMessage = useCallback((m) => {
+    if (m.type === "pret") { setMode(m.mode); setEtat("attente_poste"); }
+    else if (m.type === "debut") {
+      setEtat("active");
+      toast.success("Vous voyez l'écran du poste");
+      mesuresRef.current = { tDebut: performance.now(), premiereImageMs: null, latences: [], ips: [], octetsTotal: 0, debutAffichage: Date.now() };
+    }
+    else if (m.type === "ecrans") {
+      const liste = Array.isArray(m.liste) ? m.liste : [];
+      setEcrans(liste);
+      const actif = liste.find((e) => e.index === (m.actif ?? 0)) || liste[0];
+      if (actif && canvasRef.current) { canvasRef.current.width = actif.largeur; canvasRef.current.height = actif.hauteur; }
+      if (actif) setEcranActif(actif.index);
+    }
+    else if (m.type === "pong") {
+      const envoi = compteurRef.current.pingEnvoye;
+      if (envoi) {
+        const latence = Date.now() - envoi;
+        setStats((s) => ({ ...s, latence }));
+        mesuresRef.current?.latences.push(latence);
+      }
+    }
+    else if (m.type === "presse_papiers" && typeof m.texte === "string") {
+      navigator.clipboard?.writeText(m.texte).then(() => toast.info("Presse-papiers du poste copié"), () => {});
+    }
+    else if (m.type === "infos_poste") setInfos(m);
+    else if (m.type === "perf") setPerf(m);
+    else if (m.type === "bureau") setBureau(m);
+    else if (m.type === "capture") setMoteur(m.moteur || "");
+    else if (m.type === "entrees_bloquees") { setEntreesBloquees(Boolean(m.valeur)); if (m.detail) toast.info(m.detail); }
+    else if (m.type === "systeme_resultat") (m.ok ? toast.success : toast.error)(m.detail || "Action système");
+    else if (m.type === "fichiers_liste") {
+      setListeFichiers(m);
+      if (m.chemin && !m.erreur) dernierCheminRef.current = m.chemin;   // lot 135 : mémorisé à la fermeture
+    }
+    else if (m.type === "fichier_recu") {
+      setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === m.id
+        ? { ...x, fini: Boolean(m.ok), erreur: m.ok ? "" : (m.detail || "refusé"), chemin: m.chemin || "" } : x)));
+      if (m.ok) toast.success(`Fichier déposé sur le poste : ${m.chemin}`); else toast.error(m.detail || "Fichier refusé par le poste");
+    }
+    else if (m.type === "fichier_debut") {
+      // Lot 135 : destination choisie à la demande (autre poste contrôlé) ou téléchargement (null)
+      const destination = destinationsRef.current.shift() || null;
+      receptionsRef.current.set(m.id, { nom: m.nom, taille: m.taille, morceaux: [], recu: 0, destination });
+      setTransferts((liste) => [...liste, { sens: "reception", id: m.id, nom: m.nom, taille: m.taille, fait: 0 }]);
+    }
+    else if (m.type === "fichier_fin") {
+      const r = receptionsRef.current.get(m.id);
+      receptionsRef.current.delete(m.id);
+      if (!r) destinationsRef.current.shift();   // échec avant tout envoi : la destination demandée est abandonnée
+      if (r && m.ok) {
+        const contenu = new Blob(r.morceaux);
+        if (r.destination) {
+          // Lot 135 : copie de poste à poste — le fichier part vers le poste de l'autre onglet
+          r.destination.recevoir(contenu, r.nom)
+            .then(() => toast.success(`${r.nom} copié vers ${r.destination.nom}`))
+            .catch(() => toast.error(`Copie vers ${r.destination.nom} impossible (prise en main fermée ?)`));
+        } else {
+          telecharger(contenu, r.nom);
+          toast.success(`Fichier récupéré : ${r.nom}`);
+        }
+      } else if (m.detail) toast.error(m.detail);
+      setTransferts((liste) => liste.map((x) => (x.sens === "reception" && x.id === m.id
+        ? { ...x, fini: Boolean(m.ok), erreur: m.ok ? "" : (m.detail || "échec") } : x)));
+    }
+    else if (m.type === "info") toast.info(m.detail || "");
+    else if (m.type === "refuse") toast.warning(m.detail || "Commande refusée");
+    else if (m.type === "erreur") { toast.error(m.detail || "Erreur du poste"); }
+    else if (m.type === "fin") { setMotifFin(m.motif || ""); setEtat("terminee"); }
   }, []);
 
   // ---- Connexion au relais avec le jeton à usage unique ----
@@ -121,41 +323,33 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
     wsRef.current = ws;
     ws.onopen = () => ws.send(JSON.stringify({ type: "auth", role: "technicien", session_id: sid, jeton }));
     ws.onmessage = (ev) => {
-      if (typeof ev.data !== "string") { dessinerTuile(ev.data); return; }
+      if (typeof ev.data !== "string") {
+        // Lot 135 : octet 0 = type de trame (1 = tuile de l'écran, 3 = morceau de fichier)
+        const type = ev.data.byteLength ? new DataView(ev.data).getUint8(0) : 0;
+        if (type === TRAME_FICHIER_VERS_TECHNICIEN) recevoirMorceau(ev.data);
+        else dessinerTuile(ev.data);
+        return;
+      }
       let m;
       try { m = JSON.parse(ev.data); } catch { return; }
-      if (m.type === "pret") { setMode(m.mode); setEtat("attente_poste"); }
-      else if (m.type === "debut") { setEtat("active"); toast.success("Vous voyez l'écran du poste"); }
-      else if (m.type === "ecrans") {
-        const liste = Array.isArray(m.liste) ? m.liste : [];
-        setEcrans(liste);
-        const actif = liste.find((e) => e.index === (m.actif ?? 0)) || liste[0];
-        if (actif && canvasRef.current) { canvasRef.current.width = actif.largeur; canvasRef.current.height = actif.hauteur; }
-        if (actif) setEcranActif(actif.index);
-      }
-      else if (m.type === "pong") {
-        const envoi = compteurRef.current.pingEnvoye;
-        if (envoi) setStats((s) => ({ ...s, latence: Date.now() - envoi }));
-      }
-      else if (m.type === "presse_papiers" && typeof m.texte === "string") {
-        navigator.clipboard?.writeText(m.texte).then(() => toast.info("Presse-papiers du poste copié"), () => {});
-      }
-      else if (m.type === "refuse") toast.warning(m.detail || "Commande refusée");
-      else if (m.type === "erreur") { toast.error(m.detail || "Erreur du poste"); }
-      else if (m.type === "fin") { setMotifFin(m.motif || ""); setEtat("terminee"); }
+      traiterMessage(m);
     };
     ws.onclose = () => { setEtat((e) => (e === "active" || e === "attente_poste" || e === "connexion" ? "terminee" : e)); };
     ws.onerror = () => setEtat((e) => (e === "connexion" ? "erreur" : e));
-  }, [dessinerTuile]);
+  }, [dessinerTuile, recevoirMorceau, traiterMessage]);
 
   // ---- 1. Demande de prise en main ----
   const demander = async (modeChoisi) => {
     setMode(modeChoisi);
     setEtat("demande");
+    setInfos(null); setPerf(null); setBureau(null); setListeFichiers(null); setEntreesBloquees(false); setTicket("");
     const attente = toast.loading("Patientez… demande envoyée au poste");
     try {
-      const r = await apiClient.post("/controle-distance/sessions", { poste_id: posteId, mode: modeChoisi, motif });
+      const r = await apiClient.post("/controle-distance/sessions", {
+        poste_id: posteId, mode: modeChoisi, motif, client_id: clientChoisi || undefined,
+      });
       sessionRef.current = r.data.session_id;
+      setNumero(r.data.numero || "");
     } catch (e) {
       toast.dismiss(attente);
       toast.error(e?.response?.data?.detail || "Demande impossible");
@@ -183,22 +377,53 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
       }
     }
     toast.dismiss(attente);
-    setEtat("expiree");
+    if (sessionRef.current === sid) setEtat("expiree");
   };
 
-  // ---- Statistiques : images par seconde, débit et latence (ping toutes les 2 s) ----
+  // ---- Statistiques : images par seconde, débit et latence (ping toutes les 2 s) ; numéro de ticket ----
   useEffect(() => {
     if (etat !== "active") return undefined;
     const t = setInterval(() => {
       const c = compteurRef.current;
-      setStats((s) => ({ ...s, ips: Math.round(c.images / 2), debit: Math.round(c.octets / 2048) }));
+      const ips = Math.round(c.images / 2);
+      setStats((s) => ({ ...s, ips, debit: Math.round(c.octets / 2048) }));
+      mesuresRef.current?.ips.push(c.images / 2);
       c.images = 0; c.octets = 0; c.pingEnvoye = Date.now();
       envoyer({ type: "ping" });
     }, 2000);
-    return () => clearInterval(t);
+    // Lot 135 : le ticket est créé par le serveur au début de la session
+    const sid = sessionRef.current;
+    const lireTicket = setTimeout(() => {
+      if (sid) apiClient.get(`/controle-distance/sessions/${sid}`).then((r) => setTicket(r.data.ticket_number || "")).catch(() => {});
+    }, 1500);
+    return () => { clearInterval(t); clearTimeout(lireTicket); };
   }, [etat, envoyer]);
 
-  // ---- Position de la souris dans les pixels de l'écran du poste ----
+  // ---- Lot 135 : enregistrement vidéo de la session (parties de 30 s envoyées au serveur) ----
+  useEffect(() => {
+    if (etat !== "active" || !reglages.enregistrement_video || enregistreurRef.current) return;
+    const sid = sessionRef.current;
+    const canvas = canvasRef.current;
+    if (!sid || !canvas?.captureStream || typeof MediaRecorder === "undefined") return;
+    try {
+      const flux = canvas.captureStream(Math.max(1, Math.min(15, reglages.video_ips || 5)));
+      const types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+      const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
+      const rec = new MediaRecorder(flux, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 300000 });
+      partieVideoRef.current = 0;
+      rec.ondataavailable = (ev) => {
+        if (!ev.data || !ev.data.size) return;
+        const index = partieVideoRef.current++;
+        apiClient.post(`/controle-distance/sessions/${sid}/video/${index}`, ev.data, { headers: { "Content-Type": "video/webm" } })
+          .catch(() => { if (index === 0) toast.warning("Vidéo non enregistrée (stockage indisponible)"); });
+      };
+      rec.start(30000);
+      enregistreurRef.current = rec;
+      setEnregistre(true);
+    } catch { /* navigateur sans enregistrement vidéo : la prise en main continue */ }
+  }, [etat, reglages]);
+
+  // ---- Position de la souris dans les pixels de l'image (à l'échelle : Loois convertit en pixels réels) ----
   const position = (ev) => {
     const canvas = canvasRef.current;
     const r = canvas.getBoundingClientRect();
@@ -234,7 +459,7 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
     envoyer({ type: "clavier", action, code: ev.code, touche: ev.key });
   };
 
-  // Combinaison envoyée en un geste (Ctrl+Alt+Suppr n'est pas simulable par Windows : on propose le Gestionnaire)
+  // Combinaison envoyée en un geste (Ctrl+Alt+Suppr passe par le menu des actions système)
   const combinaison = (codes) => {
     codes.forEach((code) => envoyer({ type: "clavier", action: "bas", code }));
     [...codes].reverse().forEach((code) => envoyer({ type: "clavier", action: "haut", code }));
@@ -246,6 +471,73 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
       const texte = await navigator.clipboard.readText();
       if (texte) { envoyer({ type: "texte", texte }); toast.success("Texte envoyé au poste"); }
     } catch { toast.error("Le navigateur n'autorise pas la lecture du presse-papiers"); }
+  };
+
+  // ---- Lot 135 : fichiers déposés sur l'écran du poste → envoyés au poste ----
+  const deposer = async (ev) => {
+    ev.preventDefault();
+    setSurvolDepot(false);
+    if (!peutAgir) { toast.warning("Envoi de fichiers : prise en main en mode « Contrôler » seulement"); return; }
+    const fichiers = Array.from(ev.dataTransfer?.files || []);
+    for (const f of fichiers) {
+      if (f.size > TAILLE_MAX_FICHIER) { toast.error(`${f.name} : 2 Go au plus`); continue; }
+      const id = prochainFichierRef.current++;
+      setTransferts((liste) => [...liste, { sens: "envoi", id, nom: f.name, taille: f.size, fait: 0 }]);
+      setVoletOuvert(true);
+      setOngletVolet("fichiers");
+      await envoyerAuPoste(f);
+    }
+  };
+
+  // ---- Lot 135 : envoi d'un fichier à CE poste (dépôt ou copie depuis un autre poste), dans le dossier de base ----
+  const dossierBaseRef = useRef("");
+  dossierBaseRef.current = dossiers.dossier_base;
+  const envoyerAuPoste = useCallback(async (f) => {
+    const id = prochainFichierRef.current++;
+    setTransferts((liste) => [...liste, { sens: "envoi", id, nom: f.name, taille: f.size, fait: 0 }]);
+    const ws = wsRef.current;
+    const ok = ws ? await envoyerFichier(ws, id, f, (fait) =>
+      setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === id ? { ...x, fait } : x))), dossierBaseRef.current) : false;
+    if (!ok) setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === id ? { ...x, erreur: "connexion fermée" } : x)));
+    return ok;
+  }, []);
+
+  // ---- Lot 135 : ce poste s'inscrit comme destination des copies de poste à poste (mode « Contrôler » seulement) ----
+  const peutRecevoir = etat === "active" && mode === "controler";
+  useEffect(() => {
+    if (!peutRecevoir || !posteId) return undefined;
+    registrePostes.set(posteId, {
+      nom: posteNom || fiche?.poste_nom || "Poste Loois",
+      recevoir: async (blob, nom) => { if (!(await envoyerAuPoste(new File([blob], nom)))) throw new Error("connexion fermée"); },
+    });
+    return () => registrePostes.delete(posteId);
+  }, [peutRecevoir, posteId, posteNom, fiche, envoyerAuPoste]);
+
+  // ---- Lot 135 : demande d'un fichier au poste, pour le télécharger (destination null) ou le copier vers un autre poste ----
+  const demanderFichier = (chemin, destination = null) => {
+    destinationsRef.current.push(destination);
+    envoyer({ type: "fichier_demander", chemin });
+  };
+
+  // ---- Lot 135 : dossier de base des transferts pour ce poste ----
+  const definirDossierBase = async (chemin) => {
+    try {
+      const r = await apiClient.put(`/controle-distance/postes/${encodeURIComponent(posteId)}/dossiers`, { dossier_base: chemin || "" });
+      setDossiers(r.data);
+      toast.success(chemin ? `Dossier de base : ${chemin}` : "Dossier de base effacé (« Reçu du support SAWALI » sur le Bureau)");
+    } catch { toast.error("Dossier de base non enregistré"); }
+  };
+
+  // ---- Lot 135 : blocage du clavier et de la souris du poste ----
+  const basculerBlocage = () => envoyer({ type: "bloquer_entrees", valeur: entreesBloquees ? 0 : 1 });
+
+  // ---- Lot 135 : échelle de l'image (la visionneuse redimensionne le canvas à l'annonce « ecrans ») ----
+  const echelleSuivante = () => {
+    const i = ECHELLES.findIndex((e) => e[0] === echelle);
+    const suivante = ECHELLES[(i + 1) % ECHELLES.length];
+    setEchelle(suivante[0]);
+    envoyer({ type: "echelle", valeur: suivante[0] });
+    toast.info(suivante[1]);
   };
 
   // ---- Plein écran du navigateur ----
@@ -291,15 +583,28 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
     erreur: [WifiOff, "from-orange-500 to-rose-600", false],
   };
   const fermer = async () => { await arreter(true); onClose?.(); };
+  // Écran sécurisé affiché sur un poste suivi par l'icône de l'utilisateur : l'image n'est pas disponible
+  const ecranSecuriseInaccessible = etat === "active" && bureau?.securise && !fiche?.agent_service;
+
+  const racine = embedded
+    ? `absolute inset-0 flex flex-col overflow-hidden ${visible ? "" : "invisible pointer-events-none"}`
+    : "fixed inset-0 z-[90] flex flex-col overflow-hidden";
 
   return (
-    <div ref={cadreRef} className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[radial-gradient(ellipse_at_top,_#1e3a8a_0%,_#0f172a_45%,_#020617_100%)] text-slate-100" data-testid="controle-distance">
+    <div ref={cadreRef} className={`${racine} bg-[radial-gradient(ellipse_at_top,_#1e3a8a_0%,_#0f172a_45%,_#020617_100%)] text-slate-100`} data-testid="controle-distance">
       {/* ---- En-tête : poste, mode et mesures (pictogrammes) ---- */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 shadow-lg" aria-hidden="true">
-          <Monitor className="h-5 w-5" />
+          {fiche?.agent_service ? <ServerCog className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
         </span>
-        <span className="text-sm font-semibold">{posteNom || "Poste Loois"}</span>
+        <span className="text-sm font-semibold">{posteNom || fiche?.poste_nom || "Poste Loois"}</span>
+        {numero && <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[11px] text-slate-200" title="Numéro de la prise en main">{numero}</span>}
+        {ticket && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] text-amber-200 ring-1 ring-amber-400/40" title="Ticket du client ouvert automatiquement">
+            <Ticket className="h-3 w-3" />{ticket}
+          </span>
+        )}
+        {fiche?.client_nom && <span className="text-[11px] text-slate-400">{fiche.client_nom}</span>}
         {sansSurveillance && (
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2.5 py-1 text-xs font-semibold text-indigo-200 ring-1 ring-indigo-400/40"
                 title="Poste sans surveillance : accord automatique, aucun bandeau sur le poste (notification discrète seulement)">
@@ -317,6 +622,17 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
             <span className="inline-flex items-center gap-1" title="Images par seconde"><Film className="h-3.5 w-3.5 text-fuchsia-400" />{stats.ips}</span>
             <span className="inline-flex items-center gap-1" title="Latence aller-retour (ms)"><Timer className={`h-3.5 w-3.5 ${stats.latence > 250 ? "text-rose-400" : "text-emerald-400"}`} />{stats.latence ?? "—"}</span>
             <span className="inline-flex items-center gap-1" title="Débit reçu (Ko/s)"><ArrowDownToLine className="h-3.5 w-3.5 text-sky-400" />{stats.debit}</span>
+            {moteur && <span className="inline-flex items-center gap-1" title={moteur === "dxgi" ? "Capture DXGI (carte graphique, fluide)" : "Capture GDI (classique)"}><Cpu className="h-3.5 w-3.5 text-violet-300" />{moteur.toUpperCase()}</span>}
+          </span>
+        )}
+        {enregistre && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-rose-600/30 px-2 py-0.5 text-[11px] font-semibold text-rose-200" title="Session enregistrée (vidéo dans le journal)">
+            <Circle className="h-2.5 w-2.5 animate-pulse fill-rose-400 text-rose-400" />REC
+          </span>
+        )}
+        {entreesBloquees && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/25 px-2 py-0.5 text-[11px] font-semibold text-orange-200" title="Clavier et souris du poste bloqués">
+            <Ban className="h-3 w-3" />Entrées bloquées
           </span>
         )}
         <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-400" title="Connexion chiffrée, accord de l'utilisateur du poste, journal">
@@ -325,7 +641,8 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
       </div>
 
       {/* ---- Dock d'actions (pictogrammes ronds et colorés) ---- */}
-      <div className="mx-auto mt-2 flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10 backdrop-blur">
+      {/* z-20 : le flou du dock crée un empilement propre ; sans lui, le menu des actions passerait sous l'image du poste */}
+      <div className="relative z-20 mx-auto mt-2 flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10 backdrop-blur">
         {etat === "active" && ecrans.length > 1 && ecrans.map((e) => (
           <button key={e.index} type="button" title={`Écran ${e.index + 1} (${e.largeur}×${e.hauteur})`}
                   onClick={() => { setEcranActif(e.index); envoyer({ type: "choix_ecran", index: e.index }); }}
@@ -337,107 +654,303 @@ export default function ControleDistance({ posteId, posteNom, onClose }) {
         {etat === "active" && (
           <>
             <button type="button" className={picto(niveau[2])} onClick={qualiteSuivante} title={`${niveau[1]} — cliquer pour changer`}><Gauge className="h-4 w-4" /></button>
+            <button type="button" className={picto(echelle === 100 ? "bg-teal-600" : "bg-amber-600")} onClick={echelleSuivante}
+                    title={`${(ECHELLES.find((e) => e[0] === echelle) || ECHELLES[0])[1]} — cliquer pour changer`}>
+              <Scaling className="h-4 w-4" />
+              {echelle !== 100 && <span className="absolute -bottom-1 -right-1 rounded-full bg-white px-1 text-[8px] font-bold text-amber-700">{echelle}</span>}
+            </button>
             <button type="button" className={picto("bg-cyan-500")} onClick={() => envoyer({ type: "image_complete" })} title="Rafraîchir l'écran complet"><RefreshCw className="h-4 w-4" /></button>
             <button type="button" className={picto("bg-violet-500")} disabled={!peutAgir} onClick={collerTexte} title="Coller votre presse-papiers sur le poste"><ClipboardPaste className="h-4 w-4" /></button>
+            <button type="button" className={picto(clavierOuvert ? "bg-fuchsia-500 ring-2 ring-white" : "bg-fuchsia-700")} disabled={!peutAgir}
+                    onClick={() => setClavierOuvert((v) => !v)} title="Clavier virtuel (touches de fonction, Windows, raccourcis)"><Keyboard className="h-4 w-4" /></button>
             <button type="button" className={picto("bg-pink-500")} disabled={!peutAgir} onClick={() => combinaison(["ControlLeft", "ShiftLeft", "Escape"])} title="Gestionnaire des tâches (Ctrl+Maj+Échap)"><Activity className="h-4 w-4" /></button>
             <button type="button" className={picto("bg-blue-600")} disabled={!peutAgir} onClick={() => combinaison(["MetaLeft"])} title="Touche Windows"><IconeWindows /></button>
+            <button type="button" className={picto(entreesBloquees ? "bg-orange-500 ring-2 ring-white" : "bg-orange-700")} disabled={!peutAgir}
+                    onClick={basculerBlocage} title={entreesBloquees ? "Débloquer le clavier et la souris du poste" : "Bloquer le clavier et la souris du poste"}>
+              <Ban className="h-4 w-4" />
+            </button>
+            <button type="button" className={picto("bg-emerald-700")} disabled={!peutAgir || !fiche?.identifiants?.enregistre}
+                    onClick={() => envoyer({ type: "identifiants_windows" })}
+                    title={fiche?.identifiants?.enregistre ? `Saisir l'identifiant Windows mémorisé (${fiche.identifiants.utilisateur || "mot de passe"})` : "Aucun identifiant Windows mémorisé"}>
+              <KeyRound className="h-4 w-4" />
+            </button>
+            <button type="button" className={picto("bg-red-700")} disabled={!peutAgir} onClick={() => setMenuSysteme((v) => !v)} title="Actions système : Ctrl+Alt+Suppr, verrouiller, déconnecter, redémarrer, éteindre">
+              <Power className="h-4 w-4" />
+            </button>
           </>
         )}
+        <button type="button" className={picto("bg-slate-600")} onClick={() => setIdentifiantsOuvert(true)} title="Identifiant Windows mémorisé pour ce poste">
+          <Lock className="h-4 w-4" />
+        </button>
+        <button type="button" className={picto(voletOuvert ? "bg-sky-600 ring-2 ring-white" : "bg-slate-600")} onClick={() => setVoletOuvert((v) => !v)}
+                title={voletOuvert ? "Replier le volet" : "Caractéristiques, performances, chat et fichiers du poste"}>
+          {voletOuvert ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+        </button>
         <button type="button" className={picto("bg-slate-600")} onClick={basculerPleinEcran} title={pleinEcran ? "Quitter le plein écran" : "Plein écran"}>
           {pleinEcran ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
         </button>
         <button type="button" className={picto("bg-rose-600")} onClick={fermer} title="Arrêter la prise en main et fermer" data-testid="controle-distance-fermer">
           <X className="h-5 w-5" />
         </button>
-      </div>
 
-      {/* ---- Zone d'affichage ---- */}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
-        {/* Choix du mode : deux grandes tuiles colorées ; un clic envoie directement la demande */}
-        {etat === "choix" && (
-          <div className="w-full max-w-xl">
-            <label className="mx-auto flex max-w-md items-center gap-2 rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/15 focus-within:ring-sky-400">
-              <PenLine className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
-              <input value={motif} onChange={(e) => setMotif(e.target.value)} maxLength={200}
-                     placeholder="Motif de l'intervention (facultatif)"
-                     className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" />
-            </label>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <button type="button" onClick={() => demander("controler")} data-testid="controle-distance-controler"
-                      className="group rounded-3xl bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 p-6 text-left shadow-2xl shadow-emerald-900/40 transition hover:-translate-y-1 hover:shadow-emerald-500/30">
-                <span className="flex gap-2"><MousePointer2 className="h-9 w-9" /><Keyboard className="h-9 w-9 opacity-80" /></span>
-                <span className="mt-4 block text-lg font-bold">Contrôler</span>
-                <span className="block text-xs text-white/80">Souris, clavier, écrans, presse-papiers</span>
+        {/* Menu des actions système (confirmation ensuite) */}
+        {menuSysteme && peutAgir && (
+          <div className="absolute right-2 top-full z-10 mt-2 w-60 overflow-hidden rounded-xl bg-slate-900 shadow-2xl ring-1 ring-white/15">
+            {Object.entries(ACTIONS_SYSTEME).map(([action, a]) => (
+              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmation(action); }}
+                      className={`block w-full px-3 py-2 text-left text-xs hover:bg-white/10 ${a.danger ? "text-rose-300" : "text-slate-100"}`}>
+                {a.titre}
               </button>
-              <button type="button" onClick={() => demander("voir")} data-testid="controle-distance-voir"
-                      className="group rounded-3xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 p-6 text-left shadow-2xl shadow-orange-900/40 transition hover:-translate-y-1 hover:shadow-orange-500/30">
-                <Eye className="h-9 w-9" />
-                <span className="mt-4 block text-lg font-bold">Voir seulement</span>
-                <span className="block text-xs text-white/80">Aucune action sur le poste</span>
-              </button>
-            </div>
-            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[11px] text-slate-400">
-              <Handshake className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
-              {sansSurveillance
-                ? "Poste sans surveillance : connexion sans accord, une notification discrète s'affiche sur le poste."
-                : "L'utilisateur du poste accepte, voit un bandeau et peut arrêter à tout moment."}
-            </p>
+            ))}
           </div>
         )}
+      </div>
 
-        {/* Attente et fin : grand pictogramme dans un halo coloré ; actions en pictogrammes */}
-        {ECRANS_ETAT[etat] && (() => {
-          const [Icone, degrade, enCours] = ECRANS_ETAT[etat];
-          return (
-            <div className="flex max-w-md flex-col items-center gap-4 text-center">
-              <div className="relative grid h-28 w-28 place-items-center">
-                {enCours && (
-                  <svg className="absolute inset-0 h-28 w-28 animate-spin text-white/70" viewBox="0 0 50 50" aria-hidden="true">
-                    <circle cx="25" cy="25" r="23" fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2" />
-                    <path d="M25 2 a23 23 0 0 1 23 23" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
+      {/* ---- Zone d'affichage + volet repliable ---- */}
+      <div className="flex min-h-0 flex-1">
+        <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${survolDepot ? "ring-4 ring-inset ring-sky-400/70" : ""}`}
+             onDragOver={(e) => { if (etat === "active") { e.preventDefault(); setSurvolDepot(true); } }}
+             onDragLeave={() => setSurvolDepot(false)}
+             onDrop={deposer}>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+            {/* Choix du mode : deux grandes tuiles colorées ; un clic envoie directement la demande */}
+            {etat === "choix" && (
+              <div className="w-full max-w-xl">
+                <label className="mx-auto flex max-w-md items-center gap-2 rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/15 focus-within:ring-sky-400">
+                  <PenLine className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
+                  <input value={motif} onChange={(e) => setMotif(e.target.value)} maxLength={200}
+                         placeholder="Motif de l'intervention (facultatif)"
+                         className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" />
+                </label>
+                {/* Lot 135 : client du ticket automatique, si le poste n'est encore rattaché à aucun client */}
+                {fiche && !fiche.client_id && clients.length > 0 && (
+                  <label className="mx-auto mt-2 flex max-w-md items-center gap-2 rounded-full bg-white/10 px-4 py-2 ring-1 ring-white/15">
+                    <Ticket className="h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
+                    <select value={clientChoisi} onChange={(e) => setClientChoisi(e.target.value)}
+                            className="w-full bg-transparent text-sm text-slate-100 outline-none">
+                      <option value="" className="text-slate-900">Client SAWALI du ticket (facultatif)</option>
+                      {clients.map((c) => <option key={c.id} value={c.id} className="text-slate-900">{c.nom}</option>)}
+                    </select>
+                  </label>
                 )}
-                <span className={`grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br ${degrade} shadow-2xl`}>
-                  <Icone className="h-10 w-10" aria-hidden="true" />
-                </span>
-              </div>
-              <p className="text-sm text-slate-200">
-              {etat === "demande" && sansSurveillance ? "Poste sans surveillance — connexion automatique…" : LIBELLES[etat]}
-            </p>
-              {motifFin && <p className="text-xs text-slate-400">{motifFin}</p>}
-              {!enCours && (
-                <div className="flex gap-6">
-                  <button type="button" onClick={() => { setMotifFin(""); setEtat("choix"); }} title="Nouvelle demande"
-                          className="flex flex-col items-center gap-1 text-[11px] text-slate-300 hover:text-white">
-                    <span className={picto("bg-sky-500")}><RotateCcw className="h-4 w-4" /></span>Recommencer
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <button type="button" onClick={() => demander("controler")} data-testid="controle-distance-controler"
+                          className="group rounded-3xl bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 p-6 text-left shadow-2xl shadow-emerald-900/40 transition hover:-translate-y-1 hover:shadow-emerald-500/30">
+                    <span className="flex gap-2"><MousePointer2 className="h-9 w-9" /><Keyboard className="h-9 w-9 opacity-80" /></span>
+                    <span className="mt-4 block text-lg font-bold">Contrôler</span>
+                    <span className="block text-xs text-white/80">Souris, clavier, fichiers, actions système</span>
                   </button>
-                  <button type="button" onClick={() => onClose?.()} title="Fermer"
-                          className="flex flex-col items-center gap-1 text-[11px] text-slate-300 hover:text-white">
-                    <span className={picto("bg-slate-600")}><X className="h-4 w-4" /></span>Fermer
+                  <button type="button" onClick={() => demander("voir")} data-testid="controle-distance-voir"
+                          className="group rounded-3xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 p-6 text-left shadow-2xl shadow-orange-900/40 transition hover:-translate-y-1 hover:shadow-orange-500/30">
+                    <Eye className="h-9 w-9" />
+                    <span className="mt-4 block text-lg font-bold">Voir seulement</span>
+                    <span className="block text-xs text-white/80">Aucune action sur le poste</span>
                   </button>
                 </div>
-              )}
-            </div>
-          );
-        })()}
+                <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[11px] text-slate-400">
+                  <Handshake className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                  {sansSurveillance
+                    ? "Poste sans surveillance : connexion sans accord, une notification discrète s'affiche sur le poste."
+                    : "L'utilisateur du poste accepte, voit un bandeau et peut arrêter à tout moment."}
+                </p>
+                {fiche?.agent_service && (
+                  <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-[11px] text-sky-300">
+                    <ServerCog className="h-3.5 w-3.5" aria-hidden="true" />
+                    Fiche « service Windows » : fonctionne aussi écran verrouillé, à l'écran de connexion et session fermée.
+                  </p>
+                )}
+                {reglages.enregistrement_video && (
+                  <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-[11px] text-rose-300">
+                    <Circle className="h-2.5 w-2.5 fill-rose-400" aria-hidden="true" />La session sera enregistrée (vidéo dans le journal).
+                  </p>
+                )}
+              </div>
+            )}
 
-        {/* Le canvas reste monté pour garder l'image entre deux rendus ; masqué hors session active */}
-        <canvas
-          ref={canvasRef}
-          width={1280}
-          height={720}
-          tabIndex={0}
-          className={`max-h-full max-w-full rounded-lg bg-black shadow-2xl shadow-black/60 ring-1 ring-white/10 outline-none ${etat === "active" ? "" : "hidden"} ${peutAgir ? "cursor-crosshair" : "cursor-default"}`}
-          style={{ objectFit: "contain" }}
-          onMouseMove={souris("deplacer")}
-          onMouseDown={souris("bas")}
-          onMouseUp={souris("haut")}
-          onWheel={molette}
-          onContextMenu={(e) => e.preventDefault()}
-          onKeyDown={clavier("bas")}
-          onKeyUp={clavier("haut")}
-          data-testid="controle-distance-ecran"
-        />
+            {/* Attente et fin : grand pictogramme dans un halo coloré ; actions en pictogrammes */}
+            {ECRANS_ETAT[etat] && (() => {
+              const [Icone, degrade, enCours] = ECRANS_ETAT[etat];
+              return (
+                <div className="flex max-w-md flex-col items-center gap-4 text-center">
+                  <div className="relative grid h-28 w-28 place-items-center">
+                    {enCours && (
+                      <svg className="absolute inset-0 h-28 w-28 animate-spin text-white/70" viewBox="0 0 50 50" aria-hidden="true">
+                        <circle cx="25" cy="25" r="23" fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2" />
+                        <path d="M25 2 a23 23 0 0 1 23 23" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    )}
+                    <span className={`grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br ${degrade} shadow-2xl`}>
+                      <Icone className="h-10 w-10" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200">
+                    {etat === "demande" && sansSurveillance ? "Poste sans surveillance — connexion automatique…" : LIBELLES[etat]}
+                  </p>
+                  {motifFin && <p className="text-xs text-slate-400">{motifFin}</p>}
+                  {!enCours && (
+                    <div className="flex gap-6">
+                      <button type="button" onClick={() => { setMotifFin(""); setEtat("choix"); chargerFiche(); }} title="Nouvelle demande (reprendre la main)"
+                              className="flex flex-col items-center gap-1 text-[11px] text-slate-300 hover:text-white">
+                        <span className={picto("bg-sky-500")}><RotateCcw className="h-4 w-4" /></span>Reprendre la main
+                      </button>
+                      <button type="button" onClick={() => onClose?.()} title="Fermer"
+                              className="flex flex-col items-center gap-1 text-[11px] text-slate-300 hover:text-white">
+                        <span className={picto("bg-slate-600")}><X className="h-4 w-4" /></span>Fermer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Lot 135 : écran de connexion / verrouillé sur un poste suivi par l'icône de l'utilisateur */}
+            {ecranSecuriseInaccessible && (
+              <div className="absolute inset-x-0 top-6 z-10 mx-auto flex max-w-lg flex-col items-center gap-2 rounded-2xl bg-slate-900/95 p-4 text-center text-xs shadow-2xl ring-1 ring-amber-400/40">
+                <ShieldAlert className="h-6 w-6 text-amber-300" />
+                <p>Le poste affiche l'écran de connexion ou de verrouillage : l'icône Loois de l'utilisateur ne peut pas le montrer.</p>
+                {fiche?.fiche_service ? (
+                  <button type="button" onClick={() => onOuvrirPoste?.({ id: fiche.fiche_service.id, nom: fiche.fiche_service.nom })}
+                          className="inline-flex items-center gap-1 rounded-full bg-sky-600 px-3 py-1 font-semibold text-white hover:bg-sky-500">
+                    <ServerCog className="h-3.5 w-3.5" />Ouvrir la fiche « service Windows » de ce poste
+                  </button>
+                ) : (
+                  <p className="text-slate-400">Installez le service Windows Loois sur ce poste pour le prendre en main session fermée.</p>
+                )}
+              </div>
+            )}
+
+            {survolDepot && (
+              <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-sky-500/10">
+                <span className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-2xl">
+                  <Upload className="h-4 w-4" />Déposer pour envoyer au poste
+                </span>
+              </div>
+            )}
+
+            {/* Le canvas reste monté pour garder l'image entre deux rendus ; masqué hors session active */}
+            <canvas
+              ref={canvasRef}
+              width={1280}
+              height={720}
+              tabIndex={0}
+              className={`max-h-full max-w-full rounded-lg bg-black shadow-2xl shadow-black/60 ring-1 ring-white/10 outline-none ${etat === "active" ? "" : "hidden"} ${peutAgir ? "cursor-crosshair" : "cursor-default"}`}
+              style={{ objectFit: "contain" }}
+              onMouseMove={souris("deplacer")}
+              onMouseDown={souris("bas")}
+              onMouseUp={souris("haut")}
+              onWheel={molette}
+              onContextMenu={(e) => e.preventDefault()}
+              onKeyDown={clavier("bas")}
+              onKeyUp={clavier("haut")}
+              data-testid="controle-distance-ecran"
+            />
+          </div>
+          {clavierOuvert && etat === "active" && (
+            <ClavierVirtuel envoyer={envoyer} actif={peutAgir} onFermer={() => setClavierOuvert(false)} />
+          )}
+        </div>
+        {voletOuvert && (
+          <VoletPoste onglet={ongletVolet} setOnglet={setOngletVolet} infos={infos} perf={perf} filId={fiche?.fil_id}
+                      liste={listeFichiers} transferts={transferts} envoyer={envoyer} peutAgir={peutAgir} actif={etat === "active"}
+                      posteId={posteId} dossiers={dossiers} onDossierBase={definirDossierBase} onDemanderFichier={demanderFichier} />
+        )}
+      </div>
+
+      {/* ---- Confirmation d'une action système ---- */}
+      {confirmation && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-5 shadow-2xl ring-1 ring-white/15">
+            <h4 className={`flex items-center gap-2 text-sm font-bold ${ACTIONS_SYSTEME[confirmation].danger ? "text-rose-300" : "text-slate-100"}`}>
+              <Power className="h-4 w-4" />{ACTIONS_SYSTEME[confirmation].titre}
+            </h4>
+            <p className="mt-2 text-xs text-slate-300">{ACTIONS_SYSTEME[confirmation].texte}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmation(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+              <button type="button" onClick={() => { envoyer({ type: "systeme", action: confirmation }); setConfirmation(null); }}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${ACTIONS_SYSTEME[confirmation].danger ? "bg-rose-600 hover:bg-rose-500" : "bg-sky-600 hover:bg-sky-500"}`}>
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Identifiant Windows mémorisé (le mot de passe n'est jamais réaffiché) ---- */}
+      {identifiantsOuvert && (
+        <FenetreIdentifiants posteId={posteId} actuel={fiche?.identifiants}
+                             onFermer={(maj) => { setIdentifiantsOuvert(false); if (maj) setFiche((f) => ({ ...f, identifiants: maj })); }} />
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// Lot 135 — fenêtre « Identifiant Windows » (item 7) : enregistré chiffré par SAWALI, saisi par le serveur sur le poste
+// (bouton « clé » ou automatiquement à l'écran de connexion). Le champ mot de passe a son pictogramme « œil ».
+// =====================================================================
+export function FenetreIdentifiants({ posteId, actuel, onFermer }) {
+  const [utilisateur, setUtilisateur] = useState(actuel?.utilisateur || "");
+  const [domaine, setDomaine] = useState(actuel?.domaine || "");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [voir, setVoir] = useState(false);
+  const [saisieAuto, setSaisieAuto] = useState(actuel?.saisie_auto ?? true);
+  const [occupe, setOccupe] = useState(false);
+
+  const enregistrer = async () => {
+    setOccupe(true);
+    try {
+      const r = await apiClient.put(`/controle-distance/postes/${encodeURIComponent(posteId)}/identifiants`,
+        { utilisateur, domaine, mot_de_passe: motDePasse || null, saisie_auto: saisieAuto });
+      toast.success("Identifiant Windows mémorisé (chiffré)");
+      onFermer(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Enregistrement impossible");
+    } finally {
+      setOccupe(false);
+    }
+  };
+  const oublier = async () => {
+    setOccupe(true);
+    try {
+      const r = await apiClient.delete(`/controle-distance/postes/${encodeURIComponent(posteId)}/identifiants`);
+      toast.success("Identifiant Windows oublié");
+      onFermer(r.data);
+    } catch { toast.error("Suppression impossible"); } finally { setOccupe(false); }
+  };
+
+  const champ = "w-full rounded-lg bg-white/10 px-3 py-1.5 text-sm text-slate-100 outline-none ring-1 ring-white/15 focus:ring-sky-400";
+  return (
+    <div className="absolute inset-0 z-20 grid place-items-center bg-black/60 p-4" onKeyDown={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-5 shadow-2xl ring-1 ring-white/15">
+        <h4 className="flex items-center gap-2 text-sm font-bold"><KeyRound className="h-4 w-4 text-emerald-300" />Identifiant Windows du poste</h4>
+        <p className="mt-1 text-[11px] text-slate-400">
+          Gardé chiffré par SAWALI pour cet ordinateur, jamais réaffiché. À chaque prise en main, le serveur le saisit sur
+          l'écran de connexion (fiche « service Windows ») : bouton « clé » ou saisie automatique.
+        </p>
+        <div className="mt-3 space-y-2">
+          <input className={champ} value={utilisateur} onChange={(e) => setUtilisateur(e.target.value)} placeholder="Utilisateur Windows (ex. marie ou PHARMA\marie)" autoComplete="off" />
+          <input className={champ} value={domaine} onChange={(e) => setDomaine(e.target.value)} placeholder="Domaine (facultatif)" autoComplete="off" />
+          <div className="relative">
+            <input className={`${champ} pr-10`} type={voir ? "text" : "password"} value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)}
+                   placeholder={actuel?.enregistre ? "Mot de passe (laisser vide pour garder l'actuel)" : "Mot de passe Windows"} autoComplete="new-password" />
+            <button type="button" onClick={() => setVoir((v) => !v)} title={voir ? "Masquer" : "Voir"}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white">
+              {voir ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input type="checkbox" checked={saisieAuto} onChange={(e) => setSaisieAuto(e.target.checked)} />
+            Saisie automatique dès que l'écran de connexion est affiché
+          </label>
+          {actuel?.maj_le && <p className="text-[10px] text-slate-500">Mis à jour le {new Date(actuel.maj_le).toLocaleString("fr-FR")} par {actuel.maj_par}</p>}
+        </div>
+        <div className="mt-4 flex justify-between gap-2">
+          <button type="button" disabled={occupe || !actuel?.enregistre} onClick={oublier} className="rounded-lg bg-rose-600/20 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-600/40 disabled:opacity-30">Oublier</button>
+          <span className="flex gap-2">
+            <button type="button" onClick={() => onFermer(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+            <button type="button" disabled={occupe} onClick={enregistrer} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Enregistrer</button>
+          </span>
+        </div>
       </div>
     </div>
   );

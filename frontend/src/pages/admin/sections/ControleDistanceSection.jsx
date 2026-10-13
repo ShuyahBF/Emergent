@@ -1,12 +1,17 @@
 // =====================================================================
 // Lot 131 — Rubrique des Paramètres « 🖥️ Contrôle à distance Loois » :
 // fonctionnement, conditions et journal des prises en main (qui, quel poste, quand, durée, issue).
+// Lot 135 — réglages (vidéo, ticket automatique), postes « service Windows », identifiants Windows mémorisés,
+// journal enrichi : numéro, ticket, délais mesurés, capture, actions sensibles, vidéo de la session.
 // =====================================================================
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { RefreshCw, MonitorSmartphone, UserX } from "lucide-react";
-// Lot 131.1 — prise en main directe depuis la liste des postes
-import ControleDistance from "@/components/ControleDistance";
+import { toast } from "sonner";
+import { RefreshCw, MonitorSmartphone, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X } from "lucide-react";
+// Lot 135 — prise en main dans les onglets (plusieurs postes à la fois)
+import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
+import { FenetreIdentifiants } from "@/components/ControleDistance";
+import { dateLisible, dureeLisible } from "@/components/controleDistance/outils";
 
 // Libellés et couleurs des statuts d'une session
 const STATUTS = {
@@ -18,36 +23,38 @@ const STATUTS = {
   expiree: ["Sans réponse", "bg-slate-100 text-slate-500"],
 };
 
-// Date lisible « 12/10/2026 14:05 »
-const dateLisible = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
-
-// Durée lisible « 12 min » / « 1 h 05 »
-function dureeLisible(s) {
-  if (s === null || s === undefined) return "—";
-  const m = Math.max(1, Math.round(s / 60));
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
-}
+// Libellés des actions sensibles gardées dans le journal
+const ACTIONS = {
+  systeme: "Action système", bloquer_entrees: "Clavier / souris", fichier_envoye: "Fichier envoyé",
+  fichier_recupere: "Fichier récupéré", identifiants_windows: "Identifiant Windows",
+};
 
 export default function ControleDistanceSection() {
   const [sessions, setSessions] = useState([]);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
-  // Lot 131.1 — postes Loois munis d'une clé client, et poste ouvert dans la visionneuse
+  // Lot 131.1 — postes Loois munis d'une clé client
   const [postes, setPostes] = useState([]);
   const [superAdmin, setSuperAdmin] = useState(false);
-  const [posteOuvert, setPosteOuvert] = useState(null);
+  // Lot 135 — réglages, identifiant Windows ouvert, vidéo en lecture, détail d'une session
+  const [reglages, setReglages] = useState(null);
+  const [identifiantsDe, setIdentifiantsDe] = useState(null);
+  const [video, setVideo] = useState(null);
+  const [detail, setDetail] = useState(null);
 
-  // ---- Lecture du journal (réservé au support SAWALI) ----
+  // ---- Lecture du journal, des postes et des réglages (réservé au support SAWALI) ----
   const lire = useCallback(async () => {
     setChargement(true);
     try {
-      const [r, p] = await Promise.all([
+      const [r, p, g] = await Promise.all([
         apiClient.get("/controle-distance/journal", { params: { limite: 50 } }),
         apiClient.get("/controle-distance/postes"),
+        apiClient.get("/controle-distance/reglages"),
       ]);
       setSessions(r.data.sessions || []);
       setPostes(p.data.postes || []);
       setSuperAdmin(Boolean(p.data.super_admin));
+      setReglages(g.data);
       setErreur("");
     } catch (e) {
       setErreur(e?.response?.status === 403 ? "Journal réservé au support SAWALI." : "Journal indisponible.");
@@ -57,6 +64,23 @@ export default function ControleDistanceSection() {
   }, []);
   useEffect(() => { lire(); }, [lire]);
 
+  // ---- Lot 135 : enregistrement d'un réglage ----
+  const regler = async (champ, valeur) => {
+    try {
+      const r = await apiClient.put("/controle-distance/reglages", { ...reglages, [champ]: valeur });
+      setReglages(r.data);
+      toast.success("Réglage enregistré");
+    } catch { toast.error("Réglage non enregistré"); }
+  };
+
+  // ---- Lot 135 : lecture de la vidéo d'une session (lien signé de 15 minutes) ----
+  const voirVideo = async (s) => {
+    try {
+      const r = await apiClient.get(`/controle-distance/sessions/${s.id}/video/lien`);
+      setVideo({ url: `${process.env.REACT_APP_BACKEND_URL || ""}${r.data.url}`, titre: `${s.numero || ""} — ${s.poste_nom || ""}` });
+    } catch (e) { toast.error(e?.response?.data?.detail || "Vidéo indisponible"); }
+  };
+
   return (
     <div className="space-y-3 text-sm text-slate-700" data-testid="controle-distance-section">
       <p>
@@ -64,7 +88,7 @@ export default function ControleDistanceSection() {
         plusieurs écrans, presse-papiers), directement depuis le navigateur.
       </p>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Où : chat du support, fil du poste, session acceptée → bouton <b>« Prendre la main »</b>.</li>
+        <li>Où : ici (liste des postes), ou depuis le chat du support (fil du poste) → bouton <b>« Prendre la main »</b>, même sans session d'assistance.</li>
         <li>Accord obligatoire : l'utilisateur du poste accepte (ou réduit à « Voir seulement »), voit un bandeau rouge et peut <b>arrêter</b> à tout moment.</li>
         <li>Seuls les postes munis d'une <b>clé client</b> Loois peuvent être pris en main ; une session dure au plus 4 h.</li>
         <li>Les jetons de connexion servent une seule fois ; le mode « Voir seulement » est imposé par le serveur.</li>
@@ -72,14 +96,44 @@ export default function ControleDistanceSection() {
         <li>
           <UserX className="inline h-4 w-4 text-indigo-600" aria-hidden="true" /> <b>Poste sans surveillance</b> : poste
           installé avec la clé « LKS-… » (Plateformes → Loois → Synchro → Clés clients). Le super-admin seul en prend la main,
-          sans accord ni bandeau ; une notification discrète s'affiche sur le poste à chaque accès. La session Windows doit
-          rester ouverte et déverrouillée.
+          sans accord ni bandeau ; une notification discrète s'affiche sur le poste à chaque accès.
         </li>
+        {/* Lot 135 */}
+        <li>
+          <ServerCog className="inline h-4 w-4 text-sky-600" aria-hidden="true" /> <b>Écran verrouillé, écran de connexion,
+          session fermée</b> : fiche « … · service Windows » du poste (agent du service Windows Loois, compte SYSTEM). Le poste
+          doit avoir le service Loois à jour ; l'icône Loois doit y avoir tourné une fois avec la clé client. Pour des raisons
+          de sécurité, installer Loois et son service sous « Program Files ».
+        </li>
+        <li><b>Plusieurs postes en onglets</b> ; <b>vidéo</b> de chaque session dans le journal ; <b>clavier virtuel</b> (F1-F12, Windows, raccourcis) ;
+          <b> blocage</b> du clavier et de la souris du poste ; <b>Ctrl+Alt+Suppr</b>, verrouiller, <b>déconnecter</b> l'utilisateur, <b>redémarrer</b>, <b>éteindre</b>.</li>
+        <li><b>Fichiers</b> : glisser-déposer sur l'écran du poste (dossier « Reçu du support SAWALI » sur son Bureau) ; volet « Fichiers » pour en récupérer.</li>
+        <li><b>Image fluide</b> : capture DXGI (carte graphique) quand Windows le permet (Windows 8 / Server 2012 et suivants), cadence et échelle adaptées aux connexions lentes.</li>
+        <li><b>Identifiant Windows</b> mémorisé par poste (chiffré, jamais réaffiché) : saisi par le serveur sur l'écran de connexion à chaque nouvelle connexion.</li>
+        <li><b>Numéro « CD-… »</b>, <b>ticket automatique</b> du client (clôturé en fin de session, intervention dans la fiche client) et <b>temps de connexion</b> au journal d'activités.</li>
+        <li>Volet repliable : <b>caractéristiques</b> matérielles et logicielles, <b>performances</b> en direct, <b>chat</b> avec l'utilisateur (même hors prise en main), fichiers.</li>
       </ul>
 
-      {posteOuvert && (
-        <ControleDistance posteId={posteOuvert.id} posteNom={posteOuvert.nom} onClose={() => { setPosteOuvert(null); lire(); }} />
+      {/* ---- Lot 135 : réglages ---- */}
+      {reglages && (
+        <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={Boolean(reglages.enregistrement_video)} onChange={(e) => regler("enregistrement_video", e.target.checked)} />
+            Enregistrer la vidéo de chaque session
+          </label>
+          <label className="inline-flex items-center gap-2">
+            Images par seconde de la vidéo
+            <select value={reglages.video_ips} onChange={(e) => regler("video_ips", Number(e.target.value))} className="rounded border border-slate-300 px-1 py-0.5 text-xs">
+              {[1, 2, 5, 10, 15].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={Boolean(reglages.ticket_automatique)} onChange={(e) => regler("ticket_automatique", e.target.checked)} />
+            Ticket automatique du client
+          </label>
+        </div>
       )}
+
       <h4 className="font-semibold text-slate-800">Postes Loois</h4>
       {postes.length === 0 && !chargement && <p className="text-xs text-slate-500">Aucun poste muni d'une clé client pour l'instant.</p>}
       {postes.length > 0 && (
@@ -98,6 +152,11 @@ export default function ControleDistanceSection() {
                     <td className="px-2 py-1">
                       <span className={`mr-1 inline-block h-2 w-2 rounded-full ${enLigne ? "bg-emerald-500" : "bg-slate-300"}`} title={enLigne ? "En ligne" : "Hors ligne"} />
                       {p.nom}
+                      {p.agent_service && (
+                        <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-sky-100 px-1.5 text-[10px] font-semibold text-sky-700" title="Agent du service Windows : écran verrouillé, écran de connexion, session fermée">
+                          <ServerCog className="h-3 w-3" aria-hidden="true" />service Windows
+                        </span>
+                      )}
                       {p.sans_surveillance && (
                         <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-indigo-100 px-1.5 text-[10px] font-semibold text-indigo-700" title="Clé sans surveillance : prise en main sans accord">
                           <UserX className="h-3 w-3" aria-hidden="true" />sans surveillance
@@ -107,11 +166,20 @@ export default function ControleDistanceSection() {
                     <td className="px-2 py-1">{p.cle_client_libelle || p.cle_client_code}</td>
                     <td className="px-2 py-1 whitespace-nowrap">{dateLisible(signal)}</td>
                     <td className="px-2 py-1">
-                      <button type="button" disabled={interdit} onClick={() => setPosteOuvert(p)}
-                              title={interdit ? "Poste sans surveillance : réservé au super-admin" : "Prendre la main"}
-                              className="grid h-7 w-7 place-items-center rounded-full bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-30">
-                        <MonitorSmartphone className="h-3.5 w-3.5" />
-                      </button>
+                      <span className="flex gap-1">
+                        <button type="button" disabled={interdit} onClick={() => ouvrirPriseEnMain(p)}
+                                title={interdit ? "Poste sans surveillance : réservé au super-admin" : "Prendre la main"}
+                                className="grid h-7 w-7 place-items-center rounded-full bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-30">
+                          <MonitorSmartphone className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={async () => {
+                          try { const r = await apiClient.get(`/controle-distance/postes/${encodeURIComponent(p.id)}/identifiants`); setIdentifiantsDe({ poste: p, actuel: r.data }); }
+                          catch { toast.error("Identifiant indisponible"); }
+                        }} title="Identifiant Windows mémorisé pour ce poste"
+                                className="grid h-7 w-7 place-items-center rounded-full bg-emerald-600 text-white hover:bg-emerald-700">
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 );
@@ -137,35 +205,98 @@ export default function ControleDistanceSection() {
           <table className="min-w-full text-xs">
             <thead className="text-left text-slate-500">
               <tr>
+                <th className="px-2 py-1">N°</th>
                 <th className="px-2 py-1">Date</th>
                 <th className="px-2 py-1">Poste</th>
                 <th className="px-2 py-1">Technicien</th>
                 <th className="px-2 py-1">Mode</th>
                 <th className="px-2 py-1">Statut</th>
+                <th className="px-2 py-1">Accord / connexion</th>
                 <th className="px-2 py-1">Durée</th>
+                <th className="px-2 py-1">Ticket</th>
                 <th className="px-2 py-1">Motif</th>
+                <th className="px-2 py-1"></th>
               </tr>
             </thead>
             <tbody>
               {sessions.map((s) => {
                 const [libelle, couleur] = STATUTS[s.statut] || [s.statut, "bg-slate-100 text-slate-600"];
                 return (
-                  <tr key={s.id} className="border-t border-slate-100">
+                  <tr key={s.id} className={`cursor-pointer border-t border-slate-100 ${detail?.id === s.id ? "ligne-selectionnee" : ""}`}
+                      onClick={() => setDetail(detail?.id === s.id ? null : s)} aria-selected={detail?.id === s.id}>
+                    <td className="px-2 py-1 font-mono whitespace-nowrap">{s.numero || "—"}</td>
                     <td className="px-2 py-1 whitespace-nowrap">{dateLisible(s.cree_le)}</td>
                     <td className="px-2 py-1">{s.poste_nom || "—"}</td>
                     <td className="px-2 py-1">{s.technicien_nom || "—"}</td>
                     <td className="px-2 py-1">
                       {s.mode === "voir" ? "Voir seulement" : "Contrôle"}
                       {s.sans_surveillance && <UserX className="ml-1 inline h-3.5 w-3.5 text-indigo-600" title="Sans surveillance (accord automatique)" />}
+                      {s.agent_service && <ServerCog className="ml-1 inline h-3.5 w-3.5 text-sky-600" title="Agent du service Windows" />}
                     </td>
                     <td className="px-2 py-1"><span className={`rounded-full px-2 py-0.5 ${couleur}`}>{libelle}</span></td>
+                    <td className="px-2 py-1 whitespace-nowrap" title="Délai d'accord de l'utilisateur / d'ouverture des connexions">
+                      {s.delai_accord_s !== undefined && s.delai_accord_s !== null ? `${dureeLisible(s.delai_accord_s)} / ${dureeLisible(s.delai_connexion_s)}` : "—"}
+                    </td>
                     <td className="px-2 py-1">{dureeLisible(s.duree_s)}</td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      {s.ticket_number ? (
+                        <a href={`/portal/tickets?numero=${encodeURIComponent(s.ticket_number)}`} onClick={(e) => e.stopPropagation()}
+                           className="inline-flex items-center gap-0.5 text-sky-700 hover:underline"><Ticket className="h-3 w-3" />{s.ticket_number}</a>
+                      ) : "—"}
+                    </td>
                     <td className="px-2 py-1 text-slate-500">{[s.motif, s.motif_fin].filter(Boolean).join(" · ") || "—"}</td>
+                    <td className="px-2 py-1">
+                      {s.video && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); voirVideo(s); }} title="Voir la vidéo de la session"
+                                className="text-rose-600 hover:text-rose-700"><PlayCircle className="h-4 w-4" /></button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ---- Lot 135 : détail d'une session (mesures et actions sensibles) ---- */}
+      {detail && (
+        <div className="rounded-lg bg-slate-50 p-3 text-xs ring-1 ring-slate-200">
+          <div className="mb-1 font-semibold text-slate-800">{detail.numero} — {detail.poste_nom} {detail.client_nom ? `· ${detail.client_nom}` : ""}</div>
+          {detail.mesures && (
+            <p className="text-slate-600">
+              1re image : {detail.mesures.premiere_image_ms !== undefined ? `${(detail.mesures.premiere_image_ms / 1000).toFixed(1)} s` : "—"} ·
+              latence moyenne : {detail.mesures.latence_moy_ms ?? "—"} ms (max {detail.mesures.latence_max_ms ?? "—"}) ·
+              {" "}{detail.mesures.ips_moyen ?? "—"} images/s · débit {detail.mesures.debit_moy_ko ?? "—"} Ko/s ·
+              capture {(detail.mesures.capture || "—").toUpperCase()}
+            </p>
+          )}
+          {detail.intervention_number && <p className="text-slate-600">Intervention {detail.intervention_number}</p>}
+          {(detail.actions || []).length > 0 ? (
+            <ul className="mt-1 list-disc pl-5 text-slate-600">
+              {detail.actions.map((a, i) => <li key={i}>{dateLisible(a.le)} — {ACTIONS[a.type] || a.type} : {a.detail}</li>)}
+            </ul>
+          ) : <p className="text-slate-400">Aucune action sensible.</p>}
+        </div>
+      )}
+
+      {/* ---- Lot 135 : lecture de la vidéo ---- */}
+      {video && (
+        <div className="fixed inset-0 z-[95] grid place-items-center bg-black/70 p-4" onClick={() => setVideo(null)}>
+          <div className="w-full max-w-5xl rounded-xl bg-slate-900 p-3" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between text-sm text-white">
+              <span>{video.titre}</span>
+              <button type="button" onClick={() => setVideo(null)} className="rounded-full p-1 hover:bg-white/10"><X className="h-4 w-4" /></button>
+            </div>
+            <video src={video.url} controls autoPlay className="max-h-[75vh] w-full rounded bg-black" />
+          </div>
+        </div>
+      )}
+
+      {/* ---- Lot 135 : identifiant Windows d'un poste ---- */}
+      {identifiantsDe && (
+        <div className="fixed inset-0 z-[95]">
+          <FenetreIdentifiants posteId={identifiantsDe.poste.id} actuel={identifiantsDe.actuel} onFermer={() => setIdentifiantsDe(null)} />
         </div>
       )}
     </div>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.7", "date": "2026-10-13",
+        "titre": "🔑 Contrôle à distance : identifiants Windows séparés par client",
+        "description": "Deux clients ayant un ordinateur de même nom (ex. XVERSER) ne partagent plus l'identifiant Windows mémorisé ni les dossiers de transfert : chaque ordinateur n'affiche que les siens. À ressaisir une fois par poste.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.6", "date": "2026-10-13",
         "titre": "🖥️ Contrôle à distance : un seul poste par ordinateur",
         "description": "Un ordinateur muni du service Windows n'apparaît plus qu'une fois dans la liste des postes (la ligne « service Windows », qui fonctionne aussi écran verrouillé) ; une case permet d'afficher aussi les sessions utilisateur.",

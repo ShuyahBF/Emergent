@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "139", "date": "2026-10-13",
+        "titre": "📷 Carrousels WhatsApp : images du téléphone ou d'un dossier du disque",
+        "description": "À l'édition d'une carte : envoyer plusieurs images à la fois (stockage du téléphone, fichiers ou dossier du disque, glisser-déposer). Les photos HEIC/WebP ou de plus de 5 Mo sont converties en JPEG automatiquement ; la première remplit la carte, toutes rejoignent la galerie.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "138", "date": "2026-10-13",
         "titre": "💬 Le nom WhatsApp d'un numéro transmis aux plateformes (ZandGo)",
         "description": "Une plateforme émettrice (ZandGo) peut demander, par une requête signée avec sa clé, le nom de profil WhatsApp des numéros de ses clients : connu seulement pour ceux qui ont déjà écrit à SAWALI.",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.1", "date": "2026-10-13",
+        "titre": "🗑️ Contrôle à distance : purge des vidéos et menu Plateformes",
+        "description": "Les vidéos des prises en main sont supprimées chaque nuit après la durée de conservation réglable (90 jours par défaut, bouton « Purger maintenant ») ; l'écran est aussi dans la barre latérale : Plateformes → Contrôle à distance.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135", "date": "2026-10-12",
         "titre": "🖥️ Contrôle à distance : écran verrouillé, fichiers, onglets, vidéo",
         "description": "Prise en main écran verrouillé ou session fermée (service Windows Loois), fichiers par glisser-déposer (dossier de base et dernier dossier mémorisés par poste, copie de poste à poste), image DXGI plus fluide, plusieurs postes en onglets, vidéo au journal, clavier virtuel, blocage clavier/souris, déconnecter / redémarrer / éteindre, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat.",

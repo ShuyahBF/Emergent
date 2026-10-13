@@ -205,6 +205,19 @@ def _r2_ecrire(cfg: Dict[str, str], cle: str, data: bytes, content_type: str) ->
                             ContentType=content_type or "application/octet-stream")
 
 
+def delete_bytes(path: str, normaliser: bool = True) -> int:
+    """Lot 135.1 — suppression synchrone d'un objet R2 (toutes ses clés possibles : écriture et lectures historiques).
+    Renvoie le nombre de clés supprimées ; un objet déjà absent n'est pas une erreur. Lève si R2 n'est pas configuré."""
+    cfg = config_r2()
+    if not cfg:
+        raise RuntimeError("Stockage R2 non configuré (R2_FICHIERS_BUCKET et identifiants R2)")
+    chemin = _normalize_path(path) if normaliser else (path or "").lstrip("/")
+    cles = {cle_r2_ecriture(chemin, normaliser=False, cfg=cfg), *cles_r2_lecture(chemin, cfg)}
+    for cle in cles:
+        _client(cfg).delete_object(Bucket=cfg["bucket"], Key=cle)   # S3/R2 : pas d'erreur si la clé n'existe pas
+    return len(cles)
+
+
 def storage_available() -> bool:
     """True si R2 est configuré. NE BLOQUE JAMAIS (aucun appel réseau)."""
     return config_r2() is not None

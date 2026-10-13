@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { RefreshCw, MonitorSmartphone, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X } from "lucide-react";
+import { RefreshCw, MonitorSmartphone, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X, Trash2, VideoOff } from "lucide-react";
 // Lot 135 — prise en main dans les onglets (plusieurs postes à la fois)
 import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
 import { FenetreIdentifiants } from "@/components/ControleDistance";
@@ -29,7 +29,8 @@ const ACTIONS = {
   fichier_recupere: "Fichier récupéré", identifiants_windows: "Identifiant Windows",
 };
 
-export default function ControleDistanceSection() {
+// `lienPage` : dans les Paramètres, bouton vers l'écran Plateformes → Contrôle à distance (absent sur cet écran lui-même)
+export default function ControleDistanceSection({ lienPage = true }) {
   const [sessions, setSessions] = useState([]);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
@@ -73,6 +74,21 @@ export default function ControleDistanceSection() {
     } catch { toast.error("Réglage non enregistré"); }
   };
 
+  // ---- Lot 135.1 : purge des vidéos plus anciennes que la durée de conservation (sinon chaque nuit à 03:20) ----
+  const [purge, setPurge] = useState(false);
+  const purgerMaintenant = async () => {
+    setPurge(true);
+    const attente = toast.loading("Patientez… purge des vidéos");
+    try {
+      const r = await apiClient.post("/controle-distance/videos/purger");
+      toast.success(`${r.data.sessions} vidéo(s) de plus de ${r.data.jours} jours supprimée(s)` +
+        (r.data.erreurs ? ` · ${r.data.erreurs} partie(s) à réessayer` : ""), { id: attente });
+      lire();
+    } catch { toast.error("Purge impossible", { id: attente }); } finally { setPurge(false); }
+  };
+  const [jours, setJours] = useState("");
+  useEffect(() => { if (reglages) setJours(String(reglages.conservation_jours ?? 90)); }, [reglages]);
+
   // ---- Lot 135 : lecture de la vidéo d'une session (lien signé de 15 minutes) ----
   const voirVideo = async (s) => {
     try {
@@ -83,6 +99,11 @@ export default function ControleDistanceSection() {
 
   return (
     <div className="space-y-3 text-sm text-slate-700" data-testid="controle-distance-section">
+      {lienPage && (
+        <a href="/admin/controle-distance" className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700">
+          <MonitorSmartphone className="h-3.5 w-3.5" />Ouvrir Plateformes → Contrôle à distance
+        </a>
+      )}
       <p>
         Le support SAWALI peut <b>voir l'écran</b> d'un poste Loois ou <b>en prendre le contrôle</b> (souris, clavier,
         plusieurs écrans, presse-papiers), directement depuis le navigateur.
@@ -111,6 +132,7 @@ export default function ControleDistanceSection() {
         <li><b>Image fluide</b> : capture DXGI (carte graphique) quand Windows le permet (Windows 8 / Server 2012 et suivants), cadence et échelle adaptées aux connexions lentes.</li>
         <li><b>Identifiant Windows</b> mémorisé par poste (chiffré, jamais réaffiché) : saisi par le serveur sur l'écran de connexion à chaque nouvelle connexion.</li>
         <li><b>Numéro « CD-… »</b>, <b>ticket automatique</b> du client (clôturé en fin de session, intervention dans la fiche client) et <b>temps de connexion</b> au journal d'activités.</li>
+        <li><b>Vidéos</b> supprimées automatiquement chaque nuit (03:20) au-delà de la durée de conservation réglée ci-dessous (90 jours par défaut) ; le journal, lui, est conservé.</li>
         <li>Volet repliable : <b>caractéristiques</b> matérielles et logicielles, <b>performances</b> en direct, <b>chat</b> avec l'utilisateur (même hors prise en main), fichiers.</li>
       </ul>
 
@@ -131,6 +153,18 @@ export default function ControleDistanceSection() {
             <input type="checkbox" checked={Boolean(reglages.ticket_automatique)} onChange={(e) => regler("ticket_automatique", e.target.checked)} />
             Ticket automatique du client
           </label>
+          {/* Lot 135.1 : durée de conservation des vidéos (purge automatique chaque nuit à 03:20) */}
+          <label className="inline-flex items-center gap-2" title="Les vidéos plus anciennes sont supprimées chaque nuit à 03:20 ; le journal est conservé">
+            Conserver les vidéos
+            <input type="number" min={1} max={3650} value={jours} onChange={(e) => setJours(e.target.value)}
+                   onBlur={() => { const n = parseInt(jours, 10); if (n >= 1 && n <= 3650 && n !== reglages.conservation_jours) regler("conservation_jours", n); else setJours(String(reglages.conservation_jours)); }}
+                   className="w-20 rounded border border-slate-300 px-1 py-0.5 text-xs" data-testid="controle-distance-conservation" />
+            jours
+          </label>
+          <button type="button" onClick={purgerMaintenant} disabled={purge}
+                  className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
+            <Trash2 className="h-3.5 w-3.5" />Purger maintenant
+          </button>
         </div>
       )}
 
@@ -249,6 +283,11 @@ export default function ControleDistanceSection() {
                       {s.video && (
                         <button type="button" onClick={(e) => { e.stopPropagation(); voirVideo(s); }} title="Voir la vidéo de la session"
                                 className="text-rose-600 hover:text-rose-700"><PlayCircle className="h-4 w-4" /></button>
+                      )}
+                      {s.video_purgee && (
+                        <span title={`Vidéo supprimée le ${dateLisible(s.video_purgee_le)} (durée de conservation dépassée)`}>
+                          <VideoOff className="h-4 w-4 text-slate-400" />
+                        </span>
                       )}
                     </td>
                   </tr>

@@ -275,6 +275,50 @@ class StockageR2:
         donnees, _ = await asyncio.to_thread(storage.fetch_bytes, chemin)
         return donnees
 
+    async def supprimer(self, chemin: str) -> None:
+        import storage
+        await asyncio.to_thread(storage.delete_bytes, chemin, False)
+
+
+async def purger_videos(db, stockage: Any, *, jours: Optional[int] = None,
+                        quand: Optional[datetime] = None) -> Dict[str, Any]:
+    """Lot 135.1 — PURGE AUTOMATIQUE des vidéos des prises en main (réglage « conservation_jours », 90 par défaut).
+
+    Pour un développeur WinDev : chaque nuit (planificateur, voir server_parts/p17_demarrage_planificateur.py), on
+    cherche les sessions terminées depuis plus de N jours qui ont encore une vidéo ; on supprime ses parties dans R2
+    et on note la purge dans la session (le journal garde tout le reste : numéro, durée, ticket, mesures, actions).
+    Une partie impossible à supprimer est réessayée la nuit suivante (la session garde alors sa vidéo)."""
+    if jours is None:
+        doc = await db.controle_distance_reglages.find_one({"id": "reglages"}, {"_id": 0}) or {}
+        jours = outils.reglages_valides(doc)["conservation_jours"]
+    limite = iso((quand or maintenant()) - timedelta(days=int(jours)))
+    curseur = db.controle_distance_sessions.find(
+        {"video": True, "video_purgee": {"$ne": True},
+         "$or": [{"fin_le": {"$lt": limite}}, {"fin_le": None, "cree_le": {"$lt": limite}}]},
+        {"_id": 0, "id": 1, "video_parties": 1, "video_octets": 1})
+    sessions, octets, erreurs = 0, 0, 0
+    async for s in curseur:
+        restantes = []
+        for index in s.get("video_parties") or []:
+            try:
+                await stockage.supprimer(outils.chemin_partie_video(s["id"], int(index)))
+            except Exception as exc:  # noqa: BLE001 — réessayée la nuit suivante
+                erreurs += 1
+                restantes.append(index)
+                logger.warning("[controle_distance] purge vidéo %s partie %s : %s", s["id"], index, exc)
+        if restantes:
+            await db.controle_distance_sessions.update_one({"id": s["id"]}, {"$set": {"video_parties": restantes}})
+            continue
+        await db.controle_distance_sessions.update_one(
+            {"id": s["id"]}, {"$set": {"video": False, "video_purgee": True, "video_purgee_le": iso(maintenant()),
+                                       "video_parties": []}})
+        sessions += 1
+        octets += int(s.get("video_octets") or 0)
+    if sessions or erreurs:
+        logger.info("[controle_distance] purge des vidéos (> %s j) : %s session(s), %s octet(s), %s erreur(s)",
+                    jours, sessions, octets, erreurs)
+    return {"jours": int(jours), "sessions": sessions, "octets": octets, "erreurs": erreurs}
+
 
 def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any]]],
                   identifier_cle: Optional[Callable[..., Awaitable[Optional[Dict[str, Any]]]]] = None,
@@ -790,6 +834,11 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             {"id": sid}, {"$addToSet": {"video_parties": index}, "$inc": {"video_octets": len(donnees)},
                           "$set": {"video": True}})
         return {"ok": True}
+
+    @router.post("/controle-distance/videos/purger")
+    async def purger(user: Dict[str, Any] = Depends(_technicien)):
+        """Lot 135.1 — purge immédiate (bouton de la rubrique) ; sinon chaque nuit par le planificateur."""
+        return await purger_videos(db, stockage)
 
     @router.get("/controle-distance/sessions/{sid}/video/lien")
     async def lien_video(sid: str, user: Dict[str, Any] = Depends(_technicien)):

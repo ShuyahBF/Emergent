@@ -41,6 +41,9 @@ export default function ControleDistanceSection({ lienPage = true }) {
   const [clientFiltre, setClientFiltre] = useState("");
   const [tri, setTri] = useState("client");          // "client" | "nom" | "signal"
   const [croissant, setCroissant] = useState(true);
+  // Un même ordinateur apparaît une fois par session utilisateur + une fois pour le service Windows : par défaut on ne
+  // garde que la ligne « service Windows » (elle marche écran verrouillé, session fermée) ; case pour tout afficher
+  const [toutesSessions, setToutesSessions] = useState(false);
   const [superAdmin, setSuperAdmin] = useState(false);
   // Lot 135 — réglages, identifiant Windows ouvert, vidéo en lecture, détail d'une session
   const [reglages, setReglages] = useState(null);
@@ -96,6 +99,11 @@ export default function ControleDistanceSection({ lienPage = true }) {
   // ---- Liste des postes : filtre (nom / client), tri et ruptures par client ----
   const libelleClient = (p) => p.cle_client_libelle || p.cle_client_code || "(sans client)";
   const clientsPostes = [...new Set(postes.map(libelleClient))].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  // Fiches « utilisateur » masquées : celles dont l'ordinateur (client + poste) possède une fiche « service Windows »
+  const cleMachine = (p) => (p.poste ? `${p.cle_client_code || ""}|${p.poste}`.toLowerCase() : "");
+  const machinesAvecService = new Set(postes.filter((p) => p.agent_service && cleMachine(p)).map(cleMachine));
+  const estMasque = (p) => !p.agent_service && cleMachine(p) !== "" && machinesAvecService.has(cleMachine(p));
+  const nbMasques = postes.filter(estMasque).length;
   const lignesPostes = (() => {
     const q = recherche.trim().toLowerCase();
     const sens = croissant ? 1 : -1;
@@ -103,6 +111,7 @@ export default function ControleDistanceSection({ lienPage = true }) {
     const parClient = (a, b) => libelleClient(a).localeCompare(libelleClient(b), "fr", { sensitivity: "base" });
     const instant = (p) => new Date(p.signal_controle_distance || p.dernier_contact || 0).getTime() || 0;
     return postes
+      .filter((p) => toutesSessions || !estMasque(p))
       .filter((p) => (!clientFiltre || libelleClient(p) === clientFiltre)
         && (!q || String(p.nom || "").toLowerCase().includes(q) || libelleClient(p).toLowerCase().includes(q)))
       .sort((a, b) => {
@@ -220,6 +229,12 @@ export default function ControleDistanceSection({ lienPage = true }) {
                   className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">
             {croissant ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}{croissant ? "A → Z / ancien → récent" : "Z → A / récent → ancien"}
           </button>
+          {nbMasques > 0 && (
+            <label className="inline-flex items-center gap-1" title="Un ordinateur muni du service Windows n'est listé qu'une fois (la ligne « service Windows » fonctionne aussi écran verrouillé)">
+              <input type="checkbox" checked={toutesSessions} onChange={(e) => setToutesSessions(e.target.checked)} data-testid="postes-toutes-sessions" />
+              Afficher aussi les sessions utilisateur ({nbMasques} masquée{nbMasques > 1 ? "s" : ""})
+            </label>
+          )}
           {(recherche || clientFiltre) && (
             <button type="button" onClick={() => { setRecherche(""); setClientFiltre(""); }} className="text-sky-700 underline">Effacer les critères</button>
           )}

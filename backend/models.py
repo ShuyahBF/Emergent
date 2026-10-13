@@ -667,6 +667,8 @@ class SettingsUpdate(BaseModel):
     # --- Iter40-ui-flags — Public branding customization ---
     # Exposed via /api/public/ui-flags (anonymous endpoint) so resellers can
     # customize the public site without touching code.
+    # Lot 136 — filet autour des cartes : "noir" (défaut), "gris", "bleu" ou "aucun" (exposé par /api/public/ui-flags)
+    ui_carte_filet: Optional[str] = None
     public_brand_name: Optional[str] = None     # Site title / window.document.title
     public_brand_color: Optional[str] = None    # Primary brand hex (e.g. "#1E90FF")
     public_brand_text_color: Optional[str] = None  # Iter40-ui-flags-text — Text color on brand backgrounds (default white)

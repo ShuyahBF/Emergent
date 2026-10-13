@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "136", "date": "2026-10-13",
+        "titre": "🖼️ Un mince filet foncé autour des cartes",
+        "description": "Les cartes d'information sont encadrées d'un filet noir (gris sur gris se voyait mal) ; la couleur se règle dans la rubrique « Cadre des cartes » : noir, gris foncé, bleu ou aucun.",
+        "rubrique": "🖼️ Cadre des cartes",
+    },
+    {
         "lot": "135.8", "date": "2026-10-13",
         "titre": "↕️ Contrôle à distance : texte d'aide dépliable",
         "description": "Le texte d'explication de l'écran est réduit à 2 lignes avec « Afficher les détails » : plus de place pour la liste des postes Loois (choix mémorisé dans le navigateur).",

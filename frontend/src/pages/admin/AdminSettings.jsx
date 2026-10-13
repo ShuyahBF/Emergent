@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useRef, useCallback, createContext
 import WaLignesPanel from "../../components/WaLignesPanel";   // Lot 59
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
+import CadreCartesSection from "@/pages/admin/sections/CadreCartesSection";
 import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
@@ -116,6 +117,7 @@ const NEW_LOTS = {
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
+  "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
   "🔑 Postes Loois sans clé client (alerte)": "118",   // lot 118 : Ignorer / Réactiver un poste, bouton × ; lot 89 : alerte admin + superviseur, aucun message sur le poste
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
@@ -164,6 +166,7 @@ const NEW_SECTIONS = {
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
+  "🖼️ Cadre des cartes": "2026-10-13",   // lot 136
   "🔑 Postes Loois sans clé client (alerte)": "2026-10-12",   // lot 118 (créée au lot 89)
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
@@ -260,6 +263,7 @@ const NEW_DESCRIPTIONS = {
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
+  "🖼️ Cadre des cartes": "Mince filet foncé autour des cartes d'information (noir par défaut, gris foncé, bleu ou aucun) : le gris sur gris se distinguait mal ; réglage commun à tous les écrans (lot 136).",
   "🔑 Postes Loois sans clé client (alerte)": "« Ignorer ce poste » (serveur, clé commune voulue) : il reste listé, grisé, et se réactive d'un clic ; bouton × sur l'alerte (lot 118).",
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, pays et opérateur, utilisateur, bouton « Visiter le site » (lots 109-110). Les visites de robots (centres de données) sont masquées et comptées dans la synthèse de Liluvine (lot 119).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
@@ -1402,6 +1406,11 @@ export default function AdminSettings() {
       {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}
       <Filterable title="📋 Évaluations Loois (sondages du support)" anchorId="s-evaluations-loois" category="modules">
         <EvaluationsLooisSection />
+      </Filterable>
+
+      {/* Lot 136 — filet autour des cartes (couleur réglable) */}
+      <Filterable title="🖼️ Cadre des cartes" anchorId="s-cadre-cartes" category="modules">
+        <CadreCartesSection />
       </Filterable>
 
       {/* Lot 89 — postes Loois sans clé client valable : réglage de l'alerte (admin + superviseur) et liste des postes */}

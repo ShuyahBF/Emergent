@@ -246,3 +246,26 @@ table tbody tr[data-selected="true"] > td :is(span, div, p, a, strong, small, em
 table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(span, div, p, a, strong, small, em):not([class*="bg-"]):not(button):not(input) {
   color: #ffffff !important;
 }
+
+
+/* ===================================================================
+   Règle permanente « cartes » (13/10/2026, lot 136) — « du gris sur du gris est difficilement perceptible » :
+   toute carte (bloc arrondi qui porte une bordure ou un anneau gris) est encadrée d'un mince filet foncé.
+   Réglage : Paramètres → « Cadre des cartes » (noir par défaut, gris foncé, bleu, aucun) ; l'attribut
+   data-carte-filet de <html> est posé au démarrage depuis /api/public/ui-flags (voir lib/useUIFlags.js).
+   Seuls les conteneurs (div, section…) arrondis sont concernés : champs, boutons et pastilles ne changent pas.
+   =================================================================== */
+:root { --carte-filet: #111827; }
+:root[data-carte-filet="gris"] { --carte-filet: #475569; }
+:root[data-carte-filet="bleu"] { --carte-filet: #1d4ed8; }
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-lg"][class*="ring-slate-"],
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-xl"][class*="ring-slate-"],
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-2xl"][class*="ring-slate-"] {
+  --tw-ring-color: var(--carte-filet) !important;
+}
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-lg"][class*="border-slate-"],
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-xl"][class*="border-slate-"],
+:root:not([data-carte-filet="aucun"]) :is(div, section, article, aside, details, figure)[class*="rounded-2xl"][class*="border-slate-"],
+:root:not([data-carte-filet="aucun"]) div[class*="rounded-xl"][class*="bg-card"] {
+  border-color: var(--carte-filet) !important;
+}

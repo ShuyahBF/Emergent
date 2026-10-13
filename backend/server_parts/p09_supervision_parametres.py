@@ -682,6 +682,8 @@ async def public_ui_flags():
         "download_gauge_enabled": s.get("download_gauge_enabled") is not False,
         # 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications global switch
         "browser_notifications_enabled": s.get("browser_notifications_enabled") is not False,
+        # Lot 136 — filet des cartes (noir par défaut ; valeur inconnue = noir)
+        "ui_carte_filet": (s.get("ui_carte_filet") if s.get("ui_carte_filet") in ("noir", "gris", "bleu", "aucun") else "noir"),
         # Iter40-ui-flags — Public branding (null/empty = use default)
         "public_brand_name": (s.get("public_brand_name") or "").strip() or None,
         "public_brand_color": (s.get("public_brand_color") or "").strip() or None,
@@ -725,6 +727,9 @@ def retirer_valeurs_masquees(update: Dict[str, Any]) -> Dict[str, Any]:
 @api.put("/admin/settings", tags=["Admin"])
 async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(get_current_admin)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Lot 136 — filet des cartes : valeurs permises seulement
+    if "ui_carte_filet" in update and update["ui_carte_filet"] not in ("noir", "gris", "bleu", "aucun"):
+        raise HTTPException(status_code=422, detail="ui_carte_filet : noir, gris, bleu ou aucun")
     # Treat the masking placeholder as "no change" for sensitive fields
     SECRET_FIELDS = (
         "smtp_password", "google_client_secret", "recaptcha_secret_key",

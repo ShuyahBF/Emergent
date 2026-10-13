@@ -97,6 +97,10 @@ def test_commandes_systeme_fichiers_et_trames():
     assert commande_autorisee("controler", {"type": "systeme", "action": "redemarrer"})
     assert not commande_autorisee("voir", {"type": "systeme", "action": "redemarrer"})
     assert not commande_autorisee("controler", {"type": "systeme", "action": "formater"})   # action inconnue
+    # Lot 135.2 : bureaux virtuels Windows, mode « contrôler » seulement
+    for action in ("bureau_suivant", "bureau_precedent", "bureau_nouveau"):
+        assert commande_autorisee("controler", {"type": "systeme", "action": action})
+        assert not commande_autorisee("voir", {"type": "systeme", "action": action})
     assert commande_autorisee("controler", {"type": "bloquer_entrees", "valeur": 1})
     assert commande_autorisee("voir", {"type": "echelle", "valeur": 50})
     assert not commande_autorisee("controler", {"type": "saisir_identifiants", "mot_de_passe": "x"})   # jamais du navigateur

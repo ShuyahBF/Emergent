@@ -236,7 +236,7 @@ def test_dossiers_des_transferts_memorises_par_ordinateur():
     client.put("/api/controle-distance/postes/p1/dossiers", json={"dernier_chemin": "C:\\Temp"}, headers=TECH)
     # Même ordinateur vu par le service Windows : mêmes dossiers
     _run(base.support_loois_postes.insert_one({"id": poste_id("Pharmacie A", "CAISSE-1", ""), "ecole": "Pharmacie A",
-                                               "poste": "CAISSE-1", "agent_service": True}))
+                                               "poste": "CAISSE-1", "agent_service": True, "cle_client_code": "A"}))
     r = client.get(f"/api/controle-distance/postes/{poste_id('Pharmacie A', 'CAISSE-1', '')}/dossiers", headers=TECH).json()
     assert r == {"dossier_base": "D:\\Partage\\Support", "dernier_chemin": "C:\\Temp"}
     assert action_journal({"type": "fichier_debut", "nom": "a.pdf", "taille": 3, "chemin": "D:\\X"})["detail"].endswith("→ D:\\X")
@@ -268,3 +268,22 @@ def test_purge_automatique_des_videos_apres_la_conservation():
     assert bilan["erreurs"] == 1 and _run(base.controle_distance_sessions.find_one({"id": "refus"}))["video"] is True
     # Bouton « Purger maintenant » de la rubrique
     assert client.post("/api/controle-distance/videos/purger", headers=TECH).json()["jours"] == 1
+
+
+def test_identifiants_separes_entre_clients_pour_des_machines_de_meme_nom():
+    """Lot 135.7 : « XVERSER » chez deux clients (l'école = le nom de la machine) ne doit pas partager les identifiants."""
+    client, base, _, _ = _app()
+    _run(base.support_loois_postes.insert_many([
+        {"id": "m1", "nom": "XVERSER — XVERSER (Admin)", "cle_client_code": "MARTIN", "ecole": "XVERSER", "poste": "XVERSER"},
+        {"id": "m1s", "nom": "XVERSER — XVERSER · service Windows", "cle_client_code": "MARTIN", "ecole": "XVERSER",
+         "poste": "XVERSER", "agent_service": True},
+        {"id": "p2", "nom": "XVERSER — XVERSER (Admin)", "cle_client_code": "PHL", "ecole": "XVERSER", "poste": "XVERSER"},
+    ]))
+    r = client.put("/api/controle-distance/postes/m1/identifiants",
+                   json={"utilisateur": "Administrateur", "domaine": "MARTIN", "mot_de_passe": "x1"}, headers=TECH)
+    assert r.status_code == 200
+    # Même client, même machine (fiche du service Windows) : l'identifiant est partagé
+    assert client.get("/api/controle-distance/postes/m1s/identifiants", headers=TECH).json()["utilisateur"] == "Administrateur"
+    # Autre client, machine de même nom : rien (avant : les identifiants de MARTIN s'affichaient)
+    autre = client.get("/api/controle-distance/postes/p2/identifiants", headers=TECH).json()
+    assert not autre["enregistre"] and not autre.get("utilisateur")

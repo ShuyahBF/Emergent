@@ -393,7 +393,11 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         communs à toutes les fiches d'un même poste (icône de l'utilisateur et service Windows)."""
         if poste.get("ecole") is not None and poste.get("poste"):
             from routes.support_loois import poste_id as calculer_poste_id
-            return calculer_poste_id(poste.get("ecole") or "", poste.get("poste") or "", "")
+            # Lot 135.7 : le CLIENT (clé Loois) fait partie de l'identifiant. Avant, deux clients ayant un ordinateur de même
+            # nom (ex. « XVERSER » chez trois pharmacies, « école » = nom de la machine) partageaient les mêmes
+            # identifiants Windows et les mêmes dossiers : on affichait ceux d'une autre machine.
+            ecole = f"{poste.get('cle_client_code') or ''}|{poste.get('ecole') or ''}"
+            return calculer_poste_id(ecole, poste.get("poste") or "", "")
         return str(poste.get("id") or "")
 
     async def _ouvrir_ticket(session: Dict[str, Any]) -> None:

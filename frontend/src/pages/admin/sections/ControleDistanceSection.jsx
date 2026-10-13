@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { RefreshCw, MonitorSmartphone, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X, Trash2, VideoOff } from "lucide-react";
+import { RefreshCw, MonitorSmartphone, Search, ArrowUp, ArrowDown, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X, Trash2, VideoOff } from "lucide-react";
 // Lot 135 — prise en main dans les onglets (plusieurs postes à la fois)
 import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
 import { FenetreIdentifiants } from "@/components/ControleDistance";
@@ -36,6 +36,11 @@ export default function ControleDistanceSection({ lienPage = true }) {
   const [erreur, setErreur] = useState("");
   // Lot 131.1 — postes Loois munis d'une clé client
   const [postes, setPostes] = useState([]);
+  // Liste des postes : recherche par nom, filtre par client, tri (par défaut : par client, avec ruptures)
+  const [recherche, setRecherche] = useState("");
+  const [clientFiltre, setClientFiltre] = useState("");
+  const [tri, setTri] = useState("client");          // "client" | "nom" | "signal"
+  const [croissant, setCroissant] = useState(true);
   const [superAdmin, setSuperAdmin] = useState(false);
   // Lot 135 — réglages, identifiant Windows ouvert, vidéo en lecture, détail d'une session
   const [reglages, setReglages] = useState(null);
@@ -87,6 +92,25 @@ export default function ControleDistanceSection({ lienPage = true }) {
     } catch { toast.error("Purge impossible", { id: attente }); } finally { setPurge(false); }
   };
   const [jours, setJours] = useState("");
+
+  // ---- Liste des postes : filtre (nom / client), tri et ruptures par client ----
+  const libelleClient = (p) => p.cle_client_libelle || p.cle_client_code || "(sans client)";
+  const clientsPostes = [...new Set(postes.map(libelleClient))].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  const lignesPostes = (() => {
+    const q = recherche.trim().toLowerCase();
+    const sens = croissant ? 1 : -1;
+    const parNom = (a, b) => String(a.nom || "").localeCompare(String(b.nom || ""), "fr", { sensitivity: "base", numeric: true });
+    const parClient = (a, b) => libelleClient(a).localeCompare(libelleClient(b), "fr", { sensitivity: "base" });
+    const instant = (p) => new Date(p.signal_controle_distance || p.dernier_contact || 0).getTime() || 0;
+    return postes
+      .filter((p) => (!clientFiltre || libelleClient(p) === clientFiltre)
+        && (!q || String(p.nom || "").toLowerCase().includes(q) || libelleClient(p).toLowerCase().includes(q)))
+      .sort((a, b) => {
+        if (tri === "signal") return sens * (instant(a) - instant(b)) || parNom(a, b);
+        if (tri === "nom") return sens * parNom(a, b);
+        return sens * parClient(a, b) || parNom(a, b);      // par client : postes classés par nom dans chaque client
+      });
+  })();
   useEffect(() => { if (reglages) setJours(String(reglages.conservation_jours ?? 90)); }, [reglages]);
 
   // ---- Lot 135 : lecture de la vidéo d'une session (lien signé de 15 minutes) ----
@@ -168,16 +192,69 @@ export default function ControleDistanceSection({ lienPage = true }) {
         </div>
       )}
 
-      <h4 className="font-semibold text-slate-800">Postes Loois</h4>
+      <h4 className="font-semibold text-slate-800">Postes Loois <span className="text-xs font-normal text-slate-500">({lignesPostes.length}{lignesPostes.length !== postes.length ? ` sur ${postes.length}` : ""})</span></h4>
       {postes.length === 0 && !chargement && <p className="text-xs text-slate-500">Aucun poste muni d'une clé client pour l'instant.</p>}
       {postes.length > 0 && (
-        <div className="max-h-72 overflow-auto">
+        <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="postes-filtres">
+          {/* Recherche : nom du poste (ou du client) */}
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1.5 h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+            <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Nom du poste…"
+                   className="w-52 rounded border border-slate-300 py-1 pl-7 pr-2" data-testid="postes-recherche" />
+          </label>
+          {/* Liste déroulante des clients enregistrés */}
+          <select value={clientFiltre} onChange={(e) => setClientFiltre(e.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1" data-testid="postes-client">
+            <option value="">Tous les clients</option>
+            {clientsPostes.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="inline-flex items-center gap-1">
+            Trier par
+            <select value={tri} onChange={(e) => setTri(e.target.value)} className="rounded border border-slate-300 px-2 py-1" data-testid="postes-tri">
+              <option value="client">Client (avec ruptures)</option>
+              <option value="nom">Nom du poste</option>
+              <option value="signal">Dernière connexion</option>
+            </select>
+          </label>
+          <button type="button" onClick={() => setCroissant((v) => !v)} title={croissant ? "Ordre croissant" : "Ordre décroissant"}
+                  className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">
+            {croissant ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}{croissant ? "A → Z / ancien → récent" : "Z → A / récent → ancien"}
+          </button>
+          {(recherche || clientFiltre) && (
+            <button type="button" onClick={() => { setRecherche(""); setClientFiltre(""); }} className="text-sky-700 underline">Effacer les critères</button>
+          )}
+        </div>
+      )}
+      {postes.length > 0 && lignesPostes.length === 0 && <p className="text-xs text-slate-500">Aucun poste ne correspond aux critères.</p>}
+      {lignesPostes.length > 0 && (
+        <div className="max-h-96 overflow-auto">
           <table className="min-w-full text-xs">
-            <thead className="text-left text-slate-500">
-              <tr><th className="px-2 py-1">Poste</th><th className="px-2 py-1">Client</th><th className="px-2 py-1">Dernier signal</th><th className="px-2 py-1"></th></tr>
+            <thead className="sticky top-0 bg-white text-left text-slate-500">
+              <tr>
+                {[["nom", "Poste"], ["client", "Client"], ["signal", "Dernière connexion"]].map(([cle, titre]) => (
+                  <th key={cle} className="px-2 py-1">
+                    <button type="button" onClick={() => { if (tri === cle) setCroissant((v) => !v); else { setTri(cle); setCroissant(true); } }}
+                            className={`inline-flex items-center gap-1 ${tri === cle ? "font-semibold text-slate-800" : ""}`}>
+                      {titre}{tri === cle && (croissant ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                    </button>
+                  </th>
+                ))}
+                <th className="px-2 py-1"></th>
+              </tr>
             </thead>
             <tbody>
-              {postes.map((p) => {
+              {lignesPostes.map((p, i) => {
+                // Rupture sur le nom du client (tri par client) : une ligne d'en-tête avant chaque nouveau client
+                const clientP = p.cle_client_libelle || p.cle_client_code || "(sans client)";
+                const rupture = tri === "client" && (i === 0 || (lignesPostes[i - 1].cle_client_libelle || lignesPostes[i - 1].cle_client_code || "(sans client)") !== clientP);
+                const nbClient = rupture ? lignesPostes.filter((q) => (q.cle_client_libelle || q.cle_client_code || "(sans client)") === clientP).length : 0;
+                return (<React.Fragment key={p.id}>
+                  {rupture && (
+                    <tr className="bg-slate-100">
+                      <td colSpan={4} className="px-2 py-1 font-semibold text-slate-700">{clientP} <span className="font-normal text-slate-500">· {nbClient} poste{nbClient > 1 ? "s" : ""}</span></td>
+                    </tr>
+                  )}
+                  {(() => {
                 const signal = p.signal_controle_distance || p.dernier_contact;
                 const enLigne = signal && Date.now() - new Date(signal).getTime() < 2 * 60 * 1000;   // signal toutes les 5 s
                 const interdit = p.sans_surveillance && !superAdmin;
@@ -217,6 +294,8 @@ export default function ControleDistanceSection({ lienPage = true }) {
                     </td>
                   </tr>
                 );
+                  })()}
+                </React.Fragment>);
               })}
             </tbody>
           </table>

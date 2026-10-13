@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.5", "date": "2026-10-13",
+        "titre": "🔎 Contrôle à distance : retrouver un poste (recherche, client, tri)",
+        "description": "La liste des postes Loois se filtre par nom de poste et par client (liste déroulante), se trie par client, nom ou dernière connexion, et s'affiche par défaut avec une rupture par client.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.4", "date": "2026-10-13",
         "titre": "⚠️ Contrôle à distance : échec de connexion en boîte de dialogue",
         "description": "Quand la connexion à un poste échoue (ex. « Écran du poste indisponible (session Windows verrouillée ?) »), le message reste affiché dans une boîte de dialogue de l'onglet, avec le conseil adapté, jusqu'au clic sur « Compris ».",

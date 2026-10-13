@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "135.3"
-LOT_LIBELLE = "Loois : statut du contrat fourni pour anonymiser les états PDF"
+LOT = "135.4"
+LOT_LIBELLE = "Contrôle à distance : échec de connexion dans une boîte de dialogue"

@@ -65,6 +65,19 @@ const LIBELLES = {
 // Lot 135 — échelles proposées (connexions lentes : moins de pixels à envoyer)
 const ECHELLES = [[100, "Taille réelle"], [75, "Image à 75 %"], [50, "Image à 50 % (connexion lente)"], [25, "Image à 25 % (très lente)"]];
 
+// Conseils affichés dans la boîte de dialogue d'échec, selon le message reçu (le détail du poste est toujours montré tel quel)
+function conseilEchec(detail) {
+  const t = String(detail || "").toLowerCase();
+  if (t.includes("verrouill") || t.includes("écran du poste indisponible")) {
+    return "Le poste ne peut pas capturer son écran : la session Windows est probablement verrouillée, déconnectée ou sur l'écran de connexion. "
+      + "Sur un Windows Server, une session Bureau à distance fermée sans « Se déconnecter » reste déconnectée. "
+      + "Solutions : ouvrir la session sur le poste, ou installer le service Windows Loois (il permet la prise en main écran verrouillé), puis réessayer.";
+  }
+  if (t.includes("refus")) return "Le poste (ou son utilisateur) a refusé la prise en main.";
+  if (t.includes("liaison") || t.includes("connexion")) return "Vérifiez que Loois est lancé sur le poste, qu'il a Internet, puis réessayez.";
+  return "";
+}
+
 export default function ControleDistance({ posteId, posteNom, onClose, embedded = false, visible = true, onEtat, onOuvrirPoste }) {
   const [etat, setEtat] = useState("choix");          // choix → demande → connexion → attente_poste → active → terminee
   const [mode, setMode] = useState("controler");      // mode demandé puis mode accordé par le poste
@@ -75,6 +88,9 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const [stats, setStats] = useState({ ips: 0, latence: null, debit: 0 });
   const [pleinEcran, setPleinEcran] = useState(false);
   const [motifFin, setMotifFin] = useState("");
+  // Échec de connexion : boîte de dialogue propre à l'onglet, qui reste affichée jusqu'au clic sur « Compris »
+  // (le toast disparaissait trop vite pour être lu). { detail, conseil } ou null.
+  const [echec, setEchec] = useState(null);
   // Lot 131.1 — poste sans surveillance (clé LKS-) : il accepte seul, sans bandeau ; réservé au super-admin
   const [sansSurveillance, setSansSurveillance] = useState(false);
   // Lot 135 — fiche du poste (service Windows, chat, client, identifiant mémorisé), réglages, numéro et ticket
@@ -149,6 +165,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   useEffect(() => { onEtat?.(etat); }, [etat, onEtat]);
 
   // ---- Envoi d'une commande JSON au poste (via le relais) ----
+  // Affiche l'échec dans la boîte de dialogue de l'onglet (reste jusqu'au clic sur « Compris »)
+  const signalerEchec = useCallback((detail) => {
+    setEchec({ detail: String(detail || "Erreur du poste"), conseil: conseilEchec(detail) });
+  }, []);
+
   const envoyer = useCallback((message) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
@@ -311,9 +332,9 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     }
     else if (m.type === "info") toast.info(m.detail || "");
     else if (m.type === "refuse") toast.warning(m.detail || "Commande refusée");
-    else if (m.type === "erreur") { toast.error(m.detail || "Erreur du poste"); }
+    else if (m.type === "erreur") { signalerEchec(m.detail || "Erreur du poste"); }
     else if (m.type === "fin") { setMotifFin(m.motif || ""); setEtat("terminee"); }
-  }, []);
+  }, [signalerEchec]);
 
   // ---- Connexion au relais avec le jeton à usage unique ----
   const connecter = useCallback((sid, jeton) => {
@@ -335,12 +356,16 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
       traiterMessage(m);
     };
     ws.onclose = () => { setEtat((e) => (e === "active" || e === "attente_poste" || e === "connexion" ? "terminee" : e)); };
-    ws.onerror = () => setEtat((e) => (e === "connexion" ? "erreur" : e));
+    ws.onerror = () => setEtat((e) => {
+      if (e === "connexion") signalerEchec("Connexion au poste impossible (liaison interrompue avant l'ouverture de l'écran).");
+      return e === "connexion" ? "erreur" : e;
+    });
   }, [dessinerTuile, recevoirMorceau, traiterMessage]);
 
   // ---- 1. Demande de prise en main ----
   const demander = async (modeChoisi) => {
     setMode(modeChoisi);
+    setEchec(null);
     setEtat("demande");
     setInfos(null); setPerf(null); setBureau(null); setListeFichiers(null); setEntreesBloquees(false); setTicket("");
     const attente = toast.loading("Patientez… demande envoyée au poste");
@@ -352,7 +377,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
       setNumero(r.data.numero || "");
     } catch (e) {
       toast.dismiss(attente);
-      toast.error(e?.response?.data?.detail || "Demande impossible");
+      signalerEchec(e?.response?.data?.detail || "Demande impossible");
       setEtat("choix");
       return;
     }
@@ -592,6 +617,24 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
 
   return (
     <div ref={cadreRef} className={`${racine} bg-[radial-gradient(ellipse_at_top,_#1e3a8a_0%,_#0f172a_45%,_#020617_100%)] text-slate-100`} data-testid="controle-distance">
+      {/* ---- Échec de connexion : boîte de dialogue persistante, propre à l'onglet ---- */}
+      {echec && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4" data-testid="controle-distance-echec">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="cd-echec-titre"
+               className="w-full max-w-md rounded-2xl bg-slate-900 p-5 text-slate-100 shadow-2xl ring-1 ring-rose-400/50">
+            <h3 id="cd-echec-titre" className="text-base font-semibold text-rose-300">Connexion impossible{posteNom ? ` — ${posteNom}` : ""}</h3>
+            <p className="mt-3 text-sm font-medium">{echec.detail}</p>
+            {echec.conseil && <p className="mt-2 text-xs leading-relaxed text-slate-300">{echec.conseil}</p>}
+            <div className="mt-4 flex justify-end">
+              <button type="button" autoFocus onClick={() => setEchec(null)}
+                      className="rounded-lg bg-sky-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-400" data-testid="controle-distance-echec-ok">
+                Compris
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---- En-tête : poste, mode et mesures (pictogrammes) ---- */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 shadow-lg" aria-hidden="true">

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.4", "date": "2026-10-13",
+        "titre": "⚠️ Contrôle à distance : échec de connexion en boîte de dialogue",
+        "description": "Quand la connexion à un poste échoue (ex. « Écran du poste indisponible (session Windows verrouillée ?) »), le message reste affiché dans une boîte de dialogue de l'onglet, avec le conseil adapté, jusqu'au clic sur « Compris ».",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.3", "date": "2026-10-13",
         "titre": "🔒 Loois : statut du contrat pour anonymiser les états PDF",
         "description": "SAWALI indique à Loois si le contrat du client est actif (compte lié à la clé client) ; sinon nom, matricule et téléphone sont masqués dans les PDF.",

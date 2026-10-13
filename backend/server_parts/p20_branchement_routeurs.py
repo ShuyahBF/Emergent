@@ -264,6 +264,9 @@ _setup_decouverte_reseau(db=db, api=api, get_current_user=get_current_user)
 # Lot 81 — contrat de chaque plateforme cliente (ALBARKA…) : suivi, paiements, état lu par la plateforme
 from routes.contrats_plateformes import setup_contrats_plateformes_routes as _setup_contrats_plateformes  # noqa: E402
 _setup_contrats_plateformes(db=db, api=api, get_current_user=get_current_user)
+# Lot 138 — nom de profil WhatsApp d'un numéro, lu (signé) par une plateforme : POST /api/webhook/plateforme-profils-wa
+from routes.profils_wa import setup_profils_wa_routes as _setup_profils_wa  # noqa: E402
+_setup_profils_wa(db=db, api=api)
 # Lot 120 — puce carrée « contrat » (vert / orange / rouge, sans montant) devant chaque contact du Centre de messagerie :
 # POST /api/me/contacts-contrats, même périmètre de visibilité que GET /me/contacts (_resolve_visible_client_ids).
 from routes.puce_contrat import setup_puce_contrat_routes as _setup_puce_contrat  # noqa: E402

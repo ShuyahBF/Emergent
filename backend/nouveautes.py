@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "138", "date": "2026-10-13",
+        "titre": "💬 Le nom WhatsApp d'un numéro transmis aux plateformes (ZandGo)",
+        "description": "Une plateforme émettrice (ZandGo) peut demander, par une requête signée avec sa clé, le nom de profil WhatsApp des numéros de ses clients : connu seulement pour ceux qui ont déjà écrit à SAWALI.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "136", "date": "2026-10-13",
         "titre": "🖼️ Un mince filet foncé autour des cartes",
         "description": "Les cartes d'information sont encadrées d'un filet noir (gris sur gris se voyait mal) ; la couleur se règle dans la rubrique « Cadre des cartes » : noir, gris foncé, bleu ou aucun.",

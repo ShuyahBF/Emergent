@@ -186,6 +186,22 @@ def test_facturation_horaire_sous_le_seuil_forfait_au_dela():
     assert r["cost_mode"] == "hourly_sans_forfait" and r["cost_amount"] == 6000
 
 
+def test_taches_effectuees_inscrites_dans_l_intervention(env):
+    """Lot 140 : les tâches de maintenance du disque sont listées dans l'intervention (description + champ structuré)."""
+    b = env.db
+    t = env.run(_ticket(b, numero="PLOT-2026-0009"))
+    taches = [{"libelle": "Analyse du disque (chkdsk /scan, lecture seule)", "volume": "C:", "ok": True,
+               "resultat": "Aucune erreur trouvée sur le disque."},
+              {"libelle": "Vérification des fichiers système (sfc /scannow)", "volume": "C:", "ok": False, "resultat": "Terminé avec une erreur."}]
+    r = env.run(tc.cloturer_ticket(t, outcome="done", acteur={"id": "u1", "full_name": "Tech"}, quand=T0 + timedelta(hours=1), taches=taches))
+    assert r["ok"]
+    inter = env.run(b.interventions.find_one({"source_ticket_id": t["id"]}, {"_id": 0}))
+    assert "Tâches effectuées :" in inter["description"]
+    assert "✔ Analyse du disque (chkdsk /scan, lecture seule) (C:) — Aucune erreur trouvée sur le disque." in inter["description"]
+    assert "✘ Vérification des fichiers système (sfc /scannow) (C:) — Terminé avec une erreur. [échec]" in inter["description"]
+    assert inter["taches_effectuees"] == taches
+
+
 def test_cloture_au_dela_de_5h_applique_le_forfait(env):
     b = env.db
     t = env.run(_ticket(b, numero="PLOT-2026-0002"))

@@ -22,10 +22,11 @@ class FauxTickets:
     """Remplace tickets_clients.cloturer_ticket : note la clôture et renvoie une intervention."""
 
     def __init__(self, base):
-        self.base, self.clotures = base, []
+        self.base, self.clotures, self.dernieres_taches = base, [], []
 
     async def cloturer_ticket(self, ticket, **kw):
         self.clotures.append((ticket["id"], kw.get("note")))
+        self.dernieres_taches = kw.get("taches") or []   # lot 140
         await self.base.support_tickets.update_one({"id": ticket["id"]}, {"$set": {"status": "done"}})
         return {"intervention": {"id": "int-1", "intervention_number": "INT-1"}}
 

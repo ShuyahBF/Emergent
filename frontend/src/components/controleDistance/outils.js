@@ -133,6 +133,18 @@ export const ACTIONS_SYSTEME = {
   eteindre: { titre: "Éteindre", texte: "Éteindre le poste dans 5 secondes ? Il faudra le rallumer sur place.", danger: true },
 };
 
+/** Lot 140 — Maintenance du disque (outils Windows seulement) : confirmation demandée avant l'envoi ; « disque » = choix du lecteur. */
+export const ACTIONS_MAINTENANCE = {
+  chkdsk_scan: { titre: "Analyser le disque (chkdsk /scan)", disque: true,
+    texte: "Analyse en ligne du disque avec l'outil Windows chkdsk (lecture seule, aucune réparation). Le poste reste utilisable ; la durée dépend de la taille du disque (de quelques minutes à plus d'une heure)." },
+  defrag_analyser: { titre: "Analyser la fragmentation (defrag /A)", disque: true,
+    texte: "Mesure la fragmentation du disque avec l'outil Windows defrag, sans rien modifier. Rapide (quelques minutes)." },
+  defrag_optimiser: { titre: "Défragmenter / optimiser (defrag /O)", disque: true,
+    texte: "Optimise le disque avec l'outil Windows defrag : défragmentation d'un disque dur, TRIM d'un SSD (jamais de défragmentation d'un SSD). Le poste ralentit pendant l'opération, qui peut durer longtemps." },
+  sfc_scan: { titre: "Vérifier les fichiers système (sfc /scannow)", disque: false,
+    texte: "Vérifie et répare les fichiers système protégés de Windows (outil sfc). Dure souvent 10 à 30 minutes ; le poste reste utilisable." },
+};
+
 // ---------------------------------------------------------------------
 // Lot 135 — TRANSFERT DE POSTE À POSTE : chaque visionneuse en mode « Contrôler » s'inscrit ici avec la fonction qui
 // dépose un fichier sur SON poste. Le volet « Fichiers » d'un autre onglet peut ainsi copier un fichier d'un poste

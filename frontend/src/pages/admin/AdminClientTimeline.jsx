@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+// Lot 135 — historique des prises en main à distance du client (numéro, ticket, intervention, vidéo)
+import HistoriqueClient from "@/components/controleDistance/HistoriqueClient";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -120,6 +122,9 @@ export default function AdminClientTimeline() {
           <Info icon={MapPin} value={[c.city, c.country].filter(Boolean).join(", ") || null} />
         </div>
       </div>
+
+      {/* Lot 135 — prises en main à distance (support SAWALI seulement) */}
+      <HistoriqueClient clientId={id} />
 
       {/* Type filters with counts */}
       <div className="flex items-center gap-2 flex-wrap">

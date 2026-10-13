@@ -12,7 +12,8 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, FileText, Download, Sparkles, Paperclip, MonitorSmartphone } from "lucide-react";
 // Lot 131 — visionneuse du contrôle à distance (prise en main du poste Loois)
-import ControleDistance from "@/components/ControleDistance";
+// Lot 135 — ouverte dans les onglets des prises en main (plusieurs postes à la fois)
+import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
 
 // Durée mm:ss (temps restant de la session)
 function formaterDuree(secondes) {
@@ -50,8 +51,18 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
   const [historique, setHistorique] = useState([]);
   const [voirHistorique, setVoirHistorique] = useState(false);
   const [detailsOuverts, setDetailsOuverts] = useState(null);   // id de la session dont on lit les détails
-  // Lot 131 — visionneuse « Prendre la main » ouverte
-  const [priseEnMain, setPriseEnMain] = useState(false);
+  // Lot 135 — le chat du support peut lancer la prise en main à tout moment (poste muni d'une clé client),
+  // même sans session d'assistance en cours
+  const [priseEnMainPossible, setPriseEnMainPossible] = useState(false);
+  const [nomPoste, setNomPoste] = useState("");
+  useEffect(() => {
+    setPriseEnMainPossible(false);
+    if (!posteId) return;
+    apiClient.get(`/controle-distance/postes/${encodeURIComponent(posteId)}`)
+      .then((r) => { setPriseEnMainPossible(Boolean(r.data?.possible)); setNomPoste(r.data?.poste_nom || ""); })
+      .catch(() => {});
+  }, [posteId]);
+  const prendreLaMain = () => ouvrirPriseEnMain({ id: posteId, nom: session?.poste_nom || nomPoste || session?.client_nom });
 
   // ---- Chargement de la session du poste (et du client retenu pour ce poste) ----
   const charger = useCallback(async () => {
@@ -199,7 +210,19 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
     }
   };
 
-  if (!session && historique.length === 0) return null;
+  // Lot 135 — sans session ni historique : seulement le bouton « Prendre la main » (si le poste a une clé client)
+  if (!session && historique.length === 0) {
+    if (!priseEnMainPossible) return null;
+    return (
+      <div className="mx-4 mt-3 mb-1 flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs ring-1 ring-slate-200" data-testid="support-loois-bandeau">
+        <span className="text-slate-500">Aucune session d'assistance en cours.</span>
+        <button onClick={prendreLaMain} className="ml-auto inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+                data-testid="support-loois-prendre-la-main" title="Voir l'écran du poste et le contrôler, avec l'accord de son utilisateur">
+          <MonitorSmartphone className="h-3 w-3" /> Prendre la main
+        </button>
+      </div>
+    );
+  }
   const statut = session?.statut;
   const restant = statut === "active" && session?.acceptee_le
     ? dureeMax - (maintenant - new Date(session.acceptee_le).getTime()) / 1000 : null;
@@ -207,9 +230,6 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
 
   return (
     <div className="mx-4 mt-3 mb-1 rounded-lg ring-1 px-3 py-2 text-xs bg-white ring-slate-200" data-testid="support-loois-bandeau">
-      {priseEnMain && (
-        <ControleDistance posteId={posteId} posteNom={session?.poste_nom || session?.client_nom} onClose={() => setPriseEnMain(false)} />
-      )}
       {statut === "attente" && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-amber-700">⏳ Demande d'assistance en attente</span>
@@ -264,7 +284,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
               <Paperclip className="h-3 w-3" /> Fichier
             </button>
             {/* Lot 131 — prise en main à distance (l'utilisateur du poste doit l'accepter) */}
-            <button onClick={() => setPriseEnMain(true)} className={`${bouton} bg-sky-600 text-white hover:bg-sky-700`} data-testid="support-loois-prendre-la-main"
+            <button onClick={prendreLaMain} className={`${bouton} bg-sky-600 text-white hover:bg-sky-700`} data-testid="support-loois-prendre-la-main"
                     title="Voir l'écran du poste et le contrôler, avec l'accord de son utilisateur">
               <MonitorSmartphone className="h-3 w-3" /> Prendre la main
             </button>
@@ -279,6 +299,12 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
         <div>
           <div className="flex flex-wrap items-center gap-2 text-slate-600">
             <span className="font-semibold text-slate-800">✅ Session terminée</span>
+            {/* Lot 135 — la prise en main reste possible depuis le chat, même session d'assistance terminée */}
+            {priseEnMainPossible && (
+              <button onClick={prendreLaMain} className={`${bouton} bg-sky-600 text-white hover:bg-sky-700`} title="Voir l'écran du poste et le contrôler, avec l'accord de son utilisateur">
+                <MonitorSmartphone className="h-3 w-3" /> Prendre la main
+              </button>
+            )}
             {session.ticket_number && <span>Ticket {session.ticket_number} clôturé</span>}
             {session.duree_secondes !== undefined && session.duree_secondes !== null && (
               <span title="Durée de l'assistance (de l'acceptation à la fin) — base de la facturation">⏱ {dureeLisible(session.duree_secondes)}</span>

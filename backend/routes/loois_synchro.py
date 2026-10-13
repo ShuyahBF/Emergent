@@ -54,6 +54,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from pymongo.errors import OperationFailure
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
 
 from routes import loois_cles_clients as cles   # lot 68.1 : clés clients (une par client)
@@ -645,7 +646,16 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
             operations.append(DeleteMany({"_hf_cle": {"$in": lot["suppressions"]}}))
         supprimees = 0
         if operations:
-            resultat_bulk = await collection.bulk_write(operations, ordered=True)
+            try:
+                resultat_bulk = await collection.bulk_write(operations, ordered=True)
+            except OperationFailure as exc:
+                # Lot 138 : cluster Atlas plein (500 collections pour TOUT le cluster, code 8000) — message clair au lieu d'un « 500 interne »
+                if getattr(exc, "code", None) == 8000 or "collections of" in str(exc):
+                    raise HTTPException(status_code=507, detail=(
+                        "MongoDB Atlas est plein : 500 collections atteintes sur le cluster, la table de cette école ne peut pas être créée. "
+                        "Libérez des collections dans SAWALI → Paramètres → « 🧹 Libérer l'Espace » (collections inutilisées), "
+                        "puis « Resynchroniser tout » sur cette table."))
+                raise
             supprimees = resultat_bulk.deleted_count
         retirees = 0
         if lot["complet"] and lot["fin"]:

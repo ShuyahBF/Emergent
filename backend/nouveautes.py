@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.6", "date": "2026-10-13",
+        "titre": "🖥️ Contrôle à distance : un seul poste par ordinateur",
+        "description": "Un ordinateur muni du service Windows n'apparaît plus qu'une fois dans la liste des postes (la ligne « service Windows », qui fonctionne aussi écran verrouillé) ; une case permet d'afficher aussi les sessions utilisateur.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.5", "date": "2026-10-13",
         "titre": "🔎 Contrôle à distance : retrouver un poste (recherche, client, tri)",
         "description": "La liste des postes Loois se filtre par nom de poste et par client (liste déroulante), se trie par client, nom ou dernière connexion, et s'affiche par défaut avec une rupture par client.",

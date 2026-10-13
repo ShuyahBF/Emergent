@@ -349,7 +349,8 @@ async def numero_intervention(client_doc: dict) -> str:
 
 async def cloturer_ticket(ticket: dict, *, outcome: str, acteur: dict, note: Optional[str] = None,
                           cloture_auto: Optional[str] = None, quand: Optional[datetime] = None,
-                          numeroteur: Optional[Callable[[dict], Awaitable[str]]] = None) -> Dict[str, Any]:
+                          numeroteur: Optional[Callable[[dict], Awaitable[str]]] = None,
+                          taches: Optional[list] = None) -> Dict[str, Any]:
     """Clôt le ticket (statut `outcome`), calcule le coût et crée l'intervention de l'historique.
     `cloture_auto` : « session_wa_expiree » ou « validite_expiree » pour les clôtures du planificateur."""
     quand = quand or maintenant()
@@ -395,6 +396,11 @@ async def cloturer_ticket(ticket: dict, *, outcome: str, acteur: dict, note: Opt
             lignes.append(f"Temps suspendu : {suspendu // 60} min")
         if note:
             lignes.append(f"Résolution :\n{note}")
+        # Lot 140 — tâches effectuées pendant l'intervention (maintenance du disque lancée depuis SAWALI)
+        if taches:
+            lignes.append("Tâches effectuées :\n" + "\n".join(
+                f"{'✔' if t.get('ok') else '✘'} {t.get('libelle')}" + (f" ({t.get('volume')})" if t.get("volume") else "")
+                + (f" — {t.get('resultat')}" if t.get("resultat") else "") + ("" if t.get("ok") else " [échec]") for t in taches))
         if ticket.get("notes"):
             lignes.append(f"Notes du ticket :\n{ticket['notes']}")
         doc = {
@@ -408,6 +414,7 @@ async def cloturer_ticket(ticket: dict, *, outcome: str, acteur: dict, note: Opt
             # Lot 54 — date/heure de début et de fin reportées depuis le ticket
             "date_heure_debut": ticket.get("opened_at"), "date_heure_fin": fin_iso,
             "attachments": [], "images": [], "intervention_number": numero,
+            "taches_effectuees": list(taches or []),      # lot 140
             "owner_id": acteur.get("id"), "owner_email": acteur.get("email"), "owner_role": acteur.get("role"),
             "source_ticket_id": ticket["id"], "source_ticket_number": ticket.get("number"),
             "ticket_url": "/portal/tickets?numero=" + quote(str(ticket.get("number") or ticket["id"])),

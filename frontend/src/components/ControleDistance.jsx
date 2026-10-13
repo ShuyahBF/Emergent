@@ -29,13 +29,13 @@ import {
   X, Maximize, Minimize, Monitor, Eye, EyeOff, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
   Timer, Film, ArrowDownToLine, PenLine, Send, Handshake, Plug, TimerOff, ShieldX, CheckCircle2, WifiOff,
   RotateCcw, Lock, UserX, Power, KeyRound, Ban, PanelRightOpen, PanelRightClose, Scaling, Upload, ServerCog,
-  Ticket, Circle, ShieldAlert, Cpu,
+  Ticket, Circle, ShieldAlert, Cpu, Loader2,
 } from "lucide-react";
 import ClavierVirtuel from "@/components/controleDistance/ClavierVirtuel";
 import VoletPoste from "@/components/controleDistance/VoletPoste";
 import {
   TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN, TAILLE_MAX_FICHIER, envoyerFichier, lireTrameFichier, telecharger,
-  mesuresFinales, ACTIONS_SYSTEME, registrePostes,
+  mesuresFinales, ACTIONS_SYSTEME, ACTIONS_MAINTENANCE, registrePostes,
 } from "@/components/controleDistance/outils";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -112,6 +112,9 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const [entreesBloquees, setEntreesBloquees] = useState(false);
   const [menuSysteme, setMenuSysteme] = useState(false);
   const [confirmation, setConfirmation] = useState(null);   // action système à confirmer
+  // Lot 140 : maintenance du disque (outils Windows) — confirmation {action, volume} et avancement des tâches {id, action, libelle, volume, etat, resume}
+  const [confirmationMaint, setConfirmationMaint] = useState(null);
+  const [maintenances, setMaintenances] = useState([]);
   const [identifiantsOuvert, setIdentifiantsOuvert] = useState(false);
   const [listeFichiers, setListeFichiers] = useState(null);
   const [transferts, setTransferts] = useState([]);
@@ -295,6 +298,15 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     else if (m.type === "bureau") setBureau(m);
     else if (m.type === "capture") setMoteur(m.moteur || "");
     else if (m.type === "entrees_bloquees") { setEntreesBloquees(Boolean(m.valeur)); if (m.detail) toast.info(m.detail); }
+    else if (m.type === "maintenance_etat") {
+      // Lot 140 : avancement d'une maintenance du disque (une ligne par tâche, la dernière information remplace la précédente)
+      setMaintenances((liste) => {
+        const reste = liste.filter((x) => x.id !== m.id);
+        return [...reste, { id: m.id, action: m.action, libelle: m.libelle, volume: m.volume, etat: m.etat, resume: m.resume || "" }].slice(-6);
+      });
+      if (m.etat === "termine") toast.success(`${m.libelle} (${m.volume}) : terminé`);
+      else if (m.etat === "echec") toast.error(`${m.libelle} (${m.volume}) : ${(m.resume || "échec").split("\n")[0]}`);
+    }
     else if (m.type === "systeme_resultat") (m.ok ? toast.success : toast.error)(m.detail || "Action système");
     else if (m.type === "fichiers_liste") {
       setListeFichiers(m);
@@ -367,7 +379,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     setMode(modeChoisi);
     setEchec(null);
     setEtat("demande");
-    setInfos(null); setPerf(null); setBureau(null); setListeFichiers(null); setEntreesBloquees(false); setTicket("");
+    setInfos(null); setPerf(null); setBureau(null); setMaintenances([]); setListeFichiers(null); setEntreesBloquees(false); setTicket("");
     const attente = toast.loading("Patientez… demande envoyée au poste");
     try {
       const r = await apiClient.post("/controle-distance/sessions", {
@@ -745,6 +757,14 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
                 {a.titre}
               </button>
             ))}
+            {/* Lot 140 : maintenance du disque (outils Windows seulement) */}
+            <div className="border-t border-white/10 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Maintenance du disque</div>
+            {Object.entries(ACTIONS_MAINTENANCE).map(([action, a]) => (
+              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmationMaint({ action, volume: "C:" }); }}
+                      className="block w-full px-3 py-2 text-left text-xs text-slate-100 hover:bg-white/10">
+                {a.titre}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -915,6 +935,54 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ---- Lot 140 : confirmation d'une maintenance du disque (choix du lecteur) ---- */}
+      {confirmationMaint && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-5 shadow-2xl ring-1 ring-white/15">
+            <h4 className="flex items-center gap-2 text-sm font-bold text-slate-100"><ServerCog className="h-4 w-4" />{ACTIONS_MAINTENANCE[confirmationMaint.action].titre}</h4>
+            <p className="mt-2 text-xs text-slate-300">{ACTIONS_MAINTENANCE[confirmationMaint.action].texte}</p>
+            {ACTIONS_MAINTENANCE[confirmationMaint.action].disque && (
+              <label className="mt-3 block text-xs text-slate-300">Lecteur
+                <select value={confirmationMaint.volume} onChange={(e) => setConfirmationMaint({ ...confirmationMaint, volume: e.target.value })}
+                        className="ml-2 rounded bg-slate-800 px-2 py-1 text-slate-100 ring-1 ring-white/15">
+                  {((infos?.inventaire?.disques || []).map((d) => d.lettre).filter(Boolean).length
+                    ? (infos.inventaire.disques || []).map((d) => `${String(d.lettre).replace(/[:\\/]+$/, "")}:`)
+                    : ["C:"]).map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </label>
+            )}
+            <p className="mt-2 text-[11px] text-slate-400">La tâche réussie sera inscrite dans l'intervention de cette prise en main.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmationMaint(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+              <button type="button"
+                      onClick={() => { envoyer({ type: "maintenance", id: Math.floor(Date.now() % 2147483647), action: confirmationMaint.action, chemin: confirmationMaint.volume }); setConfirmationMaint(null); }}
+                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500">Lancer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Lot 140 : avancement des maintenances du disque ---- */}
+      {maintenances.length > 0 && (
+        <div className="absolute bottom-3 left-3 z-10 w-80 max-w-[calc(100%-1.5rem)] space-y-1 rounded-xl bg-slate-900/90 p-3 text-xs text-slate-100 shadow-xl ring-1 ring-white/15">
+          <div className="flex items-center justify-between font-semibold">
+            <span className="inline-flex items-center gap-1"><ServerCog className="h-3.5 w-3.5" /> Maintenance du disque</span>
+            <button type="button" aria-label="Masquer" onClick={() => setMaintenances((l) => l.filter((x) => x.etat === "demarre" || x.etat === "en_cours"))}><X className="h-3.5 w-3.5" /></button>
+          </div>
+          {maintenances.map((x) => (
+            <div key={x.id} className="rounded-lg bg-white/5 p-2">
+              <div className="flex items-center gap-1 font-medium">
+                {x.etat === "termine" ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                  : x.etat === "echec" ? <ShieldX className="h-3.5 w-3.5 text-rose-400" />
+                    : <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-300" />}
+                <span className="truncate">{x.libelle} ({x.volume})</span>
+              </div>
+              {x.resume && <p className="mt-1 whitespace-pre-line break-words text-[11px] text-slate-300">{x.etat === "en_cours" || x.etat === "demarre" ? x.resume : x.resume.split("\n").slice(0, 3).join("\n")}</p>}
+            </div>
+          ))}
         </div>
       )}
 

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "140", "date": "2026-10-13",
+        "titre": "💽 Contrôle à distance : analyse, défragmentation et vérification du disque",
+        "description": "Depuis la prise en main d'un poste Loois (mode « Contrôler »), le menu d'actions propose : analyse du disque (chkdsk /scan), analyse de la fragmentation (defrag /A), défragmentation / optimisation (defrag /O) et vérification des fichiers système (sfc /scannow) — outils Windows seulement, avec confirmation et suivi en direct. Chaque tâche terminée est inscrite dans l'intervention comme tâche effectuée.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "139", "date": "2026-10-13",
         "titre": "📷 Carrousels WhatsApp : images du téléphone ou d'un dossier du disque",
         "description": "À l'édition d'une carte : envoyer plusieurs images à la fois (stockage du téléphone, fichiers ou dossier du disque, glisser-déposer). Les photos HEIC/WebP ou de plus de 5 Mo sont converties en JPEG automatiquement ; la première remplit la carte, toutes rejoignent la galerie.",

@@ -57,6 +57,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 import logging
 import os
@@ -82,7 +83,7 @@ DELAI_CONNEXION_S = 120          # après l'accord, 2 minutes pour ouvrir les de
 DUREE_MAX_S = 4 * 3600           # une session dure au plus 4 heures
 TAILLE_MAX_TRAME = 2 * 1024 * 1024   # 2 Mo par trame binaire (une tuile JPEG est bien plus petite)
 # Commandes du technicien qui AGISSENT sur le poste : refusées en mode « voir seulement »
-COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte",
+COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte", "maintenance",   # lot 140 : maintenance du disque
                     # Lot 135 : système, blocage des entrées, fichiers
                     "systeme", "bloquer_entrees", "fichier_debut", "fichier_fin", "fichier_annuler",
                     "fichiers_lister", "fichier_demander"}
@@ -95,11 +96,20 @@ COMMANDES_SERVEUR = {"identifiants_windows"}
 # Lot 135.2 : bureaux virtuels de Windows (Win+Tab) — bascule VISIBLE de l'écran de l'utilisateur (raccourcis Win+Ctrl+→ / ← / D)
 ACTIONS_SYSTEME = {"deconnecter", "redemarrer", "eteindre", "verrouiller", "ctrl_alt_suppr",
                    "bureau_suivant", "bureau_precedent", "bureau_nouveau"}
+# Lot 140 — MAINTENANCE DU DISQUE (outils Windows seulement, mode « contrôler », confirmée dans la visionneuse) :
+# {"type":"maintenance","id","action","chemin":"C:"} ; le poste répond {"type":"maintenance_etat","etat":"demarre|en_cours|termine|echec",…}.
+ACTIONS_MAINTENANCE = {
+    "chkdsk_scan": "Analyse du disque (chkdsk /scan, lecture seule)",
+    "defrag_analyser": "Analyse de la fragmentation (defrag /A)",
+    "defrag_optimiser": "Défragmentation / optimisation du disque (defrag /O)",
+    "sfc_scan": "Vérification des fichiers système (sfc /scannow)",
+}
+RE_VOLUME = re.compile(r"^[A-Za-z]:?$")
 # Informations que le poste peut envoyer au technicien
 MESSAGES_POSTE = {"ecrans", "curseur", "stats", "presse_papiers", "pong", "arreter", "erreur",
                   # Lot 135
                   "infos_poste", "perf", "bureau", "capture", "fichier_debut", "fichier_fin", "fichier_recu",
-                  "fichiers_liste", "systeme_resultat", "entrees_bloquees"}
+                  "fichiers_liste", "systeme_resultat", "entrees_bloquees", "maintenance_etat"}
 # Lot 135 — types des trames binaires (octet 0)
 TRAME_TUILE, TRAME_FICHIER_VERS_POSTE, TRAME_FICHIER_VERS_TECHNICIEN = 1, 2, 3
 
@@ -151,6 +161,8 @@ def commande_autorisee(mode: str, message: Dict[str, Any]) -> bool:
         return True
     if type_ == "systeme" and str(message.get("action") or "") not in ACTIONS_SYSTEME:
         return False   # lot 135 : action système inconnue, jamais relayée
+    if type_ == "maintenance" and commande_maintenance_propre(message) is None:
+        return False   # lot 140 : action ou lecteur inconnu, jamais relayé
     if type_ in COMMANDES_ENTREE:
         return mode == "controler"
     return False   # type inconnu : jamais relayé
@@ -166,11 +178,52 @@ def trame_binaire_autorisee(role: str, mode: str, donnees: bytes) -> bool:
     return donnees[0] == TRAME_FICHIER_VERS_POSTE and mode == "controler"
 
 
+def commande_maintenance_propre(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Lot 140 — commande de maintenance du disque RECONSTRUITE par le serveur (aucun champ du navigateur n'est relayé tel quel) :
+    action de la liste fermée et lecteur « C: » ; None si l'un des deux est invalide."""
+    action = str(message.get("action") or "")
+    volume = str(message.get("chemin") or "C:").strip()
+    if action not in ACTIONS_MAINTENANCE or not RE_VOLUME.match(volume):
+        return None
+    try:
+        ident = int(message.get("id") or 0)
+    except (TypeError, ValueError):
+        ident = 0
+    return {"type": "maintenance", "id": max(0, ident), "action": action,
+            "chemin": volume[0].upper() + ":"}
+
+
+def tache_depuis_etat(message: Dict[str, Any], quand: str) -> Optional[Dict[str, Any]]:
+    """Lot 140 — tâche terminée (réussie ou en échec) tirée d'un message « maintenance_etat » du poste ; None sinon.
+    Le texte est borné ; l'action doit être connue."""
+    action = str(message.get("action") or "")
+    etat = str(message.get("etat") or "")
+    if action not in ACTIONS_MAINTENANCE or etat not in ("termine", "echec"):
+        return None
+    return {"id": message.get("id"), "action": action, "libelle": ACTIONS_MAINTENANCE[action],
+            "volume": str(message.get("volume") or "")[:3], "ok": etat == "termine",
+            "code": message.get("code") if isinstance(message.get("code"), int) else None,
+            "resume": str(message.get("resume") or "")[:1800], "le": quand}
+
+
+def taches_effectuees(taches: Optional[list]) -> list:
+    """Lot 140 — tâches à inscrire dans l'intervention : une ligne par tâche (« ✔ Analyse du disque (C:) — Aucune erreur… »)."""
+    sortie = []
+    for t in taches or []:
+        premiere = (str(t.get("resume") or "").split("\n") or [""])[0].strip()
+        sortie.append({"libelle": t.get("libelle"), "volume": t.get("volume"), "ok": bool(t.get("ok")),
+                       "resultat": premiere[:200], "detail": t.get("resume") or "", "le": t.get("le")})
+    return sortie
+
+
 def action_journal(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Lot 135 — commande du technicien à garder dans le journal de la session (sans contenu sensible) ; None sinon."""
     type_ = str(message.get("type") or "")
     if type_ == "systeme":
         return {"type": "systeme", "detail": str(message.get("action") or "")}
+    if type_ == "maintenance":
+        propre = commande_maintenance_propre(message)
+        return {"type": "maintenance", "detail": f"{ACTIONS_MAINTENANCE[propre['action']]} — {propre['chemin']}"} if propre else None
     if type_ == "bloquer_entrees":
         return {"type": "bloquer_entrees", "detail": "bloquées" if message.get("valeur") else "débloquées"}
     if type_ == "fichier_debut":
@@ -458,7 +511,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             bilan = await module.cloturer_ticket(
                 ticket, outcome="done",
                 acteur={"id": session.get("technicien_id"), "full_name": session.get("technicien_nom")},
-                note=f"Prise en main {session.get('numero') or ''} terminée ({motif})")
+                note=f"Prise en main {session.get('numero') or ''} terminée ({motif})",
+                taches=taches_effectuees(session.get("taches")))   # lot 140 : maintenance du disque → tâches effectuées
             inter = (bilan or {}).get("intervention") or {}
             if inter:
                 await db.controle_distance_sessions.update_one({"id": session["id"]}, {"$set": {
@@ -973,6 +1027,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                                                   else {"type": "info", "detail": "Identifiant Windows saisi sur le poste"})
                         continue
                     if commande_autorisee(mode, message):
+                        if message.get("type") == "maintenance":
+                            message = commande_maintenance_propre(message) or message   # lot 140 : reconstruite par le serveur
                         await relais.envoyer_json(sid, "poste", message)
                         action = action_journal(message)   # lot 135 : actions sensibles gardées dans le journal
                         if action:
@@ -982,6 +1038,12 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                                                                               "commande non transmise"})
                 elif message_poste_autorise(message):
                     await relais.envoyer_json(sid, "technicien", message)
+                    # Lot 140 : maintenance du disque terminée → gardée dans la session, puis inscrite dans l'intervention
+                    tache = tache_depuis_etat(message, iso(maintenant())) if message.get("type") == "maintenance_etat" else None
+                    if tache:
+                        await db.controle_distance_sessions.update_one({"id": sid}, {"$push": {"taches": {"$each": [tache], "$slice": -50}}})
+                        await _noter_action(sid, {"type": "maintenance_fin",
+                                                  "detail": f"{tache['libelle']} ({tache['volume']}) : {'réussie' if tache['ok'] else 'échec'}"})
                     # Lot 135 : écran de connexion ou verrouillé signalé par le poste → saisie automatique de l'identifiant
                     # Windows mémorisé (une fois par session, mode « contrôler », option « saisie automatique »)
                     # (agent du service Windows seulement : l'icône de l'utilisateur ne peut pas écrire sur cet écran)

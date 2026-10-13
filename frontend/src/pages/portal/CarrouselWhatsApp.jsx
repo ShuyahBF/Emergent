@@ -92,6 +92,34 @@ function ApercuCarte({ carte, produit }) {
   );
 }
 
+// Lot 139 — prépare une image choisie sur le téléphone ou le disque : WhatsApp n'accepte que JPEG et PNG de 5 Mo au plus.
+// Les photos de téléphone (HEIC, WebP) ou trop lourdes sont converties en JPEG dans le navigateur (côté le plus long
+// ramené à 1600 px), sans rien envoyer d'inutile. Renvoie un File prêt à envoyer, ou lève une erreur lisible.
+const MAX_OCTETS_IMAGE = 5 * 1024 * 1024;
+async function preparerImage(fichier) {
+  const okType = fichier.type === "image/jpeg" || fichier.type === "image/png";
+  if (okType && fichier.size <= MAX_OCTETS_IMAGE) return fichier;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(fichier);
+  } catch {
+    throw new Error(`« ${fichier.name} » : format non lisible par le navigateur (HEIC ?) — enregistrez-la en JPEG ou PNG.`);
+  }
+  const echelle = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * echelle);
+  canvas.height = Math.round(bitmap.height * echelle);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";                            // fond blanc : le JPEG n'a pas de transparence
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  for (const qualite of [0.88, 0.75, 0.6]) {
+    const blob = await new Promise((ok) => canvas.toBlob(ok, "image/jpeg", qualite));
+    if (blob && blob.size <= MAX_OCTETS_IMAGE) return new File([blob], fichier.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  }
+  throw new Error(`« ${fichier.name} » reste trop lourde (plus de 5 Mo) même réduite.`);
+}
+
 // Choix d'une image : galerie (générées, médiathèque, envoyées), envoi d'un fichier ou adresse
 function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia = false }) {
   const [ouvert, setOuvert] = useState(false);
@@ -139,17 +167,31 @@ function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia 
     }
   };
 
-  const envoyer = async (fichier) => {
-    if (!fichier) return;
+  // Lot 139 — envoi d'UNE ou PLUSIEURS images (stockage du téléphone, fichiers ou dossier du disque, glisser-déposer) :
+  // chacune est convertie si besoin (JPEG/PNG ≤ 5 Mo), la première remplit la carte, toutes rejoignent la galerie.
+  const [survol, setSurvol] = useState(false);
+  const envoyer = async (liste) => {
+    const fichiers = Array.from(liste || []).filter((f) => (f.type || "").startsWith("image/") || /\.(heic|heif|webp|jpe?g|png)$/i.test(f.name));
+    if (fichiers.length === 0) { toast.error("Aucune image dans la sélection."); return; }
     setEnvoi(true);
+    let envoyees = 0;
     try {
-      const fd = new FormData();
-      fd.append("fichier", fichier);
-      const { data } = await apiClient.post(`${base}/images`, fd);
-      onChange(data.url);
-      onEnvoyee();
-    } catch (e) {
-      toast.error(erreur(e, "Image refusée"));
+      for (const brut of fichiers.slice(0, 50)) {
+        try {
+          const fichier = await preparerImage(brut);
+          const fd = new FormData();
+          fd.append("fichier", fichier);
+          const { data } = await apiClient.post(`${base}/images`, fd);
+          if (envoyees === 0) onChange(data.url);          // la première image remplit la carte
+          envoyees += 1;
+        } catch (e) {
+          toast.error(e?.response ? erreur(e, "Image refusée") : (e?.message || "Image refusée"));
+        }
+      }
+      if (envoyees > 0) {
+        onEnvoyee();                                       // la galerie se met à jour
+        if (envoyees > 1) { setOuvert(true); toast.success(`${envoyees} images ajoutées à la galerie — la première est dans la carte.`); }
+      }
     } finally {
       setEnvoi(false);
     }
@@ -161,11 +203,26 @@ function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia 
         <Button type="button" size="sm" variant="outline" onClick={() => setOuvert(!ouvert)}>
           <GalleryHorizontalEnd className="mr-1 h-4 w-4" /> Galerie ({images.length})
         </Button>
-        <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+        <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+               title="Photos du téléphone ou fichiers du disque (plusieurs possibles)">
           {envoi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-1 h-4 w-4" />}
-          Envoyer une image
-          <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={(e) => envoyer(e.target.files?.[0])} />
+          Envoyer des images
+          <input type="file" accept="image/*" multiple className="hidden"
+                 onChange={(e) => { envoyer(e.target.files); e.target.value = ""; }} />
         </label>
+        {/* Dossier du disque (ordinateur) : toutes les images du dossier */}
+        <label className="hidden cursor-pointer items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 sm:inline-flex"
+               title="Toutes les images d'un dossier du disque">
+          <GalleryHorizontalEnd className="mr-1 h-4 w-4" /> Dossier…
+          <input type="file" className="hidden" multiple webkitdirectory="" directory=""
+                 onChange={(e) => { envoyer(e.target.files); e.target.value = ""; }} />
+        </label>
+      </div>
+      {/* Glisser-déposer d'images (ordinateur) */}
+      <div onDragOver={(e) => { e.preventDefault(); setSurvol(true); }} onDragLeave={() => setSurvol(false)}
+           onDrop={(e) => { e.preventDefault(); setSurvol(false); envoyer(e.dataTransfer.files); }}
+           className={`rounded-md border border-dashed px-3 py-2 text-center text-xs ${survol ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-300 text-slate-500"}`}>
+        Glissez des images ici (JPEG, PNG, WebP, HEIC : converties en JPEG de 5 Mo au plus si besoin)
       </div>
       <input className={champ} placeholder="ou adresse https://… d'une image JPEG ou PNG" value={valeur}
              onChange={(e) => onChange(e.target.value)} />

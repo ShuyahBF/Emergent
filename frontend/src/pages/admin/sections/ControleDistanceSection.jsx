@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { RefreshCw, MonitorSmartphone, Search, ArrowUp, ArrowDown, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X, Trash2, VideoOff } from "lucide-react";
+import { RefreshCw, MonitorSmartphone, Search, ChevronDown, ChevronUp, ArrowUp, ArrowDown, UserX, ServerCog, KeyRound, PlayCircle, Ticket, X, Trash2, VideoOff } from "lucide-react";
 // Lot 135 — prise en main dans les onglets (plusieurs postes à la fois)
 import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
 import { FenetreIdentifiants } from "@/components/ControleDistance";
@@ -44,6 +44,14 @@ export default function ControleDistanceSection({ lienPage = true }) {
   // Un même ordinateur apparaît une fois par session utilisateur + une fois pour le service Windows : par défaut on ne
   // garde que la ligne « service Windows » (elle marche écran verrouillé, session fermée) ; case pour tout afficher
   const [toutesSessions, setToutesSessions] = useState(false);
+  // Texte d'aide : 2 lignes par défaut, dépliable (choix mémorisé dans ce navigateur) pour laisser la place à la liste des postes
+  const [aideOuverte, setAideOuverte] = useState(() => {
+    try { return window.localStorage.getItem("cd_aide_ouverte") === "1"; } catch { return false; }
+  });
+  const basculerAide = () => setAideOuverte((v) => {
+    try { window.localStorage.setItem("cd_aide_ouverte", v ? "0" : "1"); } catch { /* stockage indisponible : sans conséquence */ }
+    return !v;
+  });
   const [superAdmin, setSuperAdmin] = useState(false);
   // Lot 135 — réglages, identifiant Windows ouvert, vidéo en lecture, détail d'une session
   const [reglages, setReglages] = useState(null);
@@ -137,10 +145,19 @@ export default function ControleDistanceSection({ lienPage = true }) {
           <MonitorSmartphone className="h-3.5 w-3.5" />Ouvrir Plateformes → Contrôle à distance
         </a>
       )}
-      <p>
-        Le support SAWALI peut <b>voir l'écran</b> d'un poste Loois ou <b>en prendre le contrôle</b> (souris, clavier,
-        plusieurs écrans, presse-papiers), directement depuis le navigateur.
-      </p>
+      <div>
+        <p className={aideOuverte ? "" : "line-clamp-2"}>
+          Le support SAWALI peut <b>voir l'écran</b> d'un poste Loois ou <b>en prendre le contrôle</b> (souris, clavier,
+          plusieurs écrans, presse-papiers), directement depuis le navigateur. Accord de l'utilisateur obligatoire, sauf poste
+          « sans surveillance » ; seuls les postes munis d'une clé client Loois sont concernés.
+        </p>
+        <button type="button" onClick={basculerAide} aria-expanded={aideOuverte} data-testid="controle-distance-aide"
+                className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline">
+          {aideOuverte ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {aideOuverte ? "Masquer les détails" : "Afficher les détails"}
+        </button>
+      </div>
+      {aideOuverte && (
       <ul className="list-disc space-y-1 pl-5">
         <li>Où : ici (liste des postes), ou depuis le chat du support (fil du poste) → bouton <b>« Prendre la main »</b>, même sans session d'assistance.</li>
         <li>Accord obligatoire : l'utilisateur du poste accepte (ou réduit à « Voir seulement »), voit un bandeau rouge et peut <b>arrêter</b> à tout moment.</li>
@@ -168,6 +185,7 @@ export default function ControleDistanceSection({ lienPage = true }) {
         <li><b>Vidéos</b> supprimées automatiquement chaque nuit (03:20) au-delà de la durée de conservation réglée ci-dessous (90 jours par défaut) ; le journal, lui, est conservé.</li>
         <li>Volet repliable : <b>caractéristiques</b> matérielles et logicielles, <b>performances</b> en direct, <b>chat</b> avec l'utilisateur (même hors prise en main), fichiers.</li>
       </ul>
+      )}
 
       {/* ---- Lot 135 : réglages ---- */}
       {reglages && (

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.8", "date": "2026-10-13",
+        "titre": "↕️ Contrôle à distance : texte d'aide dépliable",
+        "description": "Le texte d'explication de l'écran est réduit à 2 lignes avec « Afficher les détails » : plus de place pour la liste des postes Loois (choix mémorisé dans le navigateur).",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.7", "date": "2026-10-13",
         "titre": "🔑 Contrôle à distance : identifiants Windows séparés par client",
         "description": "Deux clients ayant un ordinateur de même nom (ex. XVERSER) ne partagent plus l'identifiant Windows mémorisé ni les dossiers de transfert : chaque ordinateur n'affiche que les siens. À ressaisir une fois par poste.",

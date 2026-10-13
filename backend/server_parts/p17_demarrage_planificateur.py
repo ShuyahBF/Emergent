@@ -1036,6 +1036,22 @@ async def _start_scheduler():
                 misfire_grace_time=300,
             )
 
+            # Lot 135.1 — contrôle à distance : purge des vidéos plus anciennes que la durée de conservation (réglage de la
+            # rubrique « 🖥️ Contrôle à distance Loois », 90 jours par défaut), chaque nuit à 03:20
+            async def _scheduled_purge_videos_controle_distance():
+                try:
+                    from routes.controle_distance import StockageR2, purger_videos  # noqa: E402
+                    await purger_videos(db, StockageR2())
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[scheduler:purge_videos_controle_distance] %s", exc)
+            _safe_add_job(
+                _scheduled_purge_videos_controle_distance,
+                CronTrigger(hour=3, minute=20, timezone="Africa/Abidjan"),
+                id="purge_videos_controle_distance_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+
             # Lot 87 — images IA du chat de support : envois planifiés (date et heure choisies), chaque minute
             async def _scheduled_images_ia_chat():
                 try:

@@ -40,6 +40,11 @@ class FauxStockage:
     async def lire(self, chemin):
         return self.objets[chemin]
 
+    async def supprimer(self, chemin):
+        if "refus" in chemin:
+            raise RuntimeError("R2 indisponible")
+        self.objets.pop(chemin, None)
+
 
 def _app():
     base = AsyncMongoMockClient()["test_controle_distance_135"]
@@ -231,3 +236,31 @@ def test_dossiers_des_transferts_memorises_par_ordinateur():
     r = client.get(f"/api/controle-distance/postes/{poste_id('Pharmacie A', 'CAISSE-1', '')}/dossiers", headers=TECH).json()
     assert r == {"dossier_base": "D:\\Partage\\Support", "dernier_chemin": "C:\\Temp"}
     assert action_journal({"type": "fichier_debut", "nom": "a.pdf", "taille": 3, "chemin": "D:\\X"})["detail"].endswith("→ D:\\X")
+
+
+def test_purge_automatique_des_videos_apres_la_conservation():
+    """Lot 135.1 — vidéos supprimées après N jours (réglage) ; journal conservé ; échec réessayé la nuit suivante."""
+    from datetime import datetime, timezone
+    from routes.controle_distance import purger_videos
+    client, base, _, stockage = _app()
+    for sid, fin in (("vieille", "2026-01-01T10:00:00+00:00"), ("recente", "2026-10-10T10:00:00+00:00")):
+        _run(base.controle_distance_sessions.insert_one({"id": sid, "numero": f"CD-{sid}", "video": True, "video_parties": [0, 1],
+                                                         "video_octets": 300, "fin_le": fin, "cree_le": fin}))
+        for i in (0, 1):
+            stockage.objets[outils.chemin_partie_video(sid, i)] = b"x"
+    quand = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    bilan = _run(purger_videos(base, stockage, quand=quand))   # réglage par défaut : 90 jours
+    assert bilan == {"jours": 90, "sessions": 1, "octets": 300, "erreurs": 0}
+    vieille = _run(base.controle_distance_sessions.find_one({"id": "vieille"}))
+    assert vieille["video"] is False and vieille["video_purgee"] and vieille["numero"] == "CD-vieille"
+    assert not any("vieille" in c for c in stockage.objets) and outils.chemin_partie_video("recente", 0) in stockage.objets
+    # Durée de conservation réglée à 1 jour : la session récente est purgée à son tour ; une purge déjà faite n'est pas refaite
+    client.put("/api/controle-distance/reglages", json={"conservation_jours": 1}, headers=TECH)
+    assert _run(purger_videos(base, stockage, quand=quand))["sessions"] == 1
+    assert _run(purger_videos(base, stockage, quand=quand))["sessions"] == 0
+    # Partie impossible à supprimer : la session garde sa vidéo (nouvel essai la nuit suivante)
+    _run(base.controle_distance_sessions.insert_one({"id": "refus", "video": True, "video_parties": [0], "fin_le": "2026-01-01T00:00:00+00:00"}))
+    bilan = _run(purger_videos(base, stockage, quand=quand))
+    assert bilan["erreurs"] == 1 and _run(base.controle_distance_sessions.find_one({"id": "refus"}))["video"] is True
+    # Bouton « Purger maintenant » de la rubrique
+    assert client.post("/api/controle-distance/videos/purger", headers=TECH).json()["jours"] == 1

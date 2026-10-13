@@ -81,6 +81,7 @@ import AdminDocuments from "@/pages/admin/AdminDocuments";
 import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
+import AdminControleDistance from "@/pages/admin/AdminControleDistance";   // Lot 135.1 : Plateformes → Contrôle à distance
 import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
 import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
 import AdminSyntheseSupport from "@/pages/admin/AdminSyntheseSupport";   // Lot 92 : synthèse du support
@@ -509,6 +510,7 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             {/* Lot 63 — suivi en temps réel des plateformes (administrateur) */}
             <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
+            <Route path="controle-distance" element={<AdminControleDistance />} />
             <Route path="requetes" element={<AdminRequetes />} />
             <Route path="evaluations-loois" element={<AdminEvaluationsLoois />} />
             <Route path="synthese-support" element={<AdminSyntheseSupport />} />

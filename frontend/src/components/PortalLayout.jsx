@@ -8,6 +8,7 @@ import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « L
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
 import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
 import { LifeBuoy } from "lucide-react";   // lot 92 : synthèse du support
+import { MonitorSmartphone } from "lucide-react";   // lot 135.1 : Plateformes → Contrôle à distance
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -224,6 +225,8 @@ const adminLinks = [
   { to: "/admin/synthese-support", label: "Synthèse du support", icon: LifeBuoy, adminOrSup: true },   // lot 92 : non répondues, totaux, Claude
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
+  // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)
+  { to: "/admin/controle-distance", label: "Contrôle à distance", icon: MonitorSmartphone, adminOnly: true, groupe: "plateformes" },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

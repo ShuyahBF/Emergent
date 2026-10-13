@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.3", "date": "2026-10-13",
+        "titre": "🔒 Loois : statut du contrat pour anonymiser les états PDF",
+        "description": "SAWALI indique à Loois si le contrat du client est actif (compte lié à la clé client) ; sinon nom, matricule et téléphone sont masqués dans les PDF.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "135.2", "date": "2026-10-13",
         "titre": "🖥️ Contrôle à distance : bureaux virtuels de Windows",
         "description": "Trois boutons dans les actions système de la prise en main : bureau virtuel suivant, précédent, nouveau (raccourcis Win+Ctrl). L'écran de l'utilisateur change sous ses yeux, avec son accord et le bandeau rouge ; il peut revenir quand il veut.",

@@ -442,6 +442,26 @@ def json_sur(valeur: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+def statut_contrat_loois(client: Optional[Dict[str, Any]], a: datetime) -> Dict[str, Any]:
+    """Lot 135.3 — statut du contrat d'un client (fiche `users` du compte principal) pour Loois.
+
+    statut : « a_jour » | « grace » (délai de grâce) | « sans_echeance » (contrat sans périodicité) → actif ;
+             « expire » | « suspendu » | « archive » | « non_lie » (aucun compte lié à la clé) → NON actif.
+    `anonymiser` est vrai dès que le contrat n'est pas actif : le plus sûr en cas de doute."""
+    import abonnement_acces as abo
+    import cycle_vie_abonnements as cv
+
+    if not client:
+        return {"statut": "non_lie", "actif": False, "anonymiser": True, "echeance": None}
+    bloquant = cv.statut_bloquant(client, a)           # SUSPENDU_NON_RENOUVELE ou ARCHIVE
+    if bloquant:
+        statut = "archive" if bloquant == cv.ARCHIVE else "suspendu"
+        return {"statut": statut, "actif": False, "anonymiser": True, "echeance": None}
+    etat = abo.etat_client(client, a)
+    actif = etat["statut"] in (abo.A_JOUR, abo.GRACE, abo.SANS_ECHEANCE)
+    return {"statut": etat["statut"], "actif": actif, "anonymiser": not actif, "echeance": etat.get("echeance")}
+
+
 def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
     """Branche les routes du lot 68 (appelée depuis server_parts/p20)."""
     from fastapi import Depends, HTTPException
@@ -552,6 +572,20 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
         code = site_de_la_cle(identite, app, site)
         config = await lire_config(app, code)
         return structure_client(app, [t["nom"] for t in config.get("tables") or []])
+
+    @api.get("/loois/contrat", tags=["Loois synchro"])
+    async def contrat_loois(request: Request, machine: str = ""):
+        """Lot 135.3 — statut du CONTRAT auquel la clé client Loois est liée (compte client « tenant_id » de la fiche
+        de la clé). Loois s'en sert pour ANONYMISER ses états PDF (nom, matricule, téléphone) dès que le contrat n'est
+        pas actif. Clé commune ou clé non liée à un compte : statut « non_lie » → anonymisation."""
+        identite = await verifier_cle(request, machine)
+        client = None
+        if identite.get("type") == "client":
+            fiche = await db.loois_cles_clients.find_one({"id": identite["id"]}, {"_id": 0, "tenant_id": 1})
+            tenant = (fiche or {}).get("tenant_id")
+            if tenant:
+                client = await db.users.find_one({"id": tenant}, {"_id": 0, "password_hash": 0})
+        return {"client": cles.libelle_identite(identite), **statut_contrat_loois(client, _maintenant())}
 
     @api.post("/loois/synchro/lot", tags=["Loois synchro"])
     async def recevoir_lot(request: Request):

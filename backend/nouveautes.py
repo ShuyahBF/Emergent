@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "137", "date": "2026-10-13",
+        "titre": "🎓 Enrôler une école e-Kol en un geste",
+        "description": "Une fiche (code, nom, ville) crée la clé de l'école et l'enregistre dans le portail avec le même code, puis suit l'avancement école par école.",
+        "rubrique": "🎓 Portail e-Kol (élèves et parents)",
+    },
+    {
         "lot": "136", "date": "2026-10-13",
         "titre": "🖼️ Un mince filet foncé autour des cartes",
         "description": "Les cartes d'information sont encadrées d'un filet noir (gris sur gris se voyait mal) ; la couleur se règle dans la rubrique « Cadre des cartes » : noir, gris foncé, bleu ou aucun.",

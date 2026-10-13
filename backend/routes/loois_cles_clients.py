@@ -54,7 +54,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
 
@@ -185,6 +185,22 @@ def nettoyer_fiche(corps: Any, *, creation: bool) -> Dict[str, Any]:
         propre["tenant_id"] = (str(corps.get("tenant_id") or "").strip()[:80] or None)
         propre["client_nom"] = (str(corps.get("client_nom") or "").strip()[:160] or None)
     return propre
+
+
+async def creer_fiche_cle(db, propre: Dict[str, Any], par: str) -> Tuple[str, Dict[str, Any]]:
+    """Crée et enregistre la fiche d'une clé client (« propre » = champs validés par nettoyer_fiche) ; renvoie (clé en clair,
+    fiche). La clé en clair n'existe qu'ici et dans la réponse : seule son empreinte est gardée. Réutilisée par l'enrôlement
+    d'une école (routes/ekol_enrolement.py)."""
+    cle = generer_cle()
+    p = poivre()
+    champs = {"cle_hash": hacher_cle(cle, p), "cle_poivree": bool(p), "prefixe": prefixe_affiche(cle)}
+    maintenant = _maintenant().isoformat()
+    fiche = {"id": str(uuid.uuid4()), **propre, **champs, "actif": True, "cree_le": maintenant,
+             "cree_par": par, "derniere_utilisation": None, "derniere_machine": None, "revoquee_le": None,
+             "historique": [{"action": "creation", "le": maintenant, "par": par, "prefixe": champs["prefixe"]}]}
+    await db.loois_cles_clients.insert_one(dict(fiche))
+    ETAT["clients_actifs"] = True
+    return cle, fiche
 
 
 def fiche_publique(fiche: Dict[str, Any]) -> Dict[str, Any]:
@@ -325,14 +341,8 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         if await db.loois_cles_clients.count_documents({}) >= MAX_CLES:
             raise HTTPException(status_code=429, detail="trop de clés enregistrées")
         await index()
-        nouvelle = nouvelle_empreinte()
-        maintenant = _maintenant().isoformat()
-        fiche = {"id": str(uuid.uuid4()), **propre, **nouvelle["champs"], "actif": True, "cree_le": maintenant,
-                 "cree_par": auteur(user), "derniere_utilisation": None, "derniere_machine": None, "revoquee_le": None,
-                 "historique": [{"action": "creation", "le": maintenant, "par": auteur(user), "prefixe": nouvelle["champs"]["prefixe"]}]}
-        await db.loois_cles_clients.insert_one(dict(fiche))
-        ETAT["clients_actifs"] = True
-        return {"ok": True, "cle": nouvelle["cle"], "fiche": fiche_publique(fiche)}
+        cle, fiche = await creer_fiche_cle(db, propre, auteur(user))
+        return {"ok": True, "cle": cle, "fiche": fiche_publique(fiche)}
 
     @api.put("/admin/loois-cles-clients/{id_fiche}", tags=["Loois clés clients"])
     async def modifier(id_fiche: str, request: Request, user: dict = Depends(get_current_user)):

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "138", "date": "2026-10-13",
+        "titre": "💬 Le nom WhatsApp d'un numéro transmis aux plateformes (ZandGo)",
+        "description": "Une plateforme émettrice (ZandGo) peut demander, par une requête signée avec sa clé, le nom de profil WhatsApp des numéros de ses clients : connu seulement pour ceux qui ont déjà écrit à SAWALI.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "137", "date": "2026-10-13",
         "titre": "🎓 Enrôler une école e-Kol en un geste",
         "description": "Une fiche (code, nom, ville) crée la clé de l'école et l'enregistre dans le portail avec le même code, puis suit l'avancement école par école.",

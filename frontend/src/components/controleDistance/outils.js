@@ -123,6 +123,10 @@ export function mesuresFinales(c, moteur, echelle) {
 /** Libellés des actions système (confirmation demandée avant l'envoi). */
 export const ACTIONS_SYSTEME = {
   ctrl_alt_suppr: { titre: "Ctrl+Alt+Suppr", texte: "Envoyer Ctrl+Alt+Suppr au poste (écran de sécurité de Windows) ?", danger: false },
+  // Lot 135.2 : bureaux virtuels de Windows (Win+Tab). L'écran de l'utilisateur change sous ses yeux ; il revient en arrière avec Win+Ctrl+← / →.
+  bureau_suivant: { titre: "Bureau virtuel suivant", texte: "Afficher le bureau virtuel suivant (Win+Ctrl+→) ? L'écran de l'utilisateur change sous ses yeux ; il peut revenir avec Win+Ctrl+←.", danger: false },
+  bureau_precedent: { titre: "Bureau virtuel précédent", texte: "Afficher le bureau virtuel précédent (Win+Ctrl+←) ? L'écran de l'utilisateur change sous ses yeux.", danger: false },
+  bureau_nouveau: { titre: "Nouveau bureau virtuel", texte: "Créer un nouveau bureau virtuel et l'afficher (Win+Ctrl+D) ? L'utilisateur voit le changement et peut revenir à son bureau avec Win+Ctrl+←.", danger: false },
   verrouiller: { titre: "Verrouiller", texte: "Verrouiller le poste ? L'utilisateur devra saisir son mot de passe.", danger: false },
   deconnecter: { titre: "Déconnecter l'utilisateur", texte: "Fermer la session Windows de l'utilisateur ? Les documents non enregistrés seront perdus.", danger: true },
   redemarrer: { titre: "Redémarrer", texte: "Redémarrer le poste dans 5 secondes ? Les applications seront fermées de force. Le service Windows Loois permet de reprendre la main après le redémarrage.", danger: true },

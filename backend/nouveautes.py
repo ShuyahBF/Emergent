@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "135.2", "date": "2026-10-13",
+        "titre": "🖥️ Contrôle à distance : bureaux virtuels de Windows",
+        "description": "Trois boutons dans les actions système de la prise en main : bureau virtuel suivant, précédent, nouveau (raccourcis Win+Ctrl). L'écran de l'utilisateur change sous ses yeux, avec son accord et le bandeau rouge ; il peut revenir quand il veut.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "135.1", "date": "2026-10-13",
         "titre": "🗑️ Contrôle à distance : purge des vidéos et menu Plateformes",
         "description": "Les vidéos des prises en main sont supprimées chaque nuit après la durée de conservation réglable (90 jours par défaut, bouton « Purger maintenant ») ; l'écran est aussi dans la barre latérale : Plateformes → Contrôle à distance.",

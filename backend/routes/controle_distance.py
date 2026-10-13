@@ -92,7 +92,9 @@ COMMANDES_AFFICHAGE = {"choix_ecran", "qualite", "image_complete", "ping", "arre
 # Lot 135 — commandes TRAITÉES PAR LE SERVEUR (jamais relayées telles quelles), mode « contrôler » seulement
 COMMANDES_SERVEUR = {"identifiants_windows"}
 # Lot 135 — actions système acceptées
-ACTIONS_SYSTEME = {"deconnecter", "redemarrer", "eteindre", "verrouiller", "ctrl_alt_suppr"}
+# Lot 135.2 : bureaux virtuels de Windows (Win+Tab) — bascule VISIBLE de l'écran de l'utilisateur (raccourcis Win+Ctrl+→ / ← / D)
+ACTIONS_SYSTEME = {"deconnecter", "redemarrer", "eteindre", "verrouiller", "ctrl_alt_suppr",
+                   "bureau_suivant", "bureau_precedent", "bureau_nouveau"}
 # Informations que le poste peut envoyer au technicien
 MESSAGES_POSTE = {"ecrans", "curseur", "stats", "presse_papiers", "pong", "arreter", "erreur",
                   # Lot 135

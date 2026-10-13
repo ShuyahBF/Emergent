@@ -54,6 +54,10 @@ function shiftColor(hex, amount) {
 
 function applyBranding(flags) {
   if (!flags) return;
+  // Lot 136 — filet des cartes : attribut lu par les règles de index.css (noir par défaut)
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-carte-filet", flags.ui_carte_filet || "noir");
+  }
   // Document title
   if (flags.public_brand_name && typeof document !== "undefined") {
     document.title = flags.public_brand_name;

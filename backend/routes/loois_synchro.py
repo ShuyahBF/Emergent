@@ -455,6 +455,10 @@ def statut_contrat_loois(client: Optional[Dict[str, Any]], a: datetime) -> Dict[
 
     if not client:
         return {"statut": "non_lie", "actif": False, "anonymiser": True, "echeance": None}
+    # Lot 159 — « Pseudo contrat VALIDE » coché (5 jours) : contrat valide quelles que soient ses informations
+    from routes.pseudo_contrat import pseudo_actif
+    if pseudo_actif(client, a):
+        return {"statut": "pseudo_valide", "actif": True, "anonymiser": False, "echeance": None}
     bloquant = cv.statut_bloquant(client, a)           # SUSPENDU_NON_RENOUVELE ou ARCHIVE
     if bloquant:
         statut = "archive" if bloquant == cv.ARCHIVE else "suspendu"

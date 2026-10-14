@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "159", "date": "2026-10-14",
+        "titre": "🟥 Pseudo contrat VALIDE (5 jours) sur la fiche client",
+        "description": "Une case sur la fiche client rend son contrat valide pendant 5 jours quelles que soient ses informations (puce, ligne Liluvine VIP, états Loois non anonymisés) ; les clients concernés sont écrits en rouge dans la liste.",
+        "rubrique": "🟥 Pseudo contrat VALIDE",
+    },
+    {
         "lot": "158", "date": "2026-10-14",
         "titre": "💬 Ligne Liluvine VIP réservée aux contrats valides",
         "description": "Un client dont le contrat est en retard ou absent reçoit un message automatique (réglable, activable) sur la ligne VIP ; dans la conversation, l'agent choisit le canal, et la ligne VIP est forcée sur la ligne standard pour un client sans contrat valide, avec notification.",

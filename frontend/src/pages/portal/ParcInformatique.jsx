@@ -17,7 +17,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Download, Loader2, Monitor, Plus, Search, Trash2, Upload, Wrench, X } from "lucide-react";
+import { Download, Loader2, Monitor, Pencil, Plus, Search, Trash2, Upload, Wrench, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import ParcInterventions, { BadgeSignature, ETATS, FormulaireIntervention, PhotosParc, TYPES, champ, dateHeureFr, erreur, telecharger } from "@/components/ParcInterventions";
@@ -111,6 +111,42 @@ function FormulaireEquipement({ equipement, categories, compteClientId, clients,
           <Button onClick={enregistrer} disabled={occupe || !f.categorie} data-testid="parc-equipement-enregistrer">
             {occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Enregistrer
           </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Lot 150 : modification RAPIDE, machine par machine, du site, du service, du bureau et de l'utilisateur affecté
+// (utile quand Loois ne remonte pas le site d'un poste). Enregistre les champs saisis ; les autres champs de la fiche sont renvoyés tels quels.
+function LieuMachine({ equipement, sites, onClose, onEnregistre }) {
+  const [f, setF] = useState({ site: equipement.site || "", service: equipement.service || "", bureau: equipement.bureau || "", utilisateur_affecte: equipement.utilisateur_affecte || "" });
+  const [occupe, setOccupe] = useState(false);
+  const enregistrer = async () => {
+    setOccupe(true);
+    // Corps complet de la fiche (le serveur remplace la fiche) : champs existants + 4 champs modifiés
+    const corps = { ...Object.fromEntries(Object.keys(VIDE).map((k) => [k, equipement[k] ?? VIDE[k]])), ...f,
+      date_achat: equipement.date_achat || null, fin_garantie: equipement.fin_garantie || null };
+    try { await apiClient.put(`/me/parc/equipements/${equipement.id}`, corps); toast.success("Lieu mis à jour"); onEnregistre(); }
+    catch (e) { toast.error(erreur(e, "Enregistrement impossible")); }
+    finally { setOccupe(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 p-3" data-testid="parc-lieu-modal">
+      <div className="w-full max-w-md space-y-3 rounded-xl bg-white p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800">Lieu · {equipement.nom_hote || equipement.numero_inventaire}</h2>
+          <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
+        </div>
+        <datalist id="parc-sites-connus">{(sites || []).map((x) => <option key={x} value={x} />)}</datalist>
+        {[["site", "Site (clinique, école…)", "parc-sites-connus"], ["service", "Service"], ["bureau", "Bureau"], ["utilisateur_affecte", "Utilisateur affecté"]].map(([k, l, liste]) => (
+          <label key={k} className="block text-xs text-slate-600">{l}
+            <input className={champ} list={liste} value={f[k]} onChange={(e) => setF((p) => ({ ...p, [k]: e.target.value }))} data-testid={`parc-lieu-${k}`} />
+          </label>
+        ))}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button onClick={enregistrer} disabled={occupe} data-testid="parc-lieu-enregistrer">{occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Enregistrer</Button>
         </div>
       </div>
     </div>
@@ -240,6 +276,7 @@ export default function ParcInformatique() {
   const [edition, setEdition] = useState(null);             // null | "nouveau" | équipement
   const [fiche, setFiche] = useState(null);                 // id de l'équipement affiché
   const [importer, setImporter] = useState(false);
+  const [lieuEdite, setLieuEdite] = useState(null);           // équipement dont on modifie le lieu / l'utilisateur
   const [parametres, setParametres] = useSearchParams();
 
   // Lot 66 : « ?equipement=<id> » (lien des détails d'un poste) → la fiche s'ouvre directement
@@ -390,7 +427,10 @@ export default function ParcInformatique() {
                       <span className="block text-[11px] font-medium text-slate-600">{e.nom_hote ? e.categorie : ""}</span>
                       <span className="block text-[11px] text-slate-500">{[e.fabricant, e.modele].filter(Boolean).join(" ")}</span></td>
                     <td className="p-2 font-mono text-[11px]">{e.numero_serie || "—"}<span className="block">{e.adresse_mac || ""}</span><span className="block">{e.adresse_ip || ""}</span></td>
-                    <td className="p-2 text-xs">{lieu(e) || "—"}<span className="block text-slate-500">{e.utilisateur_affecte || ""}</span></td>
+                    <td className="p-2 text-xs" onClick={(x) => x.stopPropagation()}>
+                      <button type="button" title="Modifier le site, le service, le bureau et l'utilisateur de cette machine" onClick={() => setLieuEdite(e)}
+                        className="float-right ml-1 rounded p-1 text-indigo-600 hover:bg-indigo-50" data-testid="parc-lieu-modifier"><Pencil className="h-3.5 w-3.5" /></button>
+                      {lieu(e) || "—"}<span className="block text-slate-500">{e.utilisateur_affecte || ""}</span></td>
                     <td className="p-2"><Etat etat={e.etat} /></td>
                     <td className="p-2 text-xs">{e.derniere_intervention ? <>{e.derniere_intervention.numero}<span className="block text-slate-500">{dateFr(e.derniere_intervention.date)}</span></> : "—"}</td>
                     <td className="p-2" onClick={(x) => x.stopPropagation()}>
@@ -416,6 +456,7 @@ export default function ParcInformatique() {
           }} />
       )}
       {fiche && !edition && <FicheEquipement id={fiche} equipements={equipements} onClose={() => setFiche(null)} onModifier={(e) => setEdition(e)} onChange={charger} />}
+      {lieuEdite && <LieuMachine key={lieuEdite.id} equipement={lieuEdite} sites={donnees?.sites} onClose={() => setLieuEdite(null)} onEnregistre={() => { setLieuEdite(null); charger(); }} />}
       {importer && <ImportCsv compteClientId={compte} onClose={() => setImporter(false)} onImporte={charger} />}
     </div>
   );

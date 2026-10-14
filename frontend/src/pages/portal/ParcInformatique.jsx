@@ -317,17 +317,24 @@ export default function ParcInformatique() {
   const doitChoisir = clients.admin && !compte;
   const equipements = donnees?.equipements || [];
 
-  // Rupture par « Nom de site » : groupes triés par nom, « (Sans site) » en dernier
+  // Rupture par « Nom de site » : la casse et les espaces autour sont ignorés (« Clinique X » = « CLINIQUE X ») ;
+  // le libellé affiché est l'orthographe la plus fréquente du groupe. Groupes triés par nom, « (Sans site) » en dernier.
   const groupes = (() => {
     const m = new Map();
     for (const e of equipements) {
-      const cle = (e.site || "").trim();
-      if (!m.has(cle)) m.set(cle, []);
-      m.get(cle).push(e);
+      const nom = (e.site || "").trim();
+      const cle = nom.toLocaleLowerCase("fr");
+      if (!m.has(cle)) m.set(cle, { items: [], orthographes: new Map() });
+      const g = m.get(cle);
+      g.items.push(e);
+      if (nom) g.orthographes.set(nom, (g.orthographes.get(nom) || 0) + 1);
     }
     return [...m.entries()]
-      .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, "fr")))
-      .map(([cle, items]) => ({ cle, nom: cle || SANS_SITE, items }));
+      .map(([cle, g]) => {
+        const nom = [...g.orthographes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+        return { cle: nom, cleGroupe: cle, nom: nom || SANS_SITE, items: g.items };
+      })
+      .sort((a, b) => (a.cle === "" ? 1 : b.cle === "" ? -1 : a.cle.localeCompare(b.cle, "fr", { sensitivity: "base" })));
   })();
 
   // Renomme / définit le site de toutes les machines d'un groupe (ids du groupe affiché)
@@ -409,7 +416,7 @@ export default function ParcInformatique() {
                 {!donnees && <tr><td colSpan={7} className="p-4 text-center"><Loader2 className="inline h-4 w-4 animate-spin" /></td></tr>}
                 {donnees && equipements.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-slate-400">Aucun équipement.{doitChoisir ? " Choisissez un client pour en ajouter ou en importer." : ""}</td></tr>}
                 {groupes.map((g) => (
-                  <React.Fragment key={g.cle || "__sans_site"}>
+                  <React.Fragment key={g.cleGroupe || "__sans_site"}>
                     {/* En-tête de rupture : nom du site, nombre de machines, bouton pour renommer / définir le site du groupe */}
                     <tr className="bg-indigo-50" data-testid="parc-rupture-site">
                       <td colSpan={7} className="p-2 text-sm font-semibold text-indigo-900">

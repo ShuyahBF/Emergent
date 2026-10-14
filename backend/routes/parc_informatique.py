@@ -598,7 +598,8 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         if etat:
             filtre["etat"] = etat
         if site:
-            filtre["site"] = site
+            # Lot 151 : « Clinique Médicale IPALA » = « CLINIQUE MEDICALE IPALA » (casse ignorée ; accents et espaces en bord conservés)
+            filtre["site"] = {"$regex": "^" + re.escape(site.strip()) + "$", "$options": "i"}
         if q and q.strip():
             motif = {"$regex": re.escape(q.strip()), "$options": "i"}
             filtre["$or"] = [{k: motif} for k in ("numero_inventaire", "fabricant", "modele", "numero_serie",
@@ -620,7 +621,12 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         for e in tous:
             compte[e.get("etat") if e.get("etat") in ETATS else "en_service"] += 1
             categories_vues[e.get("categorie") or "Autre"] = categories_vues.get(e.get("categorie") or "Autre", 0) + 1
-        sites = sorted({e["site"] for e in tous if e.get("site")}, key=str.lower)
+        # Lot 151 : un seul libellé par site, quelle que soit la casse (le premier rencontré)
+        uniques: Dict[str, str] = {}
+        for e in tous:
+            if (e.get("site") or "").strip():
+                uniques.setdefault(e["site"].strip().casefold(), e["site"].strip())
+        sites = sorted(uniques.values(), key=str.lower)
         return {"equipements": liste, "total": len(tous), "compte": compte, "par_categorie": categories_vues,
                 "sites": sites}
 

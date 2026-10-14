@@ -538,6 +538,22 @@ function TicketRow({ t, reload, targets }) {
     } finally { setBusy(false); }
   };
 
+  // Lot 144 — modifier le motif d'un ticket ouvert (200 caractères au plus ; l'original est conservé côté serveur)
+  const [motifEdition, setMotifEdition] = useState(null);   // texte en cours de saisie, null = pas d'édition
+  const enregistrerMotif = async () => {
+    const m = (motifEdition || "").trim();
+    if (!m || m.length > 200) { toast.error("Motif invalide (1 à 200 caractères)."); return; }
+    setBusy(true);
+    try {
+      await apiClient.patch(`/me/tickets/${t.id}`, { motif: m });
+      toast.success("Motif modifié");
+      setMotifEdition(null);
+      await reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
   const assignTo = async (userId) => {
     setBusy(true);
     try {
@@ -682,6 +698,13 @@ function TicketRow({ t, reload, targets }) {
             <div className="rounded-lg border border-slate-200 bg-white p-3" data-testid={`ticket-full-reason-${t.id}`}>
               <div className="flex items-center justify-between gap-3 mb-1">
                 <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Motif complet</span>
+                {!isClosed && motifEdition === null && (
+                  <button type="button" onClick={() => setMotifEdition(t.motif || t.reason || "")}
+                          className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50"
+                          data-testid={`ticket-${t.id}-edit-motif`} title="Modifier le motif du ticket">
+                    ✏️ Modifier
+                  </button>
+                )}
                 {(t.contact_phone || t.contact_whatsapp) && (
                   <button
                     onClick={async () => {
@@ -708,7 +731,28 @@ function TicketRow({ t, reload, targets }) {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">{t.motif || t.reason}</p>
+              {motifEdition === null ? (
+                <>
+                  <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">{t.motif || t.reason}</p>
+                  {t.motif_modifie_le && (
+                    <p className="mt-1 text-[10px] text-slate-400" title={t.motif_initial ? `Motif d'origine : ${t.motif_initial}` : undefined}>
+                      Motif modifié par {t.motif_modifie_par || "—"} le {new Date(t.motif_modifie_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <textarea value={motifEdition} onChange={(e) => setMotifEdition(e.target.value)} rows={3} maxLength={200} autoFocus
+                            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs" data-testid={`ticket-${t.id}-motif-input`} />
+                  <div className="flex items-center gap-2">
+                    <button type="button" disabled={busy || !motifEdition.trim()} onClick={enregistrerMotif}
+                            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Enregistrer</button>
+                    <button type="button" disabled={busy} onClick={() => setMotifEdition(null)}
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50">Annuler</button>
+                    <span className="ml-auto text-[10px] text-slate-400 tabular-nums">{motifEdition.length} / 200</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {!isClosed && targets && targets.length > 0 && (

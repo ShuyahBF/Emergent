@@ -765,14 +765,18 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           <div className="min-w-0 flex-1">
             {/* Lot 120 — puce carrée de l'état du contrat (vert valide, orange retard, rouge aucun) ;
                 survol / focus / appui : détail sans montant. Rien pour un contact interne. */}
-            <PuceContrat contrat={contrat} className="mr-1.5" testid={`contact-contrat-${c.id}`} />
+            {/* Lot 154 — le NOM ne doit jamais être écrasé : puce + nom sur une même ligne qui peut passer à la ligne ;
+                le nom (classe « truncate » avant) se réduisait à 0 de large dans la colonne étroite à cause de la
+                pastille de ligne WhatsApp qui ne rétrécit pas. Il revient maintenant à la ligne au besoin. */}
+            <div className="flex flex-wrap items-center gap-y-0.5">
+            <PuceContrat contrat={contrat} className="mr-1.5 shrink-0" testid={`contact-contrat-${c.id}`} />
             <button
               onClick={onHistory}
-              className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex items-center gap-2"
+              className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 max-w-full"
               title="Voir la conversation WhatsApp"
               data-testid={`contact-name-${c.id}`}
             >
-              <span className="truncate">{c.name}</span>
+              <span className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]">{c.name}</span>
               {/* Lot 59 — ligne WhatsApp du contact (affichée seulement s'il en existe plusieurs) */}
               <PastilleLigneWa
                 libelle={c.wa_ligne_libelle}
@@ -790,6 +794,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
                 </span>
               )}
             </button>
+            </div>
             {/* Lot 23 — date/heure et sens du dernier échange (WhatsApp/SMS de ce tenant, hors envois en masse).
                 Lot 24 — affichée en colonne ; ici seulement sur mobile, où la colonne est masquée. */}
             <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "143", "date": "2026-10-14",
+        "titre": "🔒 Contrôle à distance : fermé à la déconnexion",
+        "description": "Quand vous fermez votre session SAWALI, toutes les prises en main en cours sont arrêtées et la fenêtre de contrôle à distance (y compris la pastille « N prises en main » réduite) est fermée : elle n'apparaît plus pour le compte suivant.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "142", "date": "2026-10-14",
         "titre": "↔️ Contrôle à distance : barre d'actions à gauche, écran du poste plus large",
         "description": "Les pictogrammes d'action (qualité, clavier, Ctrl+Alt+Suppr, maintenance du disque, plein écran…) passent du bandeau du haut à une barre verticale à gauche de l'écran : l'image du poste récupère toute la hauteur et la largeur du bandeau. Le menu des actions système s'ouvre à côté de la barre.",

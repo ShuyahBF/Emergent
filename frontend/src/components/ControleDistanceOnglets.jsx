@@ -47,6 +47,16 @@ export function ouvrirPriseEnMain(poste) {
   });
 }
 
+/**
+ * Lot 143 — DÉCONNEXION : toutes les prises en main sont arrêtées et fermées (onglets, pastille « réduit »). Le démontage des
+ * visionneuses envoie « arreter » au poste (la session se termine, l'intervention est clôturée) et ferme leur connexion.
+ */
+function fermerTout() {
+  if (etatOnglets.onglets.length === 0 && !etatOnglets.reduit) return;
+  publier({ onglets: [], actif: null, reduit: false });
+}
+if (typeof window !== "undefined") window.addEventListener("sawali:deconnexion", fermerTout);
+
 function fermerOnglet(cle) {
   const onglets = etatOnglets.onglets.filter((o) => o.cle !== cle);
   const actif = etatOnglets.actif === cle ? (onglets[onglets.length - 1]?.cle ?? null) : etatOnglets.actif;

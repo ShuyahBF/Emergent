@@ -81,6 +81,9 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    // Lot 143 — les prises en main à distance (onglets, pastille « N prises en main ») vivent dans une racine React à part :
+    // la déconnexion les arrête et les ferme, elles ne restent plus affichées pour le compte suivant.
+    try { window.dispatchEvent(new Event("sawali:deconnexion")); } catch { /* noop */ }
     // Lot 44 — « Déconnexion » pendant un « Voir en tant que » : on clôt la session
     // et on revient au compte de l'Admin (qui, lui, reste connecté).
     if (sessionImpActive()) {

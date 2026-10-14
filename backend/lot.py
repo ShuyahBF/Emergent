@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "156"
-LOT_LIBELLE = "Carrousel WhatsApp : envois précédents repliés sur une ligne, dépliables au clic"
+LOT = "157"
+LOT_LIBELLE = "Messagerie : largeur minimale de la colonne Nom des contacts"

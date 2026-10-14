@@ -528,7 +528,7 @@ export default function Contacts() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
-                <th className="text-left px-3 py-2">Nom</th>
+                <th className="text-left px-3 py-2 min-w-[230px]">Nom</th>
                 {/* Lot 24 — date/heure de la dernière interaction en colonne */}
                 <th className="text-left px-3 py-2 hidden sm:table-cell whitespace-nowrap">Dernière interaction</th>
                 <th className="text-left px-3 py-2 hidden sm:table-cell">Société</th>
@@ -759,7 +759,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
 
   return (
     <tr className="border-t border-slate-100 hover:bg-sky-50/70 hover:ring-1 hover:ring-sky-200 transition-colors" data-testid={`contact-row-${c.id}`}>
-      <td className="px-3 py-2">
+      {/* Lot 157 — largeur minimale de la colonne Nom : le tableau défile à l'horizontale, la colonne ne doit plus être écrasée */}
+      <td className="px-3 py-2 min-w-[230px]">
         <div className="flex items-start gap-2.5">
           <ContactAvatar contact={c} size={36} />
           <div className="min-w-0 flex-1">

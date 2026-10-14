@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "156", "date": "2026-10-14",
+        "titre": "📂 Carrousel WhatsApp : envois précédents repliés",
+        "description": "Chaque envoi précédent tient sur une ligne (date et heure, nombre d'envois, statut) ; un clic sur la date, ou sur « Détail », déplie les statistiques par carte et les destinataires avec la remise réelle.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "155", "date": "2026-10-14",
         "titre": "⚠️ Carrousel WhatsApp : alerte avant l'envoi pour les destinataires silencieux",
         "description": "Les contacts qui n'ont jamais écrit à votre ligne portent la mention « jamais répondu », et une alerte avant l'envoi cite ceux qui risquent un refus de remise de WhatsApp (code 131049).",

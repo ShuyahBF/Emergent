@@ -677,6 +677,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
   // Lot 156 : « Envois précédents » repliés par défaut (une ligne par envoi : date et heure) ; un clic déplie les autres informations.
   const [details, setDetails] = useState({});            // détail des destinataires par campagne (chargé au dépliage)
   const [deplies, setDeplies] = useState(() => new Set()); // campagnes dépliées
+  // Lot 160 : seuls les 20 derniers envois sont affichés ; « Voir plus » en ajoute 20 à chaque clic
+  const [nbAffiches, setNbAffiches] = useState(20);
   const [message, setMessage] = useState("");
   const [cartes, setCartes] = useState([carteVide(), carteVide()]);
   const [courant, setCourant] = useState(null);           // lot 77 : carrousel nommé ouvert dans l'éditeur
@@ -1284,7 +1286,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
             </div>
           </div>
         )}
-        {campagnes.map((c) => (
+        {campagnes.slice(0, nbAffiches).map((c) => (
           <div key={c.id} className="rounded-md border border-slate-200 p-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">
               <button type="button" onClick={() => basculerEnvoi(c.id)} aria-expanded={deplies.has(c.id)} data-testid={`carrousel-envoi-${c.id}`}
@@ -1378,6 +1380,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
             </>)}
           </div>
         ))}
+        {/* Lot 160 : liste limitée aux 20 derniers envois ; « Voir plus » en affiche 20 de plus */}
+        {campagnes.length > nbAffiches && (
+          <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="carrousel-voir-plus">
+            <span className="text-slate-500">{nbAffiches} envois affichés sur {campagnes.length}</span>
+            <Button size="sm" variant="outline" onClick={() => setNbAffiches((n) => n + 20)}>Voir plus (20 de plus)</Button>
+            <Button size="sm" variant="ghost" onClick={() => setNbAffiches(campagnes.length)}>Tout afficher</Button>
+          </div>
+        )}
       </section>
     </div>
   );

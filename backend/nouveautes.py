@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "157", "date": "2026-10-14",
+        "titre": "👤 Messagerie : colonne Nom plus large",
+        "description": "Centre de messagerie : la colonne Nom a une largeur minimale (230 px) pour que le nom du contact ne soit plus réduit à une lettre quand le tableau est étroit.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "156", "date": "2026-10-14",
         "titre": "📂 Carrousel WhatsApp : envois précédents repliés",
         "description": "Chaque envoi précédent tient sur une ligne (date et heure, nombre d'envois, statut) ; un clic sur la date, ou sur « Détail », déplie les statistiques par carte et les destinataires avec la remise réelle.",

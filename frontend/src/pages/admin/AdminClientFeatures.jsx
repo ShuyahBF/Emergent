@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { formatBytes } from "@/components/R2StorageGauge";
 import PortfolioBillingSection from "@/pages/admin/sections/PortfolioBillingSection";
+import OffreClientEditeur from "@/pages/admin/sections/OffreClientEditeur";   // lot 163
 import { toast } from "sonner";
 import { ArrowLeft, GalleryHorizontalEnd, Monitor, Pill, Wrench, ScanText, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
 
@@ -556,6 +557,9 @@ export default function AdminClientFeatures() {
           )}
         </div>
       )}
+
+      {/* Lot 163 — logiciels, produits et services du client (connus de Liluvine) */}
+      <OffreClientEditeur clientId={id} />
 
       {/* Lot 20 — Espace de stockage R2 (Gestion de Stocks) alloué à ce client */}
       <R2StorageQuotaSection clientId={id} />

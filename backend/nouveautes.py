@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "163", "date": "2026-10-14",
+        "titre": "🧩 Offre du client connue de Liluvine",
+        "description": "Liste des logiciels, produits et services de chaque client (fiche client → SMART Communications) : Liluvine ne pose plus de questions sur nos produits et, si le contrat n'est pas à jour, répond « Notre assistance pour … n'est pas disponible pour le moment. Contactez votre responsable. », signe, ouvre un ticket et escalade (à activer).",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "162", "date": "2026-10-14",
         "titre": "👥 Consentement lu sur les plateformes (accord et retrait)",
         "description": "Les contacts des plateformes arrivent avec l'accord WhatsApp donné par la personne à l'inscription (case facultative de ZandGo et du portail e-Kol) ; un retrait fait sur la plateforme coupe aussitôt les envois. Le choix le plus récent gagne : un STOP reçu sur WhatsApp n'est jamais écrasé par un ancien accord.",

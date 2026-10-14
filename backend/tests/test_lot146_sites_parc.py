@@ -73,3 +73,16 @@ def test_lot151_sites_sans_distinction_de_casse():
     r = c.get("/api/me/parc/equipements").json()
     assert len(r["sites"]) == 2
     assert c.get("/api/me/parc/equipements", params={"site": "clinique medicale ipala"}).json()["equipements"].__len__() == 2
+
+
+def test_lot153_sites_sans_distinction_d_accents():
+    """Lot 153 : « Médicale » = « Medicale » = « MÉDICALE » (liste des sites et filtre), espaces en trop ignorés."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot153"]
+    c = client(db)
+    for i, site in enumerate(["Clinique Médicale IPALA", "CLINIQUE MEDICALE  IPALA", "Clinique Médicale Ipala ", "Autre"]):
+        lancer(db.parc_equipements.insert_one({"id": f"e{i}", "numero_inventaire": f"P-{i}", "categorie": "PC de bureau",
+                                               "etat": "en_service", "site": site, "tenant_id": None}))
+    r = c.get("/api/me/parc/equipements").json()
+    assert len(r["sites"]) == 2
+    for saisie in ("clinique medicale ipala", "CLINIQUE MÉDICALE IPALA"):
+        assert len(c.get("/api/me/parc/equipements", params={"site": saisie}).json()["equipements"]) == 3

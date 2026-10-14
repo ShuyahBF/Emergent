@@ -317,13 +317,14 @@ export default function ParcInformatique() {
   const doitChoisir = clients.admin && !compte;
   const equipements = donnees?.equipements || [];
 
-  // Rupture par « Nom de site » : la casse et les espaces autour sont ignorés (« Clinique X » = « CLINIQUE X ») ;
+  // Rupture par « Nom de site » : casse, accents et espaces en trop ignorés (« Clinique X » = « CLINIQUE X », « Médicale » = « Medicale ») ;
   // le libellé affiché est l'orthographe la plus fréquente du groupe. Groupes triés par nom, « (Sans site) » en dernier.
   const groupes = (() => {
     const m = new Map();
     for (const e of equipements) {
       const nom = (e.site || "").trim();
-      const cle = nom.toLocaleLowerCase("fr");
+      // Clé : sans casse, sans accents, espaces multiples réduits (« Médicale » = « MEDICALE »)
+      const cle = nom.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").replace(/\s+/g, " ");
       if (!m.has(cle)) m.set(cle, { items: [], orthographes: new Map() });
       const g = m.get(cle);
       g.items.push(e);

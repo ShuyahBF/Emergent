@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "153", "date": "2026-10-14",
+        "titre": "🔤 Parc informatique : sites sans distinction d'accents",
+        "description": "« Clinique Médicale IPALA », « Clinique Medicale IPALA » et « CLINIQUE MÉDICALE  IPALA » forment un seul groupe de site (casse, accents et espaces en trop ignorés, y compris dans le filtre).",
+        "rubrique": "🖥️ Parc informatique — sites",
+    },
+    {
         "lot": "152", "date": "2026-10-14",
         "titre": "📬 Carrousel WhatsApp : remise réelle de chaque envoi",
         "description": "Dans le détail d'une campagne, « Envoyé » (accepté par WhatsApp) est complété par l'accusé réel : Remis, Lu, Non remis avec le motif de WhatsApp, ou Pas d'accusé de remise.",

@@ -228,6 +228,28 @@ def duree_fr(minutes: Any) -> str:
 # ---------------------------------------------------------------------------
 # Modèles d'entrée
 # ---------------------------------------------------------------------------
+def _cle_site(texte: str) -> str:
+    """Lot 153 — clé de comparaison d'un nom de site : sans accents, sans casse, espaces multiples réduits
+    (« Clinique Médicale  IPALA » = « CLINIQUE MEDICALE IPALA »)."""
+    nu = "".join(c for c in unicodedata.normalize("NFD", texte or "") if unicodedata.category(c) != "Mn")
+    return " ".join(nu.casefold().split())
+
+
+def _regex_site(texte: str) -> str:
+    """Lot 153 — expression régulière (insensible à la casse) qui reconnaît toutes les écritures d'un site, accents compris :
+    chaque lettre non accentuée accepte ses variantes accentuées (e → e é è ê ë…) et un espace accepte plusieurs espaces."""
+    variantes = {"a": "aàâäáãå", "c": "cç", "e": "eéèêë", "i": "iîïíì", "n": "nñ", "o": "oôöóòõ", "u": "uùûüú", "y": "yÿý"}
+    morceaux = []
+    for car in _cle_site(texte):
+        if car == " ":
+            morceaux.append(r"\s+")
+        elif car in variantes:
+            morceaux.append("[" + variantes[car] + "]")
+        else:
+            morceaux.append(re.escape(car))
+    return r"^\s*" + "".join(morceaux) + r"\s*$"
+
+
 class EquipementIn(BaseModel):
     compte_client_id: Optional[str] = None          # Admin / Superviseur : compte client du parc
     categorie: str = Field(..., min_length=1, max_length=80)
@@ -598,8 +620,8 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         if etat:
             filtre["etat"] = etat
         if site:
-            # Lot 151 : « Clinique Médicale IPALA » = « CLINIQUE MEDICALE IPALA » (casse ignorée ; accents et espaces en bord conservés)
-            filtre["site"] = {"$regex": "^" + re.escape(site.strip()) + "$", "$options": "i"}
+            # Lots 151-153 : « Clinique Médicale IPALA » = « CLINIQUE MEDICALE IPALA » (casse, accents et espaces ignorés)
+            filtre["site"] = {"$regex": _regex_site(site), "$options": "i"}
         if q and q.strip():
             motif = {"$regex": re.escape(q.strip()), "$options": "i"}
             filtre["$or"] = [{k: motif} for k in ("numero_inventaire", "fabricant", "modele", "numero_serie",
@@ -625,7 +647,7 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         uniques: Dict[str, str] = {}
         for e in tous:
             if (e.get("site") or "").strip():
-                uniques.setdefault(e["site"].strip().casefold(), e["site"].strip())
+                uniques.setdefault(_cle_site(e["site"]), e["site"].strip())
         sites = sorted(uniques.values(), key=str.lower)
         return {"equipements": liste, "total": len(tous), "compte": compte, "par_categorie": categories_vues,
                 "sites": sites}

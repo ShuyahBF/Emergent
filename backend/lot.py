@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "164"
-LOT_LIBELLE = "Page d'accord WhatsApp : lien personnel par contact, l'accord s'enregistre sur une page SAWALI"
+LOT = "165"
+LOT_LIBELLE = "Modèle WhatsApp de demande d'accord à lien personnel (bouton vers la page /accord)"

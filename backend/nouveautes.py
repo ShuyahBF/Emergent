@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "165", "date": "2026-10-14",
+        "titre": "📨 Modèle WhatsApp de demande d'accord à lien personnel",
+        "description": "Nouveau bouton « Créer le modèle d'accord chez Meta » (Réglages du carrousel) : un modèle dont le bouton ouvre la page d'accord /accord/… de chaque personne. Il suit son approbation par Meta ; aucun message n'est envoyé aux contacts.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "164", "date": "2026-10-14",
         "titre": "✅ Page d'accord WhatsApp : lien personnel par contact",
         "description": "Le lien d'accord wa.me rouvrait seulement WhatsApp. Nouveau bouton « Liens d'accord personnels » (page Carrousel) : chaque personne reçoit un lien /accord/… et touche « Oui, j'accepte » sur une page SAWALI, qui note son accord avec la date (retrait possible sur la même page).",

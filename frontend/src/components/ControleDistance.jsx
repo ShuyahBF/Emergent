@@ -18,6 +18,7 @@
 //   - onglets (plusieurs postes, voir ControleDistanceOnglets.jsx) et vidéo de la session envoyée au journal ;
 //   - clavier virtuel, blocage du clavier et de la souris du poste, actions système (déconnecter, verrouiller,
 //     redémarrer, éteindre, Ctrl+Alt+Suppr) avec confirmation ;
+//   Lot 142 : les pictogrammes d'action forment une barre VERTICALE à gauche de l'écran du poste (plus de place pour l'image) ;
 //   - identifiant Windows mémorisé (saisi par le SERVEUR sur le poste, jamais montré ici) ;
 //   - mesures de la session (1re image, latence, images/s, débit) envoyées au journal à la fin ;
 //   - numéro « CD-… », client et ticket automatique ; volet repliable : caractéristiques, performances, chat.
@@ -695,9 +696,12 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         </span>
       </div>
 
-      {/* ---- Dock d'actions (pictogrammes ronds et colorés) ---- */}
-      {/* z-20 : le flou du dock crée un empilement propre ; sans lui, le menu des actions passerait sous l'image du poste */}
-      <div className="relative z-20 mx-auto mt-2 flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10 backdrop-blur">
+      {/* ---- Zone d'affichage + volet repliable ---- */}
+      <div className="flex min-h-0 flex-1">
+      {/* ---- Barre d'actions latérale (pictogrammes ronds et colorés, lot 142 : à gauche de l'écran du poste) ---- */}
+      {/* Lot 142 : barre latérale GAUCHE (verticale, défilante si l'écran est bas) : l'écran du poste gagne toute la largeur du bandeau */}
+      <div className="relative z-20 my-2 ml-2 flex min-h-0 shrink-0 flex-col">
+      <div className="flex min-h-0 flex-col items-center gap-1.5 overflow-y-auto rounded-2xl bg-white/5 p-1.5 ring-1 ring-white/10 backdrop-blur [scrollbar-width:none]">
         {etat === "active" && ecrans.length > 1 && ecrans.map((e) => (
           <button key={e.index} type="button" title={`Écran ${e.index + 1} (${e.largeur}×${e.hauteur})`}
                   onClick={() => { setEcranActif(e.index); envoyer({ type: "choix_ecran", index: e.index }); }}
@@ -747,10 +751,10 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         <button type="button" className={picto("bg-rose-600")} onClick={fermer} title="Arrêter la prise en main et fermer" data-testid="controle-distance-fermer">
           <X className="h-5 w-5" />
         </button>
-
+      </div>
         {/* Menu des actions système (confirmation ensuite) */}
         {menuSysteme && peutAgir && (
-          <div className="absolute right-2 top-full z-10 mt-2 w-60 overflow-hidden rounded-xl bg-slate-900 shadow-2xl ring-1 ring-white/15">
+          <div className="absolute left-full top-0 z-30 ml-2 w-64 overflow-hidden rounded-xl bg-slate-900 shadow-2xl ring-1 ring-white/15">
             {Object.entries(ACTIONS_SYSTEME).map(([action, a]) => (
               <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmation(action); }}
                       className={`block w-full px-3 py-2 text-left text-xs hover:bg-white/10 ${a.danger ? "text-rose-300" : "text-slate-100"}`}>
@@ -769,8 +773,6 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         )}
       </div>
 
-      {/* ---- Zone d'affichage + volet repliable ---- */}
-      <div className="flex min-h-0 flex-1">
         <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${survolDepot ? "ring-4 ring-inset ring-sky-400/70" : ""}`}
              onDragOver={(e) => { if (etat === "active") { e.preventDefault(); setSurvolDepot(true); } }}
              onDragLeave={() => setSurvolDepot(false)}

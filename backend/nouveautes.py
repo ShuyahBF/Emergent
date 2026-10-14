@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "142", "date": "2026-10-14",
+        "titre": "↔️ Contrôle à distance : barre d'actions à gauche, écran du poste plus large",
+        "description": "Les pictogrammes d'action (qualité, clavier, Ctrl+Alt+Suppr, maintenance du disque, plein écran…) passent du bandeau du haut à une barre verticale à gauche de l'écran : l'image du poste récupère toute la hauteur et la largeur du bandeau. Le menu des actions système s'ouvre à côté de la barre.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "141", "date": "2026-10-14",
         "titre": "🖥️ Contrôle à distance : image plus nette et fenêtres WinDev sans fond noir",
         "description": "La qualité d'image par défaut passe de 70 à 85 (texte plus net ; réglable : basse 40, normale 85, haute 95) et les fenêtres WinDev à transparence ne s'affichent plus avec un fond noir ni sans images (mise à jour de Loois et du service Windows nécessaire sur le poste).",

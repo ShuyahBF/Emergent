@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "150", "date": "2026-10-14",
+        "titre": "✏️ Parc informatique : lieu et utilisateur modifiables machine par machine",
+        "description": "Un crayon dans la colonne « Lieu · utilisateur » de chaque machine ouvre une fenêtre pour saisir le site, le service, le bureau et l'utilisateur ; la saisie n'est plus écrasée par Loois.",
+        "rubrique": "🖥️ Parc informatique — sites",
+    },
+    {
         "lot": "149", "date": "2026-10-14",
         "titre": "🖥️ Parc informatique : le nom du poste en valeur",
         "description": "Dans la liste des équipements, le nom du poste s'affiche en gras ; dessous figurent sa nature (Serveur, PC de bureau…) puis le fabricant et le modèle.",

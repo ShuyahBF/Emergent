@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "147", "date": "2026-10-14",
+        "titre": "🔓 Loois : pas d'anonymisation pour un client en retard de paiement",
+        "description": "Les états PDF de Loois ne sont plus anonymisés pour un client sous contrat dont l'échéance est dépassée ; ils le restent pour un contrat suspendu ou archivé et pour une clé non liée à un compte client.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "146", "date": "2026-10-14",
         "titre": "🖥️ Parc informatique : rupture par nom de site et site modifiable",
         "description": "Les équipements sont regroupés par site ; « Renommer / Définir le site » corrige tout un groupe d'un clic et « Compléter les sites (Loois) » reprend le site des machines qui n'en avaient pas.",

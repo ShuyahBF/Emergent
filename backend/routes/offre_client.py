@@ -1,0 +1,333 @@
+# offre_client.py — Lot 163 : logiciels, produits et services d'un client, connus de Liluvine.
+#
+# Demande du propriétaire (14/10/2026) : « Pour les clients/tenants je veux mettre à jour la liste des logiciels,
+# produits et services d'un client (Espace "SMART COMMUNICATION"). Cela permettra à Liluvine de :
+#   - ne plus poser de questions à un contact lié concernant nos produits, CRM et autres ;
+#   - mieux l'orienter sur le type de réponses à donner en connaissant les bases de nos relations SAWALI-Client ;
+#   - analyser le message et, si non compris, questionner le contact pour plus de détails, sinon escalader vers un humain ;
+#   - si le message concerne une assistance, une maintenance, une question spécifique à un produit, prestation ou service
+#     lié au client et que ce dernier n'est pas à jour de son contrat : répondre « Notre assistance pour (ce que Liluvine
+#     aura détecté) n'est pas disponible pour le moment. Contactez votre responsable. », signer par son assistant IA,
+#     ouvrir un ticket et escalader. »
+#
+# En résumé (pour un développeur WinDev) :
+#   - DONNÉES : la liste est un champ `offre_client` de la fiche du client (db.users) — AUCUNE nouvelle collection
+#     (le cluster Atlas est plein : 500 / 500 collections). Chaque ligne : {id, type: logiciel|produit|service, nom,
+#     description, version, actif}. Édition : fiche client → « SMART Communications » → « Logiciels, produits et services ».
+#   - RÉGLAGES (db.settings {_id:"global"}, Paramètres → « 🧩 Offre du client — Liluvine ») :
+#       offre_client_refus_actif    : bool, DÉSACTIVÉ par défaut (rien ne change tant qu'il n'est pas activé)
+#       offre_client_message_refus  : texte du refus, `{objet}` = ce que Liluvine a détecté
+#       (l'enrichissement du prompt par l'offre du client, lui, est toujours actif : il est sans effet si la liste est vide)
+#   - LIAISON contact → client : même logique que la puce de contrat (société, puis e-mail, puis téléphone).
+#   - CONTRAT À JOUR = puce VERTE (lot 120), pseudo-contrat de 5 jours compris. Orange (retard) / rouge (aucun) = pas à jour.
+#     Contact non analysable (sans société, interne SAWALI) = jamais refusé.
+#   - REFUS (si activé, client relié, contrat pas à jour, message d'assistance détecté) : texte exact ci-dessus, signé par
+#     l'assistant IA, ticket ouvert (ou message rattaché au ticket déjà ouvert du client) et escalade à l'administrateur.
+#     Détection par mots-clés (assistance, maintenance, panne, bug, erreur, dépannage, support, intervention…) : volontairement
+#     déterministe, pour qu'un client en retard ne reçoive JAMAIS d'aide par erreur.
+#
+# Routes : GET/PUT /api/admin/clients/{id}/offre ; GET/PUT /api/admin/offre-client/reglages.
+from __future__ import annotations
+
+import logging
+import re
+import unicodedata
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger("sawali.offre_client")
+
+TYPES_OFFRE = ("logiciel", "produit", "service")
+MAX_LIGNES = 60
+MESSAGE_REFUS_DEFAUT = "Notre assistance pour {objet} n'est pas disponible pour le moment. Contactez votre responsable."
+SIGNATURE_DEFAUT = "— 🤖 Assistant IA de SAWALI (réponse automatique)"
+
+# Intentions d'assistance : (motif sur le texte sans accents ni majuscules, libellé « ce que Liluvine a détecté »).
+# Ordre = priorité : la première qui correspond donne le libellé.
+INTENTIONS: List[Tuple[str, str]] = [
+    (r"\bmaintenance\b", "la maintenance"),
+    (r"\bdepann\w*|\breparation\b|\breparer\b", "le dépannage"),
+    (r"\bpanne\b|\ben panne\b|\bne (?:marche|fonctionne|demarre|s'ouvre|repond)\w* (?:plus|pas)\b|\bplante\w*|\bbloque\w*",
+     "la résolution de la panne signalée"),
+    (r"\bbug\b|\berreur\b|\banomalie\b|\bdysfonction\w*|\bprobleme\b|\bincident\b", "la résolution du problème signalé"),
+    (r"\bintervention\b|\bdeplacement\b|\bvenir (?:sur|chez)\b", "l'intervention demandée"),
+    (r"\bmise a jour\b|\bmettre a jour\b|\bupdate\b|\binstallation\b|\binstaller\b|\bconfigur\w*|\bparametr\w*", "l'installation ou la mise à jour demandée"),
+    (r"\bformation\b|\bformer\b", "la formation demandée"),
+    (r"\bassistance\b|\bsupport\b|\baide\b|\bbesoin d'aide\b|\bcomment (?:faire|utiliser|activer|modifier|imprimer)\b|\bcomment ca\b",
+     "l'assistance demandée"),
+]
+
+
+def _sans_accents(s: Any) -> str:
+    """Minuscules sans accents (comparaisons de texte)."""
+    t = unicodedata.normalize("NFD", str(s or "").lower())
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Offre du client
+# ---------------------------------------------------------------------------------------------------------------------
+def normaliser_offre(brut: Any) -> List[Dict[str, Any]]:
+    """Liste propre : type connu, nom obligatoire, textes bornés, au plus MAX_LIGNES lignes, identifiants uniques."""
+    sortie: List[Dict[str, Any]] = []
+    vus = set()
+    for ligne in (brut if isinstance(brut, list) else []):
+        if not isinstance(ligne, dict):
+            continue
+        nom = str(ligne.get("nom") or "").strip()[:120]
+        if not nom:
+            continue
+        type_ = str(ligne.get("type") or "").strip().lower()
+        ident = str(ligne.get("id") or "").strip()[:40]
+        if not ident or ident in vus:
+            ident = uuid.uuid4().hex[:12]
+        vus.add(ident)
+        sortie.append({
+            "id": ident,
+            "type": type_ if type_ in TYPES_OFFRE else "logiciel",
+            "nom": nom,
+            "description": str(ligne.get("description") or "").strip()[:300],
+            "version": str(ligne.get("version") or "").strip()[:40],
+            "actif": ligne.get("actif") is not False,
+        })
+        if len(sortie) >= MAX_LIGNES:
+            break
+    return sortie
+
+
+def bloc_prompt(societe: str, offre: List[Dict[str, Any]]) -> str:
+    """Texte ajouté au prompt système de Liluvine : ce que SAWALI fournit déjà à ce client."""
+    actives = [o for o in offre if o.get("actif") is not False]
+    if not actives:
+        return ""
+    lignes = []
+    for o in actives:
+        detail = " ".join(x for x in (o.get("version") and f"v{o['version']}", o.get("description")) if x)
+        lignes.append(f"- {o['type'].capitalize()} : {o['nom']}" + (f" — {detail}" if detail else ""))
+    return (
+        f"\n\n[Offre de SAWALI chez ce client — {societe or 'client lié'}]\n"
+        "Le contact qui écrit est lié à ce client. Voici ce que SAWALI lui fournit (logiciels, produits, services) :\n"
+        + "\n".join(lignes) + "\n"
+        "Règles : ne lui demande JAMAIS quels produits, CRM ou logiciels il utilise avec SAWALI (tu le sais déjà) ; "
+        "adapte tes réponses à cette offre. Analyse son message : si tu ne le comprends pas, pose UNE question précise "
+        "pour obtenir plus de détails ; si, même avec ces détails, la demande dépasse tes moyens, escalade vers un humain "
+        "avec le marqueur d'escalade."
+    )
+
+
+def detecter_objet(texte: str, offre: List[Dict[str, Any]]) -> Optional[str]:
+    """Ce que Liluvine détecte dans un message d'assistance : « la maintenance de <produit> », « l'assistance demandée »…
+    None si le message ne demande aucune assistance (salutation, remerciement, simple question commerciale…)."""
+    t = _sans_accents(texte)
+    libelle = None
+    for motif, lib in INTENTIONS:
+        if re.search(motif, t):
+            libelle = lib
+            break
+    if not libelle:
+        return None
+    # Produit / logiciel / service de l'offre cité dans le message (le nom le plus long d'abord)
+    for o in sorted(offre, key=lambda x: -len(x.get("nom") or "")):
+        nom = _sans_accents(o.get("nom"))
+        if o.get("actif") is not False and len(nom) >= 3 and nom in t:
+            return f"{libelle} de {o['nom']}"
+    return libelle
+
+
+def reglages(settings_doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Réglages du refus d'assistance (désactivé par défaut)."""
+    s = settings_doc or {}
+    message = str(s.get("offre_client_message_refus") or "").strip() or MESSAGE_REFUS_DEFAUT
+    if "{objet}" not in message:
+        message = MESSAGE_REFUS_DEFAUT          # texte sans {objet} : on garde la formule voulue par le propriétaire
+    return {"actif": bool(s.get("offre_client_refus_actif")), "message": message[:500]}
+
+
+def texte_refus(settings_doc: Optional[Dict[str, Any]], objet: str) -> str:
+    return reglages(settings_doc)["message"].replace("{objet}", objet)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lecture du client d'un contact
+# ---------------------------------------------------------------------------------------------------------------------
+async def client_du_contact(db, contact: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Fiche du client relié à un contact ({id, company, full_name, offre_client}), ou None.
+    Même liaison que la puce de contrat ; un contact sans société, ou interne à SAWALI, n'a pas de client."""
+    if not contact:
+        return None
+    try:
+        from routes.puce_contrat import a_une_societe, est_interne
+        from routes.vip_contrat import _index_comptes
+        if not a_une_societe(contact):
+            return None
+        index, internes = await _index_comptes(db)
+        client, critere = index.client_du_contact(contact)
+        if not client or est_interne(client, internes, []):
+            return None
+        complet = await db.users.find_one({"id": client["id"]}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1}) or {}
+        return {"id": client["id"], "company": complet.get("company") or client.get("company") or complet.get("full_name") or "",
+                "offre_client": normaliser_offre(complet.get("offre_client"))}
+    except Exception:  # noqa: BLE001 — la liaison ne doit jamais empêcher Liluvine de répondre
+        logger.warning("[offre_client] liaison contact → client impossible", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Ticket
+# ---------------------------------------------------------------------------------------------------------------------
+async def _numero_ticket(db, client_id: str) -> str:
+    """Même compteur et même format que server._next_ticket_number : SOCIÉTÉ-AAAA-NNNN."""
+    annee = datetime.now(timezone.utc).year
+    res = await db.counters.find_one_and_update({"_id": f"tickets_{client_id}_{annee}"}, {"$inc": {"seq": 1}},
+                                                upsert=True, return_document=True)
+    seq = (res or {}).get("seq", 1)
+    prefixe = "TKT"
+    try:
+        c = await db.users.find_one({"id": client_id}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+        slug = re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9]+", " ", str(c.get("company") or c.get("full_name") or ""))).strip().upper()[:20].strip()
+        prefixe = slug or prefixe
+    except Exception:  # noqa: BLE001
+        pass
+    return f"{prefixe}-{annee}-{seq:04d}"
+
+
+async def ouvrir_ticket(db, client: Dict[str, Any], contact: Optional[Dict[str, Any]], objet: str, texte: str) -> Optional[Dict[str, Any]]:
+    """Ouvre un ticket pour ce client — ou rattache la demande au ticket déjà ouvert (règle du lot 54 : un seul ticket
+    ouvert par client). Renvoie {id, number, rattache} ou None en cas d'échec (jamais d'exception)."""
+    try:
+        import tickets_clients as tc
+        contact_id = (contact or {}).get("id")
+        ouvert = await tc.ticket_ouvert_du_client(client["id"])
+        if ouvert:
+            ouvert = await tc.rattacher_contact(ouvert, contact_id)
+            return {"id": ouvert["id"], "number": ouvert.get("number"), "rattache": True}
+        maintenant = datetime.now(timezone.utc).isoformat()
+        numero = await _numero_ticket(db, client["id"])
+        ticket = {
+            "id": uuid.uuid4().hex, "number": numero, "client_id": client["id"],
+            "contact_id": contact_id, "contact_name": (contact or {}).get("name"),
+            "contact_phone": (contact or {}).get("whatsapp") or (contact or {}).get("phone"),
+            "motif": f"Demande d'assistance refusée (contrat pas à jour) : {objet}"[:200],
+            "status": "open", "notes": f"Message reçu : {texte[:500]}", "software": None, "incident_at": None,
+            "attach_wa_sms_history": False, "source": "liluvine_offre_client",
+            "opened_at": maintenant, "opened_by_id": "liluvine", "opened_by_label": "Liluvine (assistant IA)",
+            "owner_id": client["id"], "owner_company": client.get("company") or None, "owner_parent_client_id": None,
+            "shared_with_tenant": False, "editable_by_tenant": False,
+            "closed_at": None, "closed_by_id": None, "closed_by_label": None, "outcome": None, "resolution_note": None,
+            "created_at": maintenant, "updated_at": maintenant,
+            "contact_ids": [c for c in [contact_id] if c],
+            **tc.champs_creation(await tc.lire_client(client["id"]), maintenant),
+        }
+        await db.support_tickets.insert_one(ticket.copy())
+        return {"id": ticket["id"], "number": numero, "rattache": False}
+    except Exception:  # noqa: BLE001
+        logger.warning("[offre_client] ouverture du ticket impossible", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Refus d'assistance (appelé par l'auto-réponse WhatsApp avant toute réponse IA)
+# ---------------------------------------------------------------------------------------------------------------------
+async def refuser_assistance(db, settings_doc: Dict[str, Any], *, contact: Optional[Dict[str, Any]], texte: str,
+                             etat_contrat: Optional[str], client: Optional[Dict[str, Any]], phone_digits: str,
+                             envoyer: Callable[..., Awaitable[Any]], signature: str,
+                             reply_to: Optional[str] = None) -> Dict[str, Any]:
+    """Si le client n'est pas à jour et que le message demande une assistance : envoie le refus signé, ouvre le ticket et
+    escalade. → {refuse: bool, objet, ticket, envoye}. Jamais d'exception (une erreur laisse Liluvine répondre comme avant)."""
+    resultat: Dict[str, Any] = {"refuse": False, "objet": None, "ticket": None, "envoye": False}
+    try:
+        if not reglages(settings_doc)["actif"] or not client:
+            return resultat
+        if etat_contrat is None or etat_contrat == "valide":
+            return resultat                       # à jour (pseudo-contrat compris) ou non analysable : jamais refusé
+        objet = detecter_objet(texte, client.get("offre_client") or [])
+        if not objet:
+            return resultat
+        resultat.update(refuse=True, objet=objet)
+        message = f"{texte_refus(settings_doc, objet)}\n\n{signature or SIGNATURE_DEFAUT}"
+        envoi = await envoyer(f"+{phone_digits}", message, reply_to_message_id=reply_to) if reply_to else await envoyer(f"+{phone_digits}", message)
+        resultat["envoye"] = bool((envoi or {}).get("ok")) if isinstance(envoi, dict) else bool(envoi)
+        resultat["ticket"] = await ouvrir_ticket(db, client, contact, objet, texte)
+        # Escalade vers l'administrateur (même canal que le marqueur [ESCALATE])
+        try:
+            from routes.liluvine_escalation import notify_admin
+            ticket = resultat["ticket"] or {}
+            await notify_admin(
+                db, contact_name=(contact or {}).get("name"), contact_phone_digits=phone_digits, last_user_message=texte,
+                reason=f"Assistance refusée (contrat {etat_contrat}) : {objet} — {client.get('company') or 'client'}"
+                       + (f" — ticket {ticket['number']}" if ticket.get("number") else ""),
+                send_wa=envoyer, session_id=f"wa:offre:{phone_digits}",
+                history=[{"role": "user", "text": texte}, {"role": "assistant", "text": message}])
+        except Exception:  # noqa: BLE001
+            logger.warning("[offre_client] escalade impossible", exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.warning("[offre_client] refus d'assistance impossible", exc_info=True)
+    return resultat
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------------------------------------------------
+class LigneOffreIn(BaseModel):
+    id: Optional[str] = None
+    type: str = "logiciel"
+    nom: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=300)
+    version: str = Field(default="", max_length=40)
+    actif: bool = True
+
+
+class OffreIn(BaseModel):
+    lignes: List[LigneOffreIn] = Field(default_factory=list)
+
+
+class ReglagesOffreIn(BaseModel):
+    actif: bool = False
+    message: str = Field(default="", max_length=500)
+
+
+def setup_offre_client_routes(*, db, api, get_current_admin) -> None:
+    """Branche les routes du lot 163 (appelée depuis server_parts/p20)."""
+    from fastapi import Depends, HTTPException
+
+    @api.get("/admin/clients/{client_id}/offre", tags=["Admin — Offre du client"])
+    async def lire_offre(client_id: str, _: dict = Depends(get_current_admin)):
+        """Logiciels, produits et services de ce client."""
+        u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1, "offre_client_maj": 1})
+        if not u:
+            raise HTTPException(status_code=404, detail="Client introuvable")
+        return {"client": u.get("company") or u.get("full_name"), "lignes": normaliser_offre(u.get("offre_client")),
+                "maj": u.get("offre_client_maj"), "types": list(TYPES_OFFRE)}
+
+    @api.put("/admin/clients/{client_id}/offre", tags=["Admin — Offre du client"])
+    async def ecrire_offre(client_id: str, data: OffreIn, admin: dict = Depends(get_current_admin)):
+        """Remplace la liste (lignes sans nom ignorées, identifiants attribués au besoin)."""
+        if not await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=404, detail="Client introuvable")
+        lignes = normaliser_offre([l.model_dump() for l in data.lignes])
+        maj = {"le": datetime.now(timezone.utc).isoformat(), "par": admin.get("full_name") or admin.get("email")}
+        await db.users.update_one({"id": client_id}, {"$set": {"offre_client": lignes, "offre_client_maj": maj}})
+        return {"ok": True, "lignes": lignes, "maj": maj}
+
+    async def _etat() -> Dict[str, Any]:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        avec_offre = await db.users.count_documents({"offre_client.0": {"$exists": True}})
+        return {**reglages(s), "message_defaut": MESSAGE_REFUS_DEFAUT, "clients_avec_offre": avec_offre}
+
+    @api.get("/admin/offre-client/reglages", tags=["Admin — Offre du client"])
+    async def lire_reglages(_: dict = Depends(get_current_admin)):
+        """Activation du refus d'assistance et texte du refus."""
+        return await _etat()
+
+    @api.put("/admin/offre-client/reglages", tags=["Admin — Offre du client"])
+    async def ecrire_reglages(data: ReglagesOffreIn, _: dict = Depends(get_current_admin)):
+        """Active / désactive le refus ; le texte doit contenir {objet} (sinon la formule par défaut s'applique)."""
+        texte = data.message.strip()
+        if texte and "{objet}" not in texte:
+            raise HTTPException(status_code=422, detail="Le texte doit contenir {objet} (ce que Liluvine a détecté)")
+        await db.settings.update_one({"_id": "global"}, {"$set": {
+            "offre_client_refus_actif": bool(data.actif), "offre_client_message_refus": texte}}, upsert=True)
+        return await _etat()

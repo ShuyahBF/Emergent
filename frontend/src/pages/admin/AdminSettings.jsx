@@ -77,6 +77,7 @@ import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import LinkedInSection from "@/pages/admin/sections/LinkedInSection";
 import VipControleSection from "@/pages/admin/sections/VipControleSection";   // lot 158
 import ContactsPlateformesSection from "@/pages/admin/sections/ContactsPlateformesSection";   // lot 161
+import OffreClientSection from "@/pages/admin/sections/OffreClientSection";   // lot 163
 import TwitterSection from "@/pages/admin/sections/TwitterSection";
 import FacebookSection from "@/pages/admin/sections/FacebookSection";
 import GoogleCalendarWatchPanel from "@/pages/admin/sections/GoogleCalendarWatchPanel";
@@ -122,6 +123,7 @@ const NEW_LOTS = {
   "🎫 Tickets d'intervention — motif": "144",   // lot 144 : motif modifiable depuis la fiche du ticket
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
+  "🧩 Offre du client — Liluvine": "163",   // lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
   "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
@@ -176,6 +178,7 @@ const NEW_SECTIONS = {
   "🎫 Tickets d'intervention — motif": "2026-10-14",   // lot 144
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
+  "🧩 Offre du client — Liluvine": "2026-10-14",   // lot 163
   "💬 Ligne VIP — contrat valide": "2026-10-14",   // lot 158
   "🖥️ Parc informatique — sites": "2026-10-14",   // lot 146
   "🖼️ Cadre des cartes": "2026-10-13",   // lot 136
@@ -278,6 +281,7 @@ const NEW_DESCRIPTIONS = {
   "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144).",
   "🟥 Pseudo contrat VALIDE": "Case sur la fiche client : contrat traité comme VALIDE pendant 5 jours (puce, ligne Liluvine VIP, états Loois non anonymisés), même si des paiements n'ont pas été mis à jour ; clients concernés marqués en rouge dans la liste (lot 159).",
   "👥 Contacts des plateformes": "SAWALI lit chaque nuit les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis (lot 161).",
+  "🧩 Offre du client — Liluvine": "Liste des logiciels, produits et services de chaque client (fiche client → SMART Communications) : Liluvine ne pose plus de questions sur nos produits ; contrat pas à jour + demande d'assistance = refus signé par l'assistant IA, ticket et escalade (à activer ici).",
   "💬 Ligne VIP — contrat valide": "La ligne Liluvine VIP est réservée aux clients dont le contrat est valide : message automatique paramétrable et activable, canal choisi dans la conversation, réponse forcée sur la ligne standard avec notification (lot 158).",
   "🖥️ Parc informatique — sites": "Équipements du Parc informatique regroupés par nom de site ; « Renommer / Définir le site » pour tout un groupe ; « Compléter les sites (Loois) » reprend le site du dernier signal des machines sans site (lot 146).",
   "🖼️ Cadre des cartes": "Mince filet foncé autour des cartes d'information (noir par défaut, gris foncé, bleu ou aucun) : le gris sur gris se distinguait mal ; réglage commun à tous les écrans (lot 136).",
@@ -1448,6 +1452,11 @@ export default function AdminSettings() {
             <MapPin className="h-3.5 w-3.5" /> Ouvrir le parc informatique
           </Link>
         </div>
+      </Filterable>
+
+      {/* Lot 163 — offre du client connue de Liluvine ; assistance refusée si le contrat n'est pas à jour */}
+      <Filterable title="🧩 Offre du client — Liluvine" anchorId="s-offre-client" category="modules">
+        <OffreClientSection />
       </Filterable>
 
       {/* Lot 161 — contacts des plateformes récupérés par SAWALI dans des groupes « Plateforme X » */}

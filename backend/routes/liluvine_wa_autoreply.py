@@ -946,6 +946,44 @@ async def autoreply_to_inbound(
                 )
             return {"ok": False, "reason": "access_restricted_outside_hours", "notified_decision_makers": notified}
 
+    # Lot 163 — Offre du client (logiciels, produits, services) : le contact est relié à son client ; Liluvine connaît
+    # son offre (plus de questions inutiles) et, si le contrat du client n'est pas à jour, REFUSE l'assistance demandée
+    # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
+    offre_bloc = ""
+    if not is_prospect and not platform_tenant:
+        try:
+            from routes import offre_client as _offre
+            client_lie = await _offre.client_du_contact(db, contact)
+            if client_lie:
+                offre_bloc = _offre.bloc_prompt(client_lie.get("company") or "", client_lie.get("offre_client") or [])
+                from routes.vip_contrat import etat_contrat_contact
+                etat_ct = await etat_contrat_contact(db, contact, settings_doc)
+                signature_refus = (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip() or "— 🤖 Réponse automatique Liluvine PRO"
+                refus = await _offre.refuser_assistance(
+                    db, settings_doc, contact=contact, texte=text, etat_contrat=etat_ct, client=client_lie,
+                    phone_digits=phone_digits, envoyer=wa_send_text, signature=signature_refus,
+                    reply_to=inbound_doc.get("wa_message_id"))
+                if refus["refuse"]:
+                    # le refus apparaît dans la conversation (Centre de messagerie) comme une réponse automatique
+                    try:
+                        await db.whatsapp_messages.insert_one({
+                            "id": secrets.token_urlsafe(12), "client_id": scope_uid, "tenant_id": scope_uid,
+                            "direction": "outbound", "from": "liluvine-pro", "to": inbound_doc.get("from") or f"+{phone_digits}",
+                            "phone_digits": phone_digits, "message_type": "text",
+                            "body": f"{_offre.texte_refus(settings_doc, refus['objet'])}\n\n{signature_refus}",
+                            "status": "sent", "wa_status": "sent", "sent_at": _now_iso(), "created_at": _now_iso(),
+                            "ai_generated": True, "ai_source": "liluvine_offre_client",
+                            "contact_id": (contact or {}).get("id"),
+                            "ticket_id": (refus.get("ticket") or {}).get("id"),
+                            "ticket_number": (refus.get("ticket") or {}).get("number"),
+                        })
+                    except Exception:  # noqa: BLE001
+                        logger.warning("[wa_autoreply] miroir du refus d'assistance impossible", exc_info=True)
+                    return {"ok": bool(refus["envoye"]), "reason": "assistance_refusee_contrat",
+                            "objet": refus["objet"], "ticket": refus.get("ticket")}
+        except Exception:  # noqa: BLE001
+            logger.warning("[wa_autoreply] offre du client ignorée", exc_info=True)
+
     # Lot 21 — Un prospect ne reçoit AUCUNE donnée du tenant : avant ce lot,
     # un inconnu qui écrivait « mes contacts » ou « paiements » recevait dans
     # le contexte de l'IA les 10 derniers contacts/paiements du compte SAWALI.
@@ -1001,6 +1039,7 @@ async def autoreply_to_inbound(
         + (("\n" + biz_ctx) if biz_ctx else "")
         + (("\n\n" + kb) if kb else "")
         + contact_tag
+        + offre_bloc          # lot 163 : offre du client lié (vide si aucune)
     )
     # Lot 59 — consignes propres à la ligne qui a reçu le message (ex. accueil VIP)
     try:

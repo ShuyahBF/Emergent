@@ -1,0 +1,116 @@
+"""Lot 163 — offre du client (logiciels, produits, services) connue de Liluvine et refus d'assistance si contrat pas à jour :
+normalisation, détection de l'objet, réglages, texte exact du refus, signature, ticket, escalade, routes. MongoDB simulé.
+Lancer : cd backend && python -m pytest tests/test_lot163_offre_client.py -q
+"""
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+mongomock_motor = pytest.importorskip("mongomock_motor")
+
+import routes.offre_client as oc  # noqa: E402
+
+
+def lancer(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+OFFRE = oc.normaliser_offre([
+    {"type": "logiciel", "nom": "SAWALI CRM", "version": "2.1"},
+    {"type": "service", "nom": "Hébergement"},
+    {"type": "produit", "nom": "Caisse", "actif": False},
+])
+
+
+def test_normalisation_de_l_offre():
+    r = oc.normaliser_offre([{"nom": "  CRM  ", "type": "inconnu"}, {"nom": ""}, "x", {"id": "a", "nom": "A"}, {"id": "a", "nom": "B"}])
+    assert [l["nom"] for l in r] == ["CRM", "A", "B"] and r[0]["type"] == "logiciel" and r[0]["actif"] is True
+    assert len({l["id"] for l in r}) == 3                                    # identifiants uniques
+    assert len(oc.normaliser_offre([{"nom": f"n{i}"} for i in range(100)])) == oc.MAX_LIGNES
+
+
+def test_objet_detecte():
+    assert oc.detecter_objet("Bonjour, j'ai un problème avec SAWALI CRM", OFFRE) == "la résolution du problème signalé de SAWALI CRM"
+    assert oc.detecter_objet("Besoin de maintenance sur l'hébergement", OFFRE) == "la maintenance de Hébergement"
+    assert oc.detecter_objet("Mon écran ne fonctionne plus", OFFRE) == "la résolution de la panne signalée"
+    assert oc.detecter_objet("J'ai besoin d'une assistance", []) == "l'assistance demandée"
+    # produit inactif : jamais cité ; messages sans demande d'assistance : rien
+    assert oc.detecter_objet("panne de la caisse", OFFRE) == "la résolution de la panne signalée"
+    assert oc.detecter_objet("Bonjour, merci beaucoup", OFFRE) is None
+    assert oc.detecter_objet("Quels sont vos tarifs ?", OFFRE) is None
+
+
+def test_reglages_et_texte_exact():
+    assert oc.reglages({})["actif"] is False                                 # désactivé par défaut
+    assert oc.texte_refus({}, "la maintenance de SAWALI CRM") == \
+        "Notre assistance pour la maintenance de SAWALI CRM n'est pas disponible pour le moment. Contactez votre responsable."
+    assert oc.reglages({"offre_client_message_refus": "sans variable"})["message"] == oc.MESSAGE_REFUS_DEFAUT
+    assert oc.texte_refus({"offre_client_message_refus": "Indisponible : {objet}."}, "X") == "Indisponible : X."
+
+
+def _contexte(monkeypatch, envoyes, tickets, escalades):
+    async def faux_ticket(db, client, contact, objet, texte):
+        tickets.append((client["id"], objet)); return {"id": "t1", "number": "ACME-2026-0001", "rattache": False}
+
+    async def faux_notify(db, **kw):
+        escalades.append(kw); return {"sent": True}
+    monkeypatch.setattr(oc, "ouvrir_ticket", faux_ticket)
+    import routes.liluvine_escalation as esc
+    monkeypatch.setattr(esc, "notify_admin", faux_notify)
+
+    async def envoyer(to, texte, **kw):
+        envoyes.append((to, texte)); return {"ok": True}
+    return envoyer
+
+
+def _refuser(monkeypatch, *, actif=True, etat="retard", texte="Mon CRM est en panne", client="defaut"):
+    envoyes, tickets, escalades = [], [], []
+    envoyer = _contexte(monkeypatch, envoyes, tickets, escalades)
+    c = {"id": "c1", "company": "ACME", "offre_client": OFFRE} if client == "defaut" else client
+    r = lancer(oc.refuser_assistance(None, {"offre_client_refus_actif": actif}, contact={"id": "k1", "name": "Awa"}, texte=texte,
+                                     etat_contrat=etat, client=c, phone_digits="22670112233", envoyer=envoyer, signature="— 🤖 Liluvine"))
+    return r, envoyes, tickets, escalades
+
+
+def test_refus_complet_si_contrat_en_retard(monkeypatch):
+    r, envoyes, tickets, escalades = _refuser(monkeypatch)
+    assert r["refuse"] and r["envoye"] and r["ticket"]["number"] == "ACME-2026-0001"
+    assert envoyes == [("+22670112233", "Notre assistance pour la résolution de la panne signalée n'est pas disponible pour le moment. "
+                                        "Contactez votre responsable.\n\n— 🤖 Liluvine")]            # texte exact + signature IA
+    assert len(tickets) == 1 and len(escalades) == 1 and "ACME-2026-0001" in escalades[0]["reason"]
+
+
+@pytest.mark.parametrize("cas", [dict(actif=False), dict(etat="valide"), dict(etat=None), dict(texte="Bonjour, merci"), dict(client=None)])
+def test_pas_de_refus(monkeypatch, cas):
+    r, envoyes, tickets, escalades = _refuser(monkeypatch, **cas)
+    assert not r["refuse"] and envoyes == [] and tickets == [] and escalades == []     # à jour, désactivé, non analysable, pas d'assistance
+
+
+def test_bloc_prompt():
+    b = oc.bloc_prompt("ACME", OFFRE)
+    assert "SAWALI CRM" in b and "v2.1" in b and "Hébergement" in b and "Caisse" not in b and "JAMAIS" in b
+    assert oc.bloc_prompt("ACME", []) == ""
+
+
+def test_routes_offre_et_reglages():
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    base = mongomock_motor.AsyncMongoMockClient()["sawali_t163"]
+    lancer(base.users.insert_one({"id": "c1", "company": "ACME"}))
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    oc.setup_offre_client_routes(db=base, api=api, get_current_admin=lambda: {"id": "a", "full_name": "Admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    assert c.get("/api/admin/clients/zz/offre").status_code == 404
+    r = c.put("/api/admin/clients/c1/offre", json={"lignes": [{"nom": "CRM", "type": "logiciel"}, {"nom": ""}]}).json()
+    assert [l["nom"] for l in r["lignes"]] == ["CRM"] and r["maj"]["par"] == "Admin"
+    assert c.get("/api/admin/clients/c1/offre").json()["lignes"][0]["nom"] == "CRM"
+    assert c.get("/api/admin/offre-client/reglages").json() == {"actif": False, "message": oc.MESSAGE_REFUS_DEFAUT,
+                                                                "message_defaut": oc.MESSAGE_REFUS_DEFAUT, "clients_avec_offre": 1}
+    assert c.put("/api/admin/offre-client/reglages", json={"actif": True, "message": "sans variable"}).status_code == 422
+    assert c.put("/api/admin/offre-client/reglages", json={"actif": True, "message": ""}).json()["actif"] is True

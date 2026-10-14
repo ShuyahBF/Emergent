@@ -93,11 +93,10 @@ modifier), cloner UNE fois (`git clone --depth 1`, délai généreux), puis `reg
 | adLyn | `ShuyahBF/telecom-boutique` | `main` |
 | beAuthentik | `ShuyahBF/site-meetafrican` | `main` |
 | ALBARKA | `ShuyahBF/albarka-portal` | `main` |
-| Ster | dépôt à identifier (aucun dépôt nommé « Ster » sur le compte ; à confirmer avec le propriétaire) | — |
+| Ster (= DentalCare, confirmé par le propriétaire le 14/10/2026) | `ShuyahBF/dentalcare` | `main` |
 | Loois (logiciel Windows) et sa mise à jour | `ShuyahBF/Loois`, `ShuyahBF/Loois-MAJ` | `main` |
 | Aizenta (analyse qualité des stocks) | `ShuyahBF/Aizenta-Analyse-Qualit-Gestion-Stocks` | voir ses règles |
 | BF Mobility (VTC) | `ShuyahBF/sawali-bfmobility` | `main` |
-| DentalCare | `ShuyahBF/dentalcare` | `main` |
 
 Autres dépôts utiles : `ShuyahBF/Claude` (règles techniques, `TECHNICAL_RULES.md`), `ShuyahBF/reglesmetier_claude` (règles métier).
 Dépôt refusé par le contrôle d'accès de la session (ex. `shuyah-mirror`) : ne pas insister, le dire au propriétaire.

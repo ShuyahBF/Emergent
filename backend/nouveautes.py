@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "154", "date": "2026-10-14",
+        "titre": "👤 Messagerie : le nom du contact toujours visible",
+        "description": "Centre de messagerie : le nom du contact n'est plus écrasé par la puce de contrat et la pastille de ligne WhatsApp dans la colonne Nom ; il passe à la ligne au lieu de disparaître.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "153", "date": "2026-10-14",
         "titre": "🔤 Parc informatique : sites sans distinction d'accents",
         "description": "« Clinique Médicale IPALA », « Clinique Medicale IPALA » et « CLINIQUE MÉDICALE  IPALA » forment un seul groupe de site (casse, accents et espaces en trop ignorés, y compris dans le filtre).",

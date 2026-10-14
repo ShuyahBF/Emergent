@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "152", "date": "2026-10-14",
+        "titre": "📬 Carrousel WhatsApp : remise réelle de chaque envoi",
+        "description": "Dans le détail d'une campagne, « Envoyé » (accepté par WhatsApp) est complété par l'accusé réel : Remis, Lu, Non remis avec le motif de WhatsApp, ou Pas d'accusé de remise.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "151", "date": "2026-10-14",
         "titre": "🔤 Parc informatique : un seul site, quelle que soit la casse",
         "description": "« Clinique Médicale IPALA » et « CLINIQUE MEDICALE IPALA » forment désormais un seul groupe de site (liste, rupture et filtre ignorent la casse).",

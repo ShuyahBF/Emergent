@@ -1337,6 +1337,12 @@ export default function CarrouselWhatsApp({ admin = false }) {
                         : <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
                     <span>{d.nom}</span><span className="text-slate-500">{d.telephone}</span>
                     {d.erreur && <span className="text-xs text-red-700">{d.erreur}</span>}
+                    {/* Lot 152 : « Envoyé » = accepté par WhatsApp ; la remise réelle vient des accusés de WhatsApp */}
+                    {d.statut === "ENVOYE" && (d.livraison === "failed"
+                      ? <span className="rounded bg-red-100 px-1.5 text-xs text-red-800" data-testid="carrousel-non-remis">Non remis{d.livraison_erreur ? ` : ${d.livraison_erreur}` : ""}</span>
+                      : d.livraison === "read" ? <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">Lu</span>
+                        : d.livraison === "delivered" ? <span className="rounded bg-emerald-50 px-1.5 text-xs text-emerald-700">Remis</span>
+                          : <span className="rounded bg-amber-100 px-1.5 text-xs text-amber-800" title="Accepté par WhatsApp, pas d'accusé de remise reçu (téléphone éteint, limite de WhatsApp sur les messages marketing…)">Pas d'accusé de remise</span>)}
                   </li>
                 ))}
               </ul>

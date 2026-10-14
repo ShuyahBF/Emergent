@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "141", "date": "2026-10-14",
+        "titre": "🖥️ Contrôle à distance : image plus nette et fenêtres WinDev sans fond noir",
+        "description": "La qualité d'image par défaut passe de 70 à 85 (texte plus net ; réglable : basse 40, normale 85, haute 95) et les fenêtres WinDev à transparence ne s'affichent plus avec un fond noir ni sans images (mise à jour de Loois et du service Windows nécessaire sur le poste).",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "140", "date": "2026-10-13",
         "titre": "💽 Contrôle à distance : analyse, défragmentation et vérification du disque",
         "description": "Depuis la prise en main d'un poste Loois (mode « Contrôler »), le menu d'actions propose : analyse du disque (chkdsk /scan), analyse de la fragmentation (defrag /A), défragmentation / optimisation (defrag /O) et vérification des fichiers système (sfc /scannow) — outils Windows seulement, avec confirmation et suivi en direct. Chaque tâche terminée est inscrite dans l'intervention comme tâche effectuée.",

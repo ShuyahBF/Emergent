@@ -1801,6 +1801,11 @@ const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
 const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const { user } = useAuth();
   const [calendrierOuvert, setCalendrierOuvert] = useState(false);   // lot 41 : modale Calendrier
+  // Lot 158 — canal (ligne WhatsApp) choisi pour répondre : "" = automatique (ligne de la conversation) ; la ligne VIP est
+  // fermée aux clients sans contrat valide (réponse forcée sur la ligne standard, avec notification)
+  const [lignesCanal, setLignesCanal] = useState([]);
+  const [canal, setCanal] = useState("");
+  const [etatVip, setEtatVip] = useState(null);           // { controle_actif, autorise, etat, notification }
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
@@ -1892,6 +1897,17 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     /* eslint-disable-next-line */
   }, [contact.id]);
 
+  // Lot 158 — lignes que l'utilisateur peut choisir (une seule lecture à l'ouverture de la conversation)
+  useEffect(() => {
+    apiClient.get("/me/wa-lignes").then((r) => setLignesCanal(r.data?.lignes || [])).catch(() => {});
+  }, []);
+  // Lot 158 — le client de ce contact a-t-il un contrat valide ? (lu quand l'agent choisit une ligne VIP)
+  const canalChoisi = lignesCanal.find((l) => l.cle === canal);
+  useEffect(() => {
+    if (!canalChoisi?.vip || !contact?.id) { setEtatVip(null); return; }
+    apiClient.get("/me/whatsapp/canal-vip", { params: { contact_id: contact.id } }).then((r) => setEtatVip(r.data)).catch(() => setEtatVip(null));
+  }, [canalChoisi?.vip, contact?.id]);
+
   const sendFreeText = async () => {
     const body = (text || "").trim();
     if (!body && !pendingFile) { toast.error("Le message est vide"); return; }
@@ -1908,6 +1924,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         if (body) fd.append("caption", body);
         fd.append("file", pendingFile.file);
         if (replyMid) fd.append("reply_to_message_id", replyMid);
+        if (canal) fd.append("ligne", canal);                 // lot 158 : canal choisi
         r = await apiClient.post("/me/whatsapp/send-media", fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -1917,10 +1934,13 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           text: body,
           contact_id: contact.id,
           reply_to_message_id: replyMid || undefined,
+          ligne: canal || undefined,                          // lot 158 : canal choisi
         });
       }
+      // Lot 158 — réponse forcée sur la ligne standard (client sans contrat valide) : l'agent en est prévenu
+      if (r.data?.avertissement) toast.warning(r.data.avertissement, { duration: 9000 });
       if (r.data?.ok) {
-        toast.success(pendingFile ? "Média envoyé" : "Message envoyé");
+        toast.success(`${pendingFile ? "Média envoyé" : "Message envoyé"}${r.data?.ligne_utilisee ? ` · ${r.data.ligne_utilisee}` : ""}`);
         setText("");
         clearPendingFile();
         setReplyTo(null);  // Iter37h — clear quote after send
@@ -3097,6 +3117,22 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 {calendrierOuvert && (
                   <CalendrierModal contactNom={contact?.name} onClose={() => setCalendrierOuvert(false)}
                     onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))} />
+                )}
+                {/* Lot 158 — canal de réponse : choix de la ligne WhatsApp avant d'écrire (affiché s'il y a plusieurs lignes) */}
+                {lignesCanal.length > 1 && (
+                  <label className="inline-flex items-center gap-1 text-[11px] text-slate-600" data-testid="conversation-canal">
+                    Canal
+                    <select value={canal} onChange={(e) => setCanal(e.target.value)} disabled={sending}
+                      className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-xs" data-testid="conversation-canal-select">
+                      <option value="">Automatique</option>
+                      {lignesCanal.map((l) => <option key={l.cle} value={l.cle}>{l.libelle}</option>)}
+                    </select>
+                  </label>
+                )}
+                {canalChoisi?.vip && etatVip?.controle_actif && !etatVip.autorise && (
+                  <span className="basis-full rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900 ring-1 ring-amber-200" data-testid="conversation-canal-alerte">
+                    ⚠️ {etatVip.notification}
+                  </span>
                 )}
                 {/* Compteur de caractères, à droite de la barre d'outils */}
                 <span className="ml-auto text-[10px] text-slate-400 tabular-nums">{text.length} / 4096</span>

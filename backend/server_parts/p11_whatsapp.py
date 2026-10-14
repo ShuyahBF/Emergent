@@ -997,12 +997,25 @@ async def me_dismiss_wa_pending(pending_id: str, user: dict = Depends(get_curren
     return {"ok": True}
 
 
+# Lot 158 — canal (ligne WhatsApp) choisi dans la conversation : contrôlé (ligne VIP fermée aux clients sans contrat
+# valide), puis imposé aux envois de CETTE requête (variable de contexte, propre à la requête en cours).
+async def _vip_canal(user: dict, telephone: str, contact_id: Optional[str], demande: Optional[str]) -> dict:
+    from routes.numeros_wa import definir_ligne_forcee
+    from routes.vip_contrat import choisir_canal
+    s_global = await db.settings.find_one({"_id": "global"}) or {}
+    canal = await choisir_canal(db, s_global, user=user, telephone=telephone, contact_id=contact_id, demande=demande)
+    if canal.get("cle"):
+        definir_ligne_forcee(canal["cle"])
+    return canal
+
+
 # ----- Send WhatsApp from portal -----
 class WhatsAppSendRequest(BaseModel):
     to: str  # E.164 phone number (contact's whatsapp field, or tracked-user's phone)
     template_name: str
     language_code: Optional[str] = "fr"
     components: Optional[list] = None  # Template variables (body, header, button params)
+    ligne: Optional[str] = None  # Lot 158 — canal choisi dans la conversation (clé de ligne ; vide = automatique)
     contact_id: Optional[str] = None
     tracked_user_id: Optional[str] = None
     # 2026-02 (#4) — Rendered preview computed client-side, persisted on the
@@ -1028,6 +1041,7 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     # Lot 59 — correspondant d'une ligne WhatsApp non attribuée à l'utilisateur : envoi refusé
     from routes.numeros_wa import exiger_telephone_visible
     await exiger_telephone_visible(db, user, to, payload.contact_id)
+    canal = await _vip_canal(user, to, payload.contact_id, payload.ligne)     # Lot 158
     result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
     # Extract any /pay/{slug} URL embedded in the template variables for channel attribution
     pay_slug = None
@@ -1079,7 +1093,9 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
                 pass
         await _log_activity(client_id=log["client_id"], kind="whatsapp", action="sent", label=f"→ {_label}", actor=user, target_id=log.get("id"))
     log.pop("_id", None)
-    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
+    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"],
+            "ligne_utilisee": canal.get("libelle"), "ligne_forcee": canal.get("force", False),   # Lot 158
+            "avertissement": canal.get("avertissement")}
 
 
 @api.get("/me/whatsapp/history", tags=["Portail Client"])
@@ -1158,6 +1174,7 @@ def _wa_window_open(last_inbound_iso: Optional[str]) -> bool:
 class WhatsAppSendTextRequest(BaseModel):
     to: str
     text: str
+    ligne: Optional[str] = None  # Lot 158 — canal choisi dans la conversation (clé de ligne ; vide = automatique)
     contact_id: Optional[str] = None
     tracked_user_id: Optional[str] = None
     # Iter37h — Optional reply-to context (WhatsApp Cloud API context.message_id)
@@ -1204,6 +1221,7 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
             detail="Fenêtre 24h fermée — aucun message reçu de ce contact dans les dernières 24 heures. Utilisez un template Meta approuvé.",
         )
 
+    canal = await _vip_canal(user, to, payload.contact_id, payload.ligne)     # Lot 158
     result = await _wa_send_text(to, text, reply_to_message_id=payload.reply_to_message_id)
     # Iter35n — Compute reply-time for the most recent unanswered inbound
     reply_window = None
@@ -1249,7 +1267,9 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
     except Exception:
         pass
     log.pop("_id", None)
-    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"], "reply_seconds": (reply_window or {}).get("reply_seconds")}
+    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"], "reply_seconds": (reply_window or {}).get("reply_seconds"),
+            "ligne_utilisee": canal.get("libelle"), "ligne_forcee": canal.get("force", False),
+            "avertissement": canal.get("avertissement")}
 
 
 # =====================================================================
@@ -1274,6 +1294,7 @@ async def me_whatsapp_send_media(
     add_watermark: Optional[str] = Form(None),  # "1"/"0"/empty (defaults to admin setting)
     add_qr: Optional[str] = Form(None),         # "1"/"0"/empty (defaults to admin setting)
     reply_to_message_id: Optional[str] = Form(None),  # Iter37h — quote inbound msg
+    ligne: Optional[str] = Form(None),  # Lot 158 — canal choisi dans la conversation
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
@@ -1404,6 +1425,7 @@ async def me_whatsapp_send_media(
         pass
 
     # Send to WhatsApp Cloud API
+    canal = await _vip_canal(user, real_to, contact_id, ligne)     # Lot 158 : canal choisi dans la conversation
     result = await _wa_send_media(
         real_to,
         kind,
@@ -1474,6 +1496,8 @@ async def me_whatsapp_send_media(
         "http_status": result["status"],
         "media_url": public_path,
         "kind": kind,
+        "ligne_utilisee": canal.get("libelle"), "ligne_forcee": canal.get("force", False),   # Lot 158
+        "avertissement": canal.get("avertissement"),
     }
 
 

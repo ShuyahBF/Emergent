@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "158", "date": "2026-10-14",
+        "titre": "💬 Ligne Liluvine VIP réservée aux contrats valides",
+        "description": "Un client dont le contrat est en retard ou absent reçoit un message automatique (réglable, activable) sur la ligne VIP ; dans la conversation, l'agent choisit le canal, et la ligne VIP est forcée sur la ligne standard pour un client sans contrat valide, avec notification.",
+        "rubrique": "💬 Ligne VIP — contrat valide",
+    },
+    {
         "lot": "157", "date": "2026-10-14",
         "titre": "👤 Messagerie : colonne Nom plus large",
         "description": "Centre de messagerie : la colonne Nom a une largeur minimale (230 px) pour que le nom du contact ne soit plus réduit à une lettre quand le tableau est étroit.",

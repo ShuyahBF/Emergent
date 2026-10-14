@@ -278,3 +278,16 @@ def test_lot152_suivi_de_remise_dans_la_campagne(env):
     assert par_id["wamid.1"]["livraison"] == "delivered"
     assert par_id["wamid.2"]["livraison"] == "failed" and "131049" in par_id["wamid.2"]["livraison_erreur"]
     assert camp["livraison"] == {"remis": 1, "lus": 0, "non_remis": 1, "en_attente": 0}
+
+
+def test_lot155_destinataires_jamais_repondus_signales(env):
+    """Lot 155 : la liste des destinataires indique qui a déjà écrit à la plateforme (message reçu) et qui ne l'a jamais fait."""
+    client, db, _, _, _ = env
+    liste = client.get("/api/me/whatsapp/carrousel/destinataires", headers=h("cli_a")).json()["contacts"]
+    assert liste and all(c["a_repondu"] is False for c in liste)
+    avec_tel = next(c for c in liste if c["telephone"])
+    from routes.carrousel_whatsapp import numero_whatsapp
+    client.portal.call(db.whatsapp_messages.insert_one, {
+        "id": "in1", "direction": "inbound", "phone_digits": numero_whatsapp(avec_tel["telephone"]), "body": "bonjour"})
+    apres = {c["id"]: c["a_repondu"] for c in client.get("/api/me/whatsapp/carrousel/destinataires", headers=h("cli_a")).json()["contacts"]}
+    assert apres[avec_tel["id"]] is True and sum(apres.values()) >= 1

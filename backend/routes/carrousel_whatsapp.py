@@ -1229,6 +1229,28 @@ def attach_carrousel_whatsapp_routes(
         c = await db.carrousel_campagnes.find_one(filtre, {"_id": 0})
         if not c:
             raise HTTPException(status_code=404, detail="Campagne introuvable")
+        # Lot 152 — « ENVOYE » = accepté par WhatsApp ; la remise réelle (remis / lu / NON REMIS + motif) arrive plus tard
+        # par les accusés de WhatsApp et est lue dans whatsapp_messages : on l'ajoute à chaque destinataire.
+        suivi = {m["message_id"]: m async for m in db.whatsapp_messages.find(
+            {"carrousel_id": c["id"]}, {"_id": 0, "message_id": 1, "wa_status": 1, "wa_error_code": 1, "wa_error_message": 1})
+            if m.get("message_id")}
+        resume = {"remis": 0, "lus": 0, "non_remis": 0, "en_attente": 0}
+        for d in c.get("destinataires") or []:
+            if d.get("statut") != "ENVOYE":
+                continue
+            m = suivi.get(d.get("message_id")) or {}
+            etat = m.get("wa_status") or "sent"            # sent | delivered | read | failed
+            d["livraison"] = etat
+            if etat == "failed":
+                d["livraison_erreur"] = " — ".join(str(x) for x in (m.get("wa_error_code"), m.get("wa_error_message")) if x) or None
+                resume["non_remis"] += 1
+            elif etat == "read":
+                resume["lus"] += 1
+            elif etat == "delivered":
+                resume["remis"] += 1
+            else:
+                resume["en_attente"] += 1
+        c["livraison"] = resume
         return c
 
     async def _noter_consentement(collection, filtre: dict, accepte: bool, user: dict) -> int:

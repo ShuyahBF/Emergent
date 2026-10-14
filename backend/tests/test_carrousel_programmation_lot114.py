@@ -259,3 +259,22 @@ def test_admin_sponsorise_controle_regie_au_moment_envoi(env):
     client.portal.call(moteur["lancer_echus"], True)
     camp = client.get(f"/api/admin/whatsapp/carrousel/campagnes/{cid}", headers=h("admin")).json()
     assert camp["statut"] == "ANNULEE" and "budget" in camp["motif_arret"] and envois == []
+
+
+def test_lot152_suivi_de_remise_dans_la_campagne(env):
+    """Lot 152 : « Envoyé » = accepté par WhatsApp ; les accusés (remis / lu / non remis + motif) sont ajoutés
+    à chaque destinataire de la campagne, lus dans whatsapp_messages."""
+    client, db, envois, _, moteur = env
+    res = envoyer_portail(client).json()
+    client.portal.call(moteur["lancer_echus"], True)
+    camp = campagne(client, res["id"])
+    assert all(d["livraison"] == "sent" for d in camp["destinataires"]) and camp["livraison"]["en_attente"] == 2
+    # Accusés reçus de WhatsApp : le 1er remis, le 2e en échec (limite de WhatsApp sur les messages marketing)
+    client.portal.call(db.whatsapp_messages.update_one, {"message_id": "wamid.1"}, {"$set": {"wa_status": "delivered"}})
+    client.portal.call(db.whatsapp_messages.update_one, {"message_id": "wamid.2"}, {"$set": {
+        "wa_status": "failed", "wa_error_code": 131049, "wa_error_message": "Message non remis pour préserver la qualité de l'écosystème"}})
+    camp = campagne(client, res["id"])
+    par_id = {d["message_id"]: d for d in camp["destinataires"]}
+    assert par_id["wamid.1"]["livraison"] == "delivered"
+    assert par_id["wamid.2"]["livraison"] == "failed" and "131049" in par_id["wamid.2"]["livraison_erreur"]
+    assert camp["livraison"] == {"remis": 1, "lus": 0, "non_remis": 1, "en_attente": 0}

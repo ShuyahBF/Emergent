@@ -47,6 +47,7 @@ import Home from "@/pages/public/Home";
 import Missions from "@/pages/public/Missions";
 import Specialisations from "@/pages/public/Specialisations";
 import Catalogue from "@/pages/public/Catalogue";
+import AccordWhatsApp from "@/pages/public/AccordWhatsApp";   // Lot 164 : page d'accord WhatsApp (lien personnel)
 import PresentationCarte from "@/pages/public/PresentationCarte";   // Lot 94 : carte de carrousel sans lien
 import PresentationCarrousel from "@/pages/public/PresentationCarrousel";   // Lot 111 : tout le carrousel, #carte-n
 import LienCarrousel from "@/pages/public/LienCarrousel";   // Lot 117 : bouton des cartes de carrousel (/l/<code>)
@@ -295,6 +296,7 @@ export default function App() {
           <Route path="/missions" element={<PublicRoute><Missions /></PublicRoute>} />
           <Route path="/specialisations" element={<PublicRoute><Specialisations /></PublicRoute>} />
           <Route path="/catalogue" element={<PublicRoute><Catalogue /></PublicRoute>} />
+          <Route path="/accord/:jeton" element={<PublicRoute><AccordWhatsApp /></PublicRoute>} />
           <Route path="/presentation/:code" element={<PublicRoute><PresentationCarte /></PublicRoute>} />
           {/* Lot 111 — présentation de toutes les cartes d'un carrousel, positionnée sur #carte-n */}
           <Route path="/presentation/c/:id" element={<PublicRoute><PresentationCarrousel /></PublicRoute>} />

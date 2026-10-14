@@ -618,7 +618,15 @@ def attach_carrousel_whatsapp_routes(
             return {"envoyees": 0, "fenetre_fermee": [], "erreurs": [], "deja": len(personnes)}
         creds = await resolve_wa_credentials(tenant_id)
         res = await aw.envoyer_demandes(db, sans_accord, creds, await _version_graph())
-        return {**res, "deja": len(personnes) - len(sans_accord)}
+        # Lot 164 — lien PERSONNEL (page SAWALI d'accord) de chaque personne sans accord : à donner à celles dont la
+        # fenêtre WhatsApp est fermée, ou à mettre dans un bouton de message
+        return {**res, "deja": len(personnes) - len(sans_accord), "liens": _liens_accord(sans_accord)}
+
+    def _liens_accord(personnes: List[dict]) -> List[dict]:
+        """Lot 164 — [{id, nom, lien}] : page /accord/<jeton> de chaque contact (le jeton est signé par le serveur)."""
+        from routes import accord_page as ap
+        base = base_publique()
+        return [{"id": p["id"], "nom": p.get("nom") or "", "lien": ap.lien_personnel(base, p["id"])} for p in personnes]
 
     async def _lien_accord(tenant_id: Optional[str]) -> dict:
         """Lien wa.me (et texte pré-rempli « OUI NOUVEAUTES ») vers le numéro WhatsApp qui envoie les carrousels."""
@@ -1472,6 +1480,12 @@ def attach_carrousel_whatsapp_routes(
         personnes = [c for c in (await _contacts_portail(user))["contacts"] if c["id"] in voulus]
         return await _demander_accord(personnes, _tenant_id(user))
 
+    @api.post("/me/whatsapp/carrousel/liens-accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def liens_accord_portail(data: DemandeAccordIn, user: dict = Depends(utilisateur)):
+        """Lot 164 — liens d'accord personnels (page SAWALI) des contacts demandés, parmi ceux que l'utilisateur voit."""
+        voulus = set(data.ids)
+        return {"liens": _liens_accord([c for c in (await _contacts_portail(user))["contacts"] if c["id"] in voulus])}
+
     @api.get("/me/whatsapp/carrousel/lien-accord", tags=["Portail Client — Carrousel WhatsApp"])
     async def lien_accord_portail(user: dict = Depends(utilisateur)):
         return await _lien_accord(_tenant_id(user))
@@ -1665,6 +1679,12 @@ def attach_carrousel_whatsapp_routes(
         voulus = set(data.ids)
         personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
         return await _demander_accord(personnes, None)
+
+    @api.post("/admin/whatsapp/carrousel/liens-accord", tags=["Admin — Carrousel WhatsApp"])
+    async def liens_accord_admin(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
+        """Lot 164 — liens d'accord personnels (page SAWALI) des clients demandés."""
+        voulus = set(data.ids)
+        return {"liens": _liens_accord([c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus])}
 
     @api.get("/admin/whatsapp/carrousel/lien-accord", tags=["Admin — Carrousel WhatsApp"])
     async def lien_accord_admin(_: dict = Depends(get_current_admin)):

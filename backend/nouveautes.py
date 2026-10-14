@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "164", "date": "2026-10-14",
+        "titre": "✅ Page d'accord WhatsApp : lien personnel par contact",
+        "description": "Le lien d'accord wa.me rouvrait seulement WhatsApp. Nouveau bouton « Liens d'accord personnels » (page Carrousel) : chaque personne reçoit un lien /accord/… et touche « Oui, j'accepte » sur une page SAWALI, qui note son accord avec la date (retrait possible sur la même page).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "163", "date": "2026-10-14",
         "titre": "🧩 Offre du client connue de Liluvine",
         "description": "Liste des logiciels, produits et services de chaque client (fiche client → SMART Communications) : Liluvine ne pose plus de questions sur nos produits et, si le contrat n'est pas à jour, répond « Notre assistance pour … n'est pas disponible pour le moment. Contactez votre responsable. », signe, ouvre un ticket et escalade (à activer).",

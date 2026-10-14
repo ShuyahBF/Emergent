@@ -851,6 +851,22 @@ export default function CarrouselWhatsApp({ admin = false }) {
   };
   // Lot 79 — demande d'accord : message WhatsApp à 2 boutons ; l'accord est noté dès que la personne touche « Oui »
   const [demande, setDemande] = useState(false);
+  // Lot 164 — liens d'accord PERSONNELS (page SAWALI /accord/<jeton>) des personnes cochées : un clic sur « Oui,
+  // j'accepte » dans la page enregistre l'accord (contrairement au lien wa.me, qui rouvre seulement WhatsApp)
+  const [liensAccord, setLiensAccord] = useState([]);
+  const voirLiensAccord = async () => {
+    const ids = new Set(choisis);
+    annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
+    const cibles = annuaire.contacts.filter((c) => ids.has(c.id) && !c.accepte);
+    if (!cibles.length) { toast.info("Cochez d'abord des personnes qui n'ont pas encore donné leur accord."); return; }
+    try {
+      const { data } = await apiClient.post(`${base}/liens-accord`, { ids: cibles.map((c) => c.id) });
+      setLiensAccord(data.liens || []);
+    } catch (e) { toast.error(erreur(e, "Liens d'accord indisponibles")); }
+  };
+  const copierLien = async (lien) => {
+    try { await navigator.clipboard.writeText(lien); toast.success("Lien copié"); } catch { toast.error("Copie impossible"); }
+  };
   const demanderAccord = async () => {
     const ids = new Set(choisis);
     annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
@@ -863,6 +879,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
       if (data.envoyees) toast.success(`${data.envoyees} demande(s) envoyée(s) : l'accord sera noté dès que la personne touchera « Oui ».`);
       if (data.fenetre_fermee.length) toast.warning(`${data.fenetre_fermee.length} personne(s) ne vous ont pas écrit depuis 24 h : WhatsApp interdit de leur écrire en premier. Donnez-leur le lien ou le QR code d'accord : ${data.fenetre_fermee.slice(0, 5).join(", ")}${data.fenetre_fermee.length > 5 ? "…" : ""}`, { duration: 12000 });
       if (data.erreurs.length) toast.error(data.erreurs.slice(0, 3).join(" · "));
+      if (data.liens?.length) setLiensAccord(data.liens);   // lot 164 : liens personnels à donner à ceux dont la fenêtre est fermée
     } catch (e) {
       toast.error(erreur(e, "Demande d'accord impossible"));
     } finally {
@@ -1161,7 +1178,29 @@ export default function CarrouselWhatsApp({ admin = false }) {
             {demande ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MessageSquareReply className="mr-1 h-4 w-4" />}
             Demander l'accord (boutons Oui / Non)
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={voirLiensAccord}
+                  title="Un lien personnel par personne cochée : une page SAWALI où elle accepte ou refuse elle-même (à mettre dans un bouton ou un message)">
+            🔗 Liens d'accord personnels
+          </Button>
         </div>
+        {liensAccord.length > 0 && (
+          <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700" data-testid="liens-accord-personnels">
+            <p className="font-medium text-emerald-800">
+              Liens d'accord personnels : chaque personne ouvre sa page SAWALI et touche « Oui, j'accepte » (son accord est noté avec la date).
+              Ne partagez pas un lien à une autre personne que son destinataire.
+            </p>
+            <div className="max-h-40 space-y-1 overflow-y-auto">
+              {liensAccord.map((l) => (
+                <div key={l.id} className="flex items-center gap-2">
+                  <span className="w-40 shrink-0 truncate font-medium">{l.nom || l.id}</span>
+                  <input readOnly className={`${champ} min-w-0 flex-1`} value={l.lien} onFocus={(e) => e.target.select()} />
+                  <Button type="button" size="sm" variant="outline" onClick={() => copierLien(l.lien)}>Copier</Button>
+                </div>
+              ))}
+            </div>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setLiensAccord([])}>Masquer</Button>
+          </div>
+        )}
         <div className="max-h-80 overflow-y-auto rounded-md border border-slate-200">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500">

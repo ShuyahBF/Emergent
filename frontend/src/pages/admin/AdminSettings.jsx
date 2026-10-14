@@ -1254,6 +1254,13 @@ export default function AdminSettings() {
       {/* Lot 75 — carrousel WhatsApp : images des cartes générées par l'IA (limite par heure) */}
       <Filterable title="🖼️ Carrousel WhatsApp — modèles Meta et images IA" anchorId="s-carrousel-ia">
         <CorpsSection icon={Sparkles} title="🖼️ Carrousel WhatsApp — modèles Meta et images IA">
+          {/* Lot 164 — page SAWALI d'accord WhatsApp (lien personnel) */}
+          <p className="rounded-md bg-emerald-50 p-2 text-xs text-emerald-900 ring-1 ring-emerald-200" data-testid="note-page-accord">
+            <b>Page d'accord (lot 164) :</b> sur la page « Carrousel WhatsApp », le bouton « 🔗 Liens d'accord personnels » donne à chaque
+            personne cochée un lien <code>/accord/…</code> propre à elle. Elle y touche « Oui, j'accepte » : son accord est noté avec la date
+            (comme le mot-clé « OUI NOUVEAUTES »). Contrairement au lien wa.me, qui rouvre seulement WhatsApp, ce lien enregistre l'accord ;
+            à utiliser dans un bouton de message. Ne jamais l'envoyer à une autre personne que son destinataire.
+          </p>
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.

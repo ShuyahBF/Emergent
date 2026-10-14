@@ -371,6 +371,12 @@ class ConsentementIn(BaseModel):
     accepte: bool
 
 
+class DemandeAccordModeleIn(BaseModel):
+    """Lot 167 — personnes à qui envoyer le modèle d'accord, tout de suite ou à `programme_le` (heure de Ouagadougou)."""
+    ids: List[str] = Field(default_factory=list, max_length=DESTINATAIRES_MAX)
+    programme_le: Optional[str] = Field(None, max_length=40)
+
+
 class AccordModeleIn(BaseModel):
     """Lot 165 — modèle de demande d'accord à lien personnel (nom en minuscules, chiffres et _)."""
     modele: str = Field("sawali_accord_lien", min_length=3, max_length=60, pattern=r"^[a-z0-9_]+$")
@@ -1221,6 +1227,10 @@ def attach_carrousel_whatsapp_routes(
                 await lancer_echus()
             except Exception:  # noqa: BLE001 — une erreur ne doit jamais arrêter la boucle
                 logger.warning("[carrousel] planificateur des envois programmés", exc_info=True)
+            try:
+                await executer_accords_echus()      # lot 167 : demandes d'accord programmées
+            except Exception:  # noqa: BLE001
+                logger.warning("[carrousel] planificateur des demandes d'accord", exc_info=True)
             await asyncio.sleep(PLANIFICATEUR_SECONDES)
 
     _planif: Dict[str, Any] = {}
@@ -1689,17 +1699,16 @@ def attach_carrousel_whatsapp_routes(
                 "wa_accord_modele": data.modele, "wa_accord_modele_langue": data.langue}}, upsert=True)
         return {**resultat, "url_bouton": _url_bouton_accord()}
 
-    @api.post("/admin/whatsapp/carrousel/demande-accord-modele", tags=["Admin — Carrousel WhatsApp"])
-    async def demande_accord_modele(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
-        """Lot 166 — envoie en UN clic le modèle de demande d'accord (bouton → page /accord/<jeton>) aux personnes
-        choisies, chacune avec SON lien personnel (plus de saisie un à un). Demandé et confirmé par le propriétaire.
-        Garde-fous :
+    async def _executer_demande_accord(ids: List[str], user: dict) -> dict:
+        """Lot 166 — envoie le modèle de demande d'accord (bouton → page /accord/<jeton>) aux personnes `ids`, chacune
+        avec SON lien personnel (plus de saisie un à un). Lot 167 : appelée tout de suite OU à l'heure programmée
+        (les garde-fous sont alors réévalués AU MOMENT de l'envoi). Garde-fous :
           - jamais à quelqu'un qui a déjà accepté, ni à quelqu'un qui a REFUSÉ (STOP / « NON ») ;
           - jamais deux demandes à la même personne en 7 jours ;
           - le modèle doit être APPROUVÉ par Meta ; au plus DESTINATAIRES_MAX personnes par envoi ;
           - c'est un message Marketing facturé par Meta : l'écran demande confirmation avant l'envoi."""
         from routes import accord_modele_meta as amm, accord_page as ap
-        if len(data.ids) > DESTINATAIRES_MAX:
+        if len(ids) > DESTINATAIRES_MAX:
             raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} personnes au plus par envoi")
         g = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_accord_modele": 1, "wa_accord_modele_langue": 1}) or {}
         nom_accord = g.get("wa_accord_modele")
@@ -1712,7 +1721,7 @@ def attach_carrousel_whatsapp_routes(
         if etat["statut"] != "APPROVED":
             raise HTTPException(status_code=409, detail=f"Le modèle « {nom_accord} » n'est pas encore approuvé par Meta "
                                                         f"(statut : {etat['statut']}).")
-        voulus = set(data.ids)
+        voulus = set(ids)
         personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
         # État réel du consentement et dernière demande : « refusé » (False) se distingue de « jamais demandé » (None)
         etats: Dict[str, dict] = {}
@@ -1767,6 +1776,100 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=503, detail="Secret de signature des liens absent (JWT_SECRET) : envoi impossible") from exc
         return {"envoyees": envoyees, "echecs": echecs[:20], "nb_echecs": len(echecs), "ignores": ignores,
                 "modele": nom_accord}
+
+    # --- Lot 167 : demande d'accord PROGRAMMÉE (« demain 8 h 30 ») ---------------------------------------------
+    # Les envois programmés sont gardés dans UN document de `settings` (aucune nouvelle collection : le cluster est
+    # plein) : {_id: "accord_programmations", items: [{id, ids, programme_le (UTC), statut, utilisateur, ...}]}.
+    # Statuts : PROGRAMMEE → EN_COURS → TERMINEE | ECHEC, ou ANNULEE. Le planificateur (toutes les minutes) les lance.
+    DOC_PROG = {"_id": "accord_programmations"}
+    PROG_MAX = 50                                       # envois gardés dans le document (les plus récents)
+
+    async def _items_prog() -> List[dict]:
+        return list((await db.settings.find_one(DOC_PROG, {"_id": 0, "items": 1}) or {}).get("items") or [])
+
+    async def _ecrire_items(items: List[dict]) -> None:
+        await db.settings.replace_one(DOC_PROG, {**DOC_PROG, "items": items[-PROG_MAX:]}, upsert=True)
+
+    def _vue_prog(it: dict) -> dict:
+        """Ce que l'écran voit : sans la liste d'identifiants ni l'utilisateur interne."""
+        return {k: it.get(k) for k in ("id", "programme_le", "statut", "nb", "cree_le", "cree_par", "termine_le", "resultat", "motif")}
+
+    async def executer_accords_echus() -> int:
+        """Lot 167 — lance les demandes d'accord dont l'heure est arrivée (appelée par le planificateur chaque minute).
+        Hors plage horaire d'envoi (Paramètres) : attend l'ouverture. Une demande restée EN_COURS plus de 15 minutes
+        (serveur redémarré en plein envoi) repasse PROGRAMMEE : les garde-fous « pas deux fois en 7 jours » évitent
+        tout doublon. Renvoie le nombre lancé."""
+        items = await _items_prog()
+        if not items:
+            return 0
+        maintenant = _maintenant()
+        change = False
+        for it in items:
+            if it.get("statut") == "EN_COURS" and (it.get("demarre_le") or "") < (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat():
+                it["statut"], change = "PROGRAMMEE", True
+        if change:
+            await _ecrire_items(items)
+        echus = [it for it in items if it.get("statut") == "PROGRAMMEE" and (it.get("programme_le") or "") <= maintenant]
+        if not echus or await _attente() is not None:
+            return 0
+        lances = 0
+        for it in echus:
+            # Passage conditionnel : un seul serveur gagne si deux planificateurs tournent en même temps
+            r = await db.settings.update_one({**DOC_PROG, "items": {"$elemMatch": {"id": it["id"], "statut": "PROGRAMMEE"}}},
+                                             {"$set": {"items.$.statut": "EN_COURS", "items.$.demarre_le": _maintenant()}})
+            if not r.modified_count:
+                continue
+            lances += 1
+            fin: Dict[str, Any] = {}
+            try:
+                res = await _executer_demande_accord(it["ids"], it.get("utilisateur") or {})
+                fin = {"statut": "TERMINEE", "resultat": {"envoyees": res["envoyees"], "nb_echecs": res["nb_echecs"],
+                                                          "ignores": res["ignores"]}}
+            except HTTPException as exc:                     # ex. modèle pas (ou plus) approuvé : rien n'est envoyé
+                fin = {"statut": "ECHEC", "motif": str(exc.detail)[:300]}
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[accord] demande programmée en échec", exc_info=True)
+                fin = {"statut": "ECHEC", "motif": f"Erreur : {type(exc).__name__}"}
+            await db.settings.update_one({**DOC_PROG, "items": {"$elemMatch": {"id": it["id"]}}},
+                                         {"$set": {**{f"items.$.{k}": v for k, v in fin.items()}, "items.$.termine_le": _maintenant()}})
+        return lances
+
+    @api.post("/admin/whatsapp/carrousel/demande-accord-modele", tags=["Admin — Carrousel WhatsApp"])
+    async def demande_accord_modele(data: DemandeAccordModeleIn, user: dict = Depends(get_current_admin)):
+        """Lot 166 — envoie en UN clic le modèle de demande d'accord, chacune avec SON lien personnel.
+        Lot 167 — `programme_le` (« 2026-10-15T08:30 », heure de Ouagadougou) : la demande est PROGRAMMÉE et partira
+        toute seule à cette heure (date passée refusée) ; sinon elle part tout de suite."""
+        quand = await _programme(data.programme_le)
+        if quand is None:
+            return await _executer_demande_accord(data.ids, user)
+        # Contrôles faits maintenant (message clair tout de suite) ; les garde-fous sont refaits à l'heure dite
+        if len(data.ids) > DESTINATAIRES_MAX:
+            raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} personnes au plus par envoi")
+        g = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_accord_modele": 1}) or {}
+        if not g.get("wa_accord_modele"):
+            raise HTTPException(status_code=409, detail="Créez d'abord le modèle d'accord chez Meta (Modèles Meta).")
+        items = await _items_prog()
+        item = {"id": uuid.uuid4().hex, "ids": list(dict.fromkeys(data.ids)), "nb": len(set(data.ids)),
+                "programme_le": quand.isoformat(), "statut": "PROGRAMMEE", "cree_le": _maintenant(),
+                "cree_par": user.get("full_name") or user.get("email") or user.get("id"),
+                "utilisateur": {"id": user.get("id"), "client_id": user.get("client_id")}}
+        await _ecrire_items(items + [item])
+        return {"programmee": True, **_vue_prog(item)}
+
+    @api.get("/admin/whatsapp/carrousel/demande-accord-modele/programmations", tags=["Admin — Carrousel WhatsApp"])
+    async def programmations_accord(_: dict = Depends(get_current_admin)):
+        """Lot 167 — demandes d'accord programmées ou récentes (les plus proches en premier)."""
+        items = sorted(await _items_prog(), key=lambda i: i.get("programme_le") or "", reverse=True)
+        return {"programmations": [_vue_prog(i) for i in items]}
+
+    @api.post("/admin/whatsapp/carrousel/demande-accord-modele/programmations/{pid}/annuler", tags=["Admin — Carrousel WhatsApp"])
+    async def annuler_programmation_accord(pid: str, _: dict = Depends(get_current_admin)):
+        """Lot 167 — annule une demande d'accord programmée (seulement tant qu'elle n'est pas partie)."""
+        r = await db.settings.update_one({**DOC_PROG, "items": {"$elemMatch": {"id": pid, "statut": "PROGRAMMEE"}}},
+                                         {"$set": {"items.$.statut": "ANNULEE", "items.$.termine_le": _maintenant()}})
+        if not r.modified_count:
+            raise HTTPException(status_code=409, detail="Cette demande est introuvable ou déjà partie : elle ne peut plus être annulée")
+        return {"ok": True, "id": pid, "statut": "ANNULEE"}
 
     @api.get("/admin/whatsapp/carrousel/produits", tags=["Admin — Carrousel WhatsApp"])
     async def produits_admin(_: dict = Depends(get_current_admin)):
@@ -1951,4 +2054,5 @@ def attach_carrousel_whatsapp_routes(
         }
 
     # Lot 114 — pour le branchement (démarrage du planificateur) et les tests
-    return {"executer": _executer, "lancer_echus": lancer_echus, "demarrer": demarrer}
+    return {"executer": _executer, "lancer_echus": lancer_echus, "demarrer": demarrer,
+            "accords_echus": executer_accords_echus}      # lot 167 : demandes d'accord programmées

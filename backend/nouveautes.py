@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "166", "date": "2026-10-14",
+        "titre": "📨 Demande d'accord envoyée en un clic, un lien personnel par contact",
+        "description": "Plus de saisie un à un : « Envoyer la demande d'accord (modèle) » envoie à chaque personne cochée le modèle Meta (calqué sur « envoidemandeaccordcarroussel », déjà approuvé) avec SON lien /accord/… ; le bouton NON note le refus. Jamais aux personnes qui ont accepté ou refusé, ni deux fois en 7 jours.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "165", "date": "2026-10-14",
         "titre": "📨 Modèle WhatsApp de demande d'accord à lien personnel",
         "description": "Nouveau bouton « Créer le modèle d'accord chez Meta » (Réglages du carrousel) : un modèle dont le bouton ouvre la page d'accord /accord/… de chaque personne. Il suit son approbation par Meta ; aucun message n'est envoyé aux contacts.",

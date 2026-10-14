@@ -1950,6 +1950,17 @@ async def whatsapp_webhook_incoming(request: Request):
                         # the visible label, `button.payload` the data.
                         btn = msg.get("button") or {}
                         text_body = btn.get("text") or btn.get("payload")
+                        # Lot 166 — bouton « NON, pas intéressé(e) » du modèle de demande d'accord : refus noté,
+                        # confirmé, puis fin (la personne n'est plus sollicitée)
+                        if (btn.get("payload") or "").startswith("accord_wa:"):
+                            try:
+                                from routes.accord_whatsapp import traiter_message_entrant as _accord_wa
+                                accord = await _accord_wa(db, digits_only, None, btn.get("payload"), numero_recu)
+                                if accord:
+                                    await _wa_send_text(from_num, accord[0], tenant_id=accord[1])
+                            except Exception:  # noqa: BLE001
+                                logger.warning("[accord_wa] bouton du modèle non traité", exc_info=True)
+                            continue
                         # S025 — Intercept download-approval button payloads
                         try:
                             if await _dl_handle_button_payload(db=db, payload=btn.get("payload") or "", from_phone=digits_only):

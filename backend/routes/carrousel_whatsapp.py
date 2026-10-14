@@ -1689,6 +1689,85 @@ def attach_carrousel_whatsapp_routes(
                 "wa_accord_modele": data.modele, "wa_accord_modele_langue": data.langue}}, upsert=True)
         return {**resultat, "url_bouton": _url_bouton_accord()}
 
+    @api.post("/admin/whatsapp/carrousel/demande-accord-modele", tags=["Admin — Carrousel WhatsApp"])
+    async def demande_accord_modele(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
+        """Lot 166 — envoie en UN clic le modèle de demande d'accord (bouton → page /accord/<jeton>) aux personnes
+        choisies, chacune avec SON lien personnel (plus de saisie un à un). Demandé et confirmé par le propriétaire.
+        Garde-fous :
+          - jamais à quelqu'un qui a déjà accepté, ni à quelqu'un qui a REFUSÉ (STOP / « NON ») ;
+          - jamais deux demandes à la même personne en 7 jours ;
+          - le modèle doit être APPROUVÉ par Meta ; au plus DESTINATAIRES_MAX personnes par envoi ;
+          - c'est un message Marketing facturé par Meta : l'écran demande confirmation avant l'envoi."""
+        from routes import accord_modele_meta as amm, accord_page as ap
+        if len(data.ids) > DESTINATAIRES_MAX:
+            raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} personnes au plus par envoi")
+        g = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_accord_modele": 1, "wa_accord_modele_langue": 1}) or {}
+        nom_accord = g.get("wa_accord_modele")
+        if not nom_accord:
+            raise HTTPException(status_code=409, detail="Créez d'abord le modèle d'accord chez Meta (Modèles Meta).")
+        langue = g.get("wa_accord_modele_langue") or LANGUE_DEFAUT
+        acces = await _acces_meta()
+        etat = await amm.lire_statut(version=acces["version"], waba_id=acces["waba"], jeton=acces["jeton"],
+                                     nom=nom_accord, langue=langue)
+        if etat["statut"] != "APPROVED":
+            raise HTTPException(status_code=409, detail=f"Le modèle « {nom_accord} » n'est pas encore approuvé par Meta "
+                                                        f"(statut : {etat['statut']}).")
+        voulus = set(data.ids)
+        personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
+        # État réel du consentement et dernière demande : « refusé » (False) se distingue de « jamais demandé » (None)
+        etats: Dict[str, dict] = {}
+        for coll in ("directory_contacts", "tracked_users", "users"):
+            async for d in db[coll].find({"id": {"$in": list(voulus)}},
+                                         {"_id": 0, "id": 1, "accepte_whatsapp": 1, "accord_demande_le": 1}):
+                etats.setdefault(d["id"], d)
+        limite = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        ignores = {"deja_accepte": 0, "refus": 0, "demande_recente": 0, "sans_numero": 0}
+        a_envoyer: List[dict] = []
+        for p in personnes:
+            e = etats.get(p["id"], {})
+            if len(numero_whatsapp(p.get("telephone"))) < 10:
+                ignores["sans_numero"] += 1
+            elif e.get("accepte_whatsapp") is True:
+                ignores["deja_accepte"] += 1
+            elif e.get("accepte_whatsapp") is False:
+                ignores["refus"] += 1                      # la personne a dit non : on ne la sollicite plus
+            elif (e.get("accord_demande_le") or "") > limite:
+                ignores["demande_recente"] += 1
+            else:
+                a_envoyer.append(p)
+        envoyees, echecs = 0, []
+        verrou = asyncio.Semaphore(5)
+
+        async def _envoyer_un(p: dict) -> None:
+            nonlocal envoyees
+            prenom = ((p.get("nom") or "").split() or ["cher contact"])[0][:30]
+            comps = [{"type": "body", "parameters": [{"type": "text", "text": prenom}]},
+                     {"type": "button", "sub_type": "url", "index": "0",
+                      "parameters": [{"type": "text", "text": ap.creer_jeton(p["id"])}]},
+                     # bouton « NON » : l'identifiant revient au webhook, qui note le refus
+                     {"type": "button", "sub_type": "quick_reply", "index": "1",
+                      "parameters": [{"type": "payload", "payload": amm.PAYLOAD_NON}]}]
+            async with verrou:
+                try:
+                    r = await wa_send_template(p["telephone"], nom_accord, langue, comps, tenant_id=None)
+                except Exception as exc:  # noqa: BLE001
+                    r = {"ok": False, "error": str(exc)[:200]}
+            if r.get("ok"):
+                envoyees += 1
+                maintenant = _maintenant()
+                for coll in ("directory_contacts", "tracked_users", "users"):
+                    await db[coll].update_one({"id": p["id"]}, {"$set": {"accord_demande_le": maintenant}})
+            else:
+                echecs.append({"nom": p.get("nom") or p["telephone"],
+                               "erreur": str(r.get("error") or r.get("message") or "refusé")[:160]})
+
+        try:
+            await asyncio.gather(*[_envoyer_un(p) for p in a_envoyer])
+        except RuntimeError as exc:                        # JWT_SECRET absent : aucun jeton possible
+            raise HTTPException(status_code=503, detail="Secret de signature des liens absent (JWT_SECRET) : envoi impossible") from exc
+        return {"envoyees": envoyees, "echecs": echecs[:20], "nb_echecs": len(echecs), "ignores": ignores,
+                "modele": nom_accord}
+
     @api.get("/admin/whatsapp/carrousel/produits", tags=["Admin — Carrousel WhatsApp"])
     async def produits_admin(_: dict = Depends(get_current_admin)):
         return {"produits": await _produits(None)}

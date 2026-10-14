@@ -1267,6 +1267,12 @@ export default function AdminSettings() {
             « Créer le modèle d'accord chez Meta » dépose un modèle dont le bouton ouvre <code>/accord/{"{{1}}"}</code> : SAWALI pourra y mettre
             le lien personnel de chaque contact. Créer le modèle n'envoie aucun message ; son approbation par Meta prend de quelques minutes à 24 h.
           </p>
+          {/* Lot 166 — envoi du modèle d'accord en un clic */}
+          <p className="rounded-md bg-sky-50 p-2 text-xs text-sky-900 ring-1 ring-sky-200" data-testid="note-envoi-modele-accord">
+            <b>Envoi en un clic (lot 166) :</b> une fois le modèle approuvé, « Envoyer la demande d'accord (modèle) » (page Carrousel, administration)
+            l'envoie à chaque personne cochée avec <i>son</i> lien. Le bouton « NON, pas intéressé(e) » note le refus. Sont écartés automatiquement :
+            les personnes qui ont accepté, celles qui ont refusé et celles déjà sollicitées depuis moins de 7 jours. Message Marketing facturé par Meta.
+          </p>
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.

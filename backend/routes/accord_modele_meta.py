@@ -3,9 +3,13 @@
 # Contexte : un bouton de modèle avec une adresse FIXE (ex. le lien wa.me) ne peut pas porter le lien personnel de
 # chaque contact. Ce modèle a un bouton URL DYNAMIQUE  <site>/accord/{{1}}  : au moment de l'envoi, SAWALI y met le
 # jeton de la personne (routes/accord_page.py) et la personne ouvre SA page d'accord.
-#   - corps : 2 variables  {{1}} prénom, {{2}} expéditeur ;
+#   - STRUCTURE calquée sur le modèle « envoidemandeaccordcarroussel » DÉJÀ APPROUVÉ par Meta (14/10/2026) :
+#     titre (texte), corps, pied de page, bouton URL dynamique « OUI, j'accepte », bouton de réponse « NON » ;
+#   - corps : UNE seule variable  {{1}} = prénom (moins de variables = moins de risque de refus) ;
 #   - catégorie MARKETING (la demande vise l'envoi de nouveautés et d'offres) ;
-#   - bouton URL « Répondre » → <site>/accord/{{1}}.
+#   - bouton URL « OUI, j'accepte » → <site>/accord/{{1}} (jeton personnel) ;
+#   - bouton de réponse « NON, pas intéressé(e) » : SAWALI y attache l'identifiant `accord_wa:non` à l'envoi, et le
+#     webhook note le refus (la personne n'est plus jamais sollicitée).
 # Ce module ne fait QUE créer le modèle chez Meta et lire son statut : aucun message n'est envoyé aux contacts.
 # Aucun secret n'est écrit dans les journaux ; le jeton n'est jamais renvoyé au navigateur.
 from __future__ import annotations
@@ -19,10 +23,17 @@ logger = logging.getLogger("sawali.accord_modele_meta")
 
 NOM_DEFAUT = "sawali_accord_lien"
 # Une variable n'est jamais au tout début ni à la toute fin du texte (règle Meta)
-TEXTE_CORPS = ("Bonjour {{1}}, {{2}} souhaite vous envoyer ses nouveautés et offres sur WhatsApp. "
-               "Touchez le bouton pour accepter ou refuser : vous pourrez arrêter à tout moment.")
-EXEMPLE_CORPS = ["Awa", "SAWALI SMART SYSTEMS"]
-TEXTE_BOUTON = "Répondre"
+TEXTE_TITRE = "Nous avons besoin de votre ACCORD"
+TEXTE_CORPS = ("Bonjour {{1}},\n\n"
+               "Cliquez sur le bouton OUI pour nous autoriser à vous envoyer nos nouveautés et offres sur WhatsApp, "
+               "ou sur NON si vous ne le souhaitez pas.\n\n"
+               "C'est gratuit et sans engagement : vous pourrez arrêter à tout moment en écrivant STOP.\n\n"
+               "SAWALI SMART SYSTEMS")
+EXEMPLE_CORPS = ["Awa"]
+TEXTE_PIED = "SAWALI SMART SYSTEMS - Service de Communications"
+TEXTE_BOUTON = "OUI, j'accepte"
+TEXTE_BOUTON_NON = "NON, pas intéressé(e)"
+PAYLOAD_NON = "accord_wa:non"      # même identifiant que le bouton « Non merci » des messages libres (accord_whatsapp.py)
 EXEMPLE_JETON = "exemple"
 
 
@@ -33,8 +44,13 @@ def definition_modele(nom: str, langue: str, url_bouton: str, *, exemple_url_com
     return {
         "name": nom, "language": langue, "category": "MARKETING",
         "components": [
+            {"type": "HEADER", "format": "TEXT", "text": TEXTE_TITRE},
             {"type": "BODY", "text": TEXTE_CORPS, "example": {"body_text": [EXEMPLE_CORPS]}},
-            {"type": "BUTTONS", "buttons": [{"type": "URL", "text": TEXTE_BOUTON, "url": url_bouton, "example": [exemple]}]},
+            {"type": "FOOTER", "text": TEXTE_PIED},
+            {"type": "BUTTONS", "buttons": [
+                {"type": "URL", "text": TEXTE_BOUTON, "url": url_bouton, "example": [exemple]},
+                {"type": "QUICK_REPLY", "text": TEXTE_BOUTON_NON},
+            ]},
         ],
     }
 

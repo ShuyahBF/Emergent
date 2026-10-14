@@ -1273,6 +1273,12 @@ export default function AdminSettings() {
             l'envoie à chaque personne cochée avec <i>son</i> lien. Le bouton « NON, pas intéressé(e) » note le refus. Sont écartés automatiquement :
             les personnes qui ont accepté, celles qui ont refusé et celles déjà sollicitées depuis moins de 7 jours. Message Marketing facturé par Meta.
           </p>
+          {/* Lot 167 — demande d'accord programmable */}
+          <p className="rounded-md bg-sky-50 p-2 text-xs text-sky-900 ring-1 ring-sky-200" data-testid="note-programmation-accord">
+            <b>Programmation (lot 167) :</b> le champ « Programmer le » (heure de Ouagadougou), à côté du bouton d'envoi, programme la demande : elle part
+            toute seule à l'heure choisie (vérification chaque minute, plages horaires d'envoi respectées) et les garde-fous sont refaits à ce moment-là.
+            Les demandes programmées s'affichent sous les boutons, avec « Annuler » tant qu'elles ne sont pas parties.
+          </p>
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.

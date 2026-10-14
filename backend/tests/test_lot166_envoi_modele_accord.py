@@ -1,4 +1,4 @@
-"""Lot 166 — envoi en un clic du modèle de demande d'accord (lien personnel par contact) : garde-fous (modèle approuvé,
+"""Lots 166-167 — envoi en un clic du modèle de demande d'accord (lien personnel par contact) : garde-fous (modèle approuvé,
 jamais à ceux qui ont accepté ou refusé, pas deux fois en 7 jours), composants envoyés (prénom, jeton signé, bouton NON).
 Envoi WhatsApp et Meta simulés, MongoDB simulé. Lancer : cd backend && python -m pytest tests/test_lot166_envoi_modele_accord.py -q
 """
@@ -57,12 +57,13 @@ def env(monkeypatch):
         return [user["id"]]
 
     api = APIRouter(prefix="/api")
-    cw.attach_carrousel_whatsapp_routes(
+    moteur = cw.attach_carrousel_whatsapp_routes(
         api=api, db=db, get_current_user=get_user, get_current_admin=get_admin, fonction_active=active,
         visible_client_ids=visibles, wa_send_template=envoyer, resolve_wa_credentials=creds, base_publique=lambda: BASE)
     app = FastAPI()
     app.include_router(api)
     client = TestClient(app).__enter__()
+    client.moteur = moteur                       # lot 167 : planificateur des demandes programmées
     client.portal.call(db.users.insert_many, [dict(u) for u in USERS.values()])
     yield client, db, envois, statut
     client.__exit__(None, None, None)
@@ -120,3 +121,68 @@ def test_reserve_a_l_administration_et_plafonnee(env):
     client, _, _, _ = env
     assert client.post(URL, headers=h("cli_a"), json={"ids": ["cli_a"]}).status_code == 403
     assert client.post(URL, headers=h("admin"), json={"ids": [f"x{i}" for i in range(cw.DESTINATAIRES_MAX + 1)]}).status_code in (400, 422)   # plafond du modèle de requête
+
+
+# --- Lot 167 : demande d'accord PROGRAMMÉE (« demain 8 h 30 ») ----------------------------------------------------
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def quand(dans: timedelta) -> str:
+    """« AAAA-MM-JJTHH:MM » en heure de Ouagadougou (UTC+0), comme le champ datetime-local du site."""
+    return (datetime.now(timezone.utc) + dans).strftime("%Y-%m-%dT%H:%M")
+
+
+def rendre_echue(client, db):
+    """Simule l'arrivée de l'heure : la date programmée passe dans le passé (la saisie d'une date passée est refusée)."""
+    doc = client.portal.call(db.settings.find_one, {"_id": "accord_programmations"})
+    for it in doc["items"]:
+        it["programme_le"] = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    client.portal.call(db.settings.replace_one, {"_id": "accord_programmations"}, doc)
+
+
+def test_programmation_future_puis_envoi_a_l_heure(env):
+    client, db, envois, _ = env
+    enregistrer_modele(client, db)
+    r = client.post(URL, headers=h("admin"), json={"ids": ["cli_a", "cli_b"], "programme_le": quand(timedelta(hours=9))})
+    assert r.status_code == 200, r.text
+    assert r.json()["programmee"] is True and r.json()["statut"] == "PROGRAMMEE" and r.json()["nb"] == 2
+    assert "ids" not in r.json() and envois == []                                    # rien ne part avant l'heure
+    liste = client.get(URL + "/programmations", headers=h("admin")).json()["programmations"]
+    assert len(liste) == 1 and liste[0]["statut"] == "PROGRAMMEE"
+    assert client.portal.call(client.moteur["accords_echus"]) == 0                   # l'heure n'est pas venue
+    rendre_echue(client, db)
+    assert client.portal.call(client.moteur["accords_echus"]) == 1
+    assert len(envois) == 2                                                          # une demande par personne, avec son lien
+    fin = client.get(URL + "/programmations", headers=h("admin")).json()["programmations"][0]
+    assert fin["statut"] == "TERMINEE" and fin["resultat"]["envoyees"] == 2
+    assert client.portal.call(client.moteur["accords_echus"]) == 0                   # jamais renvoyée
+
+
+def test_date_passee_refusee_et_modele_obligatoire(env):
+    client, db, envois, _ = env
+    r = client.post(URL, headers=h("admin"), json={"ids": ["cli_a"], "programme_le": quand(timedelta(hours=1))})
+    assert r.status_code == 409 and "Créez d'abord" in r.json()["detail"]            # pas de modèle : refus tout de suite
+    enregistrer_modele(client, db)
+    r = client.post(URL, headers=h("admin"), json={"ids": ["cli_a"], "programme_le": quand(-timedelta(days=1))})
+    assert r.status_code == 400 and envois == []
+
+
+def test_annulation_avant_l_heure(env):
+    client, db, envois, _ = env
+    enregistrer_modele(client, db)
+    pid = client.post(URL, headers=h("admin"), json={"ids": ["cli_a"], "programme_le": quand(timedelta(hours=2))}).json()["id"]
+    assert client.post(f"{URL}/programmations/{pid}/annuler", headers=h("admin")).json()["statut"] == "ANNULEE"
+    rendre_echue(client, db)
+    assert client.portal.call(client.moteur["accords_echus"]) == 0 and envois == []
+    assert client.post(f"{URL}/programmations/{pid}/annuler", headers=h("admin")).status_code == 409   # déjà annulée
+
+
+def test_modele_plus_approuve_a_l_heure_dite_rien_n_est_envoye(env):
+    client, db, envois, statut = env
+    enregistrer_modele(client, db)
+    client.post(URL, headers=h("admin"), json={"ids": ["cli_a"], "programme_le": quand(timedelta(hours=2))})
+    statut["valeur"] = "REJECTED"                                                    # Meta change d'avis entre-temps
+    rendre_echue(client, db)
+    assert client.portal.call(client.moteur["accords_echus"]) == 1
+    fin = client.get(URL + "/programmations", headers=h("admin")).json()["programmations"][0]
+    assert fin["statut"] == "ECHEC" and "approuvé" in fin["motif"] and envois == []

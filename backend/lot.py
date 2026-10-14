@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "166"
-LOT_LIBELLE = "Demande d'accord WhatsApp envoyée en un clic (modèle calqué sur celui approuvé, lien personnel par contact)"
+LOT = "167"
+LOT_LIBELLE = "Demande d'accord WhatsApp programmable (date et heure, annulation, garde-fous refaits à l'heure dite)"

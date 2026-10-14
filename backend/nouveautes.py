@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "167", "date": "2026-10-14",
+        "titre": "⏰ Demande d'accord WhatsApp programmable",
+        "description": "À côté de « Envoyer la demande d'accord (modèle) », un champ « Programmer le » (heure de Ouagadougou) : la demande part toute seule à l'heure choisie, avec les garde-fous refaits à ce moment-là (accepté, refusé, déjà sollicité, modèle approuvé). Liste des demandes programmées avec annulation.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "166", "date": "2026-10-14",
         "titre": "📨 Demande d'accord envoyée en un clic, un lien personnel par contact",
         "description": "Plus de saisie un à un : « Envoyer la demande d'accord (modèle) » envoie à chaque personne cochée le modèle Meta (calqué sur « envoidemandeaccordcarroussel », déjà approuvé) avec SON lien /accord/… ; le bouton NON note le refus. Jamais aux personnes qui ont accepté ou refusé, ni deux fois en 7 jours.",

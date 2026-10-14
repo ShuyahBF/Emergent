@@ -922,16 +922,37 @@ export default function CarrouselWhatsApp({ admin = false }) {
   // Lot 166 — envoi en UN clic du modèle de demande d'accord (bouton → page personnelle) aux personnes cochées sans accord.
   // Le serveur écarte ceux qui ont accepté, ceux qui ont refusé et ceux déjà sollicités depuis moins de 7 jours.
   const [envoiModele, setEnvoiModele] = useState(false);
+  // Lot 167 — date et heure d'envoi programmées (« AAAA-MM-JJTHH:MM », heure de Ouagadougou) ; vide = tout de suite
+  const [accordProgramme, setAccordProgramme] = useState("");
+  const [programmations, setProgrammations] = useState([]);   // demandes d'accord programmées ou récentes
+  const lireProgrammations = useCallback(async () => {
+    if (!admin) return;
+    try { setProgrammations((await apiClient.get(`${base}/demande-accord-modele/programmations`)).data.programmations || []); } catch { /* écran utilisable sans */ }
+  }, [admin, base]);
+  useEffect(() => { lireProgrammations(); }, [lireProgrammations]);
+  const annulerProgrammation = async (id) => {
+    if (!window.confirm("Annuler cette demande d'accord programmée ? Rien ne sera envoyé.")) return;
+    try { await apiClient.post(`${base}/demande-accord-modele/programmations/${id}/annuler`); toast.success("Demande annulée"); lireProgrammations(); }
+    catch (e) { toast.error(erreur(e, "Annulation impossible")); }
+  };
   const envoyerModeleAccord = async () => {
     const ids = new Set(choisis);
     annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
     const cibles = annuaire.contacts.filter((c) => ids.has(c.id) && !c.accepte && c.telephone);
     if (!cibles.length) { toast.info("Cochez d'abord des personnes qui n'ont pas encore donné leur accord."); return; }
-    if (!window.confirm(`Envoyer le modèle de demande d'accord (bouton « OUI, j'accepte » vers la page personnelle de chacun) à ${cibles.length} personne(s) ?\n\nC'est un message Marketing facturé par Meta. Les personnes qui ont déjà accepté ou refusé, ou déjà sollicitées depuis moins de 7 jours, sont écartées automatiquement.`)) return;
+    const quand = accordProgramme ? `PROGRAMMER pour le ${dateFr(accordProgramme)} (heure de Ouagadougou) l'envoi du` : "Envoyer TOUT DE SUITE le";
+    if (!window.confirm(`${quand} modèle de demande d'accord (bouton « OUI, j'accepte » vers la page personnelle de chacun) à ${cibles.length} personne(s) ?\n\nC'est un message Marketing facturé par Meta. Les personnes qui ont déjà accepté ou refusé, ou déjà sollicitées depuis moins de 7 jours, sont écartées automatiquement${accordProgramme ? " (vérifié au moment de l'envoi)" : ""}.`)) return;
     setEnvoiModele(true);
-    const attente = toast.loading(`Patientez… envoi de la demande à ${cibles.length} personne(s)`);
+    const attente = toast.loading(accordProgramme ? "Patientez… programmation de la demande" : `Patientez… envoi de la demande à ${cibles.length} personne(s)`);
     try {
-      const { data } = await apiClient.post(`${base}/demande-accord-modele`, { ids: cibles.map((c) => c.id) }, { timeout: 180000 });
+      const { data } = await apiClient.post(`${base}/demande-accord-modele`,
+        { ids: cibles.map((c) => c.id), programme_le: accordProgramme || null }, { timeout: 180000 });
+      if (data.programmee) {
+        toast.success(`Demande programmée pour le ${dateFr(data.programme_le)} (${data.nb} personne(s)). Elle partira toute seule.`, { id: attente, duration: 10000 });
+        setAccordProgramme("");
+        lireProgrammations();
+        return;
+      }
       const i = data.ignores || {};
       const ecartes = (i.deja_accepte || 0) + (i.refus || 0) + (i.demande_recente || 0) + (i.sans_numero || 0);
       toast.success(`${data.envoyees} demande(s) envoyée(s)${ecartes ? ` · ${ecartes} écartée(s) (déjà accepté ${i.deja_accepte || 0}, refus ${i.refus || 0}, demandé il y a moins de 7 j ${i.demande_recente || 0}, sans numéro ${i.sans_numero || 0})` : ""}`, { id: attente, duration: 12000 });
@@ -1265,10 +1286,35 @@ export default function CarrouselWhatsApp({ admin = false }) {
             <Button type="button" size="sm" variant="outline" disabled={envoiModele} onClick={envoyerModeleAccord} data-testid="envoyer-modele-accord"
                     title="Envoie le modèle Meta de demande d'accord à chaque personne cochée, avec son lien personnel (message Marketing facturé)">
               {envoiModele ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
-              Envoyer la demande d'accord (modèle)
+              {accordProgramme ? "Programmer la demande d'accord (modèle)" : "Envoyer la demande d'accord (modèle)"}
             </Button>
           )}
+          {/* Lot 167 — programmer l'envoi (vide = tout de suite) */}
+          {admin && (
+            <label className="flex items-center gap-1 text-xs text-slate-600">
+              Programmer le
+              <input type="datetime-local" className={`${champ} w-auto`} value={accordProgramme} onChange={(e) => setAccordProgramme(e.target.value)}
+                     data-testid="accord-programme-le" aria-label="Date et heure d'envoi de la demande d'accord (heure de Ouagadougou)" />
+            </label>
+          )}
         </div>
+        {admin && programmations.length > 0 && (
+          <div className="space-y-1 rounded-md border border-sky-200 bg-sky-50/50 p-3 text-xs text-slate-700" data-testid="accord-programmations">
+            <p className="font-medium text-sky-800">Demandes d'accord programmées (heure de Ouagadougou)</p>
+            {programmations.slice(0, 8).map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-2">
+                <span className="w-32 shrink-0 font-medium">{dateFr(p.programme_le)}</span>
+                <span>{p.nb} personne(s)</span>
+                <span className={p.statut === "PROGRAMMEE" ? "text-sky-700" : p.statut === "TERMINEE" ? "text-emerald-700" : "text-slate-500"}>
+                  {{ PROGRAMMEE: "programmée", EN_COURS: "en cours", TERMINEE: "terminée", ECHEC: "échec", ANNULEE: "annulée" }[p.statut] || p.statut}
+                </span>
+                {p.statut === "TERMINEE" && p.resultat && <span className="text-slate-500">{p.resultat.envoyees} envoyée(s), {p.resultat.nb_echecs} échec(s)</span>}
+                {p.statut === "ECHEC" && p.motif && <span className="text-rose-700">{p.motif}</span>}
+                {p.statut === "PROGRAMMEE" && <Button type="button" size="sm" variant="ghost" onClick={() => annulerProgrammation(p.id)}>Annuler</Button>}
+              </div>
+            ))}
+          </div>
+        )}
         {liensAccord.length > 0 && (
           <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700" data-testid="liens-accord-personnels">
             <p className="font-medium text-emerald-800">

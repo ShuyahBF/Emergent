@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "162", "date": "2026-10-14",
+        "titre": "👥 Consentement lu sur les plateformes (accord et retrait)",
+        "description": "Les contacts des plateformes arrivent avec l'accord WhatsApp donné par la personne à l'inscription (case facultative de ZandGo et du portail e-Kol) ; un retrait fait sur la plateforme coupe aussitôt les envois. Le choix le plus récent gagne : un STOP reçu sur WhatsApp n'est jamais écrasé par un ancien accord.",
+        "rubrique": "👥 Contacts des plateformes",
+    },
+    {
         "lot": "161", "date": "2026-10-14",
         "titre": "👥 Contacts des plateformes dans des groupes « Plateforme X »",
         "description": "SAWALI lit chaque nuit (ou à la demande) les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis.",

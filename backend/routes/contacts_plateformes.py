@@ -20,7 +20,8 @@
 #   - CONSENTEMENT : une plateforme ne coche JAMAIS « accepté » à la place de la personne. Un contact importé n'est
 #     destinataire d'un carrousel qu'après son propre accord (lot 79 : bouton, mot-clé OUI NOUVEAUTES) ; il est ajouté
 #     comme consentant SEULEMENT si la plateforme envoie accepte_whatsapp = vrai (case cochée à l'inscription, avec sa
-#     date), et un retrait déjà enregistré (STOP) n'est jamais écrasé.
+#     date). Un RETRAIT donné sur la plateforme (accepte_whatsapp = faux) est transmis de la même façon et coupe les envois.
+#     Le choix le plus RÉCENT gagne (comparaison des dates) : un STOP reçu sur WhatsApp n'est jamais écrasé par un ancien accord.
 #   - CLÉ : variable d'environnement SAWALI CONTACTS_HMAC_<PLATEFORME> (ex. CONTACTS_HMAC_ZANDGO), saisie par le
 #     propriétaire sur Render, JAMAIS dans la base ni dans Git ; la même valeur sert de SAWALI_CONTACTS_HMAC sur la plateforme.
 #   - Réglages (adresse, activation, dernier résultat) : db.settings {_id: "contacts_plateformes"}.
@@ -105,6 +106,23 @@ def motif_numero(brut: Any) -> Optional[str]:
     return (r"\D*".join(fin) + r"\D*$") if len(fin) == 8 else None
 
 
+def _plus_recent(nouvelle: Optional[str], ancienne: Optional[str]) -> bool:
+    """La date du choix reçu est-elle plus récente que celle déjà enregistrée ? Sans date reçue : seulement s'il n'y a
+    encore aucune date enregistrée. Dates illisibles : on ne change rien (prudence)."""
+    if not ancienne:
+        return True
+    if not nouvelle:
+        return False
+    try:
+        a = datetime.fromisoformat(str(nouvelle).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(ancienne).replace("Z", "+00:00"))
+        a = a if a.tzinfo else a.replace(tzinfo=timezone.utc)
+        b = b if b.tzinfo else b.replace(tzinfo=timezone.utc)
+        return a > b
+    except ValueError:
+        return False
+
+
 def normaliser_contact(c: Dict[str, Any], nom_plateforme: str) -> Optional[Dict[str, Any]]:
     """Contact reçu → champs utiles, ou None s'il n'a ni numéro valable ni identifiant."""
     tel = chiffres(c.get("telephone"))
@@ -115,7 +133,9 @@ def normaliser_contact(c: Dict[str, Any], nom_plateforme: str) -> Optional[Dict[
     return {"id_externe": str(c["id"]).strip()[:80], "nom": nom, "telephone": tel,
             "societe": " ".join(str(c.get("societe") or "").split())[:120] or (f"{nom_plateforme} · {role}" if role else nom_plateforme),
             "email": str(c.get("email") or "").strip()[:160] or None,
-            "accepte": c.get("accepte_whatsapp") is True, "accepte_le": str(c.get("accepte_le") or "")[:40] or None}
+            # Accord (vrai), retrait (faux) ou rien (None) : seuls de vrais booléens comptent ; « accepte_le » = date de ce choix
+            "accepte": c["accepte_whatsapp"] if isinstance(c.get("accepte_whatsapp"), bool) else None,
+            "accepte_le": str(c.get("accepte_le") or "")[:40] or None}
 
 
 # ------------------------------------------------------------------------------------------- appel HTTP
@@ -234,12 +254,17 @@ async def _appliquer(db, p: Dict[str, Any], scope: str, recus: List[Dict[str, An
             await db.directory_contacts.insert_one(dict(doc))
             bilan["crees"] += 1
             cid, deja = doc["id"], doc
-        # Consentement : seulement si la plateforme l'affirme ET qu'aucun retrait n'est déjà enregistré
-        if c["accepte"] and not deja.get("accepte_whatsapp") and not deja.get("accepte_whatsapp_le"):
+        # Consentement : le choix le plus RÉCENT gagne. Un accord ou un retrait donné sur la plateforme s'applique seulement
+        # si sa date est connue ET plus récente que l'état déjà enregistré dans SAWALI (un STOP reçu sur WhatsApp n'est donc
+        # jamais écrasé par un ancien accord) ; sans date, il ne s'applique qu'à une fiche qui n'a encore aucun choix.
+        etat = deja.get("accepte_whatsapp")
+        if c["accepte"] is not None and c["accepte"] is not bool(etat) and _plus_recent(c["accepte_le"], deja.get("accepte_whatsapp_le")):
             await db.directory_contacts.update_one({"id": cid}, {"$set": {
-                "accepte_whatsapp": True, "accepte_whatsapp_le": c["accepte_le"] or _maintenant(),
-                "accepte_whatsapp_moyen": f"plateforme : {p['nom']}"}})
-        if c["accepte"] or deja.get("accepte_whatsapp"):
+                "accepte_whatsapp": c["accepte"], "accepte_whatsapp_le": c["accepte_le"] or _maintenant(),
+                "accepte_whatsapp_moyen": f"plateforme : {p['nom']}" + ("" if c["accepte"] else " (retrait)")}})
+            etat = c["accepte"]
+            bilan["retraits" if not c["accepte"] else "accords"] = bilan.get("retraits" if not c["accepte"] else "accords", 0) + 1
+        if etat:
             bilan["consentants"] += 1
         ids_groupe.append(cid)
     # Groupe « Plateforme <nom> » : contenu = contacts renvoyés cette fois

@@ -43,6 +43,24 @@ LIGNE_PRINCIPALE = "principal"
 _numero_recu: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("numero_wa_recu", default=None)
 
 
+# Lot 158 — ligne CHOISIE par l'agent dans la conversation (sélecteur de canal) : posée par la route d'envoi, elle passe
+# avant toutes les autres règles de numero_envoi pour les envois faits pendant cette requête.
+_ligne_forcee: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("numero_wa_ligne_forcee", default=None)
+
+
+def definir_ligne_forcee(cle: Optional[str]):
+    """Impose la ligne (clé « principal » ou Phone Number ID) aux envois de la requête en cours ; renvoie le jeton de remise à zéro."""
+    return _ligne_forcee.set((cle or "").strip() or None)
+
+
+def retablir_ligne_forcee(jeton) -> None:
+    """Remet la variable de contexte dans son état précédent (fin de la requête d'envoi)."""
+    try:
+        _ligne_forcee.reset(jeton)
+    except Exception:  # noqa: BLE001
+        _ligne_forcee.set(None)
+
+
 def definir_numero_recu(phone_number_id: Optional[str]):
     """Mémorise le numéro qui a reçu le message en cours (retourne le jeton de remise à zéro)."""
     return _numero_recu.set((phone_number_id or "").strip() or None)
@@ -279,6 +297,10 @@ def numero_reponse(settings_doc: Dict[str, Any]) -> str:
 async def numero_envoi(db, telephone: Any, settings_doc: Dict[str, Any]) -> str:
     """Phone Number ID Meta à utiliser pour écrire à ce numéro (voir l'en-tête du fichier)."""
     principal = (settings_doc.get("wa_phone_number_id") or "").strip()
+    # 0. Lot 158 : ligne choisie par l'agent dans la conversation
+    choisie = ligne_par_cle(settings_doc, _ligne_forcee.get())
+    if choisie:
+        return choisie["phone_number_id"] or principal
     # 1. Réponse à un message reçu : on répond depuis le numéro qui l'a reçu
     recu = cle_de_numero(settings_doc, numero_recu_courant())
     if recu:
@@ -291,6 +313,14 @@ async def numero_envoi(db, telephone: Any, settings_doc: Dict[str, Any]) -> str:
     except Exception:  # noqa: BLE001 — en cas de doute, la ligne principale
         return principal
     ligne = ligne_par_cle(settings_doc, cle)
+    # Lot 158 : la ligne VIP est fermée aux clients sans contrat valide (contrôle activé) → ligne principale
+    if ligne and ligne.get("vip"):
+        try:
+            from routes.vip_contrat import acces_vip
+            if not (await acces_vip(db, settings_doc, telephone=telephone))["autorise"]:
+                ligne = ligne_par_cle(settings_doc, LIGNE_PRINCIPALE)
+        except Exception:  # noqa: BLE001 — en cas d'erreur, on garde le choix initial
+            pass
     return ((ligne or {}).get("phone_number_id") or principal)
 
 

@@ -75,6 +75,7 @@ import ErrorSeverityMappingSection from "@/pages/admin/sections/ErrorSeverityMap
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import LinkedInSection from "@/pages/admin/sections/LinkedInSection";
+import VipControleSection from "@/pages/admin/sections/VipControleSection";   // lot 158
 import TwitterSection from "@/pages/admin/sections/TwitterSection";
 import FacebookSection from "@/pages/admin/sections/FacebookSection";
 import GoogleCalendarWatchPanel from "@/pages/admin/sections/GoogleCalendarWatchPanel";
@@ -118,6 +119,7 @@ const NEW_LOTS = {
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
   "🎫 Tickets d'intervention — motif": "144",   // lot 144 : motif modifiable depuis la fiche du ticket
+  "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
   "🔑 Postes Loois sans clé client (alerte)": "118",   // lot 118 : Ignorer / Réactiver un poste, bouton × ; lot 89 : alerte admin + superviseur, aucun message sur le poste
@@ -169,6 +171,7 @@ const NEW_SECTIONS = {
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
   "🎫 Tickets d'intervention — motif": "2026-10-14",   // lot 144
+  "💬 Ligne VIP — contrat valide": "2026-10-14",   // lot 158
   "🖥️ Parc informatique — sites": "2026-10-14",   // lot 146
   "🖼️ Cadre des cartes": "2026-10-13",   // lot 136
   "🔑 Postes Loois sans clé client (alerte)": "2026-10-12",   // lot 118 (créée au lot 89)
@@ -268,6 +271,7 @@ const NEW_DESCRIPTIONS = {
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
   "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144).",
+  "💬 Ligne VIP — contrat valide": "La ligne Liluvine VIP est réservée aux clients dont le contrat est valide : message automatique paramétrable et activable, canal choisi dans la conversation, réponse forcée sur la ligne standard avec notification (lot 158).",
   "🖥️ Parc informatique — sites": "Équipements du Parc informatique regroupés par nom de site ; « Renommer / Définir le site » pour tout un groupe ; « Compléter les sites (Loois) » reprend le site du dernier signal des machines sans site (lot 146).",
   "🖼️ Cadre des cartes": "Mince filet foncé autour des cartes d'information (noir par défaut, gris foncé, bleu ou aucun) : le gris sur gris se distinguait mal ; réglage commun à tous les écrans (lot 136).",
   "🔑 Postes Loois sans clé client (alerte)": "« Ignorer ce poste » (serveur, clé commune voulue) : il reste listé, grisé, et se réactive d'un clic ; bouton × sur l'alerte (lot 118).",
@@ -1437,6 +1441,11 @@ export default function AdminSettings() {
             <MapPin className="h-3.5 w-3.5" /> Ouvrir le parc informatique
           </Link>
         </div>
+      </Filterable>
+
+      {/* Lot 158 — ligne VIP réservée aux contrats valides : activation et textes */}
+      <Filterable title="💬 Ligne VIP — contrat valide" anchorId="s-vip-contrat" category="modules">
+        <VipControleSection />
       </Filterable>
 
       <Filterable title="🖼️ Cadre des cartes" anchorId="s-cadre-cartes" category="modules">

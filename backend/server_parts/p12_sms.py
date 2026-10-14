@@ -2634,7 +2634,25 @@ async def whatsapp_webhook_incoming(request: Request):
                                     {"id": doc["id"]}, {"$set": {"reponse_non_transmise": _rel.get("nom") or _rel.get("emetteur")}})
                         except Exception:  # noqa: BLE001
                             logger.warning("[liluvine_relais] traitement du message entrant impossible", exc_info=True)
-                    if relais_plateforme:
+                    # Lot 158 — message reçu sur la ligne VIP d'un client SANS contrat valide : Liluvine ne répond pas
+                    # elle-même ; le texte « transfert aux agents » (réglable) est envoyé depuis la ligne VIP et le
+                    # message reste dans la boîte de SAWALI pour les agents.
+                    vip_refuse = False
+                    if not (skip_autoreply or hr_handled or relais_plateforme):
+                        try:
+                            from routes.vip_contrat import traiter_message_entrant as _vip_entrant
+                            _s_vip = await db.settings.find_one({"_id": "global"}) or {}
+                            _vip = await _vip_entrant(db, _s_vip, numero_recu=numero_recu, chiffres=digits_only, contact=contact,
+                                                      envoyer_texte=_wa_send_text, nom_contact=(contact or {}).get("name") or profile_name)
+                            vip_refuse = bool(_vip.get("refuse"))
+                            if vip_refuse and doc.get("id"):
+                                await db.whatsapp_messages.update_one({"id": doc["id"]}, {"$set": {
+                                    "vip_refuse": True, "vip_etat_contrat": _vip.get("etat")}})
+                        except Exception:  # noqa: BLE001 — jamais bloquant pour la réception
+                            logger.warning("[vip_contrat] contrôle de la ligne VIP impossible", exc_info=True)
+                    if vip_refuse:
+                        ar_result = {"ok": False, "reason": "vip_contrat_non_valide"}
+                    elif relais_plateforme:
                         ar_result = {"ok": False, "reason": "relais_plateforme"}
                     elif skip_autoreply or hr_handled:
                         ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
@@ -2665,7 +2683,7 @@ async def whatsapp_webhook_incoming(request: Request):
                             ar_result = {"ok": False, "reason": f"crash: {str(exc)[:160]}"}
                     # Lot 74 — message d'absence (texte fixe hors heures d'ouverture, une fois par contact).
                     # Pas pour les accusés de tâche, commandes RH ni réponses relayées à une plateforme.
-                    if not (skip_autoreply or hr_handled or relais_plateforme):
+                    if not (skip_autoreply or hr_handled or relais_plateforme or vip_refuse):
                         try:
                             from routes.message_absence import traiter_message_entrant as _absence_entrant
                             _s_abs = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_absence_actif": 1,

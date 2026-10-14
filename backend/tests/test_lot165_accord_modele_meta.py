@@ -22,15 +22,19 @@ def lancer(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def test_definition_du_modele():
+def test_definition_du_modele_calquee_sur_le_modele_approuve():
     d = amm.definition_modele("sawali_accord_lien", "fr", URL)
-    corps, boutons = d["components"]
-    assert d["category"] == "MARKETING" and corps["type"] == "BODY" and corps["text"].count("{{") == 2
+    types = [c["type"] for c in d["components"]]
+    assert types == ["HEADER", "BODY", "FOOTER", "BUTTONS"]           # même structure que « envoidemandeaccordcarroussel »
+    entete, corps, pied, boutons = d["components"]
+    assert d["category"] == "MARKETING" and entete["format"] == "TEXT" and len(entete["text"]) <= 60 and len(pied["text"]) <= 60
+    assert corps["text"].count("{{") == 1 and len(corps["example"]["body_text"][0]) == 1       # UNE seule variable (prénom)
     assert not corps["text"].startswith("{{") and not corps["text"].rstrip().endswith("}}")      # règle Meta : pas aux extrémités
-    assert len(corps["example"]["body_text"][0]) == 2
-    b = boutons["buttons"][0]
-    assert b["type"] == "URL" and b["url"] == URL and b["example"] == ["https://sawali.test/accord/exemple"]
-    assert amm.definition_modele("n", "fr", URL, exemple_url_complete=False)["components"][1]["buttons"][0]["example"] == ["exemple"]
+    oui, non = boutons["buttons"]
+    assert oui["type"] == "URL" and oui["url"] == URL and oui["example"] == ["https://sawali.test/accord/exemple"]
+    assert non["type"] == "QUICK_REPLY" and "NON" in non["text"]
+    assert amm.PAYLOAD_NON == "accord_wa:non"
+    assert amm.definition_modele("n", "fr", URL, exemple_url_complete=False)["components"][3]["buttons"][0]["example"] == ["exemple"]
 
 
 def client(reponses, appels):
@@ -56,8 +60,8 @@ def test_seconde_forme_essayee_si_meta_refuse_l_exemple():
     erreur = httpx.Response(400, json={"error": {"error_user_msg": "Exemple d'URL invalide"}})
     r, appels = creer([erreur, httpx.Response(200, json={"status": "PENDING"})])
     assert r["statut"] == "soumis" and len(appels) == 2
-    assert appels[0][1]["components"][1]["buttons"][0]["example"][0].startswith("https://")
-    assert appels[1][1]["components"][1]["buttons"][0]["example"] == ["exemple"]
+    assert appels[0][1]["components"][3]["buttons"][0]["example"][0].startswith("https://")
+    assert appels[1][1]["components"][3]["buttons"][0]["example"] == ["exemple"]
 
 
 def test_deux_refus_donnent_l_erreur_de_meta():

@@ -919,6 +919,29 @@ export default function CarrouselWhatsApp({ admin = false }) {
       setLiensAccord(data.liens || []);
     } catch (e) { toast.error(erreur(e, "Liens d'accord indisponibles")); }
   };
+  // Lot 166 — envoi en UN clic du modèle de demande d'accord (bouton → page personnelle) aux personnes cochées sans accord.
+  // Le serveur écarte ceux qui ont accepté, ceux qui ont refusé et ceux déjà sollicités depuis moins de 7 jours.
+  const [envoiModele, setEnvoiModele] = useState(false);
+  const envoyerModeleAccord = async () => {
+    const ids = new Set(choisis);
+    annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
+    const cibles = annuaire.contacts.filter((c) => ids.has(c.id) && !c.accepte && c.telephone);
+    if (!cibles.length) { toast.info("Cochez d'abord des personnes qui n'ont pas encore donné leur accord."); return; }
+    if (!window.confirm(`Envoyer le modèle de demande d'accord (bouton « OUI, j'accepte » vers la page personnelle de chacun) à ${cibles.length} personne(s) ?\n\nC'est un message Marketing facturé par Meta. Les personnes qui ont déjà accepté ou refusé, ou déjà sollicitées depuis moins de 7 jours, sont écartées automatiquement.`)) return;
+    setEnvoiModele(true);
+    const attente = toast.loading(`Patientez… envoi de la demande à ${cibles.length} personne(s)`);
+    try {
+      const { data } = await apiClient.post(`${base}/demande-accord-modele`, { ids: cibles.map((c) => c.id) }, { timeout: 180000 });
+      const i = data.ignores || {};
+      const ecartes = (i.deja_accepte || 0) + (i.refus || 0) + (i.demande_recente || 0) + (i.sans_numero || 0);
+      toast.success(`${data.envoyees} demande(s) envoyée(s)${ecartes ? ` · ${ecartes} écartée(s) (déjà accepté ${i.deja_accepte || 0}, refus ${i.refus || 0}, demandé il y a moins de 7 j ${i.demande_recente || 0}, sans numéro ${i.sans_numero || 0})` : ""}`, { id: attente, duration: 12000 });
+      if (data.nb_echecs) toast.error(`${data.nb_echecs} échec(s) : ${data.echecs.slice(0, 3).map((e) => `${e.nom} (${e.erreur})`).join(" · ")}`, { duration: 15000 });
+    } catch (e) {
+      toast.error(erreur(e, "Envoi du modèle d'accord impossible"), { id: attente });
+    } finally {
+      setEnvoiModele(false);
+    }
+  };
   const copierLien = async (lien) => {
     try { await navigator.clipboard.writeText(lien); toast.success("Lien copié"); } catch { toast.error("Copie impossible"); }
   };
@@ -1237,6 +1260,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
                   title="Un lien personnel par personne cochée : une page SAWALI où elle accepte ou refuse elle-même (à mettre dans un bouton ou un message)">
             🔗 Liens d'accord personnels
           </Button>
+          {/* Lot 166 — administration : envoi automatique du modèle, un lien personnel par contact */}
+          {admin && (
+            <Button type="button" size="sm" variant="outline" disabled={envoiModele} onClick={envoyerModeleAccord} data-testid="envoyer-modele-accord"
+                    title="Envoie le modèle Meta de demande d'accord à chaque personne cochée, avec son lien personnel (message Marketing facturé)">
+              {envoiModele ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+              Envoyer la demande d'accord (modèle)
+            </Button>
+          )}
         </div>
         {liensAccord.length > 0 && (
           <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700" data-testid="liens-accord-personnels">

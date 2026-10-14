@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "144", "date": "2026-10-14",
+        "titre": "✏️ Tickets : modifier le motif",
+        "description": "Sur la fiche d'un ticket ouvert, le bouton « Modifier » à côté du motif complet permet de corriger le texte (200 caractères au plus). Le motif d'origine est conservé avec la mention « modifié par … le … ».",
+        "rubrique": "🎫 Tickets d'intervention — motif",
+    },
+    {
         "lot": "143", "date": "2026-10-14",
         "titre": "🔒 Contrôle à distance : fermé à la déconnexion",
         "description": "Quand vous fermez votre session SAWALI, toutes les prises en main en cours sont arrêtées et la fenêtre de contrôle à distance (y compris la pastille « N prises en main » réduite) est fermée : elle n'apparaît plus pour le compte suivant.",

@@ -1047,7 +1047,13 @@ async def me_update_ticket(
         m = payload.motif.strip()
         if not m or len(m) > 200:
             raise HTTPException(status_code=400, detail="Motif invalide (1..200 caractères).")
-        update["motif"] = m
+        if m != (ticket.get("motif") or ""):
+            # Lot 144 : motif modifié depuis la fiche du ticket — l'original est gardé (première modification), avec qui et quand
+            update["motif"] = m
+            update["motif_modifie_le"] = _now()
+            update["motif_modifie_par"] = user.get("full_name") or user.get("email") or user.get("id")
+            if not ticket.get("motif_initial"):
+                update["motif_initial"] = ticket.get("motif") or ""
     if payload.notes is not None:
         update["notes"] = (payload.notes or "").strip()[:2000] or None
     # 0-4 (2026-02) — Reassign ticket to a different client/tenant.

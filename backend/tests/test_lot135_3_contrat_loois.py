@@ -28,12 +28,12 @@ def test_contrat_sans_periodicite_est_actif():
     assert r["statut"] == "sans_echeance" and r["anonymiser"] is False
 
 
-def test_contrat_a_jour_et_en_retard_de_paiement_restent_clairs():
+def test_contrat_a_jour_clair_et_en_retard_de_paiement_anonymise():
     a_jour = {"id": "c1", "contract_billing_period": "annual", "last_payment_at": "2026-06-01"}
     assert statut_contrat_loois(a_jour, AUJOURDHUI)["anonymiser"] is False
     expire = {"id": "c1", "contract_billing_period": "monthly", "last_payment_at": "2025-01-01"}
     r = statut_contrat_loois(expire, AUJOURDHUI)
-    assert r["statut"] == "expire" and r["actif"] is False and r["anonymiser"] is False   # lot 147 : retard = encore sous contrat
+    assert r["statut"] == "expire" and r["actif"] is False and r["anonymiser"] is True   # lot 148 : retard de paiement = anonymisé
 
 
 def test_client_suspendu_ou_archive_anonymise():

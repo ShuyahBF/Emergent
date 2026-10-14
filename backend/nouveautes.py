@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "148", "date": "2026-10-14",
+        "titre": "🔒 Loois : anonymisation rétablie pour un client en retard de paiement",
+        "description": "Rectification du lot 147 : un client sous contrat mais en retard de paiement voit de nouveau ses états PDF anonymisés (comme un contrat suspendu, archivé ou une clé non liée).",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "147", "date": "2026-10-14",
         "titre": "🔓 Loois : pas d'anonymisation pour un client en retard de paiement",
         "description": "Les états PDF de Loois ne sont plus anonymisés pour un client sous contrat dont l'échéance est dépassée ; ils le restent pour un contrat suspendu ou archivé et pour une clé non liée à un compte client.",

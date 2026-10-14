@@ -871,6 +871,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
     annuaire.groupes.filter((g) => groupes.has(g.id)).forEach((g) => g.contact_ids.forEach((x) => ids.add(x)));
     return annuaire.contacts.filter((c) => ids.has(c.id) && c.accepte && c.telephone);
   }, [choisis, groupes, annuaire]);
+  // Lot 155 : parmi eux, ceux qui n'ont jamais écrit à la plateforme
+  const silencieux = useMemo(() => retenus.filter((c) => !c.a_repondu), [retenus]);
 
   const [envoiErreur, setEnvoiErreur] = useState("");   // lot 79.1 : motif d'un refus, affiché sous le bouton
   // Lot 114 — date et heure d'envoi programmées (« AAAA-MM-JJTHH:MM », heure de Ouagadougou) ; vide = maintenant
@@ -1162,7 +1164,12 @@ export default function CarrouselWhatsApp({ admin = false }) {
                     <input type="checkbox" disabled={!c.telephone} checked={choisis.has(c.id)}
                            onChange={() => basculer(choisis, setChoisis, c.id)} />
                   </td>
-                  <td className="p-2">{c.nom}<span className="text-xs text-slate-500"> {c.societe}</span></td>
+                  <td className="p-2">{c.nom}<span className="text-xs text-slate-500"> {c.societe}</span>
+                    {c.telephone && !c.a_repondu && (
+                      <span className="ml-1 rounded bg-amber-100 px-1.5 text-[10px] text-amber-800" data-testid="carrousel-jamais-repondu"
+                            title="N'a jamais écrit à votre ligne WhatsApp : WhatsApp peut refuser de lui remettre un message marketing (code 131049)">jamais répondu</span>
+                    )}
+                  </td>
                   <td className="p-2 text-slate-600">{c.telephone || <span className="text-red-600">aucun numéro</span>}</td>
                   <td className="p-2">
                     {c.accepte ? (
@@ -1204,6 +1211,15 @@ export default function CarrouselWhatsApp({ admin = false }) {
         )}
         {/* Lot 114 — Maintenant / Programmer le … ; rappel des plages horaires d'envoi fixées par l'Admin */}
         <EnvoiProgrammation value={programmeLe} onChange={setProgrammeLe} />
+        {/* Lot 155 : alerte avant l'envoi — destinataires qui n'ont jamais écrit à la ligne (risque de non-remise, code 131049) */}
+        {silencieux.length > 0 && (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="carrousel-alerte-silencieux">
+            <b>{silencieux.length} destinataire(s) sur {retenus.length} n'ont jamais écrit à votre ligne WhatsApp</b> :
+            {" "}{silencieux.slice(0, 6).map((c) => c.nom).join(", ")}{silencieux.length > 6 ? `, … (+${silencieux.length - 6})` : ""}.
+            WhatsApp peut refuser de leur remettre un message marketing (code 131049, « healthy ecosystem engagement ») même si l'envoi est
+            accepté. Demandez-leur d'écrire d'abord un mot à votre ligne, puis vérifiez la remise dans « Envois précédents ».
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-slate-700"><b>{retenus.length}</b> destinataire(s) (max. {etat.destinataires_max})</span>
           <Button onClick={envoyer} disabled={!etat.pret || envoi || !message.trim() || !cartesPretes || retenus.length === 0

@@ -828,6 +828,20 @@ def attach_carrousel_whatsapp_routes(
         return prets
 
     # --- Destinataires -------------------------------------------------------
+    async def _marquer_reponses(lignes: List[dict]) -> List[dict]:
+        """Lot 155 — ajoute `a_repondu` à chaque ligne : ce numéro a-t-il DÉJÀ écrit à la plateforme (message WhatsApp reçu) ?
+        WhatsApp peut refuser (code 131049) un modèle MARKETING à quelqu'un qui n'interagit jamais : l'écran prévient
+        avant l'envoi. Une seule requête pour toute la liste."""
+        numeros = {numero_whatsapp(x.get("telephone")) for x in lignes if x.get("telephone")}
+        numeros.discard("")
+        ont_ecrit: set = set()
+        if numeros:
+            ont_ecrit = set(await db.whatsapp_messages.distinct(
+                "phone_digits", {"direction": "inbound", "phone_digits": {"$in": list(numeros)}}))
+        for x in lignes:
+            x["a_repondu"] = bool(x.get("telephone")) and numero_whatsapp(x.get("telephone")) in ont_ecrit
+        return lignes
+
     async def _contacts_portail(user: dict) -> Dict[str, Any]:
         ids = await visible_client_ids(user)
         contacts = await db.directory_contacts.find(
@@ -854,7 +868,7 @@ def attach_carrousel_whatsapp_routes(
         if suivis:
             liste_groupes.insert(0, {"id": "@suivis", "nom": "Utilisateurs suivis", "couleur": None,
                                      "contact_ids": [x["id"] for x in suivis]})
-        return {"contacts": lignes, "groupes": liste_groupes}
+        return {"contacts": await _marquer_reponses(lignes), "groupes": liste_groupes}
 
     def _filtre_clients(ids: Optional[List[str]] = None) -> dict:
         q: Dict[str, Any] = {
@@ -908,7 +922,7 @@ def attach_carrousel_whatsapp_routes(
                    {"id": "@contacts", "nom": "Mes contacts", "couleur": None, "contact_ids": [x["id"] for x in contacts]}]
         groupes += [{"id": g["id"], "nom": g.get("name") or "", "couleur": g.get("color"),
                      "contact_ids": g.get("contact_ids") or []} for g in groupes_docs]
-        return {"contacts": lignes, "groupes": [g for g in groupes if g["contact_ids"]]}
+        return {"contacts": await _marquer_reponses(lignes), "groupes": [g for g in groupes if g["contact_ids"]]}
 
     def _dedoublonner(personnes: List[dict]) -> List[dict]:
         """Seulement ceux qui ont accepté et ont un numéro ; un numéro reçoit une seule fois."""

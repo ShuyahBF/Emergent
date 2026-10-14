@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "155", "date": "2026-10-14",
+        "titre": "⚠️ Carrousel WhatsApp : alerte avant l'envoi pour les destinataires silencieux",
+        "description": "Les contacts qui n'ont jamais écrit à votre ligne portent la mention « jamais répondu », et une alerte avant l'envoi cite ceux qui risquent un refus de remise de WhatsApp (code 131049).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "154", "date": "2026-10-14",
         "titre": "👤 Messagerie : le nom du contact toujours visible",
         "description": "Centre de messagerie : le nom du contact n'est plus écrasé par la puce de contrat et la pastille de ligne WhatsApp dans la colonne Nom ; il passe à la ligne au lieu de disparaître.",

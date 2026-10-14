@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "158"
-LOT_LIBELLE = "Ligne Liluvine VIP réservée aux contrats valides : message automatique, choix du canal dans la conversation"
+LOT = "159"
+LOT_LIBELLE = "Pseudo contrat VALIDE (5 jours) sur la fiche client : contrat traité comme valide, client marqué en rouge"

@@ -64,6 +64,20 @@ export default function AdminClients() {
     } catch { setCompanyHint(null); } finally { setHintLoading(false); }
   };
 
+  // Lot 159 — « Pseudo contrat VALIDE » : actif tant que la date de fin (5 jours après la coche) n'est pas passée
+  const pseudoActif = (c) => Boolean(c?.pseudo_contrat_valide_jusqu_au) && new Date(c.pseudo_contrat_valide_jusqu_au) > new Date();
+  const basculerPseudoContrat = async (coche) => {
+    if (!editing?.id) return;
+    try {
+      const { data } = await apiClient.put(`/admin/clients/${editing.id}/pseudo-contrat`, { actif: coche });
+      setForm((f) => ({ ...f, pseudo_contrat_valide_jusqu_au: data.jusqu_au }));
+      toast.success(coche ? `Pseudo contrat VALIDE activé jusqu'au ${new Date(data.jusqu_au).toLocaleDateString("fr-FR")}` : "Pseudo contrat VALIDE désactivé");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Modification impossible");
+    }
+  };
+
   const load = () => {
     const params = {};
     if (sourceFilter && sourceFilter !== "all") params.source = sourceFilter;
@@ -453,7 +467,10 @@ export default function AdminClients() {
                             <Star className="h-4 w-4 fill-amber-400" />
                           </span>
                         )}
-                        <span>{c.full_name}</span>
+                        <span className={pseudoActif(c) ? "font-bold text-rose-700" : ""} data-testid={pseudoActif(c) ? `client-pseudo-${c.id}` : undefined}>{c.full_name}</span>
+                        {/* Lot 159 — « Pseudo contrat VALIDE » actif : client marqué en rouge dans la liste */}
+                        {pseudoActif(c) && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300"
+                          title={`Pseudo contrat VALIDE jusqu'au ${new Date(c.pseudo_contrat_valide_jusqu_au).toLocaleDateString("fr-FR")}`}>PSEUDO contrat VALIDE</span>}
                         {/* Lot 44 — compte de test */}
                         {c.est_test && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300" data-testid={`badge-test-${c.id}`}>TEST</span>}
                       </div>
@@ -859,6 +876,19 @@ export default function AdminClients() {
                   </p>
                 </div>
               </div>
+              {/* Lot 159 — « Pseudo contrat VALIDE » : contrat toujours VALIDE (puce, ligne VIP, Loois) pendant 5 jours */}
+              {editing?.id && (
+                <label className={`flex items-start gap-2 rounded-lg border p-2 text-xs ${pseudoActif(form) ? "border-rose-300 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"}`}
+                       data-testid="client-pseudo-contrat">
+                  <input type="checkbox" className="mt-0.5" checked={pseudoActif(form)} onChange={(e) => basculerPseudoContrat(e.target.checked)}
+                         data-testid="client-pseudo-contrat-case" />
+                  <span>
+                    <b>Pseudo contrat VALIDE</b> (5 jours) — le contrat est traité comme valide (puce verte, ligne Liluvine VIP, états Loois non
+                    anonymisés), quelles que soient ses informations : à cocher quand des paiements n'ont pas pu être mis à jour.
+                    {pseudoActif(form) && <span className="block font-semibold">Actif jusqu'au {new Date(form.pseudo_contrat_valide_jusqu_au).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}, puis retour à la normale.</span>}
+                  </span>
+                </label>
+              )}
               <p className="text-[11px] text-teal-800 italic">
                 Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>. Le <em>seuil de retard</em> propre au client (si renseigné) prévaut sur la valeur globale des paramètres. Le <em>template WA</em> par défaut est <code>confirmation_paiement_avecrecu</code>.
                 <br /><strong>S158</strong> : périodicité active un rappel automatique 3 jours avant échéance. <strong>S159</strong> : auto-suspension bloque le login au-delà du seuil de jours de retard — la réactivation est automatique dès qu&apos;un paiement est enregistré.

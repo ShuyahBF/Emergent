@@ -270,6 +270,9 @@ _setup_contrats_plateformes(db=db, api=api, get_current_user=get_current_user)
 # Lot 138 — nom de profil WhatsApp d'un numéro, lu (signé) par une plateforme : POST /api/webhook/plateforme-profils-wa
 from routes.profils_wa import setup_profils_wa_routes as _setup_profils_wa  # noqa: E402
 _setup_profils_wa(db=db, api=api)
+# Lot 159 — case « Pseudo contrat VALIDE » (5 jours) sur la fiche client : PUT /api/admin/clients/{id}/pseudo-contrat
+from routes.pseudo_contrat import setup_pseudo_contrat_routes as _setup_pseudo_contrat  # noqa: E402
+_setup_pseudo_contrat(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 158 — ligne « Liluvine VIP » réservée aux clients dont le contrat est valide : réglages (Paramètres),
 # état d'un contact pour la conversation (GET /api/me/whatsapp/canal-vip).
 from routes.vip_contrat import setup_vip_contrat_routes as _setup_vip_contrat  # noqa: E402

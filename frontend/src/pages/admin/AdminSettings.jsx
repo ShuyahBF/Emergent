@@ -119,6 +119,7 @@ const NEW_LOTS = {
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
   "🎫 Tickets d'intervention — motif": "144",   // lot 144 : motif modifiable depuis la fiche du ticket
+  "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
@@ -171,6 +172,7 @@ const NEW_SECTIONS = {
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
   "🎫 Tickets d'intervention — motif": "2026-10-14",   // lot 144
+  "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "💬 Ligne VIP — contrat valide": "2026-10-14",   // lot 158
   "🖥️ Parc informatique — sites": "2026-10-14",   // lot 146
   "🖼️ Cadre des cartes": "2026-10-13",   // lot 136
@@ -271,6 +273,7 @@ const NEW_DESCRIPTIONS = {
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
   "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144).",
+  "🟥 Pseudo contrat VALIDE": "Case sur la fiche client : contrat traité comme VALIDE pendant 5 jours (puce, ligne Liluvine VIP, états Loois non anonymisés), même si des paiements n'ont pas été mis à jour ; clients concernés marqués en rouge dans la liste (lot 159).",
   "💬 Ligne VIP — contrat valide": "La ligne Liluvine VIP est réservée aux clients dont le contrat est valide : message automatique paramétrable et activable, canal choisi dans la conversation, réponse forcée sur la ligne standard avec notification (lot 158).",
   "🖥️ Parc informatique — sites": "Équipements du Parc informatique regroupés par nom de site ; « Renommer / Définir le site » pour tout un groupe ; « Compléter les sites (Loois) » reprend le site du dernier signal des machines sans site (lot 146).",
   "🖼️ Cadre des cartes": "Mince filet foncé autour des cartes d'information (noir par défaut, gris foncé, bleu ou aucun) : le gris sur gris se distinguait mal ; réglage commun à tous les écrans (lot 136).",
@@ -1446,6 +1449,20 @@ export default function AdminSettings() {
       {/* Lot 158 — ligne VIP réservée aux contrats valides : activation et textes */}
       <Filterable title="💬 Ligne VIP — contrat valide" anchorId="s-vip-contrat" category="modules">
         <VipControleSection />
+      </Filterable>
+
+      {/* Lot 159 — « Pseudo contrat VALIDE » : explication et accès à la liste des clients */}
+      <Filterable title="🟥 Pseudo contrat VALIDE" anchorId="s-pseudo-contrat" category="modules">
+        <div className="space-y-2 text-sm text-slate-700">
+          <p>Quand les paiements d'un client sous contrat n'ont pas pu être mis à jour, cochez <b>« Pseudo contrat VALIDE »</b> dans sa fiche
+            (Clients → Modifier → rubrique <b>📄 Contrat</b>). Pendant <b>5 jours</b>, son contrat est traité comme <b>valide</b> quelles que soient ses
+            informations : puce verte du Centre de messagerie, accès à la ligne Liluvine VIP, états de Loois non anonymisés. Au bout de 5 jours, tout
+            revient à la normale tout seul. Les clients concernés sont écrits <b className="text-rose-700">en rouge</b> dans la liste des clients, avec la
+            mention « PSEUDO contrat VALIDE ». Cette case ne change ni les alertes de retard, ni la suspension automatique, ni l'accès à la plateforme.</p>
+          <Link to="/admin/clients" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
+            <Building2 className="h-3.5 w-3.5" /> Ouvrir la liste des clients
+          </Link>
+        </div>
       </Filterable>
 
       <Filterable title="🖼️ Cadre des cartes" anchorId="s-cadre-cartes" category="modules">

@@ -70,6 +70,7 @@ CHAMPS_CLIENT = {
     "contract_end_at": 1, "last_payment_at": 1, "contract_overdue_days": 1, "contract_billing_period": 1,
     "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "contract_services_suspendus": 1,
     "cycle_vie.statut": 1,
+    "pseudo_contrat_valide_jusqu_au": 1,      # lot 159 : case « Pseudo contrat VALIDE » (5 jours), aucun montant
 }
 # Lot 128.1 — formes juridiques retirées à la FIN du nom de société avant comparaison
 FORMES_JURIDIQUES = {"sarl", "sarlu", "suarl", "sa", "sas", "sasu", "snc", "gie", "ets", "sci"}
@@ -133,6 +134,13 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
         return vide
     c = client
     base = dict(vide, client=(c.get("company") or c.get("full_name") or None))
+    # Lot 159 — « Pseudo contrat VALIDE » coché (5 jours) : contrat toujours VALIDE, quelles que soient ses informations
+    from routes.pseudo_contrat import jusqu_au as _pseudo_jusqu_au
+    pseudo = _pseudo_jusqu_au(c)
+    if pseudo:
+        return dict(base, etat="valide", couleur=COULEURS["valide"], statut="pseudo_valide",
+                    statut_libelle=f"Pseudo contrat VALIDE (jusqu'au {pseudo[8:10]}/{pseudo[5:7]}/{pseudo[:4]})",
+                    numero=str(c.get("contract_number") or "").strip() or None)
     numero = str(c.get("contract_number") or "").strip()
     if not numero:
         return base                                                     # ROUGE : pas de n° de contrat

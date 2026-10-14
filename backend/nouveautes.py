@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "151", "date": "2026-10-14",
+        "titre": "🔤 Parc informatique : un seul site, quelle que soit la casse",
+        "description": "« Clinique Médicale IPALA » et « CLINIQUE MEDICALE IPALA » forment désormais un seul groupe de site (liste, rupture et filtre ignorent la casse).",
+        "rubrique": "🖥️ Parc informatique — sites",
+    },
+    {
         "lot": "150", "date": "2026-10-14",
         "titre": "✏️ Parc informatique : lieu et utilisateur modifiables machine par machine",
         "description": "Un crayon dans la colonne « Lieu · utilisateur » de chaque machine ouvre une fenêtre pour saisir le site, le service, le bureau et l'utilisateur ; la saisie n'est plus écrasée par Loois.",

@@ -61,3 +61,15 @@ def test_completion_des_sites_manquants_depuis_loois():
     # Rien à compléter la 2e fois ; un client (non admin) n'a pas accès à la complétion
     assert c.post("/api/me/parc/equipements/sites/completer").json()["completes"] == 0
     assert c.post("/api/me/parc/equipements/sites/completer", headers={"X-User": "phl"}).status_code in (403, 404)
+
+
+def test_lot151_sites_sans_distinction_de_casse():
+    """Lot 151 : « Clinique X » et « CLINIQUE X » = un seul site (liste des sites et filtre)."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot151"]
+    c = client(db)
+    for i, site in enumerate(["CLINIQUE MEDICALE IPALA", "Clinique Medicale IPALA", "Autre"]):
+        lancer(db.parc_equipements.insert_one({"id": f"e{i}", "numero_inventaire": f"P-{i}", "categorie": "PC de bureau",
+                                               "etat": "en_service", "site": site, "tenant_id": None}))
+    r = c.get("/api/me/parc/equipements").json()
+    assert len(r["sites"]) == 2
+    assert c.get("/api/me/parc/equipements", params={"site": "clinique medicale ipala"}).json()["equipements"].__len__() == 2

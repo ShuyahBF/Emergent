@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "160", "date": "2026-10-14",
+        "titre": "📜 Carrousel WhatsApp : 20 derniers envois, « Voir plus »",
+        "description": "Dans « Envois précédents », seuls les 20 derniers envois sont affichés ; « Voir plus » en ajoute 20 à chaque clic et « Tout afficher » montre la liste complète (50 envois les plus récents).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "159", "date": "2026-10-14",
         "titre": "🟥 Pseudo contrat VALIDE (5 jours) sur la fiche client",
         "description": "Une case sur la fiche client rend son contrat valide pendant 5 jours quelles que soient ses informations (puce, ligne Liluvine VIP, états Loois non anonymisés) ; les clients concernés sont écrits en rouge dans la liste.",

@@ -1362,6 +1362,22 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=1800,
             )
+            # Lot 161 — contacts des plateformes (ZandGo, e-Kol, adLyn…) relus chaque nuit et rangés dans « Plateforme X »
+            async def _scheduled_contacts_plateformes():
+                try:
+                    from routes.contacts_plateformes import synchroniser_tout as _sync_contacts
+                    bilans = await _sync_contacts(db, attribuer_code=_next_contact_unique_code)
+                    if bilans:
+                        logger.info("[contacts_plateformes] synchro quotidienne : %s", {k: v.get("ok") for k, v in bilans.items()})
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[contacts_plateformes] synchro quotidienne en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_contacts_plateformes,
+                CronTrigger(hour=3, minute=20, timezone="Africa/Abidjan"),
+                id="contacts_plateformes_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Lot 96 — page Facebook animée par Liluvine : préparation aux jours et à l'heure choisis
             async def _scheduled_fb_animation():
                 try:

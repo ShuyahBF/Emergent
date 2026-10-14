@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "161", "date": "2026-10-14",
+        "titre": "👥 Contacts des plateformes dans des groupes « Plateforme X »",
+        "description": "SAWALI lit chaque nuit (ou à la demande) les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis.",
+        "rubrique": "👥 Contacts des plateformes",
+    },
+    {
         "lot": "160", "date": "2026-10-14",
         "titre": "📜 Carrousel WhatsApp : 20 derniers envois, « Voir plus »",
         "description": "Dans « Envois précédents », seuls les 20 derniers envois sont affichés ; « Voir plus » en ajoute 20 à chaque clic et « Tout afficher » montre la liste complète (50 envois les plus récents).",

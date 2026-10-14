@@ -20,7 +20,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, Copy, ExternalLink, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Megaphone,
+  ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Megaphone,
   Package, Plus, MessageSquareReply, RefreshCw, Save, Send, Settings, Share2, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
 import QRCode from "qrcode";                                  // lot 79 : QR code du lien d'accord
@@ -674,7 +674,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [images, setImages] = useState([]);
   const [annuaire, setAnnuaire] = useState({ contacts: [], groupes: [] });
   const [campagnes, setCampagnes] = useState([]);
-  const [detail, setDetail] = useState(null);
+  // Lot 156 : « Envois précédents » repliés par défaut (une ligne par envoi : date et heure) ; un clic déplie les autres informations.
+  const [details, setDetails] = useState({});            // détail des destinataires par campagne (chargé au dépliage)
+  const [deplies, setDeplies] = useState(() => new Set()); // campagnes dépliées
   const [message, setMessage] = useState("");
   const [cartes, setCartes] = useState([carteVide(), carteVide()]);
   const [courant, setCourant] = useState(null);           // lot 77 : carrousel nommé ouvert dans l'éditeur
@@ -955,7 +957,13 @@ export default function CarrouselWhatsApp({ admin = false }) {
 
   const ouvrirDetail = async (id) => {
     const { data } = await apiClient.get(`${base}/campagnes/${id}`);
-    setDetail(data);
+    setDetails((p) => ({ ...p, [id]: data }));
+  };
+  // Plie / déplie un envoi précédent ; le détail des destinataires (remise réelle) est lu au dépliage
+  const basculerEnvoi = (id) => {
+    const ouvert = deplies.has(id);
+    setDeplies((p) => { const n = new Set(p); if (ouvert) n.delete(id); else n.add(id); return n; });
+    if (!ouvert) ouvrirDetail(id).catch(() => {});
   };
 
   if (refus) return <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">{refus}</div>;
@@ -1279,7 +1287,10 @@ export default function CarrouselWhatsApp({ admin = false }) {
         {campagnes.map((c) => (
           <div key={c.id} className="rounded-md border border-slate-200 p-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">
-              <span className="font-medium">{dateFr(c.cree_le)}</span>
+              <button type="button" onClick={() => basculerEnvoi(c.id)} aria-expanded={deplies.has(c.id)} data-testid={`carrousel-envoi-${c.id}`}
+                      className="inline-flex items-center gap-1 font-medium hover:text-sawali-blue" title="Déplier / replier cet envoi">
+                {deplies.has(c.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}{dateFr(c.cree_le)}
+              </button>
               <span className="text-slate-600">{c.cartes.length} cartes · {c.modele}</span>
               <span className="text-emerald-700">{c.compte.envoyes} envoyé(s)</span>
               {c.compte.echecs > 0 && <span className="text-red-700">{c.compte.echecs} échec(s)</span>}
@@ -1303,10 +1314,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee }) => ({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee })) }); if (admin && c.regie_id) setRegieId(c.regie_id); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>
                 Recharger dans l'éditeur
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => (detail?.id === c.id ? setDetail(null) : ouvrirDetail(c.id))}>
-                {detail?.id === c.id ? "Masquer" : "Détail"}
+              <Button size="sm" variant="ghost" onClick={() => basculerEnvoi(c.id)}>
+                {deplies.has(c.id) ? "Masquer" : "Détail"}
               </Button>
             </div>
+            {deplies.has(c.id) && (<>
             <div className="mt-1 truncate text-slate-600">{c.message}</div>
             {/* Lot 111 — par carte : clics, vues de la page de présentation, « Je suis intéressé » (et clics facturés) */}
             <div className="mt-2 overflow-x-auto">
@@ -1344,9 +1356,9 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 </select>
               )}
             </div>
-            {detail?.id === c.id && (
+            {details[c.id] && (
               <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2">
-                {detail.destinataires.map((d) => (
+                {details[c.id].destinataires.map((d) => (
                   <li key={d.id} className="flex items-center gap-2">
                     {d.statut === "ENVOYE" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                       : d.statut === "ECHEC" ? <XCircle className="h-4 w-4 text-red-600" />
@@ -1363,6 +1375,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 ))}
               </ul>
             )}
+            </>)}
           </div>
         ))}
       </section>

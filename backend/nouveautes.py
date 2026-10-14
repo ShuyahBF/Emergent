@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "145", "date": "2026-10-14",
+        "titre": "🖥️ Chat Support Loois : « Prendre la main » aussi après une demande abandonnée ou refusée",
+        "description": "Dans la conversation d'un poste, le bouton « Prendre la main » (contrôle à distance) manquait quand la dernière demande d'assistance avait été abandonnée par le poste ou refusée : il est maintenant affiché dans tous les cas où le poste a une clé client.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "144", "date": "2026-10-14",
         "titre": "✏️ Tickets : modifier le motif",
         "description": "Sur la fiche d'un ticket ouvert, le bouton « Modifier » à côté du motif complet permet de corriger le texte (200 caractères au plus). Le motif d'origine est conservé avec la mention « modifié par … le … ».",

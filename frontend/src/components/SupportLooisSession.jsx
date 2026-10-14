@@ -340,9 +340,18 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
       )}
 
       {(statut === "refusee" || statut === "abandonnee") && (
-        <span className="text-slate-500">
-          {statut === "refusee" ? `⛔ Dernière demande refusée : ${session.motif_refus || ""}` : "Dernière demande abandonnée par le poste."}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-slate-500">
+            {statut === "refusee" ? `⛔ Dernière demande refusée : ${session.motif_refus || ""}` : "Dernière demande abandonnée par le poste."}
+          </span>
+          {/* Lot 145 — la prise en main reste possible depuis le chat, même après une demande refusée ou abandonnée */}
+          {priseEnMainPossible && (
+            <button onClick={prendreLaMain} className={`${bouton} ml-auto bg-sky-600 text-white hover:bg-sky-700`} data-testid="support-loois-prendre-la-main"
+                    title="Voir l'écran du poste et le contrôler, avec l'accord de son utilisateur">
+              <MonitorSmartphone className="h-3 w-3" /> Prendre la main
+            </button>
+          )}
+        </div>
       )}
 
       {/* Lot 58.3 — historique des sessions du poste avec leur ticket (même après une nouvelle demande) */}

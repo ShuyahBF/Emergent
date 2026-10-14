@@ -1269,6 +1269,11 @@ _carrousel_wa = _attach_carrousel_wa(
 )
 
 
+# Lot 164 — page publique d'accord WhatsApp (lien personnel par contact) : GET / POST /api/public/accord/{jeton}
+from routes.accord_page import setup_accord_page_routes as _setup_accord_page  # noqa: E402
+_setup_accord_page(db=db, api=api)
+
+
 @app.on_event("startup")
 async def _demarrer_carrousels_programmes():
     """Lot 114 — planificateur des carrousels : démarre les envois programmés échus, reprend ceux en attente

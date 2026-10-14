@@ -371,6 +371,12 @@ class ConsentementIn(BaseModel):
     accepte: bool
 
 
+class AccordModeleIn(BaseModel):
+    """Lot 165 — modèle de demande d'accord à lien personnel (nom en minuscules, chiffres et _)."""
+    modele: str = Field("sawali_accord_lien", min_length=3, max_length=60, pattern=r"^[a-z0-9_]+$")
+    langue: str = Field(LANGUE_DEFAUT, min_length=2, max_length=10)
+
+
 class ReglagesIn(BaseModel):
     modele: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-z0-9_]+$")
     langue: str = Field(LANGUE_DEFAUT, min_length=2, max_length=10)
@@ -1644,6 +1650,44 @@ def attach_carrousel_whatsapp_routes(
             await ecrire_reglages(data, _)          # préfixe et langue retenus pour les envois
         _cache_statuts.clear()                      # lot 77 : les pastilles relisent Meta
         return {"resultats": resultats, "url_bouton": _url_bouton()}
+
+    async def _acces_meta() -> dict:
+        """Lot 165 — jeton, WABA et version de l'API du compte WhatsApp Business de la plateforme."""
+        creds = await resolve_wa_credentials(None)
+        jeton, waba = (creds.get("access_token") or "").strip(), (creds.get("waba_id") or "").strip()
+        if not jeton or not waba:
+            raise HTTPException(status_code=400, detail="WhatsApp Business incomplet : jeton d'accès ou identifiant du compte "
+                                                        "WhatsApp Business (WABA) manquant dans les Paramètres.")
+        return {"jeton": jeton, "waba": waba, "version": await _version_graph()}
+
+    def _url_bouton_accord() -> str:
+        from routes import accord_page as ap
+        return f"{base_publique().rstrip('/')}{ap.CHEMIN_PAGE}{{{{1}}}}"
+
+    @api.get("/admin/whatsapp/carrousel/accord-modele", tags=["Admin — Carrousel WhatsApp"])
+    async def lire_accord_modele(_: dict = Depends(get_current_admin)):
+        """Lot 165 — modèle d'accord à lien personnel : nom retenu, statut actuel chez Meta et motif d'un refus."""
+        from routes import accord_modele_meta as amm
+        g = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_accord_modele": 1, "wa_accord_modele_langue": 1}) or {}
+        nom, langue = g.get("wa_accord_modele") or amm.NOM_DEFAUT, g.get("wa_accord_modele_langue") or LANGUE_DEFAUT
+        acces = await _acces_meta()
+        return {"modele": nom, "langue": langue, "enregistre": bool(g.get("wa_accord_modele")),
+                "url_bouton": _url_bouton_accord(),
+                **(await amm.lire_statut(version=acces["version"], waba_id=acces["waba"], jeton=acces["jeton"],
+                                         nom=nom, langue=langue))}
+
+    @api.post("/admin/whatsapp/carrousel/accord-modele", tags=["Admin — Carrousel WhatsApp"])
+    async def creer_accord_modele(data: AccordModeleIn, _: dict = Depends(get_current_admin)):
+        """Lot 165 — dépose chez Meta le modèle de demande d'accord (bouton → <site>/accord/{{1}}). Aucun message n'est
+        envoyé aux contacts ; l'approbation par Meta prend de quelques minutes à 24 h."""
+        from routes import accord_modele_meta as amm
+        acces = await _acces_meta()
+        resultat = await amm.creer_modele(version=acces["version"], waba_id=acces["waba"], jeton=acces["jeton"],
+                                          nom=data.modele, langue=data.langue, url_bouton=_url_bouton_accord())
+        if resultat["statut"] in ("soumis", "existe déjà"):
+            await db.settings.update_one({"_id": "global"}, {"$set": {
+                "wa_accord_modele": data.modele, "wa_accord_modele_langue": data.langue}}, upsert=True)
+        return {**resultat, "url_bouton": _url_bouton_accord()}
 
     @api.get("/admin/whatsapp/carrousel/produits", tags=["Admin — Carrousel WhatsApp"])
     async def produits_admin(_: dict = Depends(get_current_admin)):

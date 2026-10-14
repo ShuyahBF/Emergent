@@ -1261,6 +1261,12 @@ export default function AdminSettings() {
             (comme le mot-clé « OUI NOUVEAUTES »). Contrairement au lien wa.me, qui rouvre seulement WhatsApp, ce lien enregistre l'accord ;
             à utiliser dans un bouton de message. Ne jamais l'envoyer à une autre personne que son destinataire.
           </p>
+          {/* Lot 165 — modèle Meta de demande d'accord à lien personnel */}
+          <p className="rounded-md bg-sky-50 p-2 text-xs text-sky-900 ring-1 ring-sky-200" data-testid="note-modele-accord">
+            <b>Modèle d'accord (lot 165) :</b> sur la page « Carrousel WhatsApp » (administration), dans « Modèles Meta », le bouton
+            « Créer le modèle d'accord chez Meta » dépose un modèle dont le bouton ouvre <code>/accord/{"{{1}}"}</code> : SAWALI pourra y mettre
+            le lien personnel de chaque contact. Créer le modèle n'envoie aucun message ; son approbation par Meta prend de quelques minutes à 24 h.
+          </p>
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.

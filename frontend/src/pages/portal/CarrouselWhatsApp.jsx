@@ -274,6 +274,60 @@ function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia 
   );
 }
 
+// Lot 165 — modèle de DEMANDE D'ACCORD à lien personnel : bouton URL dynamique <site>/accord/{{1}} (administration).
+// SAWALI y mettra le lien personnel de chaque contact ; ici on ne fait que créer le modèle chez Meta et suivre son
+// approbation : aucun message n'est envoyé aux contacts.
+function ModeleAccord() {
+  const [info, setInfo] = useState(null);       // { modele, langue, statut, motif, url_bouton, erreur }
+  const [nom, setNom] = useState("sawali_accord_lien");
+  const [occupe, setOccupe] = useState(false);
+  const lire = useCallback(async (silencieux = true) => {
+    try {
+      const { data } = await apiClient.get("/admin/whatsapp/carrousel/accord-modele");
+      setInfo(data);
+      if (data.enregistre) setNom(data.modele);
+      if (!silencieux) toast.success("Statut relu chez Meta");
+    } catch (e) { if (!silencieux) toast.error(erreur(e, "Statut du modèle d'accord indisponible")); }
+  }, []);
+  useEffect(() => { lire(true); }, [lire]);
+  const creer = async () => {
+    if (!window.confirm(`Déposer chez Meta le modèle « ${nom} » (catégorie Marketing, bouton vers la page d'accord) ? Aucun message n'est envoyé.`)) return;
+    setOccupe(true);
+    const attente = toast.loading("Patientez… dépôt du modèle chez Meta");
+    try {
+      const { data } = await apiClient.post("/admin/whatsapp/carrousel/accord-modele", { modele: nom, langue: "fr" }, { timeout: 90000 });
+      if (data.statut === "erreur") toast.error(`Meta a refusé le dépôt : ${data.detail}`, { id: attente });
+      else toast.success(data.statut === "existe déjà" ? "Ce modèle existe déjà chez Meta" : "Modèle soumis à Meta (approbation : quelques minutes à 24 h)", { id: attente });
+      lire(true);
+    } catch (e) { toast.error(erreur(e, "Dépôt impossible"), { id: attente }); } finally { setOccupe(false); }
+  };
+  const couleur = { APPROVED: "text-emerald-700", PENDING: "text-amber-700", REJECTED: "text-rose-700" }[info?.statut] || "text-slate-600";
+  return (
+    <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-3 text-xs text-slate-700" data-testid="modele-accord">
+      <p className="font-medium text-emerald-800">Modèle de demande d'accord (lien personnel)</p>
+      <p>
+        Un bouton de modèle ne peut pas porter le lien personnel de chaque contact si son adresse est fixe. Ce modèle a un bouton
+        dynamique <code className="break-all">{info?.url_bouton || "<site>/accord/{{1}}"}</code> : SAWALI y mettra le lien de chaque personne.
+        Créer le modèle n'envoie rien aux contacts.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${champ} max-w-xs`} value={nom} onChange={(e) => setNom(e.target.value.toLowerCase())} aria-label="Nom du modèle d'accord" />
+        <Button type="button" size="sm" variant="outline" disabled={!nom || occupe} onClick={creer}>
+          {occupe ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+          Créer le modèle d'accord chez Meta
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => lire(false)}><RefreshCw className="mr-1 h-4 w-4" />Actualiser le statut</Button>
+      </div>
+      {info && (
+        <p>
+          Statut chez Meta de « {info.modele} » : <b className={couleur} data-testid="statut-modele-accord">{info.statut}</b>
+          {info.motif ? ` — motif : ${info.motif}` : ""}{info.erreur ? ` — ${info.erreur}` : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Réglages des modèles Meta (administration seulement)
 function Reglages({ etat, onEnregistre }) {
   const [modele, setModele] = useState(etat.modele || "");
@@ -394,6 +448,7 @@ function Reglages({ etat, onEnregistre }) {
         L'App ID Meta est retrouvé automatiquement à partir du jeton WhatsApp (comme pour la page Templates WhatsApp).
         Suivez ensuite leur approbation dans « Templates WhatsApp » ou le WhatsApp Manager.
       </p>
+      <ModeleAccord />   {/* lot 165 : modèle de demande d'accord à lien personnel */}
       {creation && (
         <div role="status" aria-live="polite" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900/80 px-4 py-3 text-sm text-white shadow-lg backdrop-blur">
           <div className="flex items-center gap-2">

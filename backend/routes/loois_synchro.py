@@ -448,7 +448,9 @@ def statut_contrat_loois(client: Optional[Dict[str, Any]], a: datetime) -> Dict[
 
     statut : « a_jour » | « grace » (délai de grâce) | « sans_echeance » (contrat sans périodicité) → actif ;
              « expire » | « suspendu » | « archive » | « non_lie » (aucun compte lié à la clé) → NON actif.
-    `anonymiser` est vrai dès que le contrat n'est pas actif : le plus sûr en cas de doute."""
+    `anonymiser` (lot 147, 14/10/2026) : vrai seulement si le client n'est plus SOUS CONTRAT (suspendu, archivé, ou clé
+    non liée à un compte). Un client en RETARD DE PAIEMENT (« expire », avant la suspension) reste sous contrat : ses
+    états ne sont PAS anonymisés ; `actif` reste faux pour l'information."""
     import abonnement_acces as abo
     import cycle_vie_abonnements as cv
 
@@ -460,7 +462,8 @@ def statut_contrat_loois(client: Optional[Dict[str, Any]], a: datetime) -> Dict[
         return {"statut": statut, "actif": False, "anonymiser": True, "echeance": None}
     etat = abo.etat_client(client, a)
     actif = etat["statut"] in (abo.A_JOUR, abo.GRACE, abo.SANS_ECHEANCE)
-    return {"statut": etat["statut"], "actif": actif, "anonymiser": not actif, "echeance": etat.get("echeance")}
+    # Retard de paiement (EXPIRE) : encore sous contrat jusqu'à la suspension → pas d'anonymisation
+    return {"statut": etat["statut"], "actif": actif, "anonymiser": False, "echeance": etat.get("echeance")}
 
 
 def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:

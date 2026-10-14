@@ -260,6 +260,13 @@ class Piece(BaseModel):
     reference: Optional[str] = Field(None, max_length=120)
 
 
+class SiteEnLotIn(BaseModel):
+    """Lot 146 — nom de site à appliquer à plusieurs équipements : `ids` (cases / groupe affiché) ; `vers` vide = retirer le site."""
+    ids: List[str] = Field(min_length=1, max_length=2000)
+    vers: str = Field(default="", max_length=120)
+    compte_client_id: Optional[str] = None
+
+
 class ResponsableIn(BaseModel):
     nom: Optional[str] = Field(None, max_length=160)
     fonction: Optional[str] = Field(None, max_length=120)
@@ -725,6 +732,41 @@ def attach_parc_routes(*, api, db, get_current_user, fonction_active=None,
         # Ordre chronologique inverse (début, sinon date de création)
         historique.sort(key=lambda i: i.get("debut") or i.get("cree_le") or "", reverse=True)
         return {**e, "interventions": [_presenter(i) for i in historique]}
+
+    # ---- Lot 146 : nom de site en lot et complétion depuis Loois -----------------------------------
+    @api.post("/me/parc/equipements/site", tags=["Parc informatique"])
+    async def definir_site(data: SiteEnLotIn, user: dict = Depends(utilisateur)):
+        """Applique (ou retire) le NOM DE SITE de plusieurs équipements d'un coup (rupture « Sans site » ou renommage d'un site).
+        Une valeur saisie à la main n'est jamais écrasée par Loois : elle diffère de la dernière valeur automatique."""
+        vers = re.sub(r"\s+", " ", (data.vers or "").strip())[:120]
+        filtre = {"id": {"$in": list(dict.fromkeys(data.ids))}, **_perimetre(user, data.compte_client_id)}
+        res = await db.parc_equipements.update_many(
+            filtre, {"$set": {"site": vers or None, "maj_le": _maintenant(), "maj_par": _auteur(user)}})
+        return {"ok": True, "modifies": res.modified_count, "site": vers or None}
+
+    @api.post("/me/parc/equipements/sites/completer", tags=["Parc informatique"])
+    async def completer_sites(compte_client_id: Optional[str] = None, user: dict = Depends(utilisateur)):
+        """Complète le site des fiches créées par Loois qui n'en ont pas : site annoncé par Loois pour la machine, sinon libellé
+        du client de sa clé (ex. « Ecole des Métiers »). Ne touche jamais à un site déjà renseigné."""
+        if not is_admin_like(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'Admin et au Superviseur")
+        remplis = 0
+        sans_site = {**_perimetre(user, compte_client_id), "loois_machine": {"$exists": True},
+                     "$or": [{"site": None}, {"site": ""}, {"site": {"$exists": False}}]}
+        async for e in db.parc_equipements.find(sans_site, {"_id": 0, "id": 1, "loois_machine": 1, "loois_auto": 1}):
+            fiches = await db.presences_logiciels.find(
+                {"machine": {"$regex": f"^{re.escape(e['loois_machine'])}$", "$options": "i"}},
+                {"_id": 0, "site": 1, "verifie_client": 1, "vu_le": 1}).sort("vu_le", -1).to_list(10)
+            valeur = next((f.get("site") for f in fiches if f.get("site")), None) or \
+                next((f.get("verifie_client") for f in fiches if f.get("verifie_client")), None)
+            if valeur:
+                valeur = str(valeur).strip()[:120]
+                auto = dict(e.get("loois_auto") or {})
+                auto["site"] = valeur          # valeur automatique : une saisie manuelle ultérieure restera protégée
+                await db.parc_equipements.update_one(
+                    {"id": e["id"]}, {"$set": {"site": valeur, "loois_auto": auto, "maj_le": _maintenant(), "maj_par": "Loois (complétion)"}})
+                remplis += 1
+        return {"ok": True, "completes": remplis}
 
     @api.put("/me/parc/equipements/{eid}", tags=["Parc informatique"])
     async def modifier_equipement(eid: str, data: EquipementIn, user: dict = Depends(utilisateur)):

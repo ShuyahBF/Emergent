@@ -29,7 +29,9 @@ const VIDE = { categorie: "", fabricant: "", modele: "", numero_serie: "", adres
 const CHAMPS = [["fabricant", "Fabricant"], ["modele", "Modèle"], ["numero_serie", "N° de série"], ["adresse_ip", "Adresse IP", "ex. 192.168.1.20"],
   ["adresse_mac", "Adresse MAC", "AA:BB:CC:DD:EE:FF"], ["nom_hote", "Nom d'hôte"], ["systeme_exploitation", "Système d'exploitation"],
   ["utilisateur_affecte", "Utilisateur affecté"], ["site", "Site"], ["service", "Service"], ["bureau", "Bureau"], ["fournisseur", "Fournisseur"]];
-const lieu = (e) => [e.site, e.service, e.bureau].filter(Boolean).join(" / ");
+// Lieu affiché dans la ligne : le site est désormais la rupture (en-tête de groupe), on garde service / bureau
+const lieu = (e) => [e.service, e.bureau].filter(Boolean).join(" / ");
+const SANS_SITE = "(Sans site)";
 
 const Etat = ({ etat }) => <span className={`rounded-full px-2 py-0.5 text-[11px] ${ETATS[etat]?.[1] || ""}`}>{ETATS[etat]?.[0] || etat}</span>;
 
@@ -278,6 +280,38 @@ export default function ParcInformatique() {
   const doitChoisir = clients.admin && !compte;
   const equipements = donnees?.equipements || [];
 
+  // Rupture par « Nom de site » : groupes triés par nom, « (Sans site) » en dernier
+  const groupes = (() => {
+    const m = new Map();
+    for (const e of equipements) {
+      const cle = (e.site || "").trim();
+      if (!m.has(cle)) m.set(cle, []);
+      m.get(cle).push(e);
+    }
+    return [...m.entries()]
+      .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, "fr")))
+      .map(([cle, items]) => ({ cle, nom: cle || SANS_SITE, items }));
+  })();
+
+  // Renomme / définit le site de toutes les machines d'un groupe (ids du groupe affiché)
+  const renommerSite = async (g) => {
+    const vers = window.prompt(g.cle ? `Nouveau nom du site « ${g.cle} » (${g.items.length} machine(s)) :` : `Nom du site pour les ${g.items.length} machine(s) sans site :`, g.cle);
+    if (vers === null || vers.trim() === g.cle) return;
+    try {
+      const r = await apiClient.post("/me/parc/equipements/site", { ids: g.items.map((e) => e.id), vers: vers.trim(), compte_client_id: compte || null });
+      toast.success(`${r.data.modifies} machine(s) → ${r.data.site || SANS_SITE}`);
+      charger();
+    } catch (x) { toast.error(erreur(x, "Modification du site impossible")); }
+  };
+  // Admin : remplit le site des machines Loois qui n'en ont pas, depuis le dernier signal reçu
+  const completerSites = async () => {
+    try {
+      const r = await apiClient.post("/me/parc/equipements/sites/completer", {});
+      toast.success(r.data.completes ? `${r.data.completes} machine(s) complétée(s) depuis Loois` : "Aucune machine à compléter : Loois n'a pas transmis de site");
+      charger();
+    } catch (x) { toast.error(erreur(x, "Complément impossible")); }
+  };
+
   if (refus) return <div className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">{refus}</div>;
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-3 sm:p-6">
@@ -308,6 +342,7 @@ export default function ParcInformatique() {
                 className={`rounded-full px-3 py-1 text-xs ring-1 ${etat === k ? "ring-2 ring-indigo-500" : "ring-transparent"} ${cls}`}>{l} ({donnees?.compte?.[k] ?? 0})</button>
             ))}
             <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
+              {clients.admin && <Button size="sm" variant="outline" onClick={completerSites} title="Renseigne le site des machines Loois sans site, d'après leur dernier signal" data-testid="parc-completer-sites">Compléter les sites (Loois)</Button>}
               <Button size="sm" variant="outline" onClick={() => telecharger("/me/parc/equipements/export.csv", "parc-informatique.csv", filtres)}><Download className="mr-1 h-4 w-4" /> Export CSV</Button>
               <Button size="sm" variant="outline" onClick={() => setImporter(true)} disabled={doitChoisir} title={doitChoisir ? "Choisissez d'abord le client" : ""}><Upload className="mr-1 h-4 w-4" /> Import CSV</Button>
               <Button size="sm" onClick={() => setEdition("nouveau")} disabled={doitChoisir} title={doitChoisir ? "Choisissez d'abord le client" : ""} data-testid="parc-equipement-nouveau"><Plus className="mr-1 h-4 w-4" /> Équipement</Button>
@@ -336,7 +371,18 @@ export default function ParcInformatique() {
               <tbody>
                 {!donnees && <tr><td colSpan={7} className="p-4 text-center"><Loader2 className="inline h-4 w-4 animate-spin" /></td></tr>}
                 {donnees && equipements.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-slate-400">Aucun équipement.{doitChoisir ? " Choisissez un client pour en ajouter ou en importer." : ""}</td></tr>}
-                {equipements.map((e) => (
+                {groupes.map((g) => (
+                  <React.Fragment key={g.cle || "__sans_site"}>
+                    {/* En-tête de rupture : nom du site, nombre de machines, bouton pour renommer / définir le site du groupe */}
+                    <tr className="bg-indigo-50" data-testid="parc-rupture-site">
+                      <td colSpan={7} className="p-2 text-sm font-semibold text-indigo-900">
+                        <span className={g.cle ? "" : "text-amber-700"}>{g.nom}</span>
+                        <span className="ml-2 text-xs font-normal text-slate-500">{g.items.length} machine(s)</span>
+                        <button type="button" onClick={() => renommerSite(g)} className="ml-3 rounded border border-indigo-300 bg-white px-2 py-0.5 text-xs font-normal text-indigo-700 hover:bg-indigo-100"
+                          data-testid="parc-site-renommer">{g.cle ? "Renommer le site" : "Définir le site"}</button>
+                      </td>
+                    </tr>
+                    {g.items.map((e) => (
                   <tr key={e.id} className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50" onClick={() => setFiche(e.id)}>
                     <td className="p-2 font-mono text-xs">{e.numero_inventaire}{clients.admin && !compte && <span className="block font-sans text-[11px] text-slate-500">{e.tenant_id ? e.client_nom : <span className="text-amber-700">À affecter (Loois)</span>}</span>}</td>
                     <td className="p-2">{e.categorie}<span className="block text-[11px] text-slate-500">{[e.fabricant, e.modele].filter(Boolean).join(" ")}{e.nom_hote ? ` · ${e.nom_hote}` : ""}</span></td>
@@ -348,6 +394,8 @@ export default function ParcInformatique() {
                       <button type="button" title="Supprimer" onClick={() => supprimer(e)} className="p-1 text-rose-500 hover:text-rose-700"><Trash2 className="h-4 w-4" /></button>
                     </td>
                   </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

@@ -188,7 +188,7 @@ def cartes_principales(inventaire: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def champs_parc_auto(fiche: Dict[str, Any], inventaire: Dict[str, Any], maintenant: str,
-                     verifie: bool = False) -> Dict[str, Any]:
+                     verifie: bool = False, site_defaut: Optional[str] = None) -> Dict[str, Any]:
     """Logique pure (testée) : valeurs AUTOMATIQUES de la fiche du parc tirées du signal + inventaire.
 
     Renvoie {"champs": {nom_hote, systeme_exploitation, …}, "categorie": …, "loois": {résumé technique}}."""
@@ -204,7 +204,8 @@ def champs_parc_auto(fiche: Dict[str, Any], inventaire: Dict[str, Any], maintena
         "modele": (systeme.get("modele") or "")[:160] or None,
         "adresse_mac": cartes[0]["mac"] if cartes else None,
         "adresse_ip": next((c["ip"] for c in cartes if c["ip"]), None),
-        "site": (fiche.get("site") or "")[:120] or None,
+        # Lot 146 : sans site annoncé par Loois, le libellé du client de sa clé (ex. « Ecole des Métiers ») sert de site
+        "site": (fiche.get("site") or site_defaut or "")[:120] or None,
         "numero_serie": serie_valable(systeme.get("numero_serie")),   # lot 80
     }
     type_poste = inventaire.get("type_poste") if inventaire.get("type_poste") in CATEGORIES_PARC else "poste"
@@ -313,12 +314,12 @@ async def _numero_inventaire_loois(db) -> str:
 
 
 async def synchroniser_parc(db, fiche: Dict[str, Any], inventaire: Dict[str, Any], maintenant: str,
-                            verifie: bool = False) -> Optional[str]:
+                            verifie: bool = False, site_defaut: Optional[str] = None) -> Optional[str]:
     """Crée ou complète la fiche « Parc informatique » de la machine. Renvoie l'id de la fiche.
 
     Clé : le nom de la machine (`loois_machine`), sinon une adresse MAC déjà saisie dans le parc
     (la fiche existante est alors liée à la machine). Seuls les champs automatiques sont écrits."""
-    auto = champs_parc_auto(fiche, inventaire, maintenant, verifie)
+    auto = champs_parc_auto(fiche, inventaire, maintenant, verifie, site_defaut)
     cle_machine = fiche["machine"].upper()
     existant = await db.parc_equipements.find_one({"loois_machine": cle_machine}, {"_id": 0})
     if not existant and auto["loois"]["macs"]:
@@ -418,7 +419,7 @@ def setup_versions_deployees_routes(*, db, api, get_current_user, lire_version=N
             }}, upsert=True)
             # Fiche du parc informatique créée ou complétée (jamais bloquant pour le signal)
             try:
-                await synchroniser_parc(db, fiche, inventaire, maintenant, verifie)
+                await synchroniser_parc(db, fiche, inventaire, maintenant, verifie, verifie_client)
             except Exception:  # noqa: BLE001
                 pass
         return {"ok": True, "inventaire": bool(inventaire)}

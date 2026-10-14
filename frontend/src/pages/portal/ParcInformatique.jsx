@@ -385,7 +385,10 @@ export default function ParcInformatique() {
                     {g.items.map((e) => (
                   <tr key={e.id} className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50" onClick={() => setFiche(e.id)}>
                     <td className="p-2 font-mono text-xs">{e.numero_inventaire}{clients.admin && !compte && <span className="block font-sans text-[11px] text-slate-500">{e.tenant_id ? e.client_nom : <span className="text-amber-700">À affecter (Loois)</span>}</span>}</td>
-                    <td className="p-2">{e.categorie}<span className="block text-[11px] text-slate-500">{[e.fabricant, e.modele].filter(Boolean).join(" ")}{e.nom_hote ? ` · ${e.nom_hote}` : ""}</span></td>
+                    {/* Lot 149 : le NOM DU POSTE est mis en valeur ; dessous, sa nature (catégorie : Serveur, PC de bureau…) puis fabricant / modèle */}
+                    <td className="p-2"><span className="font-semibold text-slate-900">{e.nom_hote || e.categorie}</span>
+                      <span className="block text-[11px] font-medium text-slate-600">{e.nom_hote ? e.categorie : ""}</span>
+                      <span className="block text-[11px] text-slate-500">{[e.fabricant, e.modele].filter(Boolean).join(" ")}</span></td>
                     <td className="p-2 font-mono text-[11px]">{e.numero_serie || "—"}<span className="block">{e.adresse_mac || ""}</span><span className="block">{e.adresse_ip || ""}</span></td>
                     <td className="p-2 text-xs">{lieu(e) || "—"}<span className="block text-slate-500">{e.utilisateur_affecte || ""}</span></td>
                     <td className="p-2"><Etat etat={e.etat} /></td>

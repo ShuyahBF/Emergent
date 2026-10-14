@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "149", "date": "2026-10-14",
+        "titre": "🖥️ Parc informatique : le nom du poste en valeur",
+        "description": "Dans la liste des équipements, le nom du poste s'affiche en gras ; dessous figurent sa nature (Serveur, PC de bureau…) puis le fabricant et le modèle.",
+        "rubrique": "🖥️ Parc informatique — sites",
+    },
+    {
         "lot": "148", "date": "2026-10-14",
         "titre": "🔒 Loois : anonymisation rétablie pour un client en retard de paiement",
         "description": "Rectification du lot 147 : un client sous contrat mais en retard de paiement voit de nouveau ses états PDF anonymisés (comme un contrat suspendu, archivé ou une clé non liée).",

@@ -84,7 +84,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const [motif, setMotif] = useState("");             // motif de l'intervention (journal)
   const [ecrans, setEcrans] = useState([]);           // écrans du poste [{index, largeur, hauteur}]
   const [ecranActif, setEcranActif] = useState(0);
-  const [qualite, setQualite] = useState(70);         // qualité JPEG demandée au poste
+  const [qualite, setQualite] = useState(85);         // qualité JPEG demandée au poste (85 par défaut depuis le lot 141 : texte plus net)
   const [stats, setStats] = useState({ ips: 0, latence: null, debit: 0 });
   const [pleinEcran, setPleinEcran] = useState(false);
   const [motifFin, setMotifFin] = useState("");
@@ -595,7 +595,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     `group relative grid h-9 w-9 place-items-center rounded-full ${couleur} text-white shadow-lg shadow-black/30 ` +
     "transition hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white disabled:pointer-events-none disabled:opacity-30";
   // Qualité : un seul pictogramme qui passe en revue basse → normale → haute (couleur = niveau)
-  const NIVEAUX = [[40, "Qualité basse (connexion lente)", "bg-amber-500"], [70, "Qualité normale", "bg-sky-500"], [90, "Haute qualité", "bg-emerald-500"]];
+  const NIVEAUX = [[40, "Qualité basse (connexion lente)", "bg-amber-500"], [85, "Qualité normale", "bg-sky-500"], [95, "Haute qualité", "bg-emerald-500"]];
   const niveau = NIVEAUX.find((n) => n[0] === qualite) || NIVEAUX[1];
   const qualiteSuivante = () => {
     const suivant = NIVEAUX[(NIVEAUX.indexOf(niveau) + 1) % NIVEAUX.length];

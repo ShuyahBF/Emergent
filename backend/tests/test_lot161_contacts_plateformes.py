@@ -36,10 +36,11 @@ def test_adresses_acceptees():
 
 def test_normalisation_des_contacts():
     c = cp.normaliser_contact({"id": 7, "nom": "  Awa   Ouedraogo ", "telephone": "+226 70 11 22 33", "role": "client"}, "ZandGo")
-    assert c["telephone"] == "22670112233" and c["nom"] == "Awa Ouedraogo" and c["societe"] == "ZandGo · client" and c["accepte"] is False
+    assert c["telephone"] == "22670112233" and c["nom"] == "Awa Ouedraogo" and c["societe"] == "ZandGo · client" and c["accepte"] is None
     assert cp.normaliser_contact({"id": 1, "telephone": "123"}, "ZandGo") is None                    # numéro trop court
     assert cp.normaliser_contact({"telephone": "22670112233"}, "ZandGo") is None                      # sans identifiant
-    assert cp.normaliser_contact({"id": 2, "telephone": "70112233", "accepte_whatsapp": "oui"}, "Z")["accepte"] is False   # seul « vrai » compte
+    assert cp.normaliser_contact({"id": 2, "telephone": "70112233", "accepte_whatsapp": "oui"}, "Z")["accepte"] is None    # seuls vrai / faux comptent
+    assert cp.normaliser_contact({"id": 3, "telephone": "70112233", "accepte_whatsapp": False}, "Z")["accepte"] is False
 
 
 @pytest.fixture()
@@ -134,3 +135,24 @@ def test_routes_des_parametres(db, monkeypatch):
     # Synchro sans clé saisie pour adLyn : échec lisible, jamais d'erreur 500
     r = c.post("/api/admin/contacts-plateformes/adlyn/synchroniser").json()
     assert r["bilan"]["ok"] is False and "CONTACTS_HMAC_ADLYN" in r["bilan"]["erreur"]
+
+
+def test_retrait_et_nouvel_accord_le_plus_recent_gagne(db):
+    """Un retrait donné sur la plateforme coupe l'envoi ; un STOP reçu plus tard sur WhatsApp n'est pas écrasé par un ancien accord."""
+    pages = [[{"id": "3", "nom": "Marie", "telephone": "22676000002", "accepte_whatsapp": True, "accepte_le": "2026-10-01T10:00:00+00:00"}]]
+    lancer(cp.synchroniser(db, "zandgo", appeler=faux_serveur(pages)))
+    marie = lambda: lancer(db.directory_contacts.find_one({"id": {"$exists": True}, "name": "Marie"}))
+    assert marie()["accepte_whatsapp"] is True
+    # La personne retire son accord SUR LA PLATEFORME (plus récent) : SAWALI coupe
+    pages = [[{"id": "3", "nom": "Marie", "telephone": "22676000002", "accepte_whatsapp": False, "accepte_le": "2026-10-05T09:00:00+00:00"}]]
+    b = lancer(cp.synchroniser(db, "zandgo", appeler=faux_serveur(pages)))
+    assert marie()["accepte_whatsapp"] is False and "retrait" in marie()["accepte_whatsapp_moyen"] and b["retraits"] == 1 and b["consentants"] == 0
+    # Elle réaccepte plus tard sur WhatsApp (SAWALI), puis la plateforme renvoie encore l'ancien retrait : SAWALI garde le plus récent
+    lancer(db.directory_contacts.update_one({"name": "Marie"}, {"$set": {"accepte_whatsapp": True, "accepte_whatsapp_le": "2026-10-10T08:00:00+00:00", "accepte_whatsapp_moyen": "mot-clé"}}))
+    lancer(cp.synchroniser(db, "zandgo", appeler=faux_serveur(pages)))
+    assert marie()["accepte_whatsapp"] is True
+    # Et si la plateforme transmet un accord encore plus récent après un STOP WhatsApp, il s'applique
+    lancer(db.directory_contacts.update_one({"name": "Marie"}, {"$set": {"accepte_whatsapp": False, "accepte_whatsapp_le": "2026-10-11T08:00:00+00:00"}}))
+    pages = [[{"id": "3", "nom": "Marie", "telephone": "22676000002", "accepte_whatsapp": True, "accepte_le": "2026-10-12T08:00:00+00:00"}]]
+    lancer(cp.synchroniser(db, "zandgo", appeler=faux_serveur(pages)))
+    assert marie()["accepte_whatsapp"] is True

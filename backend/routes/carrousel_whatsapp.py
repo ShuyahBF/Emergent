@@ -626,7 +626,11 @@ def attach_carrousel_whatsapp_routes(
         """Lot 164 — [{id, nom, lien}] : page /accord/<jeton> de chaque contact (le jeton est signé par le serveur)."""
         from routes import accord_page as ap
         base = base_publique()
-        return [{"id": p["id"], "nom": p.get("nom") or "", "lien": ap.lien_personnel(base, p["id"])} for p in personnes]
+        try:
+            return [{"id": p["id"], "nom": p.get("nom") or "", "lien": ap.lien_personnel(base, p["id"])} for p in personnes]
+        except RuntimeError:           # secret de signature absent : pas de liens, mais la demande d'accord reste utilisable
+            logger.warning("[carrousel] liens d'accord personnels indisponibles (JWT_SECRET absent)")
+            return []
 
     async def _lien_accord(tenant_id: Optional[str]) -> dict:
         """Lien wa.me (et texte pré-rempli « OUI NOUVEAUTES ») vers le numéro WhatsApp qui envoie les carrousels."""

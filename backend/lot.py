@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "145"
-LOT_LIBELLE = "Support Loois : Prendre la main aussi après une demande abandonnée ou refusée"
+LOT = "146"
+LOT_LIBELLE = "Parc informatique : rupture par nom de site, site modifiable et complété depuis Loois"

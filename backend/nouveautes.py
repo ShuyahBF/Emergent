@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "146", "date": "2026-10-14",
+        "titre": "🖥️ Parc informatique : rupture par nom de site et site modifiable",
+        "description": "Les équipements sont regroupés par site ; « Renommer / Définir le site » corrige tout un groupe d'un clic et « Compléter les sites (Loois) » reprend le site des machines qui n'en avaient pas.",
+        "rubrique": "🖥️ Parc informatique — sites",
+    },
+    {
         "lot": "145", "date": "2026-10-14",
         "titre": "🖥️ Chat Support Loois : « Prendre la main » aussi après une demande abandonnée ou refusée",
         "description": "Dans la conversation d'un poste, le bouton « Prendre la main » (contrôle à distance) manquait quand la dernière demande d'assistance avait été abandonnée par le poste ou refusée : il est maintenant affiché dans tous les cas où le poste a une clé client.",

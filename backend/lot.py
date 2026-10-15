@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "196"
-LOT_LIBELLE = "Expéditeur inconnu (bouton, image, vocal) : ajouté au carnet et visible dans les conversations"
+LOT = "197"
+LOT_LIBELLE = "En réponse à : le message d'origine (modèle, texte, date) affiché au-dessus de la réponse du client et dans le relais admin"

@@ -2728,10 +2728,14 @@ async def whatsapp_webhook_incoming(request: Request):
                         ar_result = {"ok": False, "reason": "relais_plateforme"}
                     elif skip_autoreply or hr_handled:
                         ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
-                    elif (mtype != "text" or not text_body) and not (
-                            # Lot 200 — clic sur un bouton (modèle, message interactif) non traité plus haut : Liluvine remercie
-                            mtype in ("button", "interactive") and text_body and not flow_reply
-                            and (msg.get("interactive") or {}).get("type") != "call_permission_reply"):
+                    elif mtype in ("button", "interactive") and text_body and not flow_reply \
+                            and (msg.get("interactive") or {}).get("type") != "call_permission_reply":
+                        # Lots 200/207 — TOUT clic sur un bouton (d'un modèle, d'un carrousel, d'un sondage, d'une requête…) non traité
+                        # plus haut reçoit un accusé de réception immédiat et déterministe (sans l'IA, sans condition de prise en main)
+                        from routes.wa_clic_bouton import accuser_clic as _accuser_clic
+                        _s_clic = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_wa_clic_bouton_reponse": 1}) or {}
+                        ar_result = await _accuser_clic(db, inbound_doc=doc, wa_send_text=_wa_send_text, reglages=_s_clic)
+                    elif mtype != "text" or not text_body:
                         ar_result = {"ok": False, "reason": "non_text_message", "message_type": mtype}
                     else:
                         ar_result = None

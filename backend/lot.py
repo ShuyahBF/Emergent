@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "206"
-LOT_LIBELLE = "Clics « Confirmer » : accord noté automatiquement, rattrapage groupé en haut de la page Carrousel, demandes d'accord journalisées"
+LOT = "207"
+LOT_LIBELLE = "Tout clic sur un bouton reçoit un accusé immédiat ; clics « Confirmer » validés en groupe ; demandes d'accord journalisées"

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "207", "date": "2026-10-15",
+        "titre": "🙏 Tout clic sur un bouton reçoit un accusé de réception immédiat",
+        "description": "Quel que soit le message de SAWALI (modèle, carrousel, formulaire, sondage, requête client, campagne), un clic sur un bouton reçoit tout de suite un remerciement qui rappelle le bouton touché et la publication d'origine, une fois toutes les 10 minutes par numéro, sans dépendre de l'IA. Avant, un clic pouvait rester sans réponse. Le texte est réglable (clé liluvine_wa_clic_bouton_reponse, {bouton} et {contexte}).",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "206", "date": "2026-10-15",
         "titre": "✅ Clics « Confirmer » : accord noté automatiquement, rattrapage en un clic",
         "description": "Un clic sur le bouton d'une demande d'accord (« Confirmer », « Oui ») note maintenant l'accord tout seul et la personne reçoit une réponse ; les demandes envoyées sont journalisées avec leur identifiant WhatsApp (le message d'origine est retrouvé). Les clics déjà reçus sans accord noté sont listés EN HAUT de la page Carrousel de l'administration : on les valide d'un coup et on envoie le carrousel, sans chercher chaque contact.",

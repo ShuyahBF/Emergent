@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "181", "date": "2026-10-15",
+        "titre": "🗂️ Liluvine classe la conversation et passe la main à son assistant IA",
+        "description": "Pendant une conversation WhatsApp, Liluvine range la demande (Technique, Comptabilité, Commercial…), ouvre un ticket dont le motif résume ce qu'elle a compris (client connu), puis met le correspondant en relation avec l'assistant IA concerné (prénom et fonction). Si la catégorie n'est pas claire, elle propose les catégories. Catégories réglables.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "180", "date": "2026-10-15",
         "titre": "🔎 Liluvine : pourquoi elle redemande « quel logiciel ? »",
         "description": "Chaque ligne du journal des réponses automatiques indique maintenant si l'offre de l'expéditeur est connue, ou pourquoi elle ne l'est pas (numéro traité en prospect, contact sans société, client sans offre saisie). Sans offre connue, Liluvine pose une seule question, sans citer aucun logiciel.",

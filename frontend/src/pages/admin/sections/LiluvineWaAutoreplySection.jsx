@@ -92,6 +92,9 @@ export default function LiluvineWaAutoreplySection() {
         prospect_enabled: r.data.prospect_enabled !== false,
         prospect_system_prompt: r.data.prospect_system_prompt || "",
         mode_instructions: r.data.mode_instructions || "",
+        // Lot 181 — classement des conversations : actif par défaut, catégories saisies une par ligne
+        classement_actif: r.data.classement_actif !== false,
+        classement_categories: (r.data.classement_categories || []).join("\n"),
       });
     } catch (e) {
       toast.error("Erreur chargement config auto-réponse");
@@ -129,6 +132,9 @@ export default function LiluvineWaAutoreplySection() {
         prospect_enabled: !!form.prospect_enabled,
         prospect_system_prompt: form.prospect_system_prompt || "",
         mode_instructions: form.mode_instructions || "",
+        // Lot 181 : une catégorie par ligne (vide = catégories par défaut)
+        classement_actif: !!form.classement_actif,
+        classement_categories: (form.classement_categories || "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 8),
       };
       const latStr = (form.brand_latitude ?? "").toString().trim();
       const lonStr = (form.brand_longitude ?? "").toString().trim();
@@ -397,6 +403,36 @@ export default function LiluvineWaAutoreplySection() {
         />
       </div>
 
+      {/* Lot 181 — Classement des conversations + mise en relation avec l'assistant IA */}
+      <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/40 p-3 space-y-2" data-testid="liluvine-classement-section">
+        <h3 className="text-xs font-semibold text-emerald-900 inline-flex items-center gap-1.5">
+          <MessageCircle className="h-3.5 w-3.5" /> Classement des conversations
+        </h3>
+        <p className="text-[10px] text-emerald-900/80">
+          Liluvine range la demande dans une catégorie, ouvre un ticket (client connu) dont le motif résume ce qu'elle a compris,
+          puis met le correspondant en relation avec son assistant IA (prénom et fonction, voir « Agents Liluvine »).
+          Si la catégorie n'est pas claire, elle propose les catégories ci-dessous.
+        </p>
+        <label className="flex items-center gap-2 text-xs text-slate-800">
+          <input
+            type="checkbox"
+            checked={!!form.classement_actif}
+            onChange={(e) => setForm({ ...form, classement_actif: e.target.checked })}
+            data-testid="liluvine-classement-actif"
+          />
+          <strong>Classer les conversations et mettre en relation avec l'assistant IA</strong>
+        </label>
+        <textarea
+          value={form.classement_categories}
+          onChange={(e) => setForm({ ...form, classement_categories: e.target.value })}
+          rows={5}
+          placeholder={(cfg.default_classement_categories || []).join("\n")}
+          className="w-full text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white font-mono leading-relaxed"
+          data-testid="liluvine-classement-categories"
+        />
+        <p className="text-[10px] text-emerald-900/70">Une catégorie par ligne (8 au plus). Vide = catégories par défaut (affichées en grisé).</p>
+      </div>
+
       {/* Iter43-fix24h — Catch-all "…" pour commandes inconnues */}
       <div className="rounded-lg ring-1 ring-orange-200 bg-orange-50/40 p-3 space-y-2" data-testid="liluvine-unknown-cmd-section">
         <h3 className="text-xs font-semibold text-orange-900 inline-flex items-center gap-1.5">
@@ -639,6 +675,11 @@ export default function LiluvineWaAutoreplySection() {
                       <span className="flex-1 min-w-0">
                         <span className="font-medium text-slate-800">{d.contact_name || `+${d.phone_digits}`}</span>
                         {d.prospect && <span className="ml-1 text-[10px] rounded bg-violet-50 text-violet-700 px-1">prospect</span>}
+                        {d.classement && (
+                          <span className="ml-1 text-[10px] rounded bg-emerald-50 text-emerald-700 px-1" data-testid={`liluvine-classement-${d.id}`}>
+                            {d.classement.categorie}{d.classement.ticket ? ` · ticket ${d.classement.ticket}` : ""}{d.classement.agent ? ` · ${d.classement.agent}` : ""}
+                          </span>
+                        )}
                         {d.offre_statut && OFFRE_STATUT_LABELS[d.offre_statut] && (
                           <span className={`ml-1 text-[10px] rounded px-1 ${OFFRE_STATUT_LABELS[d.offre_statut][1]}`} data-testid={`liluvine-offre-statut-${d.id}`}>
                             {OFFRE_STATUT_LABELS[d.offre_statut][0]}

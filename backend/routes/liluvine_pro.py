@@ -189,6 +189,9 @@ class AutoreplyConfigPayload(BaseModel):
     prospect_enabled: Optional[bool] = None
     prospect_system_prompt: Optional[str] = Field(None, max_length=20000)
     mode_instructions: Optional[str] = Field(None, max_length=4000)
+    # Lot 181 — classement des conversations (catégories, une par entrée) et mise en relation avec l'assistant IA
+    classement_actif: Optional[bool] = None
+    classement_categories: Optional[List[str]] = None
 
 
 # Bypass list (2026-02) — Admin payload to overwrite the email allowlist.
@@ -745,6 +748,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "prospect_enabled": "liluvine_wa_prospect_enabled",
         "prospect_system_prompt": "liluvine_wa_prospect_system_prompt",
         "mode_instructions": "liluvine_wa_mode_instructions",
+        "classement_actif": "liluvine_classement_actif",
+        "classement_categories": "liluvine_classement_categories",
     }
 
     @api.get("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
@@ -781,6 +786,9 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "prospect_enabled": s.get("liluvine_wa_prospect_enabled") is not False,
             "prospect_system_prompt": s.get("liluvine_wa_prospect_system_prompt") or "",
             "mode_instructions": s.get("liluvine_wa_mode_instructions") or "",
+            "classement_actif": s.get("liluvine_classement_actif") is not False,
+            "classement_categories": s.get("liluvine_classement_categories") or [],
+            "default_classement_categories": ["Technique", "Comptabilité", "Commercial", "Secrétariat / rendez-vous", "Autre"],
             "default_mode_instructions": DEFAULT_WA_MODE_INSTRUCTIONS,
             "default_prospect_system_prompt": DEFAULT_WA_PROSPECT_SYSTEM_PROMPT,
         }
@@ -796,6 +804,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
                 if k in ("allow_phones", "deny_phones"):
                     # Normalize to digits
                     update[dbkey] = ["".join(ch for ch in str(x) if ch.isdigit()) for x in v if str(x).strip()]
+                elif k == "classement_categories":
+                    update[dbkey] = [str(x).strip()[:40] for x in v if str(x).strip()][:8]
                 elif k == "keywords":
                     update[dbkey] = [str(x).strip().lower() for x in v if str(x).strip()]
                 else:

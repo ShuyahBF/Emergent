@@ -992,6 +992,7 @@ async def autoreply_to_inbound(
     # son offre (plus de questions inutiles) et, si le contrat du client n'est pas à jour, REFUSE l'assistance demandée
     # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
     offre_bloc = ""
+    client_lie = None   # lot 181 : client relié au contact (ticket du classement)
     # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
     # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
     offre_statut = "prospect" if is_prospect else ("ligne_non_plateforme" if not platform_tenant else "contact_sans_client")
@@ -1119,6 +1120,23 @@ async def autoreply_to_inbound(
     # Reuse a stable session per phone so the bot keeps context if the user
     # writes again within the same conversation.
     session_id = f"wa:{scope_uid}:{phone_digits}"
+    # Lot 181 — classement de la conversation (Technique, Comptabilité…) : consignes + conversation déjà classée ?
+    from routes import liluvine_classement as _clas
+    classement_actif = _clas.actif(settings_doc)
+    cats_classement = _clas.categories(settings_doc)
+    if classement_actif:
+        deja_classe = None
+        try:
+            sess = await db.liluvine_pro_sessions.find_one({"id": session_id}, {"_id": 0, "classement": 1}) or {}
+            cl = sess.get("classement") or {}
+            if cl.get("at") and (datetime.now(timezone.utc) - datetime.fromisoformat(str(cl["at"]).replace("Z", "+00:00"))
+                                 ).total_seconds() < _clas.DUREE_CLASSEE_HEURES * 3600:
+                deja_classe = cl.get("categorie") or "classée"
+        except Exception:  # noqa: BLE001
+            deja_classe = None
+        sys_text = sys_text + _clas.consignes_classement(cats_classement, deja_classe)
+    else:
+        deja_classe = None
     try:
         chat = LlmChat(
             api_key=api_key, session_id=session_id, system_message=sys_text,
@@ -1165,6 +1183,29 @@ async def autoreply_to_inbound(
     if not reply.strip():
         reply = "Merci pour votre message. Un agent humain va vous recontacter rapidement."
 
+    # Lot 181 — marqueur [CLASSE: catégorie | motif] : retiré du texte ; si la conversation n'est pas déjà classée,
+    # ticket (client connu) + mise en relation avec l'assistant IA de la catégorie (prénom et fonction).
+    classement: Optional[Dict[str, Any]] = None
+    agent_classe = None
+    if classement_actif:
+        reply, marque = _clas.extraire_classement(reply, cats_classement)
+        if marque and not deja_classe:
+            classement = dict(marque)
+            try:
+                from routes.liluvine_agents import get_agents
+                agent_classe = _clas.agent_pour_categorie(await get_agents(db), marque["categorie"])
+            except Exception:  # noqa: BLE001
+                agent_classe = None
+            ticket_cl = None
+            if client_lie:
+                from routes import offre_client as _offre_cl
+                ticket_cl = await _offre_cl.ouvrir_ticket(
+                    db, client_lie, contact, marque["motif"], text, motif=f"[{marque['categorie']}] {marque['motif']}",
+                    categorie=marque["categorie"], source="liluvine_classement")
+            classement["ticket"] = (ticket_cl or {}).get("number")
+            classement["agent"] = (agent_classe or {}).get("prenom")
+            reply = _clas.texte_mise_en_relation(agent_classe, marque["motif"], classement["ticket"])
+
     # Signature nominative : jusqu'à 5 agents (prénom + spécialité), paramétrés
     # par l'admin. L'agent dont le rôle correspond au contenu du message signe
     # la réponse à la place de la signature générique — même si c'est bien
@@ -1174,7 +1215,7 @@ async def autoreply_to_inbound(
     try:
         from routes.liluvine_agents import get_agents, match_agent_for_message, build_signature
         agents = await get_agents(db)
-        matched_agent = match_agent_for_message(agents, text)
+        matched_agent = agent_classe or match_agent_for_message(agents, text)   # lot 181 : l'assistant du classement signe
         if matched_agent:
             persona_signature = build_signature(matched_agent)
     except Exception:  # noqa: BLE001
@@ -1243,7 +1284,8 @@ async def autoreply_to_inbound(
     })
     await db.liluvine_pro_sessions.update_one(
         {"id": session_id},
-        {"$inc": {"message_count": 2}, "$set": {"updated_at": _now_iso()}},
+        {"$inc": {"message_count": 2}, "$set": {"updated_at": _now_iso(),
+                                                **({"classement": {**classement, "at": _now_iso()}} if classement else {})}},
     )
     # Anti-flood state
     await db.liluvine_wa_autoreply_state.update_one(
@@ -1290,6 +1332,7 @@ async def autoreply_to_inbound(
         "wa_out_message_id": send_res.get("message_id"),
         "session_id": session_id, "reply_message_id": out_msg_id,
         "tokens": tokens, "prospect": is_prospect, "offre_statut": offre_statut,
+        "classement": classement,
     }
 
 

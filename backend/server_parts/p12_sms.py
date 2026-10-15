@@ -2720,6 +2720,7 @@ async def whatsapp_webhook_incoming(request: Request):
                             "command": (ar_result or {}).get("command"),
                             "prospect": (ar_result or {}).get("prospect"),
                             "offre_statut": (ar_result or {}).get("offre_statut"),   # lot 180 : pourquoi l'offre est connue ou non
+                            "classement": (ar_result or {}).get("classement"),       # lot 181 : catégorie, motif, ticket, assistant
                         })
                     except Exception:  # noqa: BLE001
                         pass

@@ -90,6 +90,40 @@ def _in_business_window(business_days: Any, open_h: int, close_h: int) -> bool:
     return _hour_in_range(now_utc.hour, open_h, close_h)
 
 
+COOLDOWN_MAX_SECONDS = 8      # au-delà, une vraie conversation resterait sans réponse
+COOLDOWN_DEFAUT_SECONDS = 5   # réglage absent ou illisible
+
+
+def delai_anti_repetition(valeur: Any) -> int:
+    """Lot 179 — délai (secondes) pendant lequel un même numéro ne reçoit pas deux réponses automatiques.
+    Réglage absent / illisible → 5 s ; 0 → aucun délai ; toute valeur est plafonnée à 8 s. Fonction pure."""
+    if valeur is None or str(valeur).strip() == "":
+        return COOLDOWN_DEFAUT_SECONDS
+    try:
+        return max(0, min(int(float(str(valeur).strip())), COOLDOWN_MAX_SECONDS))
+    except (TypeError, ValueError):
+        return COOLDOWN_DEFAUT_SECONDS
+
+
+def consignes_conversation(offre_connue: bool) -> str:
+    """Lot 179 — consignes de conduite de la conversation, ajoutées à CHAQUE réponse WhatsApp : Liluvine répond à la
+    question posée, ne se représente pas à chaque message et ne récite pas le catalogue de SAWALI. Quand l'offre du client
+    est connue, elle ne parle que de SES logiciels, produits et services. Fonction pure."""
+    texte = (
+        "\n\n[Conduite de la conversation]\n"
+        "- Réponds directement à la dernière question. Ne te présente et ne salue PAS de nouveau si la conversation est déjà "
+        "commencée (message précédent de ta part) : pas de « Bienvenue », pas de liste de ce que tu sais faire.\n"
+        "- Ne cite JAMAIS la liste de tous les logiciels de SAWALI. "
+    )
+    if offre_connue:
+        texte += ("Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
+                  "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème.")
+    else:
+        texte += ("Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte pour savoir lequel, "
+                  "sans énumérer les autres.")
+    return texte
+
+
 async def should_autoreply(
     db, *, settings: Dict[str, Any], phone_digits: str, text: str, contact: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
@@ -127,11 +161,10 @@ async def should_autoreply(
         low = text.lower()
         if not any(k in low for k in keywords):
             return {"ok": False, "reason": "no_keyword_match"}
-    # Anti-flood
-    try:
-        cooldown = max(0, int(settings.get("liluvine_wa_autoreply_cooldown_seconds") or 60))
-    except Exception:
-        cooldown = 60
+    # Anti-flood : sert seulement à éviter une boucle de réponses (deux robots qui se répondent). Lot 179 : le délai
+    # réglé est PLAFONNÉ (COOLDOWN_MAX_SECONDS) et la valeur 0 est respectée ; avant, un client qui écrivait un 2e message
+    # dans les 60 s suivant la réponse d'accueil restait SANS réponse (« cooldown »), ce qui est inacceptable en conversation.
+    cooldown = delai_anti_repetition(settings.get("liluvine_wa_autoreply_cooldown_seconds"))
     if cooldown > 0:
         state = await db.liluvine_wa_autoreply_state.find_one(
             {"phone_digits": phone_digits}, {"_id": 0, "last_replied_at": 1}
@@ -1048,6 +1081,7 @@ async def autoreply_to_inbound(
         + (("\n\n" + kb) if kb else "")
         + contact_tag
         + offre_bloc          # lot 163 : offre du client lié (vide si aucune)
+        + consignes_conversation(bool(offre_bloc))   # lot 179 : pas de re-présentation, pas de catalogue
     )
     # Lot 59 — consignes propres à la ligne qui a reçu le message (ex. accueil VIP)
     try:

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "179", "date": "2026-10-15",
+        "titre": "💬 Liluvine répond à chaque message et ne se représente plus",
+        "description": "Le délai anti-répétition (60 s) laissait sans réponse la 2e question d'un client ; il est plafonné à 8 s. Liluvine ne se présente plus à chaque message, ne cite plus tous les logiciels et, si l'offre du client est connue, ne parle que de ses logiciels.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "178", "date": "2026-10-15",
         "titre": "🧩 Liluvine connaît enfin l'offre du client",
         "description": "Quand un client écrit sur la ligne SAWALI, Liluvine lit maintenant la liste de ses logiciels, produits et services et ne lui demande plus « de quel logiciel s'agit-il ? ». Le refus d'assistance pour contrat en retard (désactivé par défaut) est lui aussi enfin actif quand vous l'activez.",

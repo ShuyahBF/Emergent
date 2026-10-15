@@ -32,7 +32,7 @@ function Detail({ r, etats, lots, onMaj }) {
   };
   return (
     <div className="space-y-2 bg-slate-50 p-3 text-xs" data-testid={`detail-${r.numero}`}>
-      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom}){r.origine === "lien" ? " · via le lien personnel" : r.origine === "sawali" ? " · saisie par SAWALI" : ""}</p>
+      <p className="text-slate-500">Déposée le {dateHeure(r.cree_le)} par {r.auteur_nom} ({r.client_nom}){r.origine === "lien" ? " · via le lien personnel" : r.origine === "sawali" ? " · saisie par SAWALI" : r.origine === "liluvine" ? ` · créée par Liluvine${r.ticket_numero ? ` (ticket ${r.ticket_numero})` : ""}` : ""}</p>
       {r.texte && <p className="whitespace-pre-wrap text-sm">{r.texte}</p>}
       {r.a_audio && <AudioRequete id={r.id} />}
       <ImagesRequete images={r.images} charger={(img) => apiClient.get(`/requetes/${r.id}/images/${img.id}`, { responseType: "blob" }).then((x) => x.data)} />
@@ -306,7 +306,7 @@ export default function AdminRequetes() {
                       <td className="py-1 font-mono text-xs">{r.numero}</td><td className="text-xs">{r.client_nom}</td>
                       <td className="text-xs">{dateHeure(r.cree_le)}</td>
                       <td className="text-xs">{r.libelle_categorie}{r.logiciel ? ` · ${r.logiciel}` : ""}{r.equipement ? ` · ${r.equipement}` : ""}</td>
-                      <td>{r.titre}{r.a_audio ? " 🎤" : ""}{r.images?.length ? ` 🖼️${r.images.length}` : ""}{r.origine === "lien" ? " 🔗" : ""}</td><td className="text-xs">{r.lot_numero ? `Lot ${r.lot_numero}` : "—"}</td>
+                      <td>{r.titre}{r.a_audio ? " 🎤" : ""}{r.images?.length ? ` 🖼️${r.images.length}` : ""}{r.origine === "lien" ? " 🔗" : r.origine === "liluvine" ? " 🤖" : ""}</td><td className="text-xs">{r.lot_numero ? `Lot ${r.lot_numero}` : "—"}</td>
                       <td className="text-xs">{r.libelle_etat}</td><td className="text-xs">{r.evaluation ? `${r.evaluation.note}/5` : r.a_evaluer ? "attendue" : "—"}</td>
                     </tr>
                     {ouverte === r.id && <tr><td colSpan={8}><Detail r={r} etats={donnees.etats} lots={lots} onMaj={charger} /></td></tr>}

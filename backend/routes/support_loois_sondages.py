@@ -297,6 +297,15 @@ def installer(*, router, db, manager, equipe: Callable, poste_de_la_requete: Cal
             await message_systeme(ident["pid"], phrase, sessions.LILUVINE_ID, sessions.LILUVINE_NOM)
         return {"ok": True, "sondage": carte(envoi), "debloque": not await en_attente(db, ident["pid"])}
 
+    # ---- Poste : Loois confirme avoir ouvert le lien (la carte n'est plus proposée) -----------------
+    @router.post("/support-loois/lien/{message_id}/ouvert")
+    async def lien_ouvert(message_id: str, request: Request):
+        ident = await poste_de_la_requete(request)
+        await db.internal_chat_messages.update_one(
+            {"id": message_id, "recipient_id": ident["pid"], "client_id": espace_id},
+            {"$set": {"lien_requete.ouvert": True}})
+        return {"ok": True}
+
     # ---- Poste : état pour l'icône de Loois (ouvrir la fenêtre ?) --------------------------------
     @router.get("/support-loois/etat")
     async def etat(request: Request):
@@ -306,6 +315,11 @@ def installer(*, router, db, manager, equipe: Callable, poste_de_la_requete: Cal
             {"client_id": espace_id, "recipient_id": pid, "sender_id": {"$ne": pid}, "read_by": {"$ne": pid}})
         en_ligne = manager.is_online(pid)
         attente = await en_attente(db, pid)
+        # Lot 195 : lien de requête déposé par Liluvine, pas encore ouvert → Loois propose de l'ouvrir dans le navigateur
+        carte = await db.internal_chat_messages.find_one(
+            {"client_id": espace_id, "recipient_id": pid, "lien_requete.ouvert": False}, {"_id": 0, "id": 1, "lien_requete": 1},
+            sort=[("created_at", -1)])
         return {"poste_id": pid, "en_ligne": en_ligne, "non_lus": non_lus, "sondages_en_attente": len(attente),
+                "lien_a_ouvrir": ({"id": carte["id"], **carte["lien_requete"]} if carte else None),
                 # Fenêtre fermée et message du support non lu → l'icône de Loois ouvre la conversation
                 "ouvrir": bool(non_lus) and not en_ligne}

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "195", "date": "2026-10-15",
+        "titre": "🔗 Un seul flux : Liluvine → Requêtes des clients",
+        "description": "Quand Liluvine classe un message en « Technique », elle crée aussi la requête REQ-… du client (liée au ticket, une seule par ticket). Le lien pour la préciser s'affiche dans Loois sur le poste en ligne du client (ouverture dans le navigateur), sinon il est envoyé sur WhatsApp.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "194", "date": "2026-10-15",
         "titre": "💬 Publicité : message prérempli et réponse de Liluvine",
         "description": "La publicité à carrousel préremplit le message WhatsApp du client (avec une référence « réf. PUB-xxxx » facultative) et Liluvine répond automatiquement à ce texte : message, première image et lien de la page de présentation. Si Meta refuse le message prérempli, la publicité est créée sans et l'erreur est affichée.",

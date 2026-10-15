@@ -1381,6 +1381,19 @@ async def autoreply_to_inbound(
             reply = _clas.texte_mise_en_relation(agent_classe, marque["motif"], classement["ticket"])
             if reponse_kb:
                 reply = f"{reply}\n\n{reponse_kb}"
+            # Lot 195 — un seul flux : une demande technique devient aussi la requête REQ-… du client (liée au ticket) ;
+            # le lien pour la préciser part vers Loois si le poste est en ligne, sinon il est ajouté à cette réponse WhatsApp.
+            if client_ticket:
+                from routes import liluvine_requete as _lreq
+                req_cl = await _lreq.requete_depuis_classement(
+                    db, client=client_ticket, contact_nom=(contact_tk or {}).get("name") or "", categorie_classement=marque["categorie"],
+                    motif=marque["motif"], texte=text, ticket_numero=classement["ticket"],
+                    base_url=os.environ.get("SAWALI_SITE_URL") or "https://sawalismartsystems.com")
+                if req_cl:
+                    classement["requete"] = req_cl["numero"]
+                    classement["lien_via"] = "loois" if req_cl["via_loois"] else "whatsapp"
+                    if req_cl["nouvelle"]:
+                        reply = f"{reply}\n\n{_lreq.texte_lien(req_cl['numero'], req_cl['url'], req_cl['via_loois'])}"
 
     reply = retirer_signatures_fin(reply)    # lot 191 : la signature est ajoutée UNE seule fois, plus bas
 

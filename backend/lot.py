@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "194"
-LOT_LIBELLE = "Publicité à carrousel : message prérempli dans WhatsApp et réponse automatique de Liluvine à ce message"
+LOT = "195"
+LOT_LIBELLE = "Un seul flux Liluvine → Requêtes des clients : requête REQ-… liée au ticket, lien envoyé à Loois (sinon WhatsApp)"

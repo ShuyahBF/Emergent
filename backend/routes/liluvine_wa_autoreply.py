@@ -119,8 +119,9 @@ def consignes_conversation(offre_connue: bool) -> str:
         texte += ("Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
                   "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème.")
     else:
-        texte += ("Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte pour savoir lequel, "
-                  "sans énumérer les autres.")
+        texte += ("Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte (« Quel est le nom de "
+                  "votre logiciel ? ») SANS proposer ni énumérer aucun nom de logiciel, même entre parenthèses ; commence "
+                  "directement par la question, sans « Bonjour ».")
     return texte
 
 
@@ -991,12 +992,16 @@ async def autoreply_to_inbound(
     # son offre (plus de questions inutiles) et, si le contrat du client n'est pas à jour, REFUSE l'assistance demandée
     # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
     offre_bloc = ""
+    # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
+    # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
+    offre_statut = "prospect" if is_prospect else ("ligne_non_plateforme" if not platform_tenant else "contact_sans_client")
     if offre_du_client_applicable(is_prospect, platform_tenant):
         try:
             from routes import offre_client as _offre
             client_lie = await _offre.client_du_contact(db, contact)
             if client_lie:
                 offre_bloc = _offre.bloc_prompt(client_lie.get("company") or "", client_lie.get("offre_client") or [])
+                offre_statut = "offre_connue" if offre_bloc else "client_sans_offre"
                 from routes.vip_contrat import etat_contrat_contact
                 etat_ct = await etat_contrat_contact(db, contact, settings_doc)
                 signature_refus = (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip() or "— 🤖 Réponse automatique Liluvine PRO"
@@ -1284,7 +1289,7 @@ async def autoreply_to_inbound(
         "ok": True, "reason": "sent",
         "wa_out_message_id": send_res.get("message_id"),
         "session_id": session_id, "reply_message_id": out_msg_id,
-        "tokens": tokens, "prospect": is_prospect,
+        "tokens": tokens, "prospect": is_prospect, "offre_statut": offre_statut,
     }
 
 

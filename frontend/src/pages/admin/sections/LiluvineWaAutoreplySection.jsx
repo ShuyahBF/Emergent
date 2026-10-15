@@ -40,6 +40,14 @@ const REASON_LABELS = {
   crash: ["Erreur interne de l'auto-réponse", "text-rose-700 bg-rose-50 ring-rose-200"],
 };
 // « cooldown (42s left) » → « cooldown » ; « llm_error: … » → « llm_error »
+// Lot 180 — pourquoi Liluvine connaît (ou non) l'offre de l'expéditeur : explique qu'elle redemande « quel logiciel ? ».
+const OFFRE_STATUT_LABELS = {
+  offre_connue: ["Offre du client connue", "text-emerald-700 bg-emerald-50"],
+  client_sans_offre: ["Client relié, mais son offre n'est pas saisie (fiche client → Offre)", "text-amber-800 bg-amber-50"],
+  contact_sans_client: ["Contact sans client relié (champ Société vide ou inconnu)", "text-amber-800 bg-amber-50"],
+  prospect: ["Numéro traité en prospect (absent du carnet ou étiqueté prospect)", "text-violet-700 bg-violet-50"],
+  ligne_non_plateforme: ["Ligne autre que la plateforme SAWALI : offre non lue", "text-slate-700 bg-slate-100"],
+};
 const reasonKey = (d) => (d.ok ? "sent" : String(d.reason || "unknown").split(/[ :(]/)[0]);
 const reasonLabel = (key) => (REASON_LABELS[key] || [key, "text-slate-700 bg-slate-50 ring-slate-200"]);
 
@@ -631,6 +639,11 @@ export default function LiluvineWaAutoreplySection() {
                       <span className="flex-1 min-w-0">
                         <span className="font-medium text-slate-800">{d.contact_name || `+${d.phone_digits}`}</span>
                         {d.prospect && <span className="ml-1 text-[10px] rounded bg-violet-50 text-violet-700 px-1">prospect</span>}
+                        {d.offre_statut && OFFRE_STATUT_LABELS[d.offre_statut] && (
+                          <span className={`ml-1 text-[10px] rounded px-1 ${OFFRE_STATUT_LABELS[d.offre_statut][1]}`} data-testid={`liluvine-offre-statut-${d.id}`}>
+                            {OFFRE_STATUT_LABELS[d.offre_statut][0]}
+                          </span>
+                        )}
                         <span className="block text-slate-500 truncate">{d.text || `(${d.message_type})`}</span>
                       </span>
                       <span className={`shrink-0 max-w-[45%] text-right text-[10px] rounded ring-1 px-1.5 py-0.5 ${cls}`} title={d.reason}>{label}</span>

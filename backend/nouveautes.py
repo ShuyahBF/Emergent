@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "180", "date": "2026-10-15",
+        "titre": "🔎 Liluvine : pourquoi elle redemande « quel logiciel ? »",
+        "description": "Chaque ligne du journal des réponses automatiques indique maintenant si l'offre de l'expéditeur est connue, ou pourquoi elle ne l'est pas (numéro traité en prospect, contact sans société, client sans offre saisie). Sans offre connue, Liluvine pose une seule question, sans citer aucun logiciel.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "179", "date": "2026-10-15",
         "titre": "💬 Liluvine répond à chaque message et ne se représente plus",
         "description": "Le délai anti-répétition (60 s) laissait sans réponse la 2e question d'un client ; il est plafonné à 8 s. Liluvine ne se présente plus à chaque message, ne cite plus tous les logiciels et, si l'offre du client est connue, ne parle que de ses logiciels.",

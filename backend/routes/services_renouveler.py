@@ -50,6 +50,30 @@ ACTIONS_CLASSE_B = {"GetObject", "HeadObject", "HeadBucket", "UsageSummary", "Ge
                     "GetBucketCors", "GetBucketLifecycleConfiguration"}   # lectures ; toutes les autres actions comptent en classe A
 
 
+# Conversion en FCFA (lot 175) : taux = nombre de FCFA pour 1 unité de la devise, saisis par l'administrateur.
+# L'euro est à parité FIXE avec le FCFA (655,957) ; le dollar varie : la valeur par défaut n'est qu'un ordre de grandeur à actualiser.
+DEVISES_FCFA = ("FCFA", "XOF", "XAF")
+TAUX_DEFAUT = {"EUR": 655.957, "USD": 600.0}
+
+
+def normaliser_taux(brut: Any) -> Dict[str, float]:
+    """{devise: FCFA pour 1 unité} propre : valeurs positives seulement, complétées par les taux par défaut. Fonction pure."""
+    sortie = dict(TAUX_DEFAUT)
+    for d, v in (brut.items() if isinstance(brut, dict) else []):
+        n = _nombre(v)
+        if _texte(d, 6) and n > 0:
+            sortie[_texte(d, 6).upper()] = round(n, 4)
+    return sortie
+
+
+def en_fcfa(montant: float, devise: str, taux: Dict[str, float]) -> Optional[float]:
+    """Montant converti en FCFA (arrondi à l'unité) ; None si la devise n'a pas de taux. Fonction pure."""
+    d = (devise or "").upper()
+    if d in DEVISES_FCFA:
+        return round(float(montant or 0))
+    return round(float(montant or 0) * taux[d]) if d in taux else None
+
+
 def _maintenant() -> datetime:
     """Horloge (remplaçable en test)."""
     return datetime.now(timezone.utc)
@@ -194,7 +218,7 @@ def lignes_calculees(services: List[Dict[str, Any]], lectures: Dict[str, Any], c
     return lignes
 
 
-def totaux(lignes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def totaux(lignes: List[Dict[str, Any]], taux: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
     """Totaux MENSUELS des lignes actives, par devise, par plateforme (répartition à parts égales) et par cluster.
     → {mensuel: {devise: montant}, annuel: {devise: montant}, plateformes: {nom: {devise: montant}}, clusters: {nom: {devise: montant}}}."""
     mensuel: Dict[str, float] = {}
@@ -215,7 +239,17 @@ def totaux(lignes: List[Dict[str, Any]]) -> Dict[str, Any]:
             ajouter(plateformes, p, devise, m / len(parts))
         if l.get("cluster"):
             ajouter(clusters, l["cluster"], devise, m)
-    return {"mensuel": mensuel, "annuel": {d: round(v * 12, 2) for d, v in mensuel.items()}, "plateformes": plateformes, "clusters": clusters}
+    resultat = {"mensuel": mensuel, "annuel": {d: round(v * 12, 2) for d, v in mensuel.items()}, "plateformes": plateformes, "clusters": clusters}
+    if taux is not None:
+        # Équivalents en FCFA (lot 175) ; les devises sans taux sont signalées au lieu d'être ignorées en silence
+        def fcfa(par_devise: Dict[str, float]) -> float:
+            return round(sum(en_fcfa(v, d, taux) or 0 for d, v in par_devise.items()))
+        resultat["mensuel_fcfa"] = fcfa(mensuel)
+        resultat["annuel_fcfa"] = round(resultat["mensuel_fcfa"] * 12)
+        resultat["plateformes_fcfa"] = {n: fcfa(m) for n, m in plateformes.items()}
+        resultat["clusters_fcfa"] = {n: fcfa(m) for n, m in clusters.items()}
+        resultat["devises_sans_taux"] = sorted(d for d in mensuel if en_fcfa(1, d, taux) is None)
+    return resultat
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -326,7 +360,7 @@ async def lire_r2(client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
 async def charger(db) -> Dict[str, Any]:
     d = await db.settings.find_one({"_id": DOC_ID}) or {}
     return {"services": normaliser_services(d.get("services")), "clusters": normaliser_clusters(d.get("clusters")),
-            "lectures": d.get("lectures") or {}, "rappels_envoyes": list(d.get("rappels_envoyes") or [])}
+            "taux": normaliser_taux(d.get("taux")), "lectures": d.get("lectures") or {}, "rappels_envoyes": list(d.get("rappels_envoyes") or [])}
 
 
 async def lire_auto(db, forcer: bool = False, maintenant: Optional[datetime] = None) -> Dict[str, Any]:
@@ -410,6 +444,7 @@ class ServiceIn(BaseModel):
 class ListeIn(BaseModel):
     services: List[ServiceIn] = Field(default_factory=list, max_length=MAX_SERVICES)
     clusters: Dict[str, List[str]] = Field(default_factory=dict)
+    taux: Dict[str, float] = Field(default_factory=dict)          # lot 175 : FCFA pour 1 unité de chaque devise
 
 
 def setup_services_renouveler_routes(*, db, api, get_current_admin) -> None:
@@ -420,10 +455,13 @@ def setup_services_renouveler_routes(*, db, api, get_current_admin) -> None:
         lectures = await lire_auto(db, forcer)
         etat = await charger(db)
         lignes = lignes_calculees(etat["services"], lectures, etat["clusters"], _maintenant().date())
+        for l in lignes:   # équivalent en FCFA de chaque ligne (None si la devise n'a pas de taux)
+            l["montant_fcfa"] = en_fcfa(l["montant"], l["devise"], etat["taux"])
+            l["mensuel_fcfa"] = en_fcfa(l.get("mensuel") or 0, l["devise"], etat["taux"])
         lignes.sort(key=lambda l: (l["jours"] is None, l["jours"] if l["jours"] is not None else 0, l["nom"].lower()))
         # Toutes les plateformes connues (lignes et clusters) : propose les cases de la liste et du tableau « par plateforme »
         plateformes = sorted({p for s in etat["services"] for p in s["plateformes"]} | {p for ps in etat["clusters"].values() for p in ps})
-        return {"lignes": lignes, "totaux": totaux(lignes), "services": etat["services"], "clusters": etat["clusters"],
+        return {"lignes": lignes, "totaux": totaux(lignes, etat["taux"]), "taux": etat["taux"], "services": etat["services"], "clusters": etat["clusters"],
                 "plateformes": plateformes, "lectures": {k: {"le": v.get("le"), "erreur": v.get("erreur")} for k, v in lectures.items()},
                 "periodicites": list(PERIODICITES), "le": _maintenant().isoformat()}
 
@@ -441,7 +479,7 @@ def setup_services_renouveler_routes(*, db, api, get_current_admin) -> None:
     async def ecrire(data: ListeIn, _: dict = Depends(get_current_admin)):
         """Remplace la liste des services et la répartition des clusters Atlas par plateforme."""
         services = normaliser_services([s.model_dump() for s in data.services])
-        await db.settings.update_one({"_id": DOC_ID}, {"$set": {"services": services, "clusters": normaliser_clusters(data.clusters)}}, upsert=True)
+        await db.settings.update_one({"_id": DOC_ID}, {"$set": {"services": services, "clusters": normaliser_clusters(data.clusters), "taux": normaliser_taux(data.taux)}}, upsert=True)
         return await _vue()
 
     @api.post("/admin/services-renouveler/{service_id}/renouveler", tags=["Admin — Services à renouveler"])

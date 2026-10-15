@@ -30,6 +30,8 @@ const HABITUELS = [
 const argent = (n, devise) => `${Number(n || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${devise === "USD" ? "$" : devise === "EUR" ? "€" : devise}`;
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const dateJour = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR") : "—");
+// Équivalent en FCFA (lot 175) : « ≈ 6 105 FCFA » ; vide si la devise n'a pas de taux
+const fcfa = (n) => (n === null || n === undefined ? "" : `≈ ${Number(n).toLocaleString("fr-FR")} FCFA`);
 const montants = (m) => Object.entries(m || {}).map(([d, v]) => argent(v, d)).join(" + ") || "—";
 
 export default function ServicesRenouvelerSection() {
@@ -39,6 +41,7 @@ export default function ServicesRenouvelerSection() {
   const [services, setServices] = useState([]);         // lignes en cours d'édition
   const [clusters, setClusters] = useState([]);         // [{nom, plateformes}] en cours d'édition
   const [occupe, setOccupe] = useState(false);
+  const [taux, setTaux] = useState({});                 // taux de change en cours d'édition : FCFA pour 1 unité
 
   // Charge (ou recharge) la vue ; `ouvrirEditeur` recopie la liste dans l'éditeur
   const charger = useCallback(async (relire = false) => {
@@ -58,6 +61,7 @@ export default function ServicesRenouvelerSection() {
   const ouvrir = () => {
     setServices((vue?.services || []).map((s) => ({ ...s, plateformes_texte: (s.plateformes || []).join(", ") })));
     setClusters(Object.entries(vue?.clusters || {}).map(([nom, p]) => ({ nom, plateformes_texte: p.join(", ") })));
+    setTaux(Object.fromEntries(Object.entries(vue?.taux || {}).map(([d, v]) => [d, String(v)])));
     setEdition(true);
   };
   const changer = (i, champ, v) => setServices(services.map((s, k) => (k === i ? { ...s, [champ]: v } : s)));
@@ -71,6 +75,7 @@ export default function ServicesRenouvelerSection() {
     try {
       const corps = {
         services: services.map(({ plateformes_texte, ...s }) => ({ ...s, montant: Number(String(s.montant).replace(",", ".")) || 0, prochaine_echeance: s.prochaine_echeance || null, plateformes: liste(plateformes_texte) })),
+        taux: Object.fromEntries(Object.entries(taux).map(([d, v]) => [d, Number(String(v).replace(",", ".")) || 0])),
         clusters: Object.fromEntries(clusters.filter((c) => c.nom.trim()).map((c) => [c.nom.trim(), liste(c.plateformes_texte)])),
       };
       const { data } = await apiClient.put("/admin/services-renouveler", corps, { timeout: 90000 });
@@ -109,10 +114,11 @@ export default function ServicesRenouvelerSection() {
 
       {/* Totaux du mois et de l'année (lignes actives) */}
       <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200"><p className="text-xs text-slate-500">Coût mensuel (lignes actives)</p><p className="text-lg font-semibold tabular-nums" data-testid="services-total-mensuel">{montants(vue.totaux.mensuel)}</p></div>
-        <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200"><p className="text-xs text-slate-500">Soit par an</p><p className="text-lg font-semibold tabular-nums">{montants(vue.totaux.annuel)}</p></div>
+        <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200"><p className="text-xs text-slate-500">Coût mensuel (lignes actives)</p><p className="text-lg font-semibold tabular-nums" data-testid="services-total-mensuel">{montants(vue.totaux.mensuel)}</p><p className="text-xs text-slate-500 tabular-nums" data-testid="services-total-mensuel-fcfa">{fcfa(vue.totaux.mensuel_fcfa)}</p></div>
+        <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200"><p className="text-xs text-slate-500">Soit par an</p><p className="text-lg font-semibold tabular-nums">{montants(vue.totaux.annuel)}</p><p className="text-xs text-slate-500 tabular-nums">{fcfa(vue.totaux.annuel_fcfa)}</p></div>
       </div>
 
+      {(vue.totaux.devises_sans_taux || []).length > 0 && <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-800 ring-1 ring-amber-200">Pas de taux de change pour {(vue.totaux.devises_sans_taux).join(", ")} : ces montants ne sont pas inclus dans l'équivalent FCFA (voir « Modifier la liste »).</p>}
       <div className="flex gap-1 text-xs" role="tablist">
         {[["service", "Par service"], ["plateforme", "Par plateforme"], ["cluster", "Par cluster"]].map(([k, t]) => (
           <button key={k} type="button" role="tab" aria-selected={onglet === k} onClick={() => setOnglet(k)} data-testid={`services-onglet-${k}`}
@@ -131,11 +137,12 @@ export default function ServicesRenouvelerSection() {
                   <td><b>{l.nom}</b>{l.formule && <span className="text-slate-500"> · {l.formule}</span>}{l.fournisseur && <div className="text-slate-400">{l.fournisseur}</div>}</td>
                   <td className="text-right tabular-nums">
                     {argent(l.montant, l.devise)}
+                    {l.devise !== "FCFA" && l.montant_fcfa != null && <div className="text-[10px] text-slate-500">{fcfa(l.montant_fcfa)}</div>}
                     <div><span className={`rounded-full px-1.5 py-0.5 text-[10px] ${ORIGINES[l.origine]?.[1]}`} title={l.erreur || l.detail || ""}>{ORIGINES[l.origine]?.[0]}{l.erreur ? " ⚠" : ""}</span></div>
                     {l.lu_le && <div className="text-[10px] text-slate-400">lu le {dateHeure(l.lu_le)}</div>}
                   </td>
                   <td>{PERIODES.find(([v]) => v === l.periodicite)?.[1]}</td>
-                  <td className="text-right tabular-nums">{argent(l.mensuel, l.devise)}</td>
+                  <td className="text-right tabular-nums">{argent(l.mensuel, l.devise)}{l.devise !== "FCFA" && l.mensuel_fcfa != null && <div className="text-[10px] text-slate-500">{fcfa(l.mensuel_fcfa)}</div>}</td>
                   <td>{l.prochaine_echeance ? <>{dateJour(l.prochaine_echeance)} <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${NIVEAUX[l.niveau]}`}>{l.niveau === "echu" ? `échu depuis ${-l.jours} j` : l.niveau === "inactif" ? "inactif" : `dans ${l.jours} j`}</span></> : "—"}</td>
                   <td>{(l.plateformes || []).join(", ") || <span className="text-slate-400">{"Commun"}</span>}</td>
                   <td>{l.cluster || "—"}</td>
@@ -160,8 +167,8 @@ export default function ServicesRenouvelerSection() {
               {Object.entries(onglet === "plateforme" ? vue.totaux.plateformes : vue.totaux.clusters)
                 .sort((a, b) => Object.values(b[1]).reduce((x, y) => x + y, 0) - Object.values(a[1]).reduce((x, y) => x + y, 0))
                 .map(([nom, m]) => (
-                  <tr key={nom}><td className="font-medium">{nom}</td><td className="text-right tabular-nums">{montants(m)}</td>
-                    <td className="text-right tabular-nums">{montants(Object.fromEntries(Object.entries(m).map(([d, v]) => [d, v * 12])))}</td></tr>
+                  <tr key={nom}><td className="font-medium">{nom}</td><td className="text-right tabular-nums">{montants(m)}<div className="text-[10px] text-slate-500">{fcfa((onglet === "plateforme" ? vue.totaux.plateformes_fcfa : vue.totaux.clusters_fcfa)?.[nom])}</div></td>
+                    <td className="text-right tabular-nums">{montants(Object.fromEntries(Object.entries(m).map(([d, v]) => [d, v * 12])))}<div className="text-[10px] text-slate-500">{fcfa(((onglet === "plateforme" ? vue.totaux.plateformes_fcfa : vue.totaux.clusters_fcfa)?.[nom] ?? null) === null ? null : (onglet === "plateforme" ? vue.totaux.plateformes_fcfa : vue.totaux.clusters_fcfa)[nom] * 12)}</div></td></tr>
                 ))}
             </tbody>
           </table>
@@ -203,6 +210,15 @@ export default function ServicesRenouvelerSection() {
               </div>
             ))}
             <button type="button" onClick={() => setClusters([...clusters, { nom: "", plateformes_texte: "" }])} className="rounded-md bg-white px-3 py-1 font-semibold ring-1 ring-slate-300 hover:bg-slate-100">+ Ajouter un cluster</button>
+          </div>
+          <div className="space-y-1 text-xs">
+            <p className="font-semibold">Taux de change vers le FCFA <span className="font-normal text-slate-500">(nombre de FCFA pour 1 unité ; l'euro est à parité fixe 655,957, le dollar varie : mettez à jour le taux à votre guise)</span></p>
+            <div className="flex flex-wrap items-center gap-3">
+              {Object.keys(taux).sort().map((d) => (
+                <label key={d} className="flex items-center gap-1">1 {d} =
+                  <input className={`${champ} w-24 text-right`} inputMode="decimal" value={taux[d]} onChange={(e) => setTaux({ ...taux, [d]: e.target.value })} aria-label={`Taux ${d} en FCFA`} /> FCFA</label>
+              ))}
+            </div>
           </div>
           <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50" data-testid="services-enregistrer">{occupe ? "Patientez…" : "Enregistrer"}</button>
         </div>

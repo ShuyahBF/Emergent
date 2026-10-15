@@ -158,3 +158,18 @@ def test_routes_liste_totaux_et_renouvellement(monkeypatch):
     apres = c.post(f"/api/admin/services-renouveler/{sid}/renouveler").json()
     assert next(s for s in apres["services"] if s["id"] == sid)["prochaine_echeance"] > "2026-10-20"
     assert c.post("/api/admin/services-renouveler/zz/renouveler").status_code == 404
+
+
+def test_conversion_en_fcfa():
+    """Lot 175 : équivalents en FCFA des montants, lignes et totaux (taux saisis, euro à parité fixe)."""
+    taux = sr.normaliser_taux({"usd": "610,5", "GBP": 0, "eur": -3, "xyz": "abc"})
+    assert taux["USD"] == 610.5 and taux["EUR"] == 655.957 and "GBP" not in taux       # invalides ignorés, défauts conservés
+    assert sr.en_fcfa(10, "USD", taux) == 6105 and sr.en_fcfa(10, "EUR", taux) == 6560
+    assert sr.en_fcfa(2500, "FCFA", taux) == 2500 and sr.en_fcfa(5, "CHF", taux) is None
+    lignes = [{"actif": True, "devise": "USD", "mensuel": 10.0, "plateformes": ["Ster"]},
+              {"actif": True, "devise": "FCFA", "mensuel": 5000.0, "plateformes": []},
+              {"actif": True, "devise": "CHF", "mensuel": 3.0, "plateformes": []}]
+    t = sr.totaux(lignes, taux)
+    assert t["mensuel_fcfa"] == 11105 and t["annuel_fcfa"] == 133260 and t["plateformes_fcfa"]["Ster"] == 6105
+    assert t["devises_sans_taux"] == ["CHF"]
+    assert "mensuel_fcfa" not in sr.totaux(lignes)                                       # sans taux : comportement d'avant

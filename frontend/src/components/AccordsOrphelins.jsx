@@ -68,7 +68,7 @@ export default function AccordsOrphelins() {
       setCoches({});
       await lire();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Validation impossible", { id: attente });
+      toast.error(e?.response?.data?.detail || (e?.response ? `Validation impossible (erreur serveur ${e.response.status})` : "Validation impossible : serveur injoignable"), { id: attente });
     } finally { setOccupe(false); }
   };
 
@@ -91,7 +91,7 @@ export default function AccordsOrphelins() {
       toast.success(msg.join(" ; "), { id: attente });
       await lire();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Rattachement impossible", { id: attente });
+      toast.error(e?.response?.data?.detail || (e?.response ? `Rattachement impossible (erreur serveur ${e.response.status})` : "Rattachement impossible : serveur injoignable"), { id: attente });
     } finally { setOccupe(false); }
   };
 
@@ -106,7 +106,8 @@ export default function AccordsOrphelins() {
       <p className="font-semibold text-emerald-900">
         ✅ {clics.length} personne(s) ont cliqué sur « Confirmer » mais leur accord n'est pas noté
       </p>
-      <p>Validez-les d'un coup au lieu de les chercher une à une : l'accord est noté sur leur fiche avec la date du clic.</p>
+      <p>Validez-les d'un coup au lieu de les chercher une à une : l'accord est noté sur leur fiche avec la date du clic.
+        <b> Décochez les personnes dont le bouton ne concernait pas une demande d'accord</b> (par exemple la confirmation d'une commande).</p>
       <div className="max-h-56 overflow-y-auto rounded-md border border-emerald-200 bg-white">
         <table className="w-full text-xs">
           <tbody>
@@ -122,7 +123,7 @@ export default function AccordsOrphelins() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={clicsCoches.length === clics.length} onChange={(e) => setCoches(Object.fromEntries(clics.map((c) => [c.telephone, e.target.checked])))} data-testid="clics-tout" />
           Tout cocher
@@ -150,7 +151,7 @@ export default function AccordsOrphelins() {
         Leur accord est tracé, mais sans fiche elles ne reçoivent pas le carrousel. Choisissez le client de la liste auquel
         rattacher chaque personne : la fiche est créée avec l'accord d'origine (date et moyen), puis le carrousel choisi peut leur être envoyé.
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={cochees.length === donnees.orphelins.length} onChange={(e) => toutCocher(e.target.checked)} data-testid="orphelins-tout" />
           Tout cocher
@@ -186,7 +187,7 @@ export default function AccordsOrphelins() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         {selecteurCampagne}
         <Button type="button" size="sm" disabled={occupe || cochees.length === 0} onClick={() => valider(true)} data-testid="orphelins-rattacher-envoyer">
           Rattacher {cochees.length ? `(${cochees.length}) ` : ""}et envoyer le carrousel

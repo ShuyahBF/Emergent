@@ -2,7 +2,7 @@
 #
 # Constat (15/10/2026) : des personnes ont confirmé (bouton « Confirmer » / mot-clé) alors que leur numéro ne figure sur
 # aucune fiche (contact, utilisateur suivi, compte) — elles ont sans doute changé de numéro. Leur accord est bien tracé dans
-# le journal `accords_whatsapp_journal` (fiches = 0) mais elles ne reçoivent jamais le carrousel.
+# le journal des accords (fiches = 0) mais elles ne reçoivent jamais le carrousel.
 #
 # Ce module (aucune nouvelle collection) :
 #   1. `lister` : accords toujours « orphelins » = dernier accord de la personne, sans retrait ensuite, aucune fiche ne porte
@@ -17,6 +17,8 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+
+from routes.accord_whatsapp import ecrire_journal
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("sawali.carrousel_accords_orphelins")
@@ -66,7 +68,10 @@ async def _numeros_connus(db) -> set:
 async def lister(db) -> List[Dict[str, Any]]:
     """Accords orphelins, les plus récents d'abord : [{telephone, nom, le, moyen}]."""
     derniers: Dict[str, Dict[str, Any]] = {}       # fin de numéro → dernière entrée du journal (accord ou retrait)
-    async for e in db.accords_whatsapp_journal.find({"tenant_id": None}, {"_id": 0}).sort("le", 1):
+    from routes.accord_whatsapp import lire_journal
+    for e in await lire_journal(db):
+        if e.get("tenant_id") is not None:
+            continue
         f = fin8(e.get("telephone"))
         if len(f) == 8:
             derniers[f] = e                        # les plus récentes écrasent les plus anciennes
@@ -116,7 +121,7 @@ async def rattacher(db, items: List[Dict[str, Any]], clients_valides: Dict[str, 
             # Le numéro n'est plus « inconnu » : son entrée « contact à enregistrer » disparaît
             await db.wa_pending_imports.delete_many({"phone_digits": o["telephone"]})
             # Trace du rattachement (le journal des accords n'est jamais modifié : on ajoute une ligne)
-            await db.accords_whatsapp_journal.insert_one({
+            await ecrire_journal(db, {
                 "telephone": o["telephone"], "accepte": True, "moyen": o.get("moyen"), "numero_recu": None, "tenant_id": None,
                 "fiches": 1, "le": datetime.now(timezone.utc).isoformat(), "type": "rattachement",
                 "client_id": cid, "contact_id": fiche["id"], "par": par})
@@ -166,7 +171,10 @@ async def clics_a_valider(db) -> List[Dict[str, Any]]:
     if not clics:
         return []
     decisions: Dict[str, str] = {}
-    async for e in db.accords_whatsapp_journal.find({"tenant_id": None}, {"_id": 0, "telephone": 1, "le": 1}):
+    from routes.accord_whatsapp import lire_journal
+    for e in await lire_journal(db):
+        if e.get("tenant_id") is not None:
+            continue
         f = fin8(e.get("telephone"))
         if f in clics and (e.get("le") or "") > decisions.get(f, ""):
             decisions[f] = e["le"]
@@ -204,7 +212,7 @@ async def valider_clics(db, telephones: List[str], par: str) -> Dict[str, Any]:
         for x in fiches.get(f, []):
             r = await db[x["coll"]].update_one({"id": x["id"]}, {"$set": maj})
             n += r.modified_count
-        await db.accords_whatsapp_journal.insert_one({
+        await ecrire_journal(db, {
             "telephone": c["telephone"], "accepte": True, "moyen": "bouton", "numero_recu": None, "tenant_id": None,
             "fiches": n, "le": c["le"], "type": "validation_clic", "par": par,
             "note_le": datetime.now(timezone.utc).isoformat()})

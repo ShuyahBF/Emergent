@@ -58,6 +58,14 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
   sélectionnée si elle porte `ligne-selectionnee`, `aria-selected="true"`,
   `data-selected="true"`, ou si la case à cocher de sa première cellule est cochée.
 
+## Boutons côte à côte (règle 8, 15/10/2026 : « Tous les boutons se ressemblent… La mise en évidence des boutons de cette manière devient une règle »)
+- Des boutons placés côte à côte se distinguent par un MINCE FILET de couleur différente qui entoure chaque bouton
+  (bleu, vert, orange, violet, rose, cyan, à tour de rôle) ; un bouton seul n'est pas concerné.
+- Mise en œuvre (SAWALI) : classe `boutons-distincts` sur le conteneur de la rangée (règle dans `frontend/src/index.css`,
+  enfants directs `button` / `a[role="button"]`). Toute rangée de boutons créée ou modifiée la reçoit ; les rangées
+  d'icônes, d'onglets ou de pagination n'en ont pas besoin. Même principe sur toute autre plateforme.
+- Les écrans importants (alertes à traiter, encadrés d'action) se placent EN HAUT de la page, jamais enfouis dans une section.
+
 ## Attentes et chargements
 - Toute attente longue (connexion, recherche…) affiche un toast « Patientez… »
   et une jauge circulaire transparente (arc qui tourne), comme sur SAWALI.

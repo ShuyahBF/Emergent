@@ -45,8 +45,9 @@ def test_rattachement_cree_la_fiche_avec_l_accord_d_origine():
     assert fiche["accepte_whatsapp"] is True and fiche["accepte_whatsapp_le"] == "2026-10-15T08:55:25+00:00"   # date d'origine
     assert "la personne elle-même (bouton)" in fiche["accepte_whatsapp_par"] and "Admin" in fiche["accepte_whatsapp_par"]
     assert _run(db.wa_pending_imports.count_documents({})) == 0
-    trace = _run(db.accords_whatsapp_journal.find_one({"type": "rattachement"}))
+    trace = next(e for e in _run(aw.lire_journal(db)) if e.get("type") == "rattachement")      # journal = document settings
     assert trace["client_id"] == "cl1" and trace["contact_id"] == fiche["id"]
+    assert _run(db.accords_whatsapp_journal.count_documents({})) == 1                           # seule la ligne de départ du test : rien n'est écrit dans l'ancienne collection
     # Deuxième appel : plus rien à rattacher (le numéro a une fiche)
     assert _run(ao.lister(db)) == []
     res2 = _run(ao.rattacher(db, [{"telephone": "22677001214", "client_id": "cl1"}], {"cl1": "Clinique Alpha"}, "Admin"))
@@ -137,6 +138,7 @@ def test_lot206_sens_d_un_bouton():
     assert aw.sens_bouton("Confirmer") is True and aw.sens_bouton("Oui, j'accepte") is True and aw.sens_bouton("OK") is True
     assert aw.sens_bouton("NON, pas intéressé(e)") is False and aw.sens_bouton("Stop") is False
     assert aw.sens_bouton("Plus d'infos") is None and aw.sens_bouton("") is None
+    assert aw.sens_bouton("OK merci, je patiente !") is None        # répond à autre chose : pas un accord
 
 
 def _clic(db, tel, texte="Confirmer", le="2026-10-15T08:55:25+00:00", profil="alixyame"):

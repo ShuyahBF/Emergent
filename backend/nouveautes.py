@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "201", "date": "2026-10-15",
+        "titre": "📌 SMART Communications : en-tête fixe et nom du client",
+        "description": "Sur la fiche d'un client (SMART Communications), l'en-tête reste affiché en haut pendant qu'on fait défiler les cartes, avec le nom du client concerné bien visible.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "200", "date": "2026-10-15",
         "titre": "🙏 Liluvine remercie un clic de bouton",
         "description": "Quand un client clique sur le bouton d'un message de SAWALI (« Confirmer », « Oui »…) sans rien écrire, Liluvine le remercie en une phrase, selon la publication concernée (sondage, formulaire, carrousel, modèle), sans ouvrir de demande. Avant, elle ne répondait qu'aux messages écrits.",

@@ -161,6 +161,23 @@ def consignes_conversation(offre_connue: bool, texte_regle: Optional[str] = None
     return texte
 
 
+_CHOIX_SEUL = re.compile(r"^\s*(?:n\s*°\s*|no\.?\s*|numero\s*|numéro\s*|choix\s*|option\s*)?(\d{1,2})\s*[.)!]*\s*$", re.IGNORECASE)
+_OPTION_NUMEROTEE = re.compile(r"^\s*(\d{1,2})\s*(?:\ufe0f?\u20e3|[.)\-–:])\s*(.+?)\s*$", re.MULTILINE)
+
+
+def traduire_choix_numerique(text: str, historique: List[Dict[str, str]]) -> str:
+    """Lot 185 — le correspondant répond « 2 » à une liste numérotée de Liluvine : on y ajoute l'option choisie, lue dans
+    le dernier message de Liluvine (« 2 (option 2 : Comptabilité) »). Sans liste numérotée ou numéro inconnu, le texte est
+    rendu tel quel. Fonction pure."""
+    m = _CHOIX_SEUL.match(text or "")
+    if not m:
+        return text
+    dernier = next((x["content"] for x in reversed(historique or []) if x.get("role") == "assistant"), "")
+    options = {int(n): re.sub(r"[*_`]", "", lib).strip() for n, lib in _OPTION_NUMEROTEE.findall(dernier)}
+    libelle = options.get(int(m.group(1)))
+    return f"{text.strip()} (option {int(m.group(1))} : {libelle})" if libelle else text
+
+
 def requete_recherche(text: str, historique: List[Dict[str, str]]) -> str:
     """Lot 184 — texte envoyé à la base de connaissances (Qdrant) : le message du correspondant PRÉCÉDÉ de ses deux messages
     précédents. Un message court comme « Koloko » ou « Historique » ne retrouve rien seul ; avec la question d'avant, oui.
@@ -1103,11 +1120,13 @@ async def autoreply_to_inbound(
     except Exception:  # noqa: BLE001 — sans historique, Liluvine répond comme avant
         logger.warning("[wa_autoreply] historique de la conversation illisible", exc_info=True)
         historique = []
+    # Lot 185 — « 2 » répond à la liste numérotée de Liluvine : le modèle et la recherche reçoivent l'option choisie
+    text_modele = traduire_choix_numerique(text, historique)
     # Iter38r-fix9c — Also inject the Knowledge Base for WhatsApp auto-reply
     try:
         from routes.liluvine_kb import build_kb_context
         # Lot 23 — un prospect ne reçoit que les entrées « tous » et « prospects » de la base.
-        kb = await build_kb_context(db, max_chars=4000, query=requete_recherche(text, historique),
+        kb = await build_kb_context(db, max_chars=4000, query=requete_recherche(text_modele, historique),
                                     audience="prospects" if is_prospect else "clients")  # smaller budget for WA
     except Exception:
         kb = ""
@@ -1199,7 +1218,7 @@ async def autoreply_to_inbound(
         chat = LlmChat(
             api_key=api_key, session_id=session_id, system_message=sys_text, initial_messages=historique,
         ).with_model("anthropic", "claude-haiku-4-5-20251001")
-        reply = await chat.send_message(UserMessage(text=text))
+        reply = await chat.send_message(UserMessage(text=text_modele))
         try:
             from routes.llm_health import record_llm_outcome
             await record_llm_outcome(db, ok=True, context="liluvine_wa_autoreply")

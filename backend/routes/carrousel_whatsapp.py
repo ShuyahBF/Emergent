@@ -882,9 +882,10 @@ def attach_carrousel_whatsapp_routes(
         (`_resolve_visible_client_ids`) : on part des comptes plateforme / administrateurs / superviseurs, puis on ajoute
         TOUS les comptes de la même société (insensible à la casse) avec leurs `id`, `client_id`, `parent_client_id`
         et ancien `client_id_legacy`."""
-        champs = {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1, "client_id_legacy": 1, "company": 1}
+        champs = {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1, "client_id_legacy": 1, "company": 1, "email": 1}
         ids: set = set()
-        societes: set = set()
+        # Lot 168.3 — la société s'écrit de plusieurs façons (« SAWALI-2S », « SAWALI SMART SYSTEMS »…) selon les comptes
+        societes: set = {"sawali-2s", "sawali 2s", "sawali smart systems", "sawali"}
 
         def noter(u: dict) -> None:
             ids.update(x for x in (u.get("id"), u.get("client_id"), u.get("parent_client_id"), u.get("client_id_legacy")) if x)
@@ -893,10 +894,10 @@ def attach_carrousel_whatsapp_routes(
             noter(u)
             if (u.get("company") or "").strip():
                 societes.add(u["company"].strip().lower())
-        if societes:
-            async for u in db.users.find({}, champs):
-                if (u.get("company") or "").strip().lower() in societes:
-                    noter(u)
+        async for u in db.users.find({}, champs):
+            # même société (quelle que soit l'écriture) ou adresse e-mail de la société (@sawalismartsystems.com)
+            if (u.get("company") or "").strip().lower() in societes or (u.get("email") or "").lower().endswith("@sawalismartsystems.com"):
+                noter(u)
         return sorted(ids)
 
     async def _societes_visibles(ids: List[str]) -> List[str]:
@@ -915,12 +916,14 @@ def attach_carrousel_whatsapp_routes(
     async def _annuaire_pour_ids(ids: List[str]) -> Dict[str, Any]:
         """Contacts, utilisateurs suivis et groupes rangés sous les comptes `ids` (portail : ceux que l'utilisateur voit ;
         lot 168 : ceux d'une société choisie par l'administration)."""
+        # Lot 168.3 — comme la page « Groupes de contacts » : rangés sous le compte (`client_id`) OU créés par lui (`owner_id`)
+        portee = {"$or": [{"client_id": {"$in": ids}}, {"owner_id": {"$in": ids}}]}
         contacts = await db.directory_contacts.find(
-            {"client_id": {"$in": ids}},
+            portee,
             {"_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1, "tags": 1, "accord_demande_le": 1,
              "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).sort("name", 1).to_list(5000)
         groupes = await db.contact_groups.find(
-            {"client_id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "color": 1, "contact_ids": 1}
+            portee, {"_id": 0, "id": 1, "name": 1, "color": 1, "contact_ids": 1}
         ).sort("name", 1).to_list(500)
         lignes = [{"id": c["id"], "nom": c.get("name") or "", "societe": c.get("company") or "",
                    "telephone": c.get("whatsapp") or c.get("phone") or "",
@@ -978,9 +981,10 @@ def attach_carrousel_whatsapp_routes(
 
         effectifs: Dict[str, Dict[str, int]] = {}
         for cle, coll in (("contacts", db.directory_contacts), ("suivis", db.tracked_users), ("groupes", db.contact_groups)):
-            async for d in coll.find({}, {"_id": 0, "client_id": 1}):
-                cid = d.get("client_id")
-                if cid in comptes or cid in plateforme:
+            async for d in coll.find({}, {"_id": 0, "client_id": 1, "owner_id": 1}):
+                # Lot 168.3 — rangé sous un compte (`client_id`) ou créé par lui (`owner_id`), comme la page des groupes
+                cid = next((x for x in (d.get("client_id"), d.get("owner_id")) if x in comptes or x in plateforme), None)
+                if cid:
                     e = effectifs.setdefault(racine(cid), {"contacts": 0, "suivis": 0, "groupes": 0})
                     e[cle] += 1
         lignes = []

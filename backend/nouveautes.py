@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "168.3", "date": "2026-10-15",
+        "titre": "🏢 SAWALI-2S : groupes et contacts retrouvés comme dans « Groupes de contacts »",
+        "description": "Le sélecteur « Société » reconnaît SAWALI-2S et SAWALI SMART SYSTEMS comme une seule société (quelle que soit l'écriture, adresses @sawalismartsystems.com comprises) et compte les contacts et groupes rangés sous un compte OU créés par lui, comme la page « Groupes de contacts ».",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "168.2", "date": "2026-10-15",
         "titre": "🏢 SAWALI SMART SYSTEMS : tous ses groupes et contacts retrouvés",
         "description": "SAWALI SMART SYSTEMS (SAWALI-2S) n'est pas un client canonique : ses contacts et groupes sont rangés sous plusieurs identifiants. Le sélecteur « Société » les regroupe maintenant tous (comptes de la même société, anciens identifiants), avec les bons effectifs.",

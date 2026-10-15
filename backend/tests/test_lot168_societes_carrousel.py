@@ -180,3 +180,21 @@ def test_plateforme_regroupe_les_comptes_de_la_meme_societe_et_anciens_identifia
     assert s["groupes"] == 10 and s["contacts"] == 5 and s["nom"] == "SAWALI SMART SYSTEMS"
     ann = client.get(URL + "/destinataires?societe=@plateforme", headers=h("admin")).json()
     assert len(ann["groupes"]) == 10 and len([c for c in ann["contacts"] if c["id"].startswith("k")]) == 5
+
+
+def test_plateforme_societe_ecrite_autrement_et_contacts_crees_par_un_compte(env):
+    """Lot 168.3 — « SAWALI-2S » et « SAWALI SMART SYSTEMS » sont la même société ; contacts / groupes retrouvés
+    aussi par `owner_id` (comme la page « Groupes de contacts »)."""
+    client, db, _ = env
+    p = client.portal
+    p.call(db.users.update_one, {"id": "admin"}, {"$set": {"company": "SAWALI SMART SYSTEMS"}})
+    p.call(db.users.insert_one, {"id": "ines", "role": "client", "email": "ines@sawalismartsystems.com",
+                                 "company": "SAWALI-2S", "client_id": "ines"})
+    p.call(db.directory_contacts.insert_many, [
+        {"id": "o1", "client_id": "inconnu", "owner_id": "ines", "name": "Via owner", "whatsapp": "+226 76 71 00 01"}])
+    p.call(db.contact_groups.insert_many, [
+        {"id": f"og{i}", "client_id": "autre", "owner_id": "ines", "name": f"Groupe {i}", "contact_ids": ["o1"]} for i in range(10)])
+    s = next(x for x in client.get(URL + "/societes", headers=h("admin")).json()["societes"] if x["id"] == "@plateforme")
+    assert s["groupes"] == 10 and s["contacts"] == 1
+    ann = client.get(URL + "/destinataires?societe=@plateforme", headers=h("admin")).json()
+    assert len(ann["groupes"]) == 10 and any(c["id"] == "o1" for c in ann["contacts"])

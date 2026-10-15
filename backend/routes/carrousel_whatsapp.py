@@ -353,6 +353,19 @@ class DemandeAccordIn(BaseModel):
     societe_id: Optional[str] = Field(None, max_length=80)      # lot 168 : contacts d'une société
 
 
+class OrphelinIn(BaseModel):
+    """Lot 204 — une personne dont l'accord est tracé mais sans fiche : numéro, client choisi, nom (facultatif)."""
+    telephone: str = Field(..., min_length=8, max_length=30)
+    client_id: str = Field(..., min_length=1, max_length=80)
+    nom: Optional[str] = Field(None, max_length=120)
+
+
+class RattacherIn(BaseModel):
+    """Lot 204 — rattacher des accords orphelins à un client ; `campagne_id` = carrousel à leur envoyer ensuite (facultatif)."""
+    items: List[OrphelinIn] = Field(..., min_length=1, max_length=200)
+    campagne_id: Optional[str] = Field(None, max_length=80)
+
+
 class PartageIn(BaseModel):
     """Lot 79 — adresses e-mail des comptes avec qui partager un carrousel (liste complète, vide = aucun)."""
     emails: List[str] = Field(default_factory=list, max_length=50)
@@ -1799,6 +1812,50 @@ def attach_carrousel_whatsapp_routes(
     def _url_bouton_accord() -> str:
         from routes import accord_page as ap
         return f"{base_publique().rstrip('/')}{ap.CHEMIN_PAGE}{{{{1}}}}"
+
+    # --- Lot 204 : accords sans fiche (numéro changé ?) → fiche rattachée à un client, accord noté, carrousel envoyé ---
+    @api.get("/admin/whatsapp/carrousel/accords-orphelins", tags=["Admin — Carrousel WhatsApp"])
+    async def accords_orphelins(_: dict = Depends(get_current_admin)):
+        """Personnes qui ont accepté (bouton, mot-clé) mais dont le numéro ne figure sur aucune fiche, la liste des clients
+        où les rattacher et les derniers carrousels terminés (à leur envoyer)."""
+        from routes import carrousel_accords_orphelins as ao
+        comptes = await db.users.find(_filtre_clients(), {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1,
+                                                          "client_code": 1}).to_list(3000)
+        clients = sorted(({"id": c["id"], "nom": c.get("company") or c.get("full_name") or c.get("email") or "",
+                           "code": c.get("client_code") or ""} for c in comptes), key=lambda x: x["nom"].lower())
+        campagnes = [{"id": c["id"], "libelle": (c.get("message") or "")[:80], "cree_le": c.get("cree_le"),
+                      "total": (c.get("compte") or {}).get("total", 0)}
+                     async for c in db.carrousel_campagnes.find({"perimetre": "admin", "statut": "TERMINEE"},
+                                                                 {"_id": 0, "id": 1, "message": 1, "cree_le": 1, "compte": 1})
+                     .sort("cree_le", -1).limit(10)]
+        return {"orphelins": await ao.lister(db), "clients": clients, "campagnes": campagnes}
+
+    @api.post("/admin/whatsapp/carrousel/accords-orphelins/rattacher", tags=["Admin — Carrousel WhatsApp"])
+    async def rattacher_orphelins(data: RattacherIn, user: dict = Depends(get_current_admin)):
+        """1) fiche contact rattachée au client choisi, 2) accord repris tel qu'il a été donné (date et moyen d'origine),
+        3) si `campagne_id` : les personnes sont ajoutées à cette campagne terminée, qui repart pour elles SEULES
+        (les destinataires déjà servis ne sont jamais renvoyés)."""
+        from routes import carrousel_accords_orphelins as ao
+        comptes = await db.users.find(_filtre_clients(), {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1}).to_list(3000)
+        valides = {c["id"]: c.get("company") or c.get("full_name") or c.get("email") or "" for c in comptes}
+        par = user.get("full_name") or user.get("email") or "administrateur"
+        res = await ao.rattacher(db, [i.model_dump() for i in data.items], valides, par)
+        envoi = None
+        if data.campagne_id and res["crees"]:
+            nouveaux = [{"id": c["id"], "nom": c["nom"], "telephone": numero_whatsapp(c["telephone"]), "statut": "EN_ATTENTE"}
+                        for c in res["crees"] if len(numero_whatsapp(c["telephone"])) >= 10]
+            r = await db.carrousel_campagnes.update_one(
+                {"id": data.campagne_id, "perimetre": "admin", "statut": "TERMINEE"},
+                {"$push": {"destinataires": {"$each": nouveaux}}, "$inc": {"compte.total": len(nouveaux)},
+                 "$set": {"statut": "EN_COURS", "termine_le": None, "complement_le": _maintenant(), "reprenable": True}})
+            if r.modified_count:
+                _lancer(data.campagne_id)
+                envoi = {"campagne_id": data.campagne_id, "destinataires": len(nouveaux)}
+            else:
+                envoi = {"campagne_id": data.campagne_id, "destinataires": 0,
+                         "erreur": "Cette campagne n'est plus terminée : choisissez-en une autre"}
+        logger.info("[carrousel] %d accord(s) orphelin(s) rattaché(s) par %s ; envoi : %s", len(res["crees"]), par, envoi)
+        return {**res, "envoi": envoi}
 
     @api.get("/admin/whatsapp/carrousel/accord-modele", tags=["Admin — Carrousel WhatsApp"])
     async def lire_accord_modele(_: dict = Depends(get_current_admin)):

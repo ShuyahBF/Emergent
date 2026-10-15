@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 import PubliciteCarrouselModal from "@/components/PubliciteCarrouselModal";   // lot 193 : publicité à carrousel Click-to-WhatsApp (compte publicitaire Meta)
 import FacebookCarrouselModal from "@/components/FacebookCarrouselModal";   // lot 192 : publier un carrousel sur une Page Facebook choisie
+import AccordsOrphelins from "@/components/AccordsOrphelins";   // lot 204 : accords sans fiche → rattacher à un client puis envoyer
 import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 : maintenant / programmer + plages horaires
 
 const erreur = (e, defaut) => {
@@ -1281,6 +1282,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
           « Demander l'accord » (boutons Oui / Non, noté automatiquement), ou donnez-leur le lien / QR code ci-dessous.
         </p>
         <LienAccord base={base} />
+        {/* Lot 204 — personnes qui ont accepté mais n'ont aucune fiche : rattacher à un client puis envoyer */}
+        {admin && <AccordsOrphelins />}
         {/* Lot 168 — administration : choisir la société dont on utilise les contacts et groupes */}
         {admin && (
           <div className="space-y-1 rounded-md border border-violet-200 bg-violet-50/50 p-3 text-xs text-slate-700" data-testid="choix-societe">

@@ -31,7 +31,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -105,6 +105,35 @@ def delai_anti_repetition(valeur: Any) -> int:
         return COOLDOWN_DEFAUT_SECONDS
 
 
+HISTORIQUE_MAX_MESSAGES = 12      # derniers échanges rejoués au modèle
+HISTORIQUE_HEURES = 12            # au-delà, on repart d'une conversation neuve
+HISTORIQUE_MAX_CARACTERES = 1200  # par message rejoué
+
+
+def historique_pour_llm(docs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Lot 182 — messages déjà échangés (liluvine_pro_messages, du plus ancien au plus récent) mis au format du modèle.
+    Avant ce lot, CHAQUE message WhatsApp était traité comme le premier : Liluvine oubliait la question précédente
+    (« Quel est le nom de votre logiciel ? » → « Koloko » → nouvelle salutation). Règles : rôles user / assistant seulement,
+    texte tronqué, l'historique commence par un message du correspondant, deux messages de même rôle de suite sont fusionnés.
+    Fonction pure."""
+    sortie: List[Dict[str, str]] = []
+    for d in docs or []:
+        role = d.get("role")
+        texte = str(d.get("content") or "").strip()[:HISTORIQUE_MAX_CARACTERES]
+        if role not in ("user", "assistant") or not texte:
+            continue
+        if not sortie and role != "user":
+            continue                                   # le modèle attend un premier message du correspondant
+        if sortie and sortie[-1]["role"] == role:
+            sortie[-1]["content"] += "\n" + texte
+        else:
+            sortie.append({"role": role, "content": texte})
+    # l'historique rejoué se termine par une réponse de Liluvine (le nouveau message du correspondant vient ensuite)
+    while sortie and sortie[-1]["role"] != "assistant":
+        sortie.pop()
+    return sortie
+
+
 def consignes_conversation(offre_connue: bool) -> str:
     """Lot 179 — consignes de conduite de la conversation, ajoutées à CHAQUE réponse WhatsApp : Liluvine répond à la
     question posée, ne se représente pas à chaque message et ne récite pas le catalogue de SAWALI. Quand l'offre du client
@@ -117,7 +146,9 @@ def consignes_conversation(offre_connue: bool) -> str:
     )
     if offre_connue:
         texte += ("Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
-                  "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème.")
+                  "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème. Si le client cite un logiciel "
+                  "ABSENT de cette offre, dis-lui que tu ne le trouves pas dans son offre, demande-lui de confirmer le nom "
+                  "et ne classe pas encore la demande.")
     else:
         texte += ("Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte (« Quel est le nom de "
                   "votre logiciel ? ») SANS proposer ni énumérer aucun nom de logiciel, même entre parenthèses ; commence "
@@ -1137,9 +1168,19 @@ async def autoreply_to_inbound(
         sys_text = sys_text + _clas.consignes_classement(cats_classement, deja_classe)
     else:
         deja_classe = None
+    # Lot 182 — mémoire de la conversation : les derniers échanges de cette session sont rejoués au modèle.
+    try:
+        depuis = (datetime.now(timezone.utc) - timedelta(hours=HISTORIQUE_HEURES)).isoformat()
+        recents = await db.liluvine_pro_messages.find(
+            {"session_id": session_id, "created_at": {"$gte": depuis}}, {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(HISTORIQUE_MAX_MESSAGES).to_list(HISTORIQUE_MAX_MESSAGES)
+        historique = historique_pour_llm(list(reversed(recents)))
+    except Exception:  # noqa: BLE001 — sans historique, Liluvine répond comme avant
+        logger.warning("[wa_autoreply] historique de la conversation illisible", exc_info=True)
+        historique = []
     try:
         chat = LlmChat(
-            api_key=api_key, session_id=session_id, system_message=sys_text,
+            api_key=api_key, session_id=session_id, system_message=sys_text, initial_messages=historique,
         ).with_model("anthropic", "claude-haiku-4-5-20251001")
         reply = await chat.send_message(UserMessage(text=text))
         try:

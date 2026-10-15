@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "209", "date": "2026-10-15",
+        "titre": "🛠️ Validation des clics « Confirmer » corrigée (journal des accords sans nouvelle collection)",
+        "description": "La validation échouait (« validation impossible ») car le journal des accords voulait créer une collection alors que le cluster Atlas est plein (500 sur 500). Le journal est maintenant gardé dans un document existant. Un « OK merci, je patiente ! » n'est plus pris pour un accord, et un message d'erreur précis s'affiche en cas de problème.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "208", "date": "2026-10-15",
         "titre": "🎨 Boutons côte à côte : un filet de couleur différente autour de chacun",
         "description": "Sur la page Carrousel WhatsApp, les boutons voisins se distinguent maintenant par un mince filet de couleur (bleu, vert, orange, violet…). C'est une règle : toute rangée de boutons suivra le même principe (classe boutons-distincts).",

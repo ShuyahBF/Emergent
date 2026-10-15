@@ -67,7 +67,9 @@ def test_accord_puis_retrait(client_http):
     assert r["ok"] and r["accepte"] is True
     fiche = lancer(base.directory_contacts.find_one({"id": "c1"}))
     assert fiche["accepte_whatsapp"] is True and fiche["accepte_whatsapp_le"] and fiche["accepte_whatsapp_moyen"] == "page web"
-    assert lancer(base.accords_whatsapp_journal.count_documents({"moyen": "page web", "accepte": True})) == 1   # preuve
+    # preuve : journal des accords (lot 208 : document `settings`, plus de collection dédiée)
+    from routes import accord_whatsapp as _aw
+    assert len([e for e in lancer(_aw.lire_journal(base)) if e.get("moyen") == "page web" and e.get("accepte") is True]) == 1
     assert c.get(f"/api/public/accord/{j}").json()["accepte"] is True
     assert c.post(f"/api/public/accord/{j}", json={"accepte": False}).json()["accepte"] is False
     fiche = lancer(base.directory_contacts.find_one({"id": "c1"}))

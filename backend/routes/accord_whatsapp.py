@@ -31,6 +31,34 @@ REPONSE_OUI = ("Merci ! Votre accord est enregistré : vous recevrez nos nouveau
 REPONSE_NON = "C'est noté : vous ne recevrez plus nos nouveautés sur WhatsApp. Écrivez OUI NOUVEAUTES pour changer d'avis."
 
 
+# Lot 208 — JOURNAL DES ACCORDS dans UN document de `settings` (le cluster Atlas est plein : 500 collections sur 500, la
+# collection `accords_whatsapp_journal` ne peut plus être créée et toute écriture y échouait). Chaque entrée garde
+# {telephone, accepte, moyen, numero_recu, tenant_id, fiches, le…} ; les 2000 plus récentes sont conservées. La preuve
+# principale reste portée par la fiche elle-même (accepte_whatsapp, _le, _par, _moyen). L'ancienne collection, si elle existe
+# encore, est lue aussi.
+DOC_JOURNAL = {"_id": "accords_journal"}
+JOURNAL_MAX = 2000
+
+
+async def ecrire_journal(db, entree: Dict[str, Any]) -> None:
+    """Ajoute une entrée au journal des accords. Ne lève jamais d'exception (le journal ne doit pas bloquer un accord)."""
+    try:
+        await db.settings.update_one(DOC_JOURNAL, {"$push": {"items": {"$each": [entree], "$slice": -JOURNAL_MAX}}}, upsert=True)
+    except Exception:  # noqa: BLE001
+        logger.warning("[accord_wa] journal des accords indisponible", exc_info=True)
+
+
+async def lire_journal(db) -> List[Dict[str, Any]]:
+    """Entrées du journal (document `settings` + ancienne collection éventuelle), de la plus ancienne à la plus récente."""
+    items = list((await db.settings.find_one(DOC_JOURNAL, {"_id": 0, "items": 1}) or {}).get("items") or [])
+    try:
+        items += [e async for e in db.accords_whatsapp_journal.find({}, {"_id": 0})]
+    except Exception:  # noqa: BLE001 — collection absente ou illisible : sans importance
+        pass
+    items.sort(key=lambda e: e.get("le") or "")
+    return items
+
+
 def _normaliser(texte: str) -> str:
     """Majuscules, sans accents ni ponctuation, espaces simples (« Oui, nouveautés ! » → « OUI NOUVEAUTES »)."""
     t = unicodedata.normalize("NFKD", texte or "")
@@ -64,7 +92,8 @@ def sens_bouton(texte: Optional[str]) -> Optional[bool]:
     mots = t.split()
     if "NON" in mots or "STOP" in mots or "REFUS" in t or "PAS INTERESS" in t or "DESINSCRI" in t or "ARRET" in mots:
         return False
-    if "CONFIRM" in t or "ACCEPT" in t or "D ACCORD" in t or "OUI" in mots or "OK" in mots:
+    # « OK » n'est un accord que seul (« OK merci, je patiente ! » répond à autre chose)
+    if "CONFIRM" in t or "ACCEPT" in t or "D ACCORD" in t or "OUI" in mots or t == "OK":
         return True
     return None
 
@@ -128,7 +157,7 @@ async def noter_accord(db, chiffres: str, accepte: bool, *, numero_recu: Optiona
                                          {"$set": maj})
         n += res.modified_count
     # Preuve : journal des accords (jamais modifié ensuite)
-    await db.accords_whatsapp_journal.insert_one({
+    await ecrire_journal(db, {
         "telephone": re.sub(r"\D", "", chiffres or ""), "accepte": accepte, "moyen": moyen,
         "numero_recu": numero_recu, "tenant_id": tenant, "fiches": n, "le": maintenant})
     logger.info("[accord_wa] %s via %s : %d fiche(s)", "accord" if accepte else "retrait", moyen, n)

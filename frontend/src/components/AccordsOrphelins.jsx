@@ -68,7 +68,7 @@ export default function AccordsOrphelins() {
       setCoches({});
       await lire();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Validation impossible", { id: attente });
+      toast.error(e?.response?.data?.detail || (e?.response ? `Validation impossible (erreur serveur ${e.response.status})` : "Validation impossible : serveur injoignable"), { id: attente });
     } finally { setOccupe(false); }
   };
 
@@ -91,7 +91,7 @@ export default function AccordsOrphelins() {
       toast.success(msg.join(" ; "), { id: attente });
       await lire();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Rattachement impossible", { id: attente });
+      toast.error(e?.response?.data?.detail || (e?.response ? `Rattachement impossible (erreur serveur ${e.response.status})` : "Rattachement impossible : serveur injoignable"), { id: attente });
     } finally { setOccupe(false); }
   };
 
@@ -106,7 +106,8 @@ export default function AccordsOrphelins() {
       <p className="font-semibold text-emerald-900">
         ✅ {clics.length} personne(s) ont cliqué sur « Confirmer » mais leur accord n'est pas noté
       </p>
-      <p>Validez-les d'un coup au lieu de les chercher une à une : l'accord est noté sur leur fiche avec la date du clic.</p>
+      <p>Validez-les d'un coup au lieu de les chercher une à une : l'accord est noté sur leur fiche avec la date du clic.
+        <b> Décochez les personnes dont le bouton ne concernait pas une demande d'accord</b> (par exemple la confirmation d'une commande).</p>
       <div className="max-h-56 overflow-y-auto rounded-md border border-emerald-200 bg-white">
         <table className="w-full text-xs">
           <tbody>

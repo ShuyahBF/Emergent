@@ -541,13 +541,14 @@ export default function LiluvineWaAutoreplySection() {
             value={form.client_defaut}
             onChange={(e) => setForm({ ...form, client_defaut: e.target.value })}
             maxLength={80}
-            placeholder={cfg.default_client_defaut || "SAWALI-2S"}
+            placeholder="Vide = client primaire (SAWALI-2S)"
             className="mt-1 w-full text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white normal-case font-normal tracking-normal"
             data-testid="liluvine-client-defaut"
           />
         </label>
         <p className="text-[10px] text-emerald-900/70">
-          Nom de la société (vide = SAWALI-2S). Chaque conversation ouvre alors son propre ticket sous ce client.
+          Vide = le client primaire désigné dans Admin → Clients (SAWALI-2S). Saisissez un nom de société pour en choisir un autre.
+          Chaque conversation ouvre son propre ticket sous ce client.
         </p>
       </div>
 

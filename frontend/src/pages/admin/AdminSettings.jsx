@@ -95,6 +95,8 @@ import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSect
 import PispiSection from "@/pages/admin/sections/PispiSection";  // lot 57.8 — encaissement PI-SPI
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — version détaillée
+import INDEX_PARAMETRES from "@/pages/admin/settingsIndex.json";   // lot 203 : index de recherche en texte intégral
+import { correspondanceRecherche as correspondance_ } from "@/pages/admin/rechercheParametres";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -409,6 +411,9 @@ function allerARubrique(anchorId, apres) {
   return document.getElementById(anchorId);
 }
 
+// Lot 203 — recherche en texte intégral : voir rechercheParametres.js (index généré par scripts/indexer-parametres.js)
+const correspondanceRecherche = (titre, recherche) => correspondance_(titre, recherche, INDEX_PARAMETRES && INDEX_PARAMETRES.sections);
+
 const Filterable = ({ title, anchorId, category, children }) => {
   const ctx = useSettingsFilter();
   const ref = useRef(null);
@@ -424,8 +429,10 @@ const Filterable = ({ title, anchorId, category, children }) => {
     obs.observe(ref.current);
     return () => obs.disconnect();
   });
-  // Recherche par titre : la rubrique trouvée est chargée immédiatement
-  useEffect(() => { if (ctx?.search && !monte) setMonte(true); }, [ctx?.search, monte]);
+  // Lot 203 : correspondance de la rubrique avec la recherche (titre ou contenu)
+  const correspondance = useMemo(() => (ctx?.search ? correspondanceRecherche(title, ctx.search) : null), [title, ctx?.search]);
+  // Recherche : seule la rubrique trouvée est chargée immédiatement (les autres restent différées)
+  useEffect(() => { if (ctx?.search && correspondance && !monte) setMonte(true); }, [ctx?.search, correspondance, monte]);
   // Lien direct (/admin/settings#ancre) : on se place sur la rubrique une fois la page chargée
   useEffect(() => {
     if (ancreDemandee(anchorId)) allerARubrique(anchorId);
@@ -458,9 +465,7 @@ const Filterable = ({ title, anchorId, category, children }) => {
     return () => obs.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title]);
-  if (ctx?.search) {
-    if (!title.toLowerCase().includes(ctx.search.toLowerCase())) return null;
-  }
+  if (ctx?.search && !correspondance) return null;
   // S-iter39q — Tab-based filtering. When activeTab !== "all", hide
   // sections that don't belong to the active tab.
   if (ctx?.activeTab && ctx.activeTab !== "all" && cat !== ctx.activeTab) return null;
@@ -475,6 +480,12 @@ const Filterable = ({ title, anchorId, category, children }) => {
         >
           • NOUVEAU
         </span>
+      )}
+      {/* Lot 203 : rubrique trouvée par son CONTENU (et non son titre) → extrait du texte trouvé */}
+      {correspondance?.dans === "contenu" && (
+        <p className="mb-1 rounded-md bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 ring-1 ring-amber-200" data-testid={`recherche-extrait-${anchorId}`}>
+          🔎 Trouvé dans le contenu : <span className="italic">{correspondance.extrait}</span>
+        </p>
       )}
       {monte ? children : (
         // Cadre d'attente (aucun appel au serveur) : remplacé par la rubrique dès qu'elle approche de l'écran
@@ -644,7 +655,7 @@ const SettingsToolbar = () => {
   }, [titles, ctx?.registry]);
   if (!ctx) return null;
   const newCount = visibleTitles.filter((t) => isStillNew(t, ctx.seenMap)).length;
-  const matchCount = ctx.search ? visibleTitles.filter((t) => t.toLowerCase().includes(ctx.search.toLowerCase())).length : visibleTitles.length;
+  const matchCount = ctx.search ? visibleTitles.filter((t) => correspondanceRecherche(t, ctx.search)).length : visibleTitles.length;
   return (
     <div className="sticky top-0 z-30 -mx-3 sm:-mx-6 lg:-mx-10 px-3 sm:px-6 lg:px-10 py-3 bg-slate-50/95 backdrop-blur border-b border-slate-200" data-testid="settings-toolbar">
       {/* S-iter39q — Tab bar */}
@@ -674,7 +685,7 @@ const SettingsToolbar = () => {
           <input
             value={ctx.search}
             onChange={(e) => ctx.setSearch(e.target.value)}
-            placeholder="Rechercher un paramètre par son titre…"
+            placeholder="Rechercher dans tous les paramètres (titre ou texte d'une rubrique)…"
             className="w-full pl-9 pr-9 py-2 rounded-lg border border-slate-300 text-sm bg-white"
             data-testid="settings-search-input"
           />

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "203", "date": "2026-10-15",
+        "titre": "🔎 Paramètres : la recherche trouve n'importe quel texte d'une rubrique",
+        "description": "La zone de recherche de la page Paramètres ne se limite plus au titre : elle retrouve toute rubrique contenant les mots saisis (libellés, explications, champs), sans tenir compte des accents ni des majuscules, et montre un extrait du texte trouvé.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "202", "date": "2026-10-15",
         "titre": "🔎 Clients : services remplis, recherche et tri par colonne",
         "description": "Le tableau Administration → Clients affiche le nombre de services (lignes de l'offre du client) renseignés pour chaque client, une barre de recherche (nom, e-mail, société, pays, contrat, service) et des tris en cliquant sur l'en-tête de chaque colonne.",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "176", "date": "2026-10-15",
+        "titre": "⚙️ « Paramètres » : un pictogramme sur la ligne Alerte WhatsApp",
+        "description": "Pour gagner de la place, le lien « Paramètres » de la barre latérale n'est plus qu'un pictogramme, juste après la bulle de notification de l'Alerte WhatsApp.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "175", "date": "2026-10-15",
         "titre": "💱 Services à renouveler : montants aussi en FCFA",
         "description": "Chaque montant en dollars ou en euros est accompagné de son équivalent en FCFA (par ligne, par mois, par an, par plateforme et par cluster). Les taux de change se règlent dans « Modifier la liste » (euro 655,957 fixe ; dollar à mettre à jour).",

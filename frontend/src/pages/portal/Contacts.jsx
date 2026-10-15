@@ -3478,6 +3478,7 @@ const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = nu
               {/* Lot 197 : « En réponse à » + modèle d'origine ; l'aperçu gardé avec la réponse sert si l'original n'est pas chargé */}
               ↪ En réponse à {(quotedTarget?.direction || m.reply_to_apercu?.sens) === "inbound" ? "un message du contact" : "votre message"}
               {(quotedTarget?.template_name || m.reply_to_apercu?.modele) ? ` (modèle ${quotedTarget?.template_name || m.reply_to_apercu?.modele})` : ""}
+              {!quotedTarget && m.reply_to_apercu?.plateforme ? ` (plateforme ${m.reply_to_apercu.plateforme})` : ""}
               {m.reply_to_apercu?.le ? ` · ${new Date(m.reply_to_apercu.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}` : ""}
             </p>
             <p className="line-clamp-3 whitespace-pre-wrap italic">

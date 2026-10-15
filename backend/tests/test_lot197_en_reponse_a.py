@@ -12,7 +12,7 @@ def test_python_valide():
 
 def test_apercu_du_message_d_origine_garde_et_relaye():
     assert 'doc["reply_to_apercu"]' in SOURCE
-    assert '{"wa_message_id": quoted_mid}, {"message_id": quoted_mid}' in SOURCE   # envois de modèles : champ message_id
+    assert "apercus_origines(db, [quoted_mid])" in SOURCE   # recherche commune (lot 198) : wa_message_id, message_id, plateformes
     assert "en réponse à «" in SOURCE                                              # relais à l'admin
 
 

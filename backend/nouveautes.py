@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "168", "date": "2026-10-15",
+        "titre": "🏢 Contacts et groupes par société, statuts visibles du superviseur",
+        "description": "Sur « Carrousel WhatsApp », l'administration choisit une société (ex. SAWALI SMART SYSTEMS) : ses groupes de contacts (ex. « Prospects publicités Facebook ») s'affichent, on coche groupes ou personnes puis on envoie ou programme la demande d'autorisation ou le carrousel. Le superviseur de la société en voit ensuite les statuts (lecture seule).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "167", "date": "2026-10-14",
         "titre": "⏰ Demande d'accord WhatsApp programmable",
         "description": "À côté de « Envoyer la demande d'accord (modèle) », un champ « Programmer le » (heure de Ouagadougou) : la demande part toute seule à l'heure choisie, avec les garde-fous refaits à ce moment-là (accepté, refusé, déjà sollicité, modèle approuvé). Liste des demandes programmées avec annulation.",

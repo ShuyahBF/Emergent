@@ -770,18 +770,40 @@ export default function CarrouselWhatsApp({ admin = false }) {
   // Lot 111 — carrousel sponsorisé (administration) : campagnes de la régie et campagne choisie pour l'envoi
   const [regies, setRegies] = useState([]);
   const [regieId, setRegieId] = useState("");
+  // Lot 168 — administration : société choisie (vide = « mes contacts » et clients). Ses contacts, utilisateurs suivis et
+  // groupes (ex. « Prospects publicités Facebook » de SAWALI SMART SYSTEMS) remplacent alors la liste des destinataires.
+  const [societes, setSocietes] = useState([]);
+  const [societeId, setSocieteId] = useState("");
+  const societeRef = useRef("");                         // valeur lue par charger() sans le relancer à chaque choix
+  const [demandesAccord, setDemandesAccord] = useState([]);   // portail : statut des demandes lancées par l'administration
+  const paramsSociete = () => (admin && societeRef.current ? { params: { societe: societeRef.current } } : undefined);
+  const chargerAnnuaire = useCallback(async () => {
+    const { data } = await apiClient.get(`${base}/destinataires`, paramsSociete());
+    setAnnuaire(data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base, admin]);
+  const choisirSociete = async (id) => {
+    societeRef.current = id; setSocieteId(id);
+    setChoisis(new Set()); setGroupes(new Set()); setLiensAccord([]);
+    try { await chargerAnnuaire(); } catch (e) { toast.error(erreur(e, "Contacts de la société indisponibles")); }
+  };
 
   const charger = useCallback(async () => {
     try {
       const [e, p, i, d, c] = await Promise.all([
         apiClient.get(base), apiClient.get(`${base}/produits`), apiClient.get(`${base}/images`),
-        apiClient.get(`${base}/destinataires`), apiClient.get(`${base}/campagnes`),
+        apiClient.get(`${base}/destinataires`, paramsSociete()), apiClient.get(`${base}/campagnes`),
       ]);
       setEtat(e.data); setProduits(p.data.produits); setImages(i.data.images);
       setAnnuaire(d.data); setCampagnes(c.data.campagnes);
       if (admin) {
         // Lot 111 — campagnes de régie « Carrousel WhatsApp » (facultatif : l'écran reste utilisable sans)
         apiClient.get(`${base}/regies`).then((r) => setRegies(r.data.regies || [])).catch(() => setRegies([]));
+        // Lot 168 — sociétés dont on peut utiliser les groupes de contacts
+        apiClient.get(`${base}/societes`).then((r) => setSocietes(r.data.societes || [])).catch(() => setSocietes([]));
+      } else {
+        // Lot 168 — superviseur : statut des demandes d'autorisation lancées par l'administration pour sa société
+        apiClient.get(`${base}/demandes-accord`).then((r) => setDemandesAccord(r.data.demandes || [])).catch(() => setDemandesAccord([]));
       }
     } catch (e) {
       setRefus(erreur(e, "Carrousel indisponible"));
@@ -898,8 +920,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     try {
       await apiClient.put(`${base}/consentements`, { ids, accepte });
       toast.success(accepte ? "Consentement noté" : "Consentement retiré");
-      const { data } = await apiClient.get(`${base}/destinataires`);
-      setAnnuaire(data);
+      await chargerAnnuaire();
     } catch (e) {
       toast.error(erreur(e, "Modification refusée"));
     }
@@ -915,7 +936,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     const cibles = annuaire.contacts.filter((c) => ids.has(c.id) && !c.accepte);
     if (!cibles.length) { toast.info("Cochez d'abord des personnes qui n'ont pas encore donné leur accord."); return; }
     try {
-      const { data } = await apiClient.post(`${base}/liens-accord`, { ids: cibles.map((c) => c.id) });
+      const { data } = await apiClient.post(`${base}/liens-accord`, { ids: cibles.map((c) => c.id), societe_id: admin ? societeId || null : undefined });
       setLiensAccord(data.liens || []);
     } catch (e) { toast.error(erreur(e, "Liens d'accord indisponibles")); }
   };
@@ -946,7 +967,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     const attente = toast.loading(accordProgramme ? "Patientez… programmation de la demande" : `Patientez… envoi de la demande à ${cibles.length} personne(s)`);
     try {
       const { data } = await apiClient.post(`${base}/demande-accord-modele`,
-        { ids: cibles.map((c) => c.id), programme_le: accordProgramme || null }, { timeout: 180000 });
+        { ids: cibles.map((c) => c.id), programme_le: accordProgramme || null, societe_id: societeId || null }, { timeout: 180000 });
       if (data.programmee) {
         toast.success(`Demande programmée pour le ${dateFr(data.programme_le)} (${data.nb} personne(s)). Elle partira toute seule.`, { id: attente, duration: 10000 });
         setAccordProgramme("");
@@ -974,7 +995,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
     if (!window.confirm(`Envoyer la demande d'accord (boutons « Oui, j'accepte » / « Non merci ») à ${cibles.length} personne(s) ?`)) return;
     setDemande(true);
     try {
-      const { data } = await apiClient.post(`${base}/demande-accord`, { ids: cibles.map((c) => c.id) });
+      const { data } = await apiClient.post(`${base}/demande-accord`, { ids: cibles.map((c) => c.id), societe_id: admin ? societeId || null : undefined });
       if (data.envoyees) toast.success(`${data.envoyees} demande(s) envoyée(s) : l'accord sera noté dès que la personne touchera « Oui ».`);
       if (data.fenetre_fermee.length) toast.warning(`${data.fenetre_fermee.length} personne(s) ne vous ont pas écrit depuis 24 h : WhatsApp interdit de leur écrire en premier. Donnez-leur le lien ou le QR code d'accord : ${data.fenetre_fermee.slice(0, 5).join(", ")}${data.fenetre_fermee.length > 5 ? "…" : ""}`, { duration: 12000 });
       if (data.erreurs.length) toast.error(data.erreurs.slice(0, 3).join(" · "));
@@ -1011,6 +1032,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
         ids: [...choisis], groupes: [...groupes],
         regie_id: admin && regieId ? regieId : null,   // lot 111 : carrousel sponsorisé
         programme_le: programmeLe || null,              // lot 114 : envoi programmé (vide = maintenant)
+        societe_id: admin ? societeId || null : undefined,   // lot 168 : contacts de la société choisie
       };
       const { data } = await apiClient.post(`${base}/envoyer`, corps);
       // Lot 114 — message selon le statut de départ : programmé, en attente d'une plage horaire ou lancé
@@ -1255,6 +1277,39 @@ export default function CarrouselWhatsApp({ admin = false }) {
           « Demander l'accord » (boutons Oui / Non, noté automatiquement), ou donnez-leur le lien / QR code ci-dessous.
         </p>
         <LienAccord base={base} />
+        {/* Lot 168 — administration : choisir la société dont on utilise les contacts et groupes */}
+        {admin && (
+          <div className="space-y-1 rounded-md border border-violet-200 bg-violet-50/50 p-3 text-xs text-slate-700" data-testid="choix-societe">
+            <label className="flex flex-wrap items-center gap-2 font-medium text-violet-900">
+              Société
+              <select className={`${champ} max-w-sm`} value={societeId} onChange={(e) => choisirSociete(e.target.value)}>
+                <option value="">Mes contacts et mes clients</option>
+                {societes.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nom} — {s.groupes} groupe(s), {s.contacts + s.suivis} contact(s)</option>
+                ))}
+              </select>
+            </label>
+            <p>
+              Choisissez une société pour afficher ses groupes de contacts, cochez les groupes ou les personnes, puis envoyez ou programmez
+              la demande d'autorisation ou le carrousel. Le superviseur de cette société en verra ensuite les statuts.
+            </p>
+          </div>
+        )}
+        {/* Lot 168 — superviseur / client : statut des demandes d'autorisation lancées par l'administration SAWALI */}
+        {!admin && demandesAccord.length > 0 && (
+          <div className="space-y-1 rounded-md border border-sky-200 bg-sky-50/50 p-3 text-xs text-slate-700" data-testid="demandes-accord-societe">
+            <p className="font-medium text-sky-800">Demandes d'autorisation lancées par l'administration SAWALI pour vos contacts</p>
+            {demandesAccord.slice(0, 10).map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-2">
+                <span className="w-32 shrink-0 font-medium">{dateFr(p.programme_le)}</span>
+                <span>{p.nb} personne(s)</span>
+                <span>{{ PROGRAMMEE: "programmée", EN_COURS: "en cours", TERMINEE: "terminée", ECHEC: "échec", ANNULEE: "annulée" }[p.statut] || p.statut}</span>
+                {p.statut === "TERMINEE" && p.resultat && <span className="text-slate-500">{p.resultat.envoyees} envoyée(s), {p.resultat.nb_echecs} échec(s)</span>}
+                {p.statut === "ECHEC" && p.motif && <span className="text-rose-700">{p.motif}</span>}
+              </div>
+            ))}
+          </div>
+        )}
         {annuaire.groupes.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {annuaire.groupes.map((g) => (

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "204", "date": "2026-10-15",
+        "titre": "📇 Accords sans fiche : rattacher à un client puis envoyer le carrousel",
+        "description": "Les personnes qui ont accepté (bouton « Confirmer », mot-clé) mais dont le numéro ne figure sur aucune fiche (numéro changé ?) apparaissent dans la page Carrousel de l'administration : choisissez leur client, la fiche est créée avec l'accord d'origine (date et moyen), puis le carrousel choisi leur est envoyé, sans renvoi aux personnes déjà servies.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "203", "date": "2026-10-15",
         "titre": "🔎 Paramètres : la recherche trouve n'importe quel texte d'une rubrique",
         "description": "La zone de recherche de la page Paramètres ne se limite plus au titre : elle retrouve toute rubrique contenant les mots saisis (libellés, explications, champs), sans tenir compte des accents ni des majuscules, et montre un extrait du texte trouvé.",

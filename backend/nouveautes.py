@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "208", "date": "2026-10-15",
+        "titre": "🎨 Boutons côte à côte : un filet de couleur différente autour de chacun",
+        "description": "Sur la page Carrousel WhatsApp, les boutons voisins se distinguent maintenant par un mince filet de couleur (bleu, vert, orange, violet…). C'est une règle : toute rangée de boutons suivra le même principe (classe boutons-distincts).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "207", "date": "2026-10-15",
         "titre": "🙏 Tout clic sur un bouton reçoit un accusé de réception immédiat",
         "description": "Quel que soit le message de SAWALI (modèle, carrousel, formulaire, sondage, requête client, campagne), un clic sur un bouton reçoit tout de suite un remerciement qui rappelle le bouton touché et la publication d'origine, une fois toutes les 10 minutes par numéro, sans dépendre de l'IA. Avant, un clic pouvait rester sans réponse. Le texte est réglable (clé liluvine_wa_clic_bouton_reponse, {bouton} et {contexte}).",

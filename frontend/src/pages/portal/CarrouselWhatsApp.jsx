@@ -235,7 +235,7 @@ function ChoixImage({ base, images, onEnvoyee, valeur, onChange, titre = "", ia 
           <div className="flex items-center gap-1 text-xs font-semibold text-violet-800"><Sparkles className="h-3.5 w-3.5" /> Générer l'image avec l'IA</div>
           <textarea className={champ} rows={2} maxLength={1000} value={prompt} onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Décrivez l'image (ex. une tablette affichant un formulaire en ligne, sur un bureau lumineux)" />
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 boutons-distincts">
             <Button type="button" size="sm" variant="outline" disabled={generation || retenue} onClick={generer}>
               {generation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Sparkles className="mr-1 h-4 w-4" />}
               {apercu ? "Générer une autre" : "Générer"}
@@ -313,7 +313,7 @@ function ModeleAccord() {
         dynamique <code className="break-all">{info?.url_bouton || "<site>/accord/{{1}}"}</code> : SAWALI y mettra le lien de chaque personne.
         Créer le modèle n'envoie rien aux contacts.
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <input className={`${champ} max-w-xs`} value={nom} onChange={(e) => setNom(e.target.value.toLowerCase())} aria-label="Nom du modèle d'accord" />
         <Button type="button" size="sm" variant="outline" disabled={!nom || occupe} onClick={creer}>
           {occupe ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
@@ -438,7 +438,7 @@ function Reglages({ etat, onEnregistre }) {
         <input className={champ} placeholder="(facultatif) id d'un client qui a son propre numéro" value={tenantId}
                onChange={(e) => setTenantId(e.target.value.trim())} />
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer le nom et la langue des modèles</Button>
         {/* Lot 76 — l'interface Meta ne propose pas toujours « Carrousel » : SAWALI dépose les modèles par l'API */}
         <Button size="sm" variant="outline" onClick={() => creerChezMeta(false)} disabled={!modele || creation}>
@@ -1252,7 +1252,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
           <Plus className="mr-1 h-4 w-4" /> Ajouter une carte ({cartes.length}/{etat.cartes_max})
         </Button>
         {/* Lot 78 — nom et enregistrement, en bas de l'éditeur, juste avant l'aperçu */}
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 boutons-distincts">
           <input className={`${champ} max-w-sm`} maxLength={80} placeholder="Nom du carrousel (ex. Nouveautés octobre)"
                  value={nom} onChange={(e) => setNom(e.target.value)} />
           <Button type="button" size="sm" disabled={enregistrement} onClick={() => enregistrerCarrousel(false)}>
@@ -1330,7 +1330,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
             ))}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 boutons-distincts">
           <input className={`${champ} max-w-xs`} placeholder="Rechercher" value={filtre} onChange={(e) => setFiltre(e.target.value)} />
           <Button type="button" size="sm" variant="outline"
                   onClick={() => setChoisis(new Set(contactsFiltres.filter((c) => c.accepte).map((c) => c.id)))}>
@@ -1466,7 +1466,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
             accepté. Demandez-leur d'écrire d'abord un mot à votre ligne, puis vérifiez la remise dans « Envois précédents ».
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 boutons-distincts">
           <span className="text-sm text-slate-700"><b>{retenus.length}</b> destinataire(s) (max. {etat.destinataires_max})</span>
           <Button onClick={envoyer} disabled={!etat.pret || envoi || !message.trim() || !cartesPretes || retenus.length === 0
                                                || retenus.length > etat.destinataires_max}>

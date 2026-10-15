@@ -269,3 +269,24 @@ table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(spa
 :root:not([data-carte-filet="aucun"]) div[class*="rounded-xl"][class*="bg-card"] {
   border-color: var(--carte-filet) !important;
 }
+
+
+/* ===================================================================
+   Règle permanente « boutons côte à côte » (15/10/2026) — « Tous les boutons se ressemblent » :
+   des boutons voisins se distinguent par un mince filet de couleur différente qui les entoure.
+   Mise en œuvre : poser la classe `boutons-distincts` sur le conteneur d'une rangée de boutons ;
+   chaque bouton (enfant direct) reçoit à tour de rôle : bleu, vert, orange, violet, rose, cyan.
+   Un bouton seul n'est pas concerné. Les rangées d'icônes, d'onglets ou de pagination n'ont pas besoin de la classe.
+   =================================================================== */
+.boutons-distincts > button,
+.boutons-distincts > a[role="button"] {
+  outline: 2px solid var(--filet-bouton, #2563eb);
+  outline-offset: 2px;
+}
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+1) { --filet-bouton: #2563eb; } /* bleu */
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+2) { --filet-bouton: #059669; } /* vert */
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+3) { --filet-bouton: #d97706; } /* orange */
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+4) { --filet-bouton: #7c3aed; } /* violet */
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+5) { --filet-bouton: #e11d48; } /* rose */
+.boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n)   { --filet-bouton: #0891b2; } /* cyan */
+.boutons-distincts > button:disabled { outline-color: color-mix(in srgb, var(--filet-bouton, #2563eb) 45%, transparent); }

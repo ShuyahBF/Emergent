@@ -122,7 +122,7 @@ export default function AccordsOrphelins() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={clicsCoches.length === clics.length} onChange={(e) => setCoches(Object.fromEntries(clics.map((c) => [c.telephone, e.target.checked])))} data-testid="clics-tout" />
           Tout cocher
@@ -150,7 +150,7 @@ export default function AccordsOrphelins() {
         Leur accord est tracé, mais sans fiche elles ne reçoivent pas le carrousel. Choisissez le client de la liste auquel
         rattacher chaque personne : la fiche est créée avec l'accord d'origine (date et moyen), puis le carrousel choisi peut leur être envoyé.
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={cochees.length === donnees.orphelins.length} onChange={(e) => toutCocher(e.target.checked)} data-testid="orphelins-tout" />
           Tout cocher
@@ -186,7 +186,7 @@ export default function AccordsOrphelins() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         {selecteurCampagne}
         <Button type="button" size="sm" disabled={occupe || cochees.length === 0} onClick={() => valider(true)} data-testid="orphelins-rattacher-envoyer">
           Rattacher {cochees.length ? `(${cochees.length}) ` : ""}et envoyer le carrousel

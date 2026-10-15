@@ -1395,6 +1395,14 @@ async def autoreply_to_inbound(
     except Exception:  # noqa: BLE001
         logger.warning("[wa_autoreply] mirror to whatsapp_messages failed", exc_info=True)
 
+    # Lot 184.1 — décision détaillée dans les journaux du serveur (diagnostic : qui est l'expéditeur, quel client est relié,
+    # état du contrat, offre lue ou non, classement, ticket). Aucun secret : seulement des identifiants et des états.
+    logger.info(
+        "[wa_autoreply] decision tel=%s contact=%r societe=%r prospect=%s ligne_plateforme=%s client_lie=%r contrat=%s "
+        "offre=%s classement=%s ticket=%s assistant=%s",
+        phone_digits, (contact or {}).get("name"), (contact or {}).get("company"), is_prospect, platform_tenant,
+        (client_lie or {}).get("company"), etat_contrat_cl, offre_statut,
+        (classement or {}).get("categorie"), (classement or {}).get("ticket_statut"), (classement or {}).get("agent"))
     return {
         "ok": True, "reason": "sent",
         "wa_out_message_id": send_res.get("message_id"),

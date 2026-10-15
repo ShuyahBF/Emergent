@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "205", "date": "2026-10-15",
+        "titre": "✅ Carrousel : « Noter son accord » fonctionne pour les contacts d'une société",
+        "description": "En administration, quand on choisit une société, l'accord noté à la main était cherché dans le mauvais annuaire : aucune fiche n'était modifiée, le succès s'affichait quand même et le bouton « Envoyer » restait grisé. L'accord atteint maintenant le contact de la société choisie, et un message d'erreur s'affiche si aucune fiche n'a pu être modifiée.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "204", "date": "2026-10-15",
         "titre": "📇 Accords sans fiche : rattacher à un client puis envoyer le carrousel",
         "description": "Les personnes qui ont accepté (bouton « Confirmer », mot-clé) mais dont le numéro ne figure sur aucune fiche (numéro changé ?) apparaissent dans la page Carrousel de l'administration : choisissez leur client, la fiche est créée avec l'accord d'origine (date et moyen), puis le carrousel choisi leur est envoyé, sans renvoi aux personnes déjà servies.",

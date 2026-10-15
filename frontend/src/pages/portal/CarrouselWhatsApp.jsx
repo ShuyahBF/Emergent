@@ -923,8 +923,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
     if (accepte && !window.confirm("Cette personne vous a-t-elle réellement donné son accord (de vive voix ou par écrit) ?\n"
       + "Ne notez jamais un accord qui n'a pas été donné : utilisez plutôt « Demander l'accord » ou le lien d'accord.")) return;
     try {
-      await apiClient.put(`${base}/consentements`, { ids, accepte });
-      toast.success(accepte ? "Consentement noté" : "Consentement retiré");
+      // Lot 205 : en administration, la société choisie est transmise (sinon ses contacts n'étaient pas retrouvés)
+      const { data } = await apiClient.put(`${base}/consentements`, { ids, accepte, societe_id: admin ? societeId || null : undefined });
+      // Aucune fiche modifiée : on le dit au lieu d'afficher un faux succès
+      if (data && data.modifies === 0) toast.error("Aucune fiche n'a été modifiée : cette personne n'est pas dans la liste affichée (changez de société ou actualisez).");
+      else toast.success(accepte ? "Consentement noté" : "Consentement retiré");
       await chargerAnnuaire();
     } catch (e) {
       toast.error(erreur(e, "Modification refusée"));

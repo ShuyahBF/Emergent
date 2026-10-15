@@ -222,6 +222,7 @@ class AutoreplyConfigPayload(BaseModel):
     consignes_conversation: Optional[str] = Field(None, max_length=4000)  # lot 184 : conduite de la conversation
     client_prompt: Optional[str] = Field(None, max_length=8000)           # lot 183 : client à jour
     client_retard_prompt: Optional[str] = Field(None, max_length=8000)    # lot 183 : client en retard / sans contrat
+    client_defaut: Optional[str] = Field(None, max_length=80)             # lot 186 : société recevant les tickets sans client relié
     classement_actif: Optional[bool] = None
     classement_categories: Optional[List[str]] = None
 
@@ -783,6 +784,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "consignes_conversation": "liluvine_wa_consignes_conversation",
         "client_prompt": "liluvine_wa_client_prompt",
         "client_retard_prompt": "liluvine_wa_client_retard_prompt",
+        "client_defaut": "liluvine_wa_client_defaut",
         "classement_actif": "liluvine_classement_actif",
         "classement_categories": "liluvine_classement_categories",
     }
@@ -827,6 +829,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "client_retard_prompt": s.get("liluvine_wa_client_retard_prompt") or "",
             "default_client_prompt": DEFAULT_WA_CLIENT_PROMPT,
             "default_client_retard_prompt": DEFAULT_WA_CLIENT_RETARD_PROMPT,
+            "client_defaut": s.get("liluvine_wa_client_defaut") or "",
+            "default_client_defaut": "SAWALI-2S",
             "classement_actif": s.get("liluvine_classement_actif") is not False,
             "classement_categories": s.get("liluvine_classement_categories") or [],
             "default_classement_categories": ["Technique", "Comptabilité", "Commercial", "Secrétariat / rendez-vous", "Autre"],

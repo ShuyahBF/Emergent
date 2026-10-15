@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "186", "date": "2026-10-15",
+        "titre": "📣 Compte rendu WhatsApp à chaque envoi de carrousels",
+        "description": "À la fin de chaque campagne de carrousels, Liluvine écrit au numéro de votre choix : expéditeur, modèle, destinataires, envois réussis et échecs. Numéro réglable (vide = aucun message).",
+        "rubrique": "Carrousels — compte rendu WhatsApp à l'admin",
+    },
+    {
+        "lot": "186", "date": "2026-10-15",
+        "titre": "🏢 Tickets de Liluvine : client par défaut SAWALI-2S",
+        "description": "Quand le contact n'est relié à aucun client, le ticket ouvert par Liluvine va au client SAWALI-2S (réglable), un ticket par conversation ; le journal l'indique.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "185", "date": "2026-10-15",
         "titre": "🔢 Liluvine numérote ses choix",
         "description": "Quand Liluvine propose plusieurs choix (catégories, logiciels, options), elle les numérote et invite à répondre par le numéro ; une réponse « 2 » est comprise comme l'option 2 de son dernier message. La consigne se règle dans « Consignes de conversation ».",

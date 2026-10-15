@@ -198,15 +198,42 @@ async def _numero_ticket(db, client_id: str) -> str:
     return f"{prefixe}-{annee}-{seq:04d}"
 
 
+CLIENT_DEFAUT = "SAWALI-2S"     # client primaire : reçoit les tickets des expéditeurs non reliés à un client
+
+
+async def client_par_defaut(db, settings_doc: Optional[Dict[str, Any]], scope_uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Lot 186 — client choisi PAR DÉFAUT quand le contact n'est relié à aucun client : la société réglée
+    (`liluvine_wa_client_defaut`, « SAWALI-2S » sinon), insensible à la casse. Plusieurs comptes portent la même société :
+    on prend le compte qui reçoit la conversation, sinon un administrateur / superviseur, sinon le plus ancien.
+    → {id, company, offre_client} ou None (jamais d'exception)."""
+    try:
+        nom = str((settings_doc or {}).get("liluvine_wa_client_defaut") or "").strip() or CLIENT_DEFAUT
+        comptes = await db.users.find(
+            {"company": {"$regex": f"^{re.escape(nom)}$", "$options": "i"}},
+            {"_id": 0, "id": 1, "company": 1, "role": 1, "created_at": 1, "offre_client": 1}).to_list(200)
+        if not comptes:
+            return None
+
+        def rang(u: Dict[str, Any]):
+            return (0 if u.get("id") == scope_uid else 1, 0 if u.get("role") in ("admin", "superviseur") else 1,
+                    str(u.get("created_at") or ""))
+        c = sorted(comptes, key=rang)[0]
+        return {"id": c["id"], "company": c.get("company") or nom, "offre_client": normaliser_offre(c.get("offre_client"))}
+    except Exception:  # noqa: BLE001
+        logger.warning("[offre_client] client par défaut introuvable", exc_info=True)
+        return None
+
+
 async def ouvrir_ticket(db, client: Dict[str, Any], contact: Optional[Dict[str, Any]], objet: str, texte: str, *,
                         motif: Optional[str] = None, categorie: Optional[str] = None,
-                        source: str = "liluvine_offre_client") -> Optional[Dict[str, Any]]:
+                        source: str = "liluvine_offre_client", nouveau: bool = False) -> Optional[Dict[str, Any]]:
     """Ouvre un ticket pour ce client — ou rattache la demande au ticket déjà ouvert (règle du lot 54 : un seul ticket
     ouvert par client). Renvoie {id, number, rattache} ou None en cas d'échec (jamais d'exception)."""
     try:
         import tickets_clients as tc
         contact_id = (contact or {}).get("id")
-        ouvert = await tc.ticket_ouvert_du_client(client["id"])
+        # nouveau=True (client par défaut) : un ticket PAR conversation, jamais rattaché au ticket ouvert d'un autre expéditeur
+        ouvert = None if nouveau else await tc.ticket_ouvert_du_client(client["id"])
         if ouvert:
             ouvert = await tc.rattacher_contact(ouvert, contact_id)
             return {"id": ouvert["id"], "number": ouvert.get("number"), "rattache": True}

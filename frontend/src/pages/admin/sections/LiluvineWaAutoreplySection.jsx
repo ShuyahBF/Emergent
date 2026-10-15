@@ -97,6 +97,8 @@ export default function LiluvineWaAutoreplySection() {
         // Lot 183 — prompts propres aux clients (contrat à jour / en retard ou sans contrat)
         client_prompt: r.data.client_prompt || "",
         client_retard_prompt: r.data.client_retard_prompt || "",
+        // Lot 186 — société qui reçoit les tickets des expéditeurs non reliés à un client (vide = SAWALI-2S)
+        client_defaut: r.data.client_defaut || "",
         // Lot 181 — classement des conversations : actif par défaut, catégories saisies une par ligne
         classement_actif: r.data.classement_actif !== false,
         classement_categories: (r.data.classement_categories || []).join("\n"),
@@ -142,6 +144,8 @@ export default function LiluvineWaAutoreplySection() {
         // Lot 183 : prompts clients (vide = prompt du compte, comme avant)
         client_prompt: form.client_prompt || "",
         client_retard_prompt: form.client_retard_prompt || "",
+        // Lot 186 : client par défaut (vide = SAWALI-2S)
+        client_defaut: (form.client_defaut || "").trim(),
         // Lot 181 : une catégorie par ligne (vide = catégories par défaut)
         classement_actif: !!form.classement_actif,
         classement_categories: (form.classement_categories || "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 8),
@@ -529,6 +533,22 @@ export default function LiluvineWaAutoreplySection() {
           data-testid="liluvine-classement-categories"
         />
         <p className="text-[10px] text-emerald-900/70">Une catégorie par ligne (8 au plus). Vide = catégories par défaut (affichées en grisé).</p>
+        {/* Lot 186 — client par défaut : reçoit le ticket quand le contact n'est relié à aucun client */}
+        <label className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">
+          Client par défaut (contact non relié à un client)
+          <input
+            type="text"
+            value={form.client_defaut}
+            onChange={(e) => setForm({ ...form, client_defaut: e.target.value })}
+            maxLength={80}
+            placeholder={cfg.default_client_defaut || "SAWALI-2S"}
+            className="mt-1 w-full text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white normal-case font-normal tracking-normal"
+            data-testid="liluvine-client-defaut"
+          />
+        </label>
+        <p className="text-[10px] text-emerald-900/70">
+          Nom de la société (vide = SAWALI-2S). Chaque conversation ouvre alors son propre ticket sous ce client.
+        </p>
       </div>
 
       {/* Iter43-fix24h — Catch-all "…" pour commandes inconnues */}
@@ -776,7 +796,7 @@ export default function LiluvineWaAutoreplySection() {
                         {d.classement && (
                           <span className="ml-1 text-[10px] rounded bg-emerald-50 text-emerald-700 px-1" data-testid={`liluvine-classement-${d.id}`}>
                             {d.classement.categorie}
-                            {d.classement.ticket_statut === "ouvert" && ` · ticket ${d.classement.ticket}`}
+                            {d.classement.ticket_statut === "ouvert" && ` · ticket ${d.classement.ticket}${d.classement.client_defaut ? " (client par défaut)" : ""}`}
                             {d.classement.ticket_statut === "rattache" && ` · rattaché au ticket ${d.classement.ticket}`}
                             {d.classement.ticket_statut === "echec" && " · ticket NON créé (erreur)"}
                             {d.classement.ticket_statut === "aucun_client" && " · pas de ticket : contact sans client relié"}

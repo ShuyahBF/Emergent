@@ -793,6 +793,8 @@ class SettingsUpdate(BaseModel):
     # per `liluvine_escalation_cooldown_minutes` (default 30).
     liluvine_escalation_enabled: Optional[bool] = None  # default false
     liluvine_escalation_wa_phone: Optional[str] = None  # E.164
+    # Lot 186 — numéro WhatsApp (E.164) qui reçoit un compte rendu à chaque envoi de carrousels (vide = aucun)
+    carrousel_notif_wa_phone: Optional[str] = None
     liluvine_escalation_cooldown_minutes: Optional[int] = None  # default 30 min
 
     # --- S038 — Qdrant RAG semantic knowledge base ---

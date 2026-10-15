@@ -1277,14 +1277,21 @@ async def autoreply_to_inbound(
             except Exception:  # noqa: BLE001
                 agent_classe = None
             ticket_cl = None
-            if client_lie:
-                from routes import offre_client as _offre_cl
+            from routes import offre_client as _offre_cl
+            client_ticket = client_lie
+            if not client_ticket:
+                # Lot 186 — contact non relié à un client : le ticket va au client par défaut (SAWALI-2S, réglable)
+                client_ticket = await _offre_cl.client_par_defaut(db, settings_doc, scope_uid)
+                classement["client_defaut"] = bool(client_ticket)
+            if client_ticket:
+                contact_tk = contact or {"name": inbound_doc.get("from_profile_name") or inbound_doc.get("contact_name") or f"+{phone_digits}",
+                                         "whatsapp": f"+{phone_digits}"}
                 ticket_cl = await _offre_cl.ouvrir_ticket(
-                    db, client_lie, contact, marque["motif"], text, motif=f"[{marque['categorie']}] {marque['motif']}",
-                    categorie=marque["categorie"], source="liluvine_classement")
+                    db, client_ticket, contact_tk, marque["motif"], text, motif=f"[{marque['categorie']}] {marque['motif']}",
+                    categorie=marque["categorie"], source="liluvine_classement", nouveau=not client_lie)
                 classement["ticket_statut"] = ("rattache" if (ticket_cl or {}).get("rattache") else "ouvert") if ticket_cl else "echec"
             else:
-                classement["ticket_statut"] = "aucun_client"      # contact non relié à un client : pas de ticket
+                classement["ticket_statut"] = "aucun_client"      # ni client relié ni client par défaut trouvé : pas de ticket
             classement["ticket"] = (ticket_cl or {}).get("number")
             classement["agent"] = (agent_classe or {}).get("prenom")
             # mise en relation (+ n° de ticket), puis la réponse tirée de la base de connaissances si Liluvine en a écrit une

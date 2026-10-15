@@ -315,6 +315,8 @@ class EnvoiIn(BaseModel):
     regie_id: Optional[str] = Field(None, max_length=80)
     # Lot 114 — date et heure d'envoi programmées (« 2026-10-15T09:30 », heure de Ouagadougou) ; vide = maintenant
     programme_le: Optional[str] = Field(None, max_length=40)
+    # Lot 168 — société (compte client) dont l'administration utilise les contacts et groupes ; vide = « mes contacts »
+    societe_id: Optional[str] = Field(None, max_length=80)
 
 
 class LienRegieIn(BaseModel):
@@ -348,6 +350,7 @@ class BrouillonAutoIn(BaseModel):
 class DemandeAccordIn(BaseModel):
     """Lot 79 — personnes à qui demander leur accord WhatsApp (boutons Oui / Non)."""
     ids: List[str] = Field(default_factory=list, max_length=DESTINATAIRES_MAX)
+    societe_id: Optional[str] = Field(None, max_length=80)      # lot 168 : contacts d'une société
 
 
 class PartageIn(BaseModel):
@@ -375,6 +378,7 @@ class DemandeAccordModeleIn(BaseModel):
     """Lot 167 — personnes à qui envoyer le modèle d'accord, tout de suite ou à `programme_le` (heure de Ouagadougou)."""
     ids: List[str] = Field(default_factory=list, max_length=DESTINATAIRES_MAX)
     programme_le: Optional[str] = Field(None, max_length=40)
+    societe_id: Optional[str] = Field(None, max_length=80)      # lot 168 : société dont on utilise les contacts
 
 
 class AccordModeleIn(BaseModel):
@@ -867,10 +871,19 @@ def attach_carrousel_whatsapp_routes(
         return lignes
 
     async def _contacts_portail(user: dict) -> Dict[str, Any]:
-        ids = await visible_client_ids(user)
+        return await _annuaire_pour_ids(await visible_client_ids(user))
+
+    async def _ids_societe(societe_id: str) -> List[str]:
+        """Lot 168 — la société (compte client) et ses sous-comptes : les données de tous sont rangées sous leur identifiant."""
+        sous = [u["id"] async for u in db.users.find({"parent_client_id": societe_id}, {"_id": 0, "id": 1})]
+        return [societe_id] + sous
+
+    async def _annuaire_pour_ids(ids: List[str]) -> Dict[str, Any]:
+        """Contacts, utilisateurs suivis et groupes rangés sous les comptes `ids` (portail : ceux que l'utilisateur voit ;
+        lot 168 : ceux d'une société choisie par l'administration)."""
         contacts = await db.directory_contacts.find(
             {"client_id": {"$in": ids}},
-            {"_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1, "tags": 1,
+            {"_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1, "tags": 1, "accord_demande_le": 1,
              "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).sort("name", 1).to_list(5000)
         groupes = await db.contact_groups.find(
             {"client_id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "color": 1, "contact_ids": 1}
@@ -878,11 +891,11 @@ def attach_carrousel_whatsapp_routes(
         lignes = [{"id": c["id"], "nom": c.get("name") or "", "societe": c.get("company") or "",
                    "telephone": c.get("whatsapp") or c.get("phone") or "",
                    "accepte": bool(c.get("accepte_whatsapp")), "accepte_le": c.get("accepte_whatsapp_le"),
-                   "moyen": c.get("accepte_whatsapp_moyen")}
+                   "moyen": c.get("accepte_whatsapp_moyen"), "demande_le": c.get("accord_demande_le")}
                   for c in contacts]
         # Lot 78.1 — les utilisateurs suivis du client sont aussi des destinataires possibles
         suivis_docs = await db.tracked_users.find({"client_id": {"$in": ids}}, {
-            "_id": 0, "id": 1, "name": 1, "whatsapp_number": 1, "phone": 1,
+            "_id": 0, "id": 1, "name": 1, "whatsapp_number": 1, "phone": 1, "accord_demande_le": 1,
             "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(2000)
         suivis = [_ligne(t, t.get("name"), "Utilisateur suivi", t.get("whatsapp_number") or t.get("phone"))
                   for t in suivis_docs if t.get("id")]
@@ -907,17 +920,45 @@ def attach_carrousel_whatsapp_routes(
         """Une ligne de la liste des destinataires (même forme pour clients, suivis et contacts)."""
         return {"id": doc["id"], "nom": nom or "", "societe": societe or "", "telephone": telephone or "",
                 "accepte": bool(doc.get("accepte_whatsapp")), "accepte_le": doc.get("accepte_whatsapp_le"),
-                "moyen": doc.get("accepte_whatsapp_moyen")}   # lot 79 : bouton, mot-clé ou noté à la main
+                "moyen": doc.get("accepte_whatsapp_moyen"),   # lot 79 : bouton, mot-clé ou noté à la main
+                "demande_le": doc.get("accord_demande_le")}   # lot 168 : date de la dernière demande d'accord
 
     def _portees_admin(user: Optional[dict]) -> List[str]:
         """Lot 78.1 — « mes contacts » de l'administration : ceux rangés sous le compte admin connecté."""
         return [x for x in {(user or {}).get("id"), (user or {}).get("client_id")} if x]
 
-    async def _clients_admin(user: Optional[dict] = None) -> Dict[str, Any]:
+    async def _societes_admin() -> List[dict]:
+        """Lot 168 — les sociétés (comptes clients) qui possèdent des contacts, des utilisateurs suivis ou des groupes,
+        avec leurs effectifs : l'administration choisit une société pour en voir les groupes (ex. « Prospects publicités
+        Facebook » de SAWALI SMART SYSTEMS, invisible dans « mes contacts »). Les sous-comptes comptent pour leur parent."""
+        comptes = {c["id"]: c async for c in db.users.find(
+            {"role": {"$in": ROLES_CLIENTS}, "email": {"$nin": [COMPTE_PLATEFORME]}},
+            {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "parent_client_id": 1})}
+
+        def racine(cid: str) -> str:
+            return (comptes.get(cid) or {}).get("parent_client_id") or cid
+
+        effectifs: Dict[str, Dict[str, int]] = {}
+        for cle, coll in (("contacts", db.directory_contacts), ("suivis", db.tracked_users), ("groupes", db.contact_groups)):
+            async for d in coll.find({}, {"_id": 0, "client_id": 1}):
+                cid = d.get("client_id")
+                if cid in comptes:
+                    e = effectifs.setdefault(racine(cid), {"contacts": 0, "suivis": 0, "groupes": 0})
+                    e[cle] += 1
+        lignes = []
+        for rid, e in effectifs.items():
+            c = comptes.get(rid) or {}
+            lignes.append({"id": rid, "nom": c.get("company") or c.get("full_name") or c.get("email") or rid, **e})
+        return sorted(lignes, key=lambda x: x["nom"].lower())
+
+    async def _clients_admin(user: Optional[dict] = None, societe_id: Optional[str] = None) -> Dict[str, Any]:
         """Destinataires de l'administration SAWALI.
+        Lot 168 : avec `societe_id`, uniquement les contacts, utilisateurs suivis et groupes de cette société.
         Lot 78.1 : en plus des clients, les utilisateurs suivis (tracked_users) et les contacts
         de l'annuaire de l'administration ; des groupes « Clients », « Utilisateurs suivis »,
         « Mes contacts » et les groupes de contacts de l'administration permettent de tout cocher d'un clic."""
+        if societe_id:
+            return await _annuaire_pour_ids(await _ids_societe(societe_id))
         comptes = await db.users.find(_filtre_clients(), {
             "_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
             "whatsapp_number": 1, "phone": 1, "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1}).to_list(3000)
@@ -1019,6 +1060,8 @@ def attach_carrousel_whatsapp_routes(
             "statut": statut, "compte": {"total": len(destinataires), "envoyes": 0, "echecs": 0},
             # Lot 111 — identifiant public (page de présentation) et campagne de régie qui sponsorise
             "id_public": regie.nouvel_id_public(), "regie_id": regie_id,
+            # Lot 168 — société dont l'administration a utilisé les contacts : son superviseur voit alors le statut
+            "societe_id": ((envoi.societe_id or "").strip() or None) if perimetre == "admin" else None,
             # Lot 114 — programmation et reprise : date choisie, prochaine reprise, verrou d'envoi.
             # `reprenable` distingue les campagnes du lot 114 : seules elles sont reprises après un redémarrage
             # (une ancienne campagne restée « EN_COURS » ne repart jamais d'elle-même des semaines plus tard).
@@ -1580,11 +1623,30 @@ def attach_carrousel_whatsapp_routes(
 
     @api.get("/me/whatsapp/carrousel/campagnes", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagnes_portail(user: dict = Depends(utilisateur)):
-        return {"campagnes": await _campagnes({"perimetre": "client", "tenant_id": _tenant_id(user)})}
+        """Campagnes du client + (lot 168) celles que l'administration SAWALI a lancées avec les contacts de sa société :
+        le superviseur en voit le statut, sans pouvoir les annuler."""
+        ids = await visible_client_ids(user)
+        lignes = await _campagnes({"$or": [{"perimetre": "client", "tenant_id": _tenant_id(user)},
+                                           {"perimetre": "admin", "societe_id": {"$in": ids}}]})
+        for c in lignes:
+            if c.get("perimetre") == "admin":
+                c["annulable"] = False                       # lancée par l'administration : elle seule peut l'annuler
+        return {"campagnes": lignes}
 
     @api.get("/me/whatsapp/carrousel/campagnes/{cid}", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagne_portail(cid: str, user: dict = Depends(utilisateur)):
-        return await _campagne({"id": cid, "perimetre": "client", "tenant_id": _tenant_id(user)})
+        ids = await visible_client_ids(user)
+        return await _campagne({"id": cid, "$or": [{"perimetre": "client", "tenant_id": _tenant_id(user)},
+                                                   {"perimetre": "admin", "societe_id": {"$in": ids}}]})
+
+    @api.get("/me/whatsapp/carrousel/demandes-accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def demandes_accord_portail(user: dict = Depends(utilisateur)):
+        """Lot 168 — statut des demandes d'autorisation (modèle d'accord) lancées ou programmées par l'administration
+        SAWALI pour les contacts de la société de l'utilisateur. Lecture seule."""
+        ids = set(await visible_client_ids(user))
+        items = [i for i in await _items_prog() if i.get("societe_id") in ids]
+        items.sort(key=lambda i: i.get("programme_le") or "", reverse=True)
+        return {"demandes": [_vue_prog(i) for i in items]}
 
     @api.post("/me/whatsapp/carrousel/campagnes/{cid}/annuler", tags=["Portail Client — Carrousel WhatsApp"])
     async def annuler_portail(cid: str, user: dict = Depends(utilisateur)):
@@ -1699,7 +1761,7 @@ def attach_carrousel_whatsapp_routes(
                 "wa_accord_modele": data.modele, "wa_accord_modele_langue": data.langue}}, upsert=True)
         return {**resultat, "url_bouton": _url_bouton_accord()}
 
-    async def _executer_demande_accord(ids: List[str], user: dict) -> dict:
+    async def _executer_demande_accord(ids: List[str], user: dict, societe_id: Optional[str] = None) -> dict:
         """Lot 166 — envoie le modèle de demande d'accord (bouton → page /accord/<jeton>) aux personnes `ids`, chacune
         avec SON lien personnel (plus de saisie un à un). Lot 167 : appelée tout de suite OU à l'heure programmée
         (les garde-fous sont alors réévalués AU MOMENT de l'envoi). Garde-fous :
@@ -1722,7 +1784,7 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=409, detail=f"Le modèle « {nom_accord} » n'est pas encore approuvé par Meta "
                                                         f"(statut : {etat['statut']}).")
         voulus = set(ids)
-        personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
+        personnes = [c for c in (await _clients_admin(user, societe_id))["contacts"] if c["id"] in voulus]
         # État réel du consentement et dernière demande : « refusé » (False) se distingue de « jamais demandé » (None)
         etats: Dict[str, dict] = {}
         for coll in ("directory_contacts", "tracked_users", "users"):
@@ -1792,7 +1854,8 @@ def attach_carrousel_whatsapp_routes(
 
     def _vue_prog(it: dict) -> dict:
         """Ce que l'écran voit : sans la liste d'identifiants ni l'utilisateur interne."""
-        return {k: it.get(k) for k in ("id", "programme_le", "statut", "nb", "cree_le", "cree_par", "termine_le", "resultat", "motif")}
+        return {k: it.get(k) for k in ("id", "programme_le", "statut", "nb", "cree_le", "cree_par", "termine_le", "resultat",
+                                       "motif", "societe_id")}
 
     async def executer_accords_echus() -> int:
         """Lot 167 — lance les demandes d'accord dont l'heure est arrivée (appelée par le planificateur chaque minute).
@@ -1822,7 +1885,7 @@ def attach_carrousel_whatsapp_routes(
             lances += 1
             fin: Dict[str, Any] = {}
             try:
-                res = await _executer_demande_accord(it["ids"], it.get("utilisateur") or {})
+                res = await _executer_demande_accord(it["ids"], it.get("utilisateur") or {}, it.get("societe_id"))
                 fin = {"statut": "TERMINEE", "resultat": {"envoyees": res["envoyees"], "nb_echecs": res["nb_echecs"],
                                                           "ignores": res["ignores"]}}
             except HTTPException as exc:                     # ex. modèle pas (ou plus) approuvé : rien n'est envoyé
@@ -1841,7 +1904,7 @@ def attach_carrousel_whatsapp_routes(
         toute seule à cette heure (date passée refusée) ; sinon elle part tout de suite."""
         quand = await _programme(data.programme_le)
         if quand is None:
-            return await _executer_demande_accord(data.ids, user)
+            return await _executer_demande_accord(data.ids, user, data.societe_id)
         # Contrôles faits maintenant (message clair tout de suite) ; les garde-fous sont refaits à l'heure dite
         if len(data.ids) > DESTINATAIRES_MAX:
             raise HTTPException(status_code=400, detail=f"{DESTINATAIRES_MAX} personnes au plus par envoi")
@@ -1850,6 +1913,7 @@ def attach_carrousel_whatsapp_routes(
             raise HTTPException(status_code=409, detail="Créez d'abord le modèle d'accord chez Meta (Modèles Meta).")
         items = await _items_prog()
         item = {"id": uuid.uuid4().hex, "ids": list(dict.fromkeys(data.ids)), "nb": len(set(data.ids)),
+                "societe_id": (data.societe_id or "").strip() or None,        # lot 168 : visible du superviseur de la société
                 "programme_le": quand.isoformat(), "statut": "PROGRAMMEE", "cree_le": _maintenant(),
                 "cree_par": user.get("full_name") or user.get("email") or user.get("id"),
                 "utilisateur": {"id": user.get("id"), "client_id": user.get("client_id")}}
@@ -1907,14 +1971,14 @@ def attach_carrousel_whatsapp_routes(
     @api.post("/admin/whatsapp/carrousel/demande-accord", tags=["Admin — Carrousel WhatsApp"])
     async def demande_accord_admin(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
         voulus = set(data.ids)
-        personnes = [c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus]
+        personnes = [c for c in (await _clients_admin(user, data.societe_id))["contacts"] if c["id"] in voulus]
         return await _demander_accord(personnes, None)
 
     @api.post("/admin/whatsapp/carrousel/liens-accord", tags=["Admin — Carrousel WhatsApp"])
     async def liens_accord_admin(data: DemandeAccordIn, user: dict = Depends(get_current_admin)):
         """Lot 164 — liens d'accord personnels (page SAWALI) des clients demandés."""
         voulus = set(data.ids)
-        return {"liens": _liens_accord([c for c in (await _clients_admin(user))["contacts"] if c["id"] in voulus])}
+        return {"liens": _liens_accord([c for c in (await _clients_admin(user, data.societe_id))["contacts"] if c["id"] in voulus])}
 
     @api.get("/admin/whatsapp/carrousel/lien-accord", tags=["Admin — Carrousel WhatsApp"])
     async def lien_accord_admin(_: dict = Depends(get_current_admin)):
@@ -1953,8 +2017,14 @@ def attach_carrousel_whatsapp_routes(
         return await _retenir_image_ia(apercu_id, user["id"], user)
 
     @api.get("/admin/whatsapp/carrousel/destinataires", tags=["Admin — Carrousel WhatsApp"])
-    async def destinataires_admin(user: dict = Depends(get_current_admin)):
-        return await _clients_admin(user)
+    async def destinataires_admin(societe: Optional[str] = None, user: dict = Depends(get_current_admin)):
+        """Lot 168 — `?societe=<id>` : contacts, suivis et groupes de cette société (sinon « mes contacts » et clients)."""
+        return await _clients_admin(user, (societe or "").strip() or None)
+
+    @api.get("/admin/whatsapp/carrousel/societes", tags=["Admin — Carrousel WhatsApp"])
+    async def societes_admin(_: dict = Depends(get_current_admin)):
+        """Lot 168 — sociétés dont l'administration peut utiliser les groupes de contacts, avec leurs effectifs."""
+        return {"societes": await _societes_admin()}
 
     @api.put("/admin/whatsapp/carrousel/consentements", tags=["Admin — Carrousel WhatsApp"])
     async def consentements_admin(data: ConsentementIn, user: dict = Depends(get_current_admin)):
@@ -1969,7 +2039,7 @@ def attach_carrousel_whatsapp_routes(
 
     @api.post("/admin/whatsapp/carrousel/envoyer", status_code=202, tags=["Admin — Carrousel WhatsApp"])
     async def envoyer_admin(envoi: EnvoiIn, bg: BackgroundTasks, user: dict = Depends(get_current_admin)):
-        annuaire = await _clients_admin(user)
+        annuaire = await _clients_admin(user, (envoi.societe_id or "").strip() or None)
         # Lot 78.1 — les groupes cochés (Clients, Utilisateurs suivis, Mes contacts…) sont aussi pris en compte
         voulus = set(envoi.ids)
         for g in annuaire["groupes"]:

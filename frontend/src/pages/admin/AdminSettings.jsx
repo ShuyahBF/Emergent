@@ -1279,6 +1279,12 @@ export default function AdminSettings() {
             toute seule à l'heure choisie (vérification chaque minute, plages horaires d'envoi respectées) et les garde-fous sont refaits à ce moment-là.
             Les demandes programmées s'affichent sous les boutons, avec « Annuler » tant qu'elles ne sont pas parties.
           </p>
+          {/* Lot 168 — contacts et groupes par société */}
+          <p className="rounded-md bg-violet-50 p-2 text-xs text-violet-900 ring-1 ring-violet-200" data-testid="note-societes-carrousel">
+            <b>Par société (lot 168) :</b> sur « Carrousel WhatsApp », le sélecteur « Société » affiche les contacts, utilisateurs suivis et groupes
+            d'une société (ex. « Prospects publicités Facebook » de SAWALI SMART SYSTEMS). L'administration coche groupes ou personnes puis envoie ou
+            programme la demande d'autorisation ou le carrousel ; le superviseur de la société en voit les statuts, sans pouvoir les modifier.
+          </p>
           <p className="text-xs text-slate-500">
             Sur la page « Carrousel WhatsApp », chaque carte libre propose « Générer l'image avec l'IA » : une description,
             le bouton « Générer » (aperçu), puis « Utiliser cette image », qui l'enregistre et place son adresse dans la carte.

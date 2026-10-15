@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "175", "date": "2026-10-15",
+        "titre": "💱 Services à renouveler : montants aussi en FCFA",
+        "description": "Chaque montant en dollars ou en euros est accompagné de son équivalent en FCFA (par ligne, par mois, par an, par plateforme et par cluster). Les taux de change se règlent dans « Modifier la liste » (euro 655,957 fixe ; dollar à mettre à jour).",
+        "rubrique": "💳 Services à renouveler — coûts",
+    },
+    {
         "lot": "174", "date": "2026-10-15",
         "titre": "🔧 Cloudflare R2 : la lecture automatique fonctionne",
         "description": "Dans « Services à renouveler », la lecture de Cloudflare R2 échouait (« cannot order by datetime ») ; la requête est corrigée et l'estimation du mois s'affiche.",

@@ -1975,6 +1975,25 @@ async def whatsapp_webhook_incoming(request: Request):
                             except Exception:  # noqa: BLE001
                                 logger.warning("[accord_wa] bouton du modèle non traité", exc_info=True)
                             continue
+                        # Lot 206 — clic sur un bouton (« Confirmer », « Oui »…) d'une DEMANDE D'ACCORD envoyée par SAWALI :
+                        # le message cité (context.id) est retrouvé dans les envois journalisés ; l'accord (ou le refus) est noté
+                        try:
+                            _cite = (msg.get("context") or {}).get("id") or (msg.get("context") or {}).get("message_id")
+                            if _cite:
+                                from routes.accord_whatsapp import sens_bouton as _sens_bouton, noter_accord as _noter_accord, \
+                                    demande_recente as _demande_recente, REPONSE_OUI as _REP_OUI, REPONSE_NON as _REP_NON
+                                _sens = _sens_bouton(text_body)
+                                _origine = await db.whatsapp_messages.find_one(
+                                    {"$or": [{"wa_message_id": _cite}, {"message_id": _cite}], "accord_demande": True}, {"_id": 1})
+                                # Demande envoyée avant la journalisation des envois : une demande d'accord de moins de 7 jours suffit
+                                if not _origine and _sens is not None:
+                                    _origine = await _demande_recente(db, digits_only)
+                                if _origine and _sens is not None:
+                                    await _noter_accord(db, digits_only, _sens, numero_recu=None, moyen="bouton")
+                                    await _wa_send_text(from_num, _REP_OUI if _sens else _REP_NON)
+                                    continue
+                        except Exception:  # noqa: BLE001 — ne bloque jamais la réception
+                            logger.warning("[accord_wa] clic sur la demande d'accord non traité", exc_info=True)
                         # S025 — Intercept download-approval button payloads
                         try:
                             if await _dl_handle_button_payload(db=db, payload=btn.get("payload") or "", from_phone=digits_only):
@@ -2709,10 +2728,14 @@ async def whatsapp_webhook_incoming(request: Request):
                         ar_result = {"ok": False, "reason": "relais_plateforme"}
                     elif skip_autoreply or hr_handled:
                         ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
-                    elif (mtype != "text" or not text_body) and not (
-                            # Lot 200 — clic sur un bouton (modèle, message interactif) non traité plus haut : Liluvine remercie
-                            mtype in ("button", "interactive") and text_body and not flow_reply
-                            and (msg.get("interactive") or {}).get("type") != "call_permission_reply"):
+                    elif mtype in ("button", "interactive") and text_body and not flow_reply \
+                            and (msg.get("interactive") or {}).get("type") != "call_permission_reply":
+                        # Lots 200/207 — TOUT clic sur un bouton (d'un modèle, d'un carrousel, d'un sondage, d'une requête…) non traité
+                        # plus haut reçoit un accusé de réception immédiat et déterministe (sans l'IA, sans condition de prise en main)
+                        from routes.wa_clic_bouton import accuser_clic as _accuser_clic
+                        _s_clic = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_wa_clic_bouton_reponse": 1}) or {}
+                        ar_result = await _accuser_clic(db, inbound_doc=doc, wa_send_text=_wa_send_text, reglages=_s_clic)
+                    elif mtype != "text" or not text_body:
                         ar_result = {"ok": False, "reason": "non_text_message", "message_type": mtype}
                     else:
                         ar_result = None

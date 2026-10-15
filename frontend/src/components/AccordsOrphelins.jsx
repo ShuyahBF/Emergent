@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 
 const champ = "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs";
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
-const MOYENS = { bouton: "bouton « Confirmer »", "mot-clé": "mot-clé", lien: "lien d'accord" };
+const MOYENS = { bouton: "bouton de la demande d'accord", "mot-clé": "mot-clé", lien: "lien d'accord" };
 
 export default function AccordsOrphelins() {
   const [donnees, setDonnees] = useState(null);          // {orphelins, clients, campagnes}
@@ -25,6 +25,7 @@ export default function AccordsOrphelins() {
   const [campagne, setCampagne] = useState("");          // carrousel à envoyer ("" = rattacher seulement)
   const [occupe, setOccupe] = useState(false);
 
+  const [coches, setCoches] = useState({});            // lot 206 : clics à valider cochés (téléphone → true)
   const lire = useCallback(async () => {
     try {
       const { data } = await apiClient.get("/admin/whatsapp/carrousel/accords-orphelins");
@@ -35,7 +36,8 @@ export default function AccordsOrphelins() {
   }, []);
   useEffect(() => { lire(); }, [lire]);
 
-  if (!donnees || donnees.orphelins.length === 0) return null;     // rien à rattacher : l'encart n'apparaît pas
+  const clics = donnees?.clics || [];
+  if (!donnees || (donnees.orphelins.length === 0 && clics.length === 0)) return null;   // rien à traiter : l'encart n'apparaît pas
 
   const maj = (tel, patch) => setChoix((c) => ({ ...c, [tel]: { ...c[tel], ...patch } }));
   const cochees = donnees.orphelins.filter((o) => choix[o.telephone]?.coche);
@@ -43,6 +45,31 @@ export default function AccordsOrphelins() {
   const appliquerClient = (id) => {
     setClientTous(id);
     setChoix((c) => Object.fromEntries(Object.entries(c).map(([t, x]) => [t, x.coche ? { ...x, client_id: id } : x])));
+  };
+
+  // Lot 206 — clics « Confirmer » reçus sans accord noté : validation en UNE fois (accord noté + carrousel envoyé)
+  const clicsCoches = clics.filter((c) => coches[c.telephone]);
+  const validerClics = async (envoyer) => {
+    if (clicsCoches.length === 0) { toast.error("Cochez au moins une personne."); return; }
+    if (envoyer && !campagne) { toast.error("Choisissez le carrousel à envoyer."); return; }
+    if (!window.confirm(`Ces ${clicsCoches.length} personne(s) ont cliqué sur le bouton de la demande d'accord. Valider leur accord`
+      + (envoyer ? " et leur envoyer le carrousel" : "") + " ?")) return;
+    setOccupe(true);
+    const attente = toast.loading("Patientez… validation des accords" + (envoyer ? " et envoi du carrousel" : ""));
+    try {
+      const { data } = await apiClient.post("/admin/whatsapp/carrousel/clics-a-valider/valider", {
+        telephones: clicsCoches.map((c) => c.telephone), campagne_id: envoyer ? campagne : null,
+      }, { timeout: 60000 });
+      const msg = [`${data.valides.length} accord(s) validé(s)`];
+      if (data.envoi?.destinataires) msg.push(`carrousel en cours d'envoi à ${data.envoi.destinataires} personne(s)`);
+      if (data.envoi?.erreur) toast.error(data.envoi.erreur);
+      if (data.sans_fiche) msg.push(`${data.sans_fiche} sans fiche : choisissez leur client plus bas`);
+      toast.success(msg.join(" ; "), { id: attente });
+      setCoches({});
+      await lire();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Validation impossible", { id: attente });
+    } finally { setOccupe(false); }
   };
 
   const valider = async (envoyer) => {
@@ -68,7 +95,53 @@ export default function AccordsOrphelins() {
     } finally { setOccupe(false); }
   };
 
+  const selecteurCampagne = (
+    <select className={`${champ} max-w-[18rem]`} value={campagne} onChange={(e) => setCampagne(e.target.value)} data-testid="orphelins-campagne">
+      <option value="">— Carrousel à envoyer —</option>
+      {donnees.campagnes.map((c) => <option key={c.id} value={c.id}>{dateFr(c.cree_le)} · {c.libelle || "(sans message)"} ({c.total})</option>)}
+    </select>
+  );
+  const blocClics = clics.length > 0 && (
+    <div className="space-y-2 rounded-md border border-emerald-300 bg-emerald-50/70 p-3 text-xs text-slate-700" data-testid="clics-a-valider">
+      <p className="font-semibold text-emerald-900">
+        ✅ {clics.length} personne(s) ont cliqué sur « Confirmer » mais leur accord n'est pas noté
+      </p>
+      <p>Validez-les d'un coup au lieu de les chercher une à une : l'accord est noté sur leur fiche avec la date du clic.</p>
+      <div className="max-h-56 overflow-y-auto rounded-md border border-emerald-200 bg-white">
+        <table className="w-full text-xs">
+          <tbody>
+            {clics.map((c) => (
+              <tr key={c.telephone} className="border-t border-slate-100" aria-selected={coches[c.telephone] ? "true" : undefined}>
+                <td className="px-2 py-1"><input type="checkbox" checked={!!coches[c.telephone]} onChange={(e) => setCoches((x) => ({ ...x, [c.telephone]: e.target.checked }))} /></td>
+                <td className="px-2 py-1 font-medium">{c.nom || "(sans nom)"}</td>
+                <td className="px-2 py-1 font-mono">+{c.telephone}</td>
+                <td className="px-2 py-1 text-slate-500">« {c.texte} » · {dateFr(c.le)}</td>
+                <td className="px-2 py-1">{c.sans_fiche ? <span className="text-amber-700">sans fiche</span> : <span className="text-emerald-700">fiche trouvée</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={clicsCoches.length === clics.length} onChange={(e) => setCoches(Object.fromEntries(clics.map((c) => [c.telephone, e.target.checked])))} data-testid="clics-tout" />
+          Tout cocher
+        </label>
+        {selecteurCampagne}
+        <Button type="button" size="sm" disabled={occupe || clicsCoches.length === 0} onClick={() => validerClics(true)} data-testid="clics-valider-envoyer">
+          Valider {clicsCoches.length ? `(${clicsCoches.length}) ` : ""}et envoyer le carrousel
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={occupe || clicsCoches.length === 0} onClick={() => validerClics(false)} data-testid="clics-valider">
+          Valider seulement
+        </Button>
+      </div>
+    </div>
+  );
+  if (donnees.orphelins.length === 0) return <div className="space-y-2">{blocClics}</div>;
+
   return (
+    <div className="space-y-2">
+    {blocClics}
     <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50/60 p-3 text-xs text-slate-700" data-testid="accords-orphelins">
       <p className="font-semibold text-amber-900">
         ⚠ {donnees.orphelins.length} personne(s) ont accepté mais n'ont aucune fiche (numéro changé ?)
@@ -114,10 +187,7 @@ export default function AccordsOrphelins() {
         </table>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select className={`${champ} max-w-[18rem]`} value={campagne} onChange={(e) => setCampagne(e.target.value)} data-testid="orphelins-campagne">
-          <option value="">— Carrousel à envoyer —</option>
-          {donnees.campagnes.map((c) => <option key={c.id} value={c.id}>{dateFr(c.cree_le)} · {c.libelle || "(sans message)"} ({c.total})</option>)}
-        </select>
+        {selecteurCampagne}
         <Button type="button" size="sm" disabled={occupe || cochees.length === 0} onClick={() => valider(true)} data-testid="orphelins-rattacher-envoyer">
           Rattacher {cochees.length ? `(${cochees.length}) ` : ""}et envoyer le carrousel
         </Button>
@@ -125,6 +195,7 @@ export default function AccordsOrphelins() {
           Rattacher seulement
         </Button>
       </div>
+    </div>
     </div>
   );
 }

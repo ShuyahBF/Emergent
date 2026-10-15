@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("sawali.carrousel_accords_orphelins")
@@ -123,3 +123,95 @@ async def rattacher(db, items: List[Dict[str, Any]], clients_valides: Dict[str, 
             crees.append({"id": fiche["id"], "nom": fiche["name"], "telephone": o["telephone"], "client_id": cid,
                           "client": clients_valides[cid]})
     return {"crees": crees, "refuses": refuses}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 206 — clics sur un bouton (« Confirmer »…) reçus MAIS jamais transformés en accord (ex. les réponses du matin du
+# 15/10/2026 : le webhook ne reconnaissait que les boutons à identifiant « accord_wa:… »). Rattrapage en UN clic, au lieu
+# de chercher chaque contact à la main : la personne a cliqué, l'administrateur contrôle la liste et la valide.
+# ---------------------------------------------------------------------------------------------------------------------
+JOURS_CLICS = 45          # clics relus (les plus récents d'abord) ; au-delà, l'accord se redemande
+
+
+async def _fiches_par_numero(db, fins: set) -> Dict[str, List[Dict[str, Any]]]:
+    """{fin de numéro → fiches qui le portent} : contacts, utilisateurs suivis, comptes (une lecture par collection)."""
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for coll, nom_champ, champs in (("directory_contacts", "name", ("whatsapp", "phone", "phone_digits")),
+                                    ("tracked_users", "name", ("whatsapp_number", "phone")),
+                                    ("users", "full_name", ("whatsapp_number", "phone"))):
+        proj = {"_id": 0, "id": 1, "client_id": 1, "accepte_whatsapp": 1, nom_champ: 1, **{c: 1 for c in champs}}
+        async for d in db[coll].find({}, proj):
+            for f in {fin8(d.get(c)) for c in champs}:
+                if f in fins:
+                    out.setdefault(f, []).append({"coll": coll, "id": d.get("id"), "nom": d.get(nom_champ) or "",
+                                                  "client_id": d.get("client_id"), "accepte": bool(d.get("accepte_whatsapp")),
+                                                  "numero": next((d[c] for c in champs if d.get(c)), "")})
+    return out
+
+
+async def clics_a_valider(db) -> List[Dict[str, Any]]:
+    """Personnes dont le DERNIER clic sur un bouton positif n'a donné aucun accord : [{telephone, nom, le, texte, fiches,
+    sans_fiche}]. Exclues : clic suivi d'une décision enregistrée (accord ou retrait), fiches déjà toutes en accord."""
+    from routes.accord_whatsapp import sens_bouton
+    depuis = (datetime.now(timezone.utc) - timedelta(days=JOURS_CLICS)).isoformat()
+    clics: Dict[str, Dict[str, Any]] = {}
+    async for m in db.whatsapp_messages.find(
+            {"direction": "inbound", "message_type": "button", "created_at": {"$gte": depuis}},
+            {"_id": 0, "phone_digits": 1, "body": 1, "created_at": 1, "received_at": 1, "from_profile_name": 1}).sort("created_at", 1):
+        f = fin8(m.get("phone_digits"))
+        if len(f) == 8:
+            clics[f] = {"telephone": chiffres(m.get("phone_digits")), "texte": m.get("body") or "", "sens": sens_bouton(m.get("body")),
+                        "le": m.get("received_at") or m.get("created_at"), "profil": m.get("from_profile_name") or ""}
+    clics = {f: c for f, c in clics.items() if c["sens"] is True}      # le dernier clic est positif
+    if not clics:
+        return []
+    decisions: Dict[str, str] = {}
+    async for e in db.accords_whatsapp_journal.find({"tenant_id": None}, {"_id": 0, "telephone": 1, "le": 1}):
+        f = fin8(e.get("telephone"))
+        if f in clics and (e.get("le") or "") > decisions.get(f, ""):
+            decisions[f] = e["le"]
+    restants = {f: c for f, c in clics.items() if (decisions.get(f) or "") < (c["le"] or "")}
+    fiches = await _fiches_par_numero(db, set(restants))
+    lignes = []
+    for f, c in restants.items():
+        fs = fiches.get(f, [])
+        if fs and all(x["accepte"] for x in fs):
+            continue
+        lignes.append({"telephone": c["telephone"], "nom": (fs[0]["nom"] if fs else "") or c["profil"], "le": c["le"],
+                       "texte": c["texte"], "fiches": [{"id": x["id"], "coll": x["coll"], "nom": x["nom"]} for x in fs],
+                       "sans_fiche": not fs})
+    lignes.sort(key=lambda x: x.get("le") or "", reverse=True)
+    return lignes[:MAX_LIGNES]
+
+
+async def valider_clics(db, telephones: List[str], par: str) -> Dict[str, Any]:
+    """Note l'accord (date du clic, moyen « bouton ») sur TOUTES les fiches portant le numéro des personnes choisies et trace
+    la validation dans le journal. Les personnes sans fiche rejoignent la liste « accords sans fiche ». Renvoie
+    {valides: [{telephone, nom, fiche: {id, nom, telephone}|None}], ignores}."""
+    voulus = {fin8(t) for t in telephones if len(fin8(t)) == 8}
+    candidats = {fin8(c["telephone"]): c for c in await clics_a_valider(db)}
+    valides, ignores = [], 0
+    for f in voulus:
+        c = candidats.get(f)
+        if not c:
+            ignores += 1
+            continue
+        moyen = f"bouton « {c['texte']} »"
+        maj = {"accepte_whatsapp": True, "accepte_whatsapp_le": c["le"], "accepte_whatsapp_moyen": moyen,
+               "accepte_whatsapp_par": f"la personne elle-même ({moyen}) — validé par {par}"}
+        fiches = await _fiches_par_numero(db, {f})
+        n = 0
+        for x in fiches.get(f, []):
+            r = await db[x["coll"]].update_one({"id": x["id"]}, {"$set": maj})
+            n += r.modified_count
+        await db.accords_whatsapp_journal.insert_one({
+            "telephone": c["telephone"], "accepte": True, "moyen": "bouton", "numero_recu": None, "tenant_id": None,
+            "fiches": n, "le": c["le"], "type": "validation_clic", "par": par,
+            "note_le": datetime.now(timezone.utc).isoformat()})
+        # Une fiche suffit pour l'envoi : contact de l'annuaire d'abord, puis utilisateur suivi, puis compte
+        ordre = {"directory_contacts": 0, "tracked_users": 1, "users": 2}
+        choisie = sorted(fiches.get(f, []), key=lambda x: ordre[x["coll"]])[:1]
+        valides.append({"telephone": c["telephone"], "nom": c["nom"],
+                        "fiche": ({"id": choisie[0]["id"], "nom": choisie[0]["nom"], "telephone": choisie[0]["numero"] or c["telephone"]}
+                                  if choisie else None)})
+    return {"valides": valides, "ignores": ignores}

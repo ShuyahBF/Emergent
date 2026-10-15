@@ -199,6 +199,14 @@ async def _is_prospect_sender(db, contact: Optional[Dict[str, Any]]) -> bool:
     return any(str(t).strip().lower() == "prospect" for t in (tags or []))
 
 
+def offre_du_client_applicable(is_prospect: bool, platform_tenant: bool) -> bool:
+    """Lot 178 — l'offre du client (lot 163) concerne les CLIENTS DE SAWALI qui écrivent sur la ligne de la plateforme SAWALI
+    (tenant admin / superviseur) : c'est là que le contact est relié à son client (société, e-mail, téléphone). Avant, la
+    condition était inversée (tout SAUF la plateforme) : l'offre n'était jamais injectée et Liluvine redemandait « de quel
+    logiciel s'agit-il ? ». Un prospect n'a pas d'offre. Fonction pure."""
+    return bool(platform_tenant) and not is_prospect
+
+
 def _is_platform_tenant(tenant_doc: Dict[str, Any]) -> bool:
     """Lot 21 — Le tenant est le compte de la plateforme SAWALI (admin ou
     superviseur), et non un client : il n'a pas de contrat avec lui-même, les
@@ -950,7 +958,7 @@ async def autoreply_to_inbound(
     # son offre (plus de questions inutiles) et, si le contrat du client n'est pas à jour, REFUSE l'assistance demandée
     # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
     offre_bloc = ""
-    if not is_prospect and not platform_tenant:
+    if offre_du_client_applicable(is_prospect, platform_tenant):
         try:
             from routes import offre_client as _offre
             client_lie = await _offre.client_du_contact(db, contact)

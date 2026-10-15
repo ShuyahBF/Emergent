@@ -256,36 +256,85 @@ def totaux(lignes: List[Dict[str, Any]], taux: Optional[Dict[str, float]] = None
 # Lectures automatiques (jamais bloquantes : une erreur est gardée avec son message, sans clé ni identifiant)
 # ---------------------------------------------------------------------------------------------------------------------
 def analyser_facture_atlas(facture: Dict[str, Any]) -> Dict[str, Any]:
-    """Facture en cours d'Atlas (montants en centimes) → montant par cluster. Tolérant : un champ absent vaut zéro."""
-    par_cluster: Dict[str, float] = {}
+    """Facture en cours d'Atlas (montants en centimes) → montant par cluster (avec son projet). Tolérant : un champ absent vaut zéro."""
+    par_cluster: Dict[tuple, float] = {}
     for it in facture.get("lineItems") or []:
-        nom = _texte(it.get("clusterName"), 60) or _texte(it.get("groupName"), 60) or "Sans cluster"
-        par_cluster[nom] = par_cluster.get(nom, 0.0) + float(it.get("totalPriceCents") or 0) / 100
-    clusters = [{"nom": n, "montant": round(m, 2)} for n, m in sorted(par_cluster.items(), key=lambda x: -x[1])]
+        groupe = _texte(it.get("groupName"), 60)
+        nom = _texte(it.get("clusterName"), 60) or groupe or "Sans cluster"
+        cle = (groupe, nom)
+        par_cluster[cle] = par_cluster.get(cle, 0.0) + float(it.get("totalPriceCents") or 0) / 100
+    clusters = [{"nom": n, "groupe": g, "montant": round(m, 2)} for (g, n), m in sorted(par_cluster.items(), key=lambda x: -x[1])]
     total = round(sum(c["montant"] for c in clusters), 2)
     return {"devise": "USD", "total": total, "clusters": clusters, "periode_du": _texte(facture.get("startDate"), 25),
             "periode_au": _texte(facture.get("endDate"), 25)}
 
 
+# Organisations Atlas lues (lot 177) : la 1re avec ATLAS_API_PUBLIC_KEY / ATLAS_API_PRIVATE_KEY / ATLAS_ORG_ID, les suivantes avec le
+# suffixe _2, _3 (une clé d'API Atlas ne vaut que pour UNE organisation).
+SUFFIXES_ATLAS = ("", "_2", "_3")
+
+
+def organisations_atlas() -> List[Dict[str, str]]:
+    """Organisations dont les trois variables sont saisies, dans l'ordre (rang 1, 2, 3)."""
+    sortie = []
+    for rang, suf in enumerate(SUFFIXES_ATLAS, start=1):
+        pub, priv, org = (os.environ.get(f"{k}{suf}", "").strip() for k in ("ATLAS_API_PUBLIC_KEY", "ATLAS_API_PRIVATE_KEY", "ATLAS_ORG_ID"))
+        if pub and priv and org:
+            sortie.append({"rang": str(rang), "pub": pub, "priv": priv, "org": org})
+    return sortie
+
+
+def fusionner_clusters(listes: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Clusters de plusieurs organisations dans une seule liste. Un nom porté par plusieurs clusters (ex. deux « Cluster0 »)
+    devient « projet · cluster » pour que chaque ligne reste distincte ; les autres noms sont inchangés. Fonction pure."""
+    tous = [dict(c) for liste in listes for c in liste]
+    effectifs: Dict[str, int] = {}
+    for c in tous:                       # comptage AVANT tout renommage, sinon le 2e doublon ne se verrait plus
+        effectifs[c["nom"]] = effectifs.get(c["nom"], 0) + 1
+    for c in tous:
+        if effectifs[c["nom"]] > 1:
+            c["nom"] = f"{c.get('groupe') or 'projet'} · {c['nom']}"
+    return sorted(tous, key=lambda c: -c["montant"])
+
+
 async def lire_atlas(client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
-    """Facture EN COURS de l'organisation Atlas (clés d'API en variables d'environnement). Ne lève jamais."""
-    pub, priv, org = (os.environ.get(k, "").strip() for k in ("ATLAS_API_PUBLIC_KEY", "ATLAS_API_PRIVATE_KEY", "ATLAS_ORG_ID"))
+    """Facture EN COURS des organisations Atlas (clés d'API en variables d'environnement). Ne lève jamais.
+    Si une organisation échoue et pas les autres : les clusters lus sont gardés et l'échec est signalé en « avertissement »."""
     le = _maintenant().isoformat()
-    if not (pub and priv and org):
+    organisations = organisations_atlas()
+    if not organisations:
         return {"le": le, "erreur": "Clés Atlas non saisies (ATLAS_API_PUBLIC_KEY, ATLAS_API_PRIVATE_KEY, ATLAS_ORG_ID sur Render)"}
+    plusieurs = len(organisations) > 1
     propre = client is None
     http = client or httpx.AsyncClient(timeout=30)
+    clusters_lus: List[List[Dict[str, Any]]] = []
+    problemes: List[str] = []
+    periode: Dict[str, Any] = {}
     try:
-        r = await http.get(f"https://cloud.mongodb.com/api/atlas/v2/orgs/{org}/invoices/pending",
-                           headers={"Accept": "application/vnd.atlas.2023-01-01+json"}, auth=httpx.DigestAuth(pub, priv))
-        if r.status_code >= 300:
-            return {"le": le, "erreur": f"Atlas a refusé la lecture (HTTP {r.status_code}) : vérifiez les clés et le droit « Organization Billing Viewer »"}
-        return {"le": le, "erreur": None, **analyser_facture_atlas(r.json() or {})}
-    except Exception as exc:  # noqa: BLE001 — réseau, JSON illisible… : on le dit sans détail sensible
-        return {"le": le, "erreur": f"Lecture d'Atlas impossible ({type(exc).__name__})"}
+        for o in organisations:
+            etiquette = f"organisation {o['rang']} : " if plusieurs else ""
+            try:
+                r = await http.get(f"https://cloud.mongodb.com/api/atlas/v2/orgs/{o['org']}/invoices/pending",
+                                   headers={"Accept": "application/vnd.atlas.2023-01-01+json"}, auth=httpx.DigestAuth(o["pub"], o["priv"]))
+                if r.status_code >= 300:
+                    problemes.append(f"{etiquette}Atlas a refusé la lecture (HTTP {r.status_code}) : vérifiez les clés, le droit « Organization Billing Viewer » et la liste d'accès")
+                    continue
+                lu = analyser_facture_atlas(r.json() or {})
+                clusters_lus.append(lu["clusters"])
+                periode = periode or lu
+            except Exception as exc:  # noqa: BLE001 — réseau, JSON illisible… : on le dit sans détail sensible
+                problemes.append(f"{etiquette}lecture d'Atlas impossible ({type(exc).__name__})")
     finally:
         if propre:
             await http.aclose()
+    if not clusters_lus:
+        return {"le": le, "erreur": " ; ".join(problemes)}
+    clusters = fusionner_clusters(clusters_lus)
+    resultat = {"le": le, "erreur": None, "devise": "USD", "total": round(sum(c["montant"] for c in clusters), 2), "clusters": clusters,
+                "periode_du": periode.get("periode_du", ""), "periode_au": periode.get("periode_au", "")}
+    if problemes:
+        resultat["avertissement"] = " ; ".join(problemes)
+    return resultat
 
 
 def estimer_r2(stockage_go: float, operations_a: int, operations_b: int) -> Dict[str, Any]:
@@ -466,7 +515,7 @@ def setup_services_renouveler_routes(*, db, api, get_current_admin) -> None:
         # Toutes les plateformes connues (lignes et clusters) : propose les cases de la liste et du tableau « par plateforme »
         plateformes = sorted({p for s in etat["services"] for p in s["plateformes"]} | {p for ps in etat["clusters"].values() for p in ps})
         return {"lignes": lignes, "totaux": totaux(lignes, etat["taux"]), "taux": etat["taux"], "services": etat["services"], "clusters": etat["clusters"],
-                "plateformes": plateformes, "lectures": {k: {"le": v.get("le"), "erreur": v.get("erreur")} for k, v in lectures.items()},
+                "plateformes": plateformes, "lectures": {k: {"le": v.get("le"), "erreur": v.get("erreur"), "avertissement": v.get("avertissement")} for k, v in lectures.items()},
                 "periodicites": list(PERIODICITES), "le": _maintenant().isoformat()}
 
     @api.get("/admin/services-renouveler", tags=["Admin — Services à renouveler"])

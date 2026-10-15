@@ -110,6 +110,7 @@ export default function ServicesRenouvelerSection() {
           </span>
         ))}
       </div>
+      {lectures.filter(([, l]) => l.avertissement).map(([nom, l]) => <p key={`av-${nom}`} className="rounded-md bg-amber-50 p-2 text-xs text-amber-800 ring-1 ring-amber-200">⚠ Lecture partielle ({nom === "atlas" ? "Atlas" : "Cloudflare R2"}) : {l.avertissement}</p>)}
       {lectures.filter(([, l]) => l.erreur).map(([nom, l]) => <p key={nom} className="rounded-md bg-rose-50 p-2 text-xs text-rose-800 ring-1 ring-rose-200">⚠ {nom === "atlas" ? "Atlas" : "Cloudflare R2"} : {l.erreur}. Le montant saisi reste affiché.</p>)}
 
       {/* Totaux du mois et de l'année (lignes actives) */}
@@ -224,7 +225,7 @@ export default function ServicesRenouvelerSection() {
         </div>
       )}
       <p className="text-xs text-slate-500">
-        Clés à saisir sur Render (jamais ici) — Atlas : <code>ATLAS_API_PUBLIC_KEY</code>, <code>ATLAS_API_PRIVATE_KEY</code>, <code>ATLAS_ORG_ID</code> (droit « Organization Billing Viewer ») ;
+        Clés à saisir sur Render (jamais ici) — Atlas : <code>ATLAS_API_PUBLIC_KEY</code>, <code>ATLAS_API_PRIVATE_KEY</code>, <code>ATLAS_ORG_ID</code> (droit « Organization Billing Viewer »). Une 2ᵉ organisation Atlas se lit avec les mêmes noms suffixés <code>_2</code> (<code>ATLAS_API_PUBLIC_KEY_2</code>, <code>ATLAS_API_PRIVATE_KEY_2</code>, <code>ATLAS_ORG_ID_2</code>), une 3ᵉ avec <code>_3</code> ;
         Cloudflare : <code>CLOUDFLARE_API_TOKEN</code>, <code>CLOUDFLARE_ACCOUNT_ID</code> (droit de lecture des analyses). L'estimation R2 suit les tarifs publics (10 Go gratuits, 0,015 $/Go/mois).
       </p>
     </div>

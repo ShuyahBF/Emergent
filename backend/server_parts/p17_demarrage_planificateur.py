@@ -1378,6 +1378,24 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            # Lot 170 — services à renouveler : chaque matin, relecture d'Atlas et de Cloudflare R2 (si la lecture date de plus de
+            # 6 h) puis rappels WhatsApp d'échéance (30, 7, 1 et 0 jour avant), une seule fois par palier
+            async def _scheduled_services_renouveler():
+                try:
+                    from routes.services_renouveler import lire_auto as _lire_services, rappeler as _rappeler_services
+                    await _lire_services(db)
+                    envoyes = await _rappeler_services(db)
+                    if envoyes:
+                        logger.info("[services_renouveler] %s rappel(s) d'échéance envoyé(s)", envoyes)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[services_renouveler] tâche quotidienne en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_services_renouveler,
+                CronTrigger(hour=7, minute=20, timezone="Africa/Abidjan"),
+                id="services_renouveler_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Lot 96 — page Facebook animée par Liluvine : préparation aux jours et à l'heure choisis
             async def _scheduled_fb_animation():
                 try:

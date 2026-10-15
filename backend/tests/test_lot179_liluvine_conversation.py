@@ -48,3 +48,12 @@ def test_historique_rejoue_au_modele_lot182():
     fusion = historique_pour_llm([{"role": "user", "content": "a"}, {"role": "user", "content": "b"}, {"role": "assistant", "content": "c"}])
     assert fusion == [{"role": "user", "content": "a\nb"}, {"role": "assistant", "content": "c"}]
     assert len(historique_pour_llm([{"role": "user", "content": "x" * 5000}, {"role": "assistant", "content": "y"}])[0]["content"]) == 1200
+
+
+def test_prompt_selon_contrat_lot183():
+    from routes.liluvine_wa_autoreply import prompt_selon_contrat
+    s = {"liluvine_wa_client_prompt": " À JOUR ", "liluvine_wa_client_retard_prompt": "RETARD"}
+    assert prompt_selon_contrat(s, "valide") == "À JOUR"
+    assert prompt_selon_contrat(s, "retard") == "RETARD" and prompt_selon_contrat(s, "aucun") == "RETARD"
+    assert prompt_selon_contrat(s, None) == "" and prompt_selon_contrat(s, "inconnu") == ""   # état inconnu : prompt du compte
+    assert prompt_selon_contrat({}, "valide") == "" and prompt_selon_contrat(None, "retard") == ""

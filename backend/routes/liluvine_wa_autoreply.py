@@ -105,6 +105,14 @@ def delai_anti_repetition(valeur: Any) -> int:
         return COOLDOWN_DEFAUT_SECONDS
 
 
+def prompt_selon_contrat(settings_doc: Optional[Dict[str, Any]], etat: Optional[str]) -> str:
+    """Lot 183 — prompt réglé pour un client dont le contrat est « valide » ou en « retard » / « aucun » ; vide si l'état
+    est inconnu ou si le prompt n'est pas rempli (le prompt du compte s'applique alors). Fonction pure."""
+    cle = {"valide": "liluvine_wa_client_prompt", "retard": "liluvine_wa_client_retard_prompt",
+           "aucun": "liluvine_wa_client_retard_prompt"}.get(str(etat or ""))
+    return str((settings_doc or {}).get(cle) or "").strip() if cle else ""
+
+
 HISTORIQUE_MAX_MESSAGES = 12      # derniers échanges rejoués au modèle
 HISTORIQUE_HEURES = 12            # au-delà, on repart d'une conversation neuve
 HISTORIQUE_MAX_CARACTERES = 1200  # par message rejoué
@@ -1024,6 +1032,7 @@ async def autoreply_to_inbound(
     # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
     offre_bloc = ""
     client_lie = None   # lot 181 : client relié au contact (ticket du classement)
+    etat_contrat_cl = None   # lot 183 : « valide » | « retard » | « aucun » (prompt propre à chaque cas)
     # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
     # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
     offre_statut = "prospect" if is_prospect else ("ligne_non_plateforme" if not platform_tenant else "contact_sans_client")
@@ -1036,6 +1045,7 @@ async def autoreply_to_inbound(
                 offre_statut = "offre_connue" if offre_bloc else "client_sans_offre"
                 from routes.vip_contrat import etat_contrat_contact
                 etat_ct = await etat_contrat_contact(db, contact, settings_doc)
+                etat_contrat_cl = etat_ct
                 signature_refus = (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip() or "— 🤖 Réponse automatique Liluvine PRO"
                 refus = await _offre.refuser_assistance(
                     db, settings_doc, contact=contact, texte=text, etat_contrat=etat_ct, client=client_lie,
@@ -1104,6 +1114,8 @@ async def autoreply_to_inbound(
         )
     else:
         base_prompt = await _resolve_base_system_prompt(db, scope_uid)
+        # Lot 183 — prompt propre aux clients à jour / en retard (vide = prompt du compte, comme avant)
+        base_prompt = prompt_selon_contrat(settings_doc, etat_contrat_cl) or base_prompt
     # Lot 21 — consignes « Mode WhatsApp » modifiables (vide = texte d'origine).
     mode_instructions = (
         (settings_doc.get("liluvine_wa_mode_instructions") or "").strip()

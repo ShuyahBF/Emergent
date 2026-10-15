@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "189", "date": "2026-10-15",
+        "titre": "🔒 Données du compte réservées à l'équipe",
+        "description": "Sur la ligne de la plateforme, un client (contact du carnet) ne reçoit plus les derniers contacts, tickets, paiements, rendez-vous et notes du compte : ces données ne sont données qu'aux membres de l'équipe (administrateur, superviseur, modérateur) reconnus par leur numéro. Les clients gardent la base de connaissances.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "188", "date": "2026-10-15",
         "titre": "📞 Numéro inconnu : traité comme client SAWALI-2S",
         "description": "Un numéro absent du carnet relève du client par défaut (SAWALI-2S) : Liluvine lit son offre, utilise le prompt « client à jour » et ouvre le ticket sous ce client. Il ne reçoit toujours aucune donnée du compte (contacts, paiements, base Qdrant).",

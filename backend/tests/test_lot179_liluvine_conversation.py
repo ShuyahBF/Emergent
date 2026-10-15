@@ -85,3 +85,19 @@ def test_choix_par_numero_lot185():
     assert traduire_choix_numerique("2 factures impayées", h) == "2 factures impayées"  # phrase : jamais touchée
     assert traduire_choix_numerique("2", []) == "2"                                   # pas de liste : inchangé
     assert traduire_choix_numerique("", h) == ""
+
+
+def test_donnees_du_compte_reservees_a_l_equipe_lot189():
+    from routes.liluvine_wa_autoreply import est_membre_equipe
+    comptes = [
+        {"id": "a1", "role": "admin", "phone": "+226 58 43 70 50"},
+        {"id": "s1", "role": "superviseur", "whatsapp": "22670112233"},
+        {"id": "cl", "role": "client", "phone": "+22675000000"},                            # client : aucun rôle d'équipe
+        {"id": "u9", "role": "agent", "parent_client_id": "sawali", "phone": "70 99 88 77 66"},  # rattaché au compte
+    ]
+    assert est_membre_equipe("22658437050", comptes, "sawali") is True        # espaces et signes ignorés
+    assert est_membre_equipe("+226 70 11 22 33", comptes, "sawali") is True   # champ whatsapp
+    assert est_membre_equipe("22699887766", comptes, "sawali") is True        # compte rattaché au tenant
+    assert est_membre_equipe("22675000000", comptes, "sawali") is False       # client : jamais
+    assert est_membre_equipe("22600000000", comptes, "sawali") is False       # inconnu
+    assert est_membre_equipe("123", comptes, "sawali") is False and est_membre_equipe("", [], "sawali") is False

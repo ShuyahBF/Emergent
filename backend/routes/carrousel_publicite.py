@@ -10,6 +10,11 @@ Ce que fait SAWALI à partir d'un envoi (cartes = images, titres, textes) :
   En cas d'échec en cours de route, ce qui a déjà été créé est supprimé (aucune campagne orpheline).
 Les réponses des personnes qui cliquent arrivent sur WhatsApp, où Liluvine répond comme pour toute autre conversation.
 Chaque publicité créée est consignée sur l'envoi (`carrousel_campagnes.publicites_facebook`) : aucune nouvelle collection.
+Lot 194 — MESSAGE PRÉREMPLI : le texte qui s'écrit tout seul dans WhatsApp quand la personne clique (champ `page_welcome_message` du
+créatif, avec une référence « réf. PUB-xxxx » facultative qui rend ce texte unique). Si Meta le refuse, la publicité est créée sans
+message prérempli et l'erreur est affichée. Une RÉPONSE AUTOMATIQUE de Liluvine est ensuite enregistrée pour ce texte dans les
+modèles d'annonce existants (`liluvine_ad_templates`, aucune nouvelle collection) : texte + première image, avec le lien de la page
+de présentation.
 Le jeton Meta reste sur le serveur. La structure de l'API de Meta est suivie d'après sa documentation ; ses messages d'erreur
 sont renvoyés tels quels pour pouvoir corriger un réglage (budget minimal, droits, Page non liée à WhatsApp…).
 """
@@ -81,13 +86,40 @@ def cartes_publicitaires(cartes: List[Dict[str, Any]], remplacements: Any, lien:
     return sortie[:CARTES_MAX]
 
 
-def histoire_creative(page_id: str, message: str, cartes: List[Dict[str, Any]], lien: str) -> Dict[str, Any]:
-    """`object_story_spec` du créatif carrousel Click-to-WhatsApp. Fonction pure."""
-    return {"page_id": page_id, "link_data": {
+def message_prerempli(texte: Any, avec_ref: bool, ref: str) -> str:
+    """Texte final prérempli dans WhatsApp : le texte saisi, suivi (si demandé) de la référence « (réf. PUB-xxxx) » qui rend le
+    message unique et permet de reconnaître la publicité. Vide si aucun texte. 200 caractères au plus. Fonction pure."""
+    t = " ".join(str(texte or "").split())
+    if not t:
+        return ""
+    return (f"{t} (réf. {ref})" if avec_ref else t)[:200]
+
+
+def page_welcome_message(prerempli: str) -> str:
+    """Valeur JSON du champ `page_welcome_message` (message prérempli d'une publicité Click-to-WhatsApp). Fonction pure."""
+    return json.dumps({
+        "type": "VISUAL_EDITOR", "version": 2, "landing_screen_type": "welcome_message", "media_type": "text",
+        "text_format": {"customer_action_type": "autofill_message",
+                        "message": {"autofill_message": {"content": prerempli}, "text": "Bienvenue ! Envoyez ce message pour démarrer."}},
+    }, ensure_ascii=False)
+
+
+def histoire_creative(page_id: str, message: str, cartes: List[Dict[str, Any]], lien: str, prerempli: str = "") -> Dict[str, Any]:
+    """`object_story_spec` du créatif carrousel Click-to-WhatsApp (avec le message prérempli s'il y en a un). Fonction pure."""
+    ld: Dict[str, Any] = {
         "message": (message or "").strip()[:2000], "link": lien, "child_attachments": cartes,
         "multi_share_end_card": False, "multi_share_optimized": False,
         "call_to_action": {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}},
-    }}
+    }
+    if prerempli:
+        ld["page_welcome_message"] = page_welcome_message(prerempli)
+    return {"page_id": page_id, "link_data": ld}
+
+
+def texte_reponse(modele: Any, lien_presentation: str) -> str:
+    """Réponse automatique de Liluvine : « {lien} » est remplacé par le lien de la page de présentation (ou retiré). Pure."""
+    t = str(modele or "").strip()
+    return t.replace("{lien}", (lien_presentation or "").strip()).strip()[:1500]
 
 
 def lien_whatsapp(numero: Any) -> str:
@@ -147,6 +179,11 @@ async def creer_publicite(db, user: Dict[str, Any], campagne: Dict[str, Any], co
     numero = "".join(ch for ch in str(corps.get("whatsapp") or "") if ch.isdigit())
     cartes = cartes_publicitaires(campagne.get("cartes") or [], corps.get("images"), lien_whatsapp(numero))
     nom = (str(corps.get("nom") or "").strip() or f"Carrousel {campagne.get('id', '')[:6]}")[:120]
+    ref = "PUB-" + uuid.uuid4().hex[:4].upper()                    # référence de la publicité (rend le message prérempli unique)
+    prerempli = message_prerempli(corps.get("prerempli"), corps.get("avec_ref") is not False, ref)
+    lien_presentation = str(corps.get("lien_presentation") or "").strip()
+    if lien_presentation and not lien_presentation.startswith(("https://", "http://")):
+        raise HTTPException(status_code=422, detail="Le lien de présentation doit commencer par http:// ou https://")
     try:
         jours = int(corps.get("jours") or 0)
     except (TypeError, ValueError):
@@ -168,10 +205,19 @@ async def creer_publicite(db, user: Dict[str, Any], campagne: Dict[str, Any], co
         if jours > 0:
             ensemble["end_time"] = (datetime.now(timezone.utc) + timedelta(days=jours)).strftime("%Y-%m-%dT%H:%M:%S+0000")
         ids["ensemble"] = (await _graph(db, f"{act}/adsets", jeton, ensemble))["id"]
-        ids["creatif"] = (await _graph(db, f"{act}/adcreatives", jeton, {
-            "name": f"{nom} — créatif",
-            "object_story_spec": json.dumps(histoire_creative(str(page["page_id"]), str(corps.get("message") or campagne.get("message") or ""),
-                                                              cartes, lien_whatsapp(numero)))}))["id"]
+        texte_pub = str(corps.get("message") or campagne.get("message") or "")
+        creatif = {"name": f"{nom} — créatif"}
+        applique, erreur_prerempli = bool(prerempli), ""
+        try:
+            creatif["object_story_spec"] = json.dumps(histoire_creative(str(page["page_id"]), texte_pub, cartes, lien_whatsapp(numero), prerempli))
+            ids["creatif"] = (await _graph(db, f"{act}/adcreatives", jeton, creatif))["id"]
+        except HTTPException as exc:
+            if not prerempli:
+                raise
+            # Meta refuse le message prérempli : la publicité est créée SANS (l'erreur est affichée), plutôt que d'échouer
+            applique, erreur_prerempli = False, str(exc.detail)[:300]
+            creatif["object_story_spec"] = json.dumps(histoire_creative(str(page["page_id"]), texte_pub, cartes, lien_whatsapp(numero)))
+            ids["creatif"] = (await _graph(db, f"{act}/adcreatives", jeton, creatif))["id"]
         ids["publicite"] = (await _graph(db, f"{act}/ads", jeton, {
             "name": f"{nom} — publicité", "adset_id": ids["ensemble"], "creative": json.dumps({"creative_id": ids["creatif"]}),
             "status": "PAUSED"}))["id"]
@@ -182,10 +228,24 @@ async def creer_publicite(db, user: Dict[str, Any], campagne: Dict[str, Any], co
             except Exception:  # noqa: BLE001
                 logger.warning("[publicite] nettoyage de la campagne %s impossible", ids["campagne"], exc_info=True)
         raise
+    # Réponse automatique de Liluvine à ce message prérempli (modèle d'annonce existant) : texte + première image
+    modele_id = None
+    reponse = texte_reponse(corps.get("reponse_liluvine"), lien_presentation)
+    if applique and prerempli and reponse:
+        from routes.carrousel_facebook import images_retenues
+        modele_id = uuid.uuid4().hex
+        maintenant = datetime.now(timezone.utc).isoformat()
+        premiere = (images_retenues(campagne.get("cartes") or [], corps.get("images")) or [None])[0]
+        await db.liluvine_ad_templates.insert_one({
+            "id": modele_id, "tenant_id": user.get("id"), "name": f"Pub {nom} ({ref})", "trigger_text": prerempli,
+            "trigger_variations": [], "response_text": reponse, "response_media_url": premiere,
+            "response_media_kind": "image" if premiere else None, "active": True, "received_count": 0, "replied_count": 0,
+            "last_received_at": None, "created_by": user.get("email") or "carrousel", "created_at": maintenant, "updated_at": maintenant})
     trace = {"id": uuid.uuid4().hex, "compte_id": act, "compte_nom": compte.get("name"), "page_id": str(page["page_id"]),
              "page_nom": page.get("name"), "campagne_meta": ids["campagne"], "ensemble_meta": ids["ensemble"],
              "creatif_meta": ids["creatif"], "publicite_meta": ids["publicite"], "budget_jour": budget, "devise": devise,
              "pays": cible["geo_locations"]["countries"], "nb_cartes": len(cartes), "statut": "PAUSED",
+             "prerempli": prerempli if applique else "", "prerempli_erreur": erreur_prerempli, "ref": ref, "modele_liluvine": modele_id,
              "par": user.get("email") or user.get("id") or "admin", "le": datetime.now(timezone.utc).isoformat()}
     await db.carrousel_campagnes.update_one({"id": campagne["id"]}, {"$push": {"publicites_facebook": trace}})
     return {**trace, "gestionnaire": lien_gestionnaire(act, ids["campagne"])}
@@ -211,7 +271,7 @@ def attach_carrousel_publicite_routes(*, api, db, get_current_admin):
     @api.post("/admin/carrousel/{cid}/publicite", tags=["Admin — Carrousel WhatsApp"])
     async def creer(cid: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
         """Crée la publicité à carrousel EN PAUSE : {compte_id, page_id, budget, pays, age_min, age_max, jours, whatsapp,
-        nom, message, images:[url|null…]}."""
+        nom, message, images:[url|null…], prerempli, avec_ref, reponse_liluvine, lien_presentation}."""
         c = await db.carrousel_campagnes.find_one({"id": cid}, {"_id": 0, "id": 1, "cartes": 1, "message": 1})
         if not c:
             raise HTTPException(status_code=404, detail="Envoi introuvable")

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "194", "date": "2026-10-15",
+        "titre": "💬 Publicité : message prérempli et réponse de Liluvine",
+        "description": "La publicité à carrousel préremplit le message WhatsApp du client (avec une référence « réf. PUB-xxxx » facultative) et Liluvine répond automatiquement à ce texte : message, première image et lien de la page de présentation. Si Meta refuse le message prérempli, la publicité est créée sans et l'erreur est affichée.",
+        "rubrique": "Intégration Meta (Facebook / Messenger / Ads)",
+    },
+    {
         "lot": "193", "date": "2026-10-15",
         "titre": "📣 Publicité à carrousel Click-to-WhatsApp",
         "description": "Sur chaque envoi de carrousels (Administration), « Créer une publicité » monte une publicité à carrousel chez Meta avec votre compte publicitaire : compte, Page, budget par jour, durée, pays, âges, images remplaçables. Elle est créée EN PAUSE ; l'activation (début de la dépense) demande une confirmation. Les réponses arrivent sur WhatsApp, chez Liluvine.",

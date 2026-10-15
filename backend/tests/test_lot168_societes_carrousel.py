@@ -161,3 +161,22 @@ def test_sawali_smart_systems_dans_la_liste_des_societes(env):
     assert any(g["nom"] == "Prospects publicités Facebook" for g in ann["groupes"])
     r = client.post(URL + "/demande-accord-modele", headers=h("admin"), json={"ids": ["f1"], "societe_id": "@plateforme"})
     assert r.json()["envoyees"] == 1 and len(envois) == 1
+
+
+def test_plateforme_regroupe_les_comptes_de_la_meme_societe_et_anciens_identifiants(env):
+    """Lot 168.2 — données éparpillées : sous un collègue de la même société et sous un ancien client_id."""
+    client, db, _ = env
+    p = client.portal
+    p.call(db.users.update_one, {"id": "admin"}, {"$set": {"company": "SAWALI-2S"}})
+    p.call(db.users.insert_many, [
+        {"id": "ines", "role": "client", "email": "ines@sawalismartsystems.com", "company": "sawali-2s", "client_id": "ines"},
+        {"id": "jf", "role": "pharmacien", "email": "jf@x.bf", "company": "SAWALI-2S", "client_id": "ancien_scope"}])
+    p.call(db.directory_contacts.insert_many, [
+        {"id": f"k{i}", "client_id": "ines", "name": f"Contact {i}", "whatsapp": f"+226 76 70 00 0{i}"} for i in range(5)])
+    p.call(db.contact_groups.insert_many, [
+        {"id": f"gg{i}", "client_id": ("ancien_scope" if i % 2 else "ines"), "name": f"Groupe {i}", "contact_ids": ["k0"]}
+        for i in range(10)])
+    s = next(x for x in client.get(URL + "/societes", headers=h("admin")).json()["societes"] if x["id"] == "@plateforme")
+    assert s["groupes"] == 10 and s["contacts"] == 5 and s["nom"] == "SAWALI SMART SYSTEMS"
+    ann = client.get(URL + "/destinataires?societe=@plateforme", headers=h("admin")).json()
+    assert len(ann["groupes"]) == 10 and len([c for c in ann["contacts"] if c["id"].startswith("k")]) == 5

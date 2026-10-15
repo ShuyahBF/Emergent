@@ -876,12 +876,27 @@ def attach_carrousel_whatsapp_routes(
     SOCIETE_PLATEFORME = "@plateforme"           # lot 168.1 : SAWALI SMART SYSTEMS (comptes de l'administration)
 
     async def _ids_plateforme() -> List[str]:
-        """Lot 168.1 — comptes de SAWALI SMART SYSTEMS : le compte plateforme et les comptes administrateurs (et leur
-        identifiant de rattachement) sous lesquels sont rangés ses contacts, utilisateurs suivis et groupes."""
-        ids = set()
-        async for u in db.users.find({"$or": [{"email": COMPTE_PLATEFORME}, {"role": "admin"}]},
-                                     {"_id": 0, "id": 1, "client_id": 1}):
-            ids.update(x for x in (u.get("id"), u.get("client_id")) if x)
+        """Lot 168.2 — tous les identifiants sous lesquels sont rangés les contacts, utilisateurs suivis et groupes de
+        SAWALI SMART SYSTEMS (SAWALI-2S). Ce n'est pas un client « canonique » : ses données sont éparpillées sur plusieurs
+        identifiants (compte plateforme, administrateurs, superviseurs, anciens `client_id`). Même règle que le portail
+        (`_resolve_visible_client_ids`) : on part des comptes plateforme / administrateurs / superviseurs, puis on ajoute
+        TOUS les comptes de la même société (insensible à la casse) avec leurs `id`, `client_id`, `parent_client_id`
+        et ancien `client_id_legacy`."""
+        champs = {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1, "client_id_legacy": 1, "company": 1}
+        ids: set = set()
+        societes: set = set()
+
+        def noter(u: dict) -> None:
+            ids.update(x for x in (u.get("id"), u.get("client_id"), u.get("parent_client_id"), u.get("client_id_legacy")) if x)
+
+        async for u in db.users.find({"$or": [{"email": COMPTE_PLATEFORME}, {"role": {"$in": ["admin", "superviseur"]}}]}, champs):
+            noter(u)
+            if (u.get("company") or "").strip():
+                societes.add(u["company"].strip().lower())
+        if societes:
+            async for u in db.users.find({}, champs):
+                if (u.get("company") or "").strip().lower() in societes:
+                    noter(u)
         return sorted(ids)
 
     async def _societes_visibles(ids: List[str]) -> List[str]:

@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle 
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
+import PubliciteCarrouselModal from "@/components/PubliciteCarrouselModal";   // lot 193 : publicité à carrousel Click-to-WhatsApp (compte publicitaire Meta)
 import FacebookCarrouselModal from "@/components/FacebookCarrouselModal";   // lot 192 : publier un carrousel sur une Page Facebook choisie
 import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 : maintenant / programmer + plages horaires
 
@@ -730,6 +731,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [images, setImages] = useState([]);
   const [annuaire, setAnnuaire] = useState({ contacts: [], groupes: [] });
   const [campagnes, setCampagnes] = useState([]);
+  const [pubCampagne, setPubCampagne] = useState(null);   // lot 193 : envoi à promouvoir par une publicité (administration)
   const [fbCampagne, setFbCampagne] = useState(null);     // lot 192 : envoi à publier sur Facebook (administration)
   // Lot 156 : « Envois précédents » repliés par défaut (une ligne par envoi : date et heure) ; un clic déplie les autres informations.
   const [details, setDetails] = useState({});            // détail des destinataires par campagne (chargé au dépliage)
@@ -1551,6 +1553,12 @@ export default function CarrouselWhatsApp({ admin = false }) {
                   Publier sur Facebook
                 </Button>
               )}
+              {admin && (
+                <Button size="sm" variant="outline" title="Créer une publicité à carrousel Click-to-WhatsApp (créée en pause)"
+                        onClick={() => setPubCampagne(c)} data-testid={`pub-creer-${c.id}`}>
+                  Créer une publicité
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => basculerEnvoi(c.id)}>
                 {deplies.has(c.id) ? "Masquer" : "Détail"}
               </Button>
@@ -1625,6 +1633,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
         )}
       </section>
       {fbCampagne && <FacebookCarrouselModal campagne={fbCampagne} onClose={() => setFbCampagne(null)} />}
+      {pubCampagne && <PubliciteCarrouselModal campagne={pubCampagne} onClose={() => setPubCampagne(null)} />}
     </div>
   );
 }

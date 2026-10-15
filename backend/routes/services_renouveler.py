@@ -265,7 +265,7 @@ def estimer_r2(stockage_go: float, operations_a: int, operations_b: int) -> Dict
 
 REQUETE_R2 = """query($compte: String!, $debut: Time!, $fin: Time!, $debutJour: Date!, $finJour: Date!) {
   viewer { accounts(filter: {accountTag: $compte}) {
-    stockage: r2StorageAdaptiveGroups(limit: 1000, filter: {datetime_geq: $debut, datetime_leq: $fin}, orderBy: [datetime_DESC]) {
+    stockage: r2StorageAdaptiveGroups(limit: 1000, filter: {datetime_geq: $debut, datetime_leq: $fin}) {
       max { payloadSize metadataSize } dimensions { bucketName } }
     operations: r2OperationsAdaptiveGroups(limit: 1000, filter: {datetime_geq: $debut, datetime_leq: $fin}) {
       sum { requests } dimensions { actionType } } } } }"""

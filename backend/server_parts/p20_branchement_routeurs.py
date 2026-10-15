@@ -277,6 +277,9 @@ _setup_contacts_plateformes(db=db, api=api, get_current_admin=get_current_admin,
 # Lot 163 — offre du client (logiciels, produits, services) connue de Liluvine + refus d'assistance si contrat pas à jour
 from routes.offre_client import setup_offre_client_routes as _setup_offre_client  # noqa: E402
 _setup_offre_client(db=db, api=api, get_current_admin=get_current_admin)
+# Lot 170 — services à renouveler (Atlas, Render, R2…) : montants par service, formule, plateforme et cluster, rappels d'échéance
+from routes.services_renouveler import setup_services_renouveler_routes as _setup_services_renouveler  # noqa: E402
+_setup_services_renouveler(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 159 — case « Pseudo contrat VALIDE » (5 jours) sur la fiche client : PUT /api/admin/clients/{id}/pseudo-contrat
 from routes.pseudo_contrat import setup_pseudo_contrat_routes as _setup_pseudo_contrat  # noqa: E402
 _setup_pseudo_contrat(db=db, api=api, get_current_admin=get_current_admin)

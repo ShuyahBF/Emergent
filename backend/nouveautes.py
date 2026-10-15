@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "170", "date": "2026-10-15",
+        "titre": "💳 Services à renouveler : coûts par service, plateforme et cluster",
+        "description": "Nouvelle rubrique : MongoDB Atlas (facture en cours, une ligne par cluster), Cloudflare R2 (estimation), Render, domaines… avec le montant à la date de lecture, par formule, par plateforme et par cluster, les échéances en couleur et un rappel WhatsApp 30, 7 et 1 jour avant puis le jour même.",
+        "rubrique": "💳 Services à renouveler — coûts",
+    },
+    {
         "lot": "169", "date": "2026-10-15",
         "titre": "📋 Offre du client : copier la liste d'un client à un autre",
         "description": "Sur la fiche client (Logiciels, produits et services), « Copier la liste d'un client à un autre » reprend la liste d'un autre client dans l'éditeur, ou envoie la liste enregistrée vers plusieurs clients à la fois : au choix en ajoutant les lignes absentes ou en remplaçant la liste.",

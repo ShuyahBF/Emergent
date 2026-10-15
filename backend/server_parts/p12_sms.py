@@ -2645,6 +2645,20 @@ async def whatsapp_webhook_incoming(request: Request):
                                     {"id": doc["id"]}, {"$set": {"reponse_non_transmise": _rel.get("nom") or _rel.get("emetteur")}})
                         except Exception:  # noqa: BLE001
                             logger.warning("[liluvine_relais] traitement du message entrant impossible", exc_info=True)
+                    # Lot 196 — expéditeur INCONNU qui écrit autre chose que du texte (bouton de modèle « Confirmer »,
+                    # image, vocal…) : l'ajout automatique au carnet n'était fait que dans la réponse automatique, qui
+                    # ignore ces messages → message rangé sans fiche, relayé à l'admin mais absent des conversations.
+                    # On applique ici le même ajout (réglage « ajout automatique des nouveaux contacts » respecté).
+                    if not contact and mtype != "text" and digits_only:
+                        try:
+                            import server as _server_ajout
+                            _aj = (getattr(_server_ajout, "LILUVINE_REACTIONS_HELPERS", None) or {}).get("auto_add_new_contact_if_enabled")
+                            if _aj:
+                                _ajoute = await _aj(digits_only, profile_name, scope_for_msg)
+                                if _ajoute:
+                                    contact = {"id": _ajoute["id"], "client_id": scope_for_msg, "name": profile_name or f"+{digits_only}"}
+                        except Exception:  # noqa: BLE001 — jamais bloquant pour la réception
+                            logger.warning("[wa_inbound] ajout automatique du contact impossible", exc_info=True)
                     # Lot 158 — message reçu sur la ligne VIP d'un client SANS contrat valide : Liluvine ne répond pas
                     # elle-même ; le texte « transfert aux agents » (réglable) est envoyé depuis la ligne VIP et le
                     # message reste dans la boîte de SAWALI pour les agents.

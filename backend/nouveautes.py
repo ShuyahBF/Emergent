@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "196", "date": "2026-10-15",
+        "titre": "📇 Un inconnu qui répond par un bouton, une image ou un vocal apparaît dans les conversations",
+        "description": "Avant, seul un expéditeur inconnu qui écrivait du TEXTE était ajouté au carnet (si l'ajout automatique est activé) : un clic sur un bouton de modèle (« Confirmer »), une image ou un vocal était relayé à l'admin mais restait sans fiche, donc absent des conversations. L'ajout automatique s'applique maintenant à tous les types de messages.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "195", "date": "2026-10-15",
         "titre": "🔗 Un seul flux : Liluvine → Requêtes des clients",
         "description": "Quand Liluvine classe un message en « Technique », elle crée aussi la requête REQ-… du client (liée au ticket, une seule par ticket). Le lien pour la préciser s'affiche dans Loois sur le poste en ligne du client (ouverture dans le navigateur), sinon il est envoyé sur WhatsApp.",

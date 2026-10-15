@@ -385,6 +385,9 @@ class ImageIaIn(BaseModel):
 class ConsentementIn(BaseModel):
     ids: List[str] = Field(..., min_length=1, max_length=2000)
     accepte: bool
+    # Lot 205 — administration : société dont on a choisi les contacts (lot 168). Sans elle, seuls les contacts de
+    # l'annuaire de l'administration étaient retrouvés : l'accord d'un contact de société n'était jamais noté.
+    societe_id: Optional[str] = Field(None, max_length=80)
 
 
 class DemandeAccordModeleIn(BaseModel):
@@ -2156,6 +2159,13 @@ def attach_carrousel_whatsapp_routes(
         if portees:
             n += await _noter_consentement(db.directory_contacts, {"id": {"$in": data.ids}, "client_id": {"$in": portees}},
                                            data.accepte, user)
+        # Lot 205 — contacts de la société choisie (rangés sous son compte ou créés par lui, comme dans la liste affichée)
+        if (data.societe_id or "").strip():
+            ids_societe = await _ids_societe(data.societe_id.strip())
+            n += await _noter_consentement(
+                db.directory_contacts,
+                {"id": {"$in": data.ids}, "$or": [{"client_id": {"$in": ids_societe}}, {"owner_id": {"$in": ids_societe}}]},
+                data.accepte, user)
         return {"modifies": n}
 
     @api.post("/admin/whatsapp/carrousel/envoyer", status_code=202, tags=["Admin — Carrousel WhatsApp"])

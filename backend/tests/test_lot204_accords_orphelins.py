@@ -109,3 +109,21 @@ def test_routes_rattacher_et_envoyer(env):
     assert envois == ["22677001214"]
     # La personne n'est plus orpheline
     assert client.get("/api/admin/whatsapp/carrousel/accords-orphelins", headers=h("admin")).json()["orphelins"] == []
+
+
+def test_lot205_accord_note_sur_un_contact_de_societe(env):
+    """Administration : en mode « Société », l'accord noté à la main doit atteindre le contact affiché (avant : 0 fiche
+    modifiée, faux « Consentement noté », bouton « Envoyer » toujours grisé)."""
+    client, db, envois, _, moteur = env
+    # c3 (« Awa (doublon) ») appartient à la Pharmacie A (cli_a) et n'a pas encore accepté
+    sans = client.put("/api/admin/whatsapp/carrousel/consentements", headers=h("admin"), json={"ids": ["c3"], "accepte": True})
+    assert sans.status_code == 200 and sans.json()["modifies"] == 0            # sans société : introuvable (comportement signalé au client)
+    avec = client.put("/api/admin/whatsapp/carrousel/consentements", headers=h("admin"),
+                      json={"ids": ["c3"], "accepte": True, "societe_id": "cli_a"})
+    assert avec.status_code == 200 and avec.json()["modifies"] == 1
+    c3 = client.portal.call(db.directory_contacts.find_one, {"id": "c3"})
+    assert c3["accepte_whatsapp"] is True and c3["accepte_whatsapp_le"]
+    # Une autre société ne peut pas modifier ce contact
+    autre = client.put("/api/admin/whatsapp/carrousel/consentements", headers=h("admin"),
+                       json={"ids": ["c4"], "accepte": True, "societe_id": "cli_a"})
+    assert autre.json()["modifies"] == 0

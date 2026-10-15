@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "204"
-LOT_LIBELLE = "Carrousel : accords sans fiche rattachés à un client (accord d'origine conservé) puis carrousel envoyé"
+LOT = "205"
+LOT_LIBELLE = "Carrousel : l'accord noté à la main atteint les contacts de la société choisie (avant : aucune fiche modifiée)"

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "198", "date": "2026-10-15",
+        "titre": "↪ « En réponse à » retrouve aussi les messages envoyés par les plateformes",
+        "description": "Quand le message d'origine a été envoyé par une plateforme externe (adLyn, e-Kol, rendez-vous… via Liluvine), la conversation indique maintenant quelle plateforme a écrit et quand (le texte n'est volontairement pas conservé). Les anciennes réponses sont complétées à l'affichage.",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "197", "date": "2026-10-15",
         "titre": "↪ « En réponse à » : on voit à quel message le client répond",
         "description": "Quand un client clique sur le bouton d'un modèle (« Confirmer ») ou cite un message, la conversation affiche maintenant le message d'origine (modèle, texte, date) au-dessus de sa réponse, et le relais envoyé à l'admin le précise aussi.",

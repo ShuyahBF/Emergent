@@ -1350,6 +1350,20 @@ async def me_contact_messages(cid: str, verifier_ailleurs: bool = False, user: d
         {"_id": 0},
     ).sort("created_at", -1).limit(1000).to_list(1000)
     items.reverse()
+    # Lot 198 — réponses citées sans aperçu (reçues avant le lot 197, ou message d'origine envoyé par une plateforme) :
+    # le message d'origine est retrouvé à l'affichage, en une lecture groupée
+    try:
+        _connus = {x for m in items for x in (m.get("wa_message_id"), m.get("message_id")) if x}
+        _a_chercher = [m["reply_to_message_id"] for m in items
+                       if m.get("reply_to_message_id") and not m.get("reply_to_apercu") and m["reply_to_message_id"] not in _connus]
+        if _a_chercher:
+            from routes.wa_origine_reponse import apercus_origines
+            _trouves = await apercus_origines(db, _a_chercher)
+            for m in items:
+                if not m.get("reply_to_apercu") and m.get("reply_to_message_id") in _trouves:
+                    m["reply_to_apercu"] = _trouves[m["reply_to_message_id"]]
+    except Exception:  # noqa: BLE001 — jamais bloquant pour la conversation
+        logger.warning("[wa] aperçu des messages d'origine impossible", exc_info=True)
     # Lot 59.1 — pastille de la ligne WhatsApp (nom + couleurs) sur chaque message reçu
     try:
         from routes.numeros_wa import annoter_messages
@@ -2199,19 +2213,10 @@ async def whatsapp_webhook_incoming(request: Request):
                         # Lot 197 — à QUEL message ce client répond-il ? (clic sur le bouton d'un modèle, réponse citée) :
                         # aperçu du message d'origine gardé avec la réponse, même si l'original est hors de la liste affichée
                         try:
-                            _orig = await db.whatsapp_messages.find_one(
-                                {"$or": [{"wa_message_id": quoted_mid}, {"message_id": quoted_mid}]},
-                                {"_id": 0, "direction": 1, "body": 1, "template_name": 1, "template_rendered_body": 1,
-                                 "media_caption": 1, "media_kind": 1, "created_at": 1, "sent_at": 1})
-                            if _orig:
-                                _txt = (_orig.get("template_rendered_body") or _orig.get("body") or _orig.get("media_caption")
-                                        or (f"[{_orig['media_kind']}]" if _orig.get("media_kind") else "") or "")
-                                doc["reply_to_apercu"] = {
-                                    "sens": _orig.get("direction") or "outbound",
-                                    "modele": _orig.get("template_name") or None,
-                                    "texte": str(_txt)[:300],
-                                    "le": _orig.get("sent_at") or _orig.get("created_at"),
-                                }
+                            from routes.wa_origine_reponse import apercus_origines
+                            _ap = (await apercus_origines(db, [quoted_mid])).get(quoted_mid)
+                            if _ap:
+                                doc["reply_to_apercu"] = _ap
                         except Exception:  # noqa: BLE001 — l'aperçu est un plus, jamais bloquant
                             logger.warning("[wa_inbound] aperçu du message d'origine impossible", exc_info=True)
                     if media_info and media_info.get("kind") == "audio":
@@ -2301,8 +2306,8 @@ async def whatsapp_webhook_incoming(request: Request):
                             "wa_sender_name": profile_name or (contact or {}).get("name") or from_num,
                             # Lot 197 : le relais à l'admin précise à quel message le client répond
                             "wa_message": ((text_body or "") + (
-                                f"\n(en réponse à « {(doc.get('reply_to_apercu') or {}).get('modele') or ''}"
-                                f"{' : ' if (doc.get('reply_to_apercu') or {}).get('modele') else ''}"
+                                f"\n(en réponse à « {(doc.get('reply_to_apercu') or {}).get('modele') or (doc.get('reply_to_apercu') or {}).get('plateforme') or ''}"
+                                f"{' : ' if ((doc.get('reply_to_apercu') or {}).get('modele') or (doc.get('reply_to_apercu') or {}).get('plateforme')) else ''}"
                                 f"{((doc.get('reply_to_apercu') or {}).get('texte') or '')[:120]} »)"
                                 if doc.get("reply_to_apercu") else ""))[:500],
                             "wa_reply_code": reply_code,

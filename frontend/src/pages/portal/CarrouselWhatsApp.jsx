@@ -1535,7 +1535,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               {/* Lot 114 — statut en pastille, date programmée, reprise prévue, motif d'arrêt */}
               <PastilleStatut statut={c.statut} libelle={c.statut_libelle} />
               {c.programme_le && <span className="text-xs text-sky-700">programmé le {dateFr(c.programme_le)}</span>}
-              {c.statut === "EN_ATTENTE" && c.reprise_le && <span className="text-xs text-amber-700">reprendra le {dateFr(c.reprise_le)}</span>}
+              {c.statut === "EN_ATTENTE" && c.reprise_le && <span className="text-xs text-amber-700">reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? ` — ${c.motif_arret}` : ""}</span>}
               {c.statut === "ANNULEE" && (
                 <span className="text-xs text-slate-500">
                   {c.annule_le ? `annulé le ${dateFr(c.annule_le)}` : ""}{c.annule_par ? ` par ${c.annule_par}` : ""}

@@ -1247,8 +1247,15 @@ def attach_carrousel_whatsapp_routes(
                 # Plage horaire refermée : arrêt propre, reprise automatique à l'ouverture suivante
                 ouverture = await _attente()
                 if ouverture is not None:
+                    # Motif lisible affiché sur la campagne (le propriétaire voyait « En attente » sans explication)
+                    motif = "Hors des plages horaires d'envoi (réglage Paramètres → Plages horaires d'envoi)"
+                    try:
+                        from routes.plages_envoi import resume_texte
+                        motif = f"Hors des plages horaires d'envoi ({resume_texte(await plages['config']())})"
+                    except Exception:  # noqa: BLE001 — le motif ne bloque jamais l'arrêt propre
+                        pass
                     await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
-                        "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat()}})
+                        "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat(), "motif_arret": motif}})
                     logger.info("[carrousel] campagne %s hors plage : reprise le %s", campagne_id, ouverture.isoformat())
                     return
                 try:

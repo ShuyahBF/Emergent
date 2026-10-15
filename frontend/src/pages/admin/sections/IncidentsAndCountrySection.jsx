@@ -76,6 +76,19 @@ export default function IncidentsAndCountrySection() {
     } finally { setBusy(false); }
   };
 
+  // Lot 171 : met le webhook en pause (ou le rétablit) sans toucher au mot de passe.
+  const basculerPause = async () => {
+    const pause = !info.pause;
+    setBusy(true);
+    try {
+      await apiClient.put("/admin/incidents-webhook/pause", { pause });
+      toast.success(pause ? "Webhook incidents mis en pause" : "Webhook incidents rétabli");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
   const copy = (text) => {
     navigator.clipboard.writeText(text);
     toast.success("Copié");
@@ -167,7 +180,7 @@ export default function IncidentsAndCountrySection() {
               ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
               : "bg-slate-50 text-slate-500 ring-slate-200"
           }`}>
-            {info.configured ? "Actif" : "Inactif"}
+            {info.pause ? "En pause" : info.configured ? "Actif" : "Inactif"}
           </span>
         </div>
 
@@ -247,7 +260,21 @@ export default function IncidentsAndCountrySection() {
             </div>
           )}
 
+          {info.pause && (
+            <div className="bg-amber-50 ring-1 ring-amber-200 rounded p-3 text-xs text-amber-800" data-testid="incidents-pause-banner">
+              <p className="font-medium inline-flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> Webhook en pause</p>
+              <p className="mt-1">Les incidents entrants sont refusés (503) depuis le {info.pause_depuis ? new Date(info.pause_depuis).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}. Le mot de passe est conservé.</p>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 pt-2">
+            {info.configured && (
+              <button onClick={basculerPause} disabled={busy}
+                      className={`text-xs px-3 py-2 rounded text-white inline-flex items-center gap-1 disabled:opacity-60 ${info.pause ? "bg-emerald-600 hover:bg-emerald-700" : "bg-amber-600 hover:bg-amber-700"}`}
+                      data-testid="incidents-pause-btn">
+                {info.pause ? "Rétablir le webhook" : "Mettre en pause (temporaire)"}
+              </button>
+            )}
             <button onClick={regen} disabled={busy}
                     className="text-xs px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1 disabled:opacity-60"
                     data-testid="incidents-regen-btn">

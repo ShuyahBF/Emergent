@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "170"
-LOT_LIBELLE = "Services à renouveler : montants par service, formule, plateforme et cluster (Atlas lu, R2 estimé), rappels d'échéance"
+LOT = "171"
+LOT_LIBELLE = "Webhook incidents serveur : interrupteur de pause temporaire (mot de passe conservé)"

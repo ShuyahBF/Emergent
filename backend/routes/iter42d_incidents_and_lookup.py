@@ -139,6 +139,12 @@ def attach_iter42d_routes(
           2. **Aizenta** : `{TicketDemnde: {TypeTicket, Motif, CompteClient, ...}}`
              (mappé automatiquement vers le format générique).
         """
+        # Pause temporaire (lot 171) : l'interrupteur coupe l'entrée sans supprimer le mot de passe.
+        # Réponse 503 + Retry-After : les serveurs émetteurs savent que c'est volontaire et temporaire.
+        reglages_pause = await db.settings.find_one({"_id": "global"}, {"incidents_webhook_pause": 1}) or {}
+        if reglages_pause.get("incidents_webhook_pause"):
+            raise HTTPException(status_code=503, detail="Webhook incidents désactivé temporairement",
+                                headers={"Retry-After": "3600"})
         # Lit le body brut pour pouvoir adapter avant la validation Pydantic.
         try:
             raw_body = await request.json()
@@ -231,10 +237,26 @@ def attach_iter42d_routes(
         recent = await db.incidents_webhook_log.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
         return {
             "configured": configured,
+            "pause": bool(s.get("incidents_webhook_pause")),
+            "pause_depuis": s.get("incidents_webhook_pause_at"),
             "url": "/api/public/incidents",
             "auth_header": "X-Webhook-Password",
             "recent": recent,
         }
+
+    @api.put("/admin/incidents-webhook/pause", tags=["Admin — Incidents Webhook"])
+    async def admin_pause_incidents_webhook(payload: dict = Body(...), user: dict = Depends(get_current_admin)):
+        """Interrupteur temporaire : {"pause": true} coupe l'entrée, {"pause": false} la rétablit.
+        Le mot de passe n'est jamais touché."""
+        pause = bool(payload.get("pause"))
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"incidents_webhook_pause": pause,
+                      "incidents_webhook_pause_at": _now_iso() if pause else None,
+                      "incidents_webhook_pause_by": user.get("email")}},
+            upsert=True,
+        )
+        return {"ok": True, "pause": pause}
 
     @api.post("/admin/incidents-webhook/regenerate-password", tags=["Admin — Incidents Webhook"])
     async def admin_regen_incidents_password(user: dict = Depends(get_current_admin)):

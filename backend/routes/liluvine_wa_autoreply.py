@@ -1060,12 +1060,15 @@ async def autoreply_to_inbound(
     # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
     # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
     offre_statut = "prospect" if is_prospect else ("ligne_non_plateforme" if not platform_tenant else "contact_sans_client")
-    if offre_du_client_applicable(is_prospect, platform_tenant):
+    # Lot 188 — un numéro INCONNU du carnet relève lui aussi du client par défaut (SAWALI-2S) : offre, prompt « client » et
+    # tickets. Il reste privé de toutes les données du compte (contacts, paiements… : voir plus bas) et de Qdrant.
+    inconnu_du_carnet = bool(platform_tenant) and not contact
+    if offre_du_client_applicable(is_prospect, platform_tenant) or inconnu_du_carnet:
         try:
             from routes import offre_client as _offre
             client_lie = await _offre.client_du_contact(db, contact)
             client_eff = client_lie
-            if not client_lie and contact:
+            if not client_lie:
                 # Lot 187 — un contact du carnet est forcément celui d'un client : sans société reconnue, c'est le client par
                 # défaut (client primaire, SAWALI-2S) dont on lit l'offre. Pas de refus d'assistance : pas de retard de paiement.
                 client_eff = await _offre.client_par_defaut(db, settings_doc, scope_uid)
@@ -1160,6 +1163,9 @@ async def autoreply_to_inbound(
             (settings_doc.get("liluvine_wa_prospect_system_prompt") or "").strip()
             or DEFAULT_WA_PROSPECT_SYSTEM_PROMPT
         )
+        # Lot 188 — numéro inconnu rattaché au client par défaut : prompt « client à jour » s'il est rempli
+        if client_defaut_utilise:
+            base_prompt = prompt_selon_contrat(settings_doc, "valide") or base_prompt
     else:
         base_prompt = await _resolve_base_system_prompt(db, scope_uid)
         # Lot 183 — prompt propre aux clients à jour / en retard (vide = prompt du compte, comme avant)

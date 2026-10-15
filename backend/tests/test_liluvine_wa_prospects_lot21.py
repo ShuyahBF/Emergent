@@ -31,7 +31,7 @@ class _FakeChat:
     """Remplace LlmChat : mémorise le prompt système reçu, répond un texte fixe."""
     last_system = None
 
-    def __init__(self, api_key=None, session_id=None, system_message=""):
+    def __init__(self, api_key=None, session_id=None, system_message="", initial_messages=None):
         _FakeChat.last_system = system_message
 
     def with_model(self, *_a):

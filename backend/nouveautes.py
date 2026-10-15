@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "188", "date": "2026-10-15",
+        "titre": "📞 Numéro inconnu : traité comme client SAWALI-2S",
+        "description": "Un numéro absent du carnet relève du client par défaut (SAWALI-2S) : Liluvine lit son offre, utilise le prompt « client à jour » et ouvre le ticket sous ce client. Il ne reçoit toujours aucune donnée du compte (contacts, paiements, base Qdrant).",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "187", "date": "2026-10-15",
         "titre": "🧩 Un contact sans société relève du client primaire",
         "description": "Un contact du carnet dont la société n'est pas renseignée est rattaché au client par défaut (client primaire, SAWALI-2S) : Liluvine lit son offre, utilise le prompt « client à jour » et ouvre ses tickets sous ce client. Le journal indique ce choix.",

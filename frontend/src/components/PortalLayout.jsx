@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
   Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText, Monitor, PhoneCall,
 } from "lucide-react";
-import { ChevronDown } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
+import { ChevronDown, SlidersHorizontal } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
 import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
 import { LifeBuoy } from "lucide-react";   // lot 92 : synthèse du support
@@ -941,26 +941,13 @@ function PortalLayoutInner({ admin = false }) {
             </NavLink>
           );
         };
-        // Lot 173 : « Paramètres » n'est plus dans la liste défilante, il est épinglé dans le bas fixe de la barre latérale
+        // Lots 173 et 176 : « Paramètres » n'est plus dans la liste défilante, c'est un pictogramme sur la ligne « Alerte WhatsApp »
         return rendreMenu(links.filter((l) => l.to !== "/admin/settings"), rendreLien);
         })()}
       </nav>
 
       <div className={bureau ? "shrink-0 mt-3 border-t border-white/10 pt-3" : "mt-8 border-t border-white/10 pt-4"}
            data-testid={bureau ? "sidebar-bas" : undefined}>
-        {/* Lot 173 — « Paramètres » épinglé dans la partie basse fixe (toujours visible, sans défiler le menu).
-            Présent seulement si le profil y a droit (le lien reste dans `links`, filtré par rôle comme avant). */}
-        {links.some((l) => l.to === "/admin/settings") && (
-          <NavLink
-            to="/admin/settings"
-            onClick={() => setOpen(false)}
-            className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""} group mb-2`}
-            data-testid="sidebar-link--admin-settings"
-          >
-            <Settings className="h-4 w-4" />
-            <span className="flex-1 truncate">Paramètres</span>
-          </NavLink>
-        )}
         <NavLink
           to="/portal/my-account"
           onClick={() => setOpen(false)}
@@ -982,6 +969,20 @@ function PortalLayoutInner({ admin = false }) {
               <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums" data-testid="wa-notifier-count">
                 {waNotifier.unread > 99 ? "99+" : waNotifier.unread}
               </span>
+            )}
+            {/* Lot 176 — « Paramètres » : un simple pictogramme juste après la bulle de notification (gain de place) ;
+                présent seulement si le profil y a droit (le lien reste dans `links`, filtré par rôle comme avant). */}
+            {links.some((l) => l.to === "/admin/settings") && (
+              <NavLink
+                to="/admin/settings"
+                onClick={() => setOpen(false)}
+                title="Paramètres"
+                aria-label="Paramètres"
+                className={({ isActive }) => `inline-flex items-center justify-center h-5 w-5 rounded transition-colors ${isActive ? "bg-sawali-blue text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+                data-testid="sidebar-link--admin-settings"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+              </NavLink>
             )}
           </p>
           <div className="flex gap-1">

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "175"
-LOT_LIBELLE = "Services à renouveler : équivalents en FCFA (taux de change réglables) des montants, totaux, plateformes et clusters"
+LOT = "176"
+LOT_LIBELLE = "Barre latérale : « Paramètres » devient un pictogramme sur la ligne Alerte WhatsApp ; aide au diagnostic Cloudflare R2"

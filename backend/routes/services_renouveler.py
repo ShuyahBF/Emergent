@@ -345,7 +345,11 @@ async def lire_r2(client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
             return {"le": le, "erreur": f"Cloudflare a refusé la lecture (HTTP {r.status_code}) : vérifiez le jeton et son droit de lecture des analyses"}
         corps = r.json() or {}
         if corps.get("errors"):
-            return {"le": le, "erreur": "Cloudflare a refusé la requête : " + _texte((corps["errors"][0] or {}).get("message"), 120)}
+            message = _texte((corps["errors"][0] or {}).get("message"), 120)
+            # « not authorized for that account » : jeton sans le droit Analytics du compte, ou identifiant de compte inexact
+            aide = (" — vérifiez que le jeton a le droit « Account Analytics : Read » sur CE compte (Ressources du compte : Inclure → ce compte) "
+                    "et que CLOUDFLARE_ACCOUNT_ID est l'identifiant du même compte") if "not authorized" in message.lower() else ""
+            return {"le": le, "erreur": "Cloudflare a refusé la requête : " + message + aide}
         return {"le": le, "erreur": None, **analyser_reponse_r2(corps)}
     except Exception as exc:  # noqa: BLE001
         return {"le": le, "erreur": f"Lecture de Cloudflare impossible ({type(exc).__name__})"}

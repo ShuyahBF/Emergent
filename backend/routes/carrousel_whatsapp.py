@@ -366,6 +366,12 @@ class RattacherIn(BaseModel):
     campagne_id: Optional[str] = Field(None, max_length=80)
 
 
+class ValiderClicsIn(BaseModel):
+    """Lot 206 — valider l'accord de personnes qui ont cliqué sur un bouton ; `campagne_id` = carrousel à leur envoyer."""
+    telephones: List[str] = Field(..., min_length=1, max_length=300)
+    campagne_id: Optional[str] = Field(None, max_length=80)
+
+
 class PartageIn(BaseModel):
     """Lot 79 — adresses e-mail des comptes avec qui partager un carrousel (liste complète, vide = aucun)."""
     emails: List[str] = Field(default_factory=list, max_length=50)
@@ -1831,7 +1837,46 @@ def attach_carrousel_whatsapp_routes(
                      async for c in db.carrousel_campagnes.find({"perimetre": "admin", "statut": "TERMINEE"},
                                                                  {"_id": 0, "id": 1, "message": 1, "cree_le": 1, "compte": 1})
                      .sort("cree_le", -1).limit(10)]
-        return {"orphelins": await ao.lister(db), "clients": clients, "campagnes": campagnes}
+        return {"orphelins": await ao.lister(db), "clics": await ao.clics_a_valider(db), "clients": clients, "campagnes": campagnes}
+
+    async def _completer_campagne(campagne_id: str, personnes: List[dict]) -> dict:
+        """Lot 204/206 — ajoute des personnes à une campagne TERMINEE de l'administration, qui repart pour elles SEULES.
+        Un numéro déjà présent dans la campagne (servi ou non) n'est jamais ajouté deux fois."""
+        camp = await db.carrousel_campagnes.find_one({"id": campagne_id, "perimetre": "admin"}, {"_id": 0, "destinataires": 1})
+        deja = {numero_whatsapp(d.get("telephone")) for d in (camp or {}).get("destinataires", [])}
+        nouveaux, vus = [], set(deja)
+        for p in personnes:
+            tel = numero_whatsapp(p.get("telephone"))
+            if len(tel) >= 10 and tel not in vus:
+                vus.add(tel)
+                nouveaux.append({"id": p["id"], "nom": p["nom"], "telephone": tel, "statut": "EN_ATTENTE"})
+        if not nouveaux:
+            return {"campagne_id": campagne_id, "destinataires": 0, "deja": len(personnes)}
+        r = await db.carrousel_campagnes.update_one(
+            {"id": campagne_id, "perimetre": "admin", "statut": "TERMINEE"},
+            {"$push": {"destinataires": {"$each": nouveaux}}, "$inc": {"compte.total": len(nouveaux)},
+             "$set": {"statut": "EN_COURS", "termine_le": None, "complement_le": _maintenant(), "reprenable": True}})
+        if not r.modified_count:
+            return {"campagne_id": campagne_id, "destinataires": 0,
+                    "erreur": "Cette campagne n'est plus terminée : choisissez-en une autre"}
+        _lancer(campagne_id)
+        return {"campagne_id": campagne_id, "destinataires": len(nouveaux), "deja": len(personnes) - len(nouveaux)}
+
+    @api.post("/admin/whatsapp/carrousel/clics-a-valider/valider", tags=["Admin — Carrousel WhatsApp"])
+    async def valider_clics(data: ValiderClicsIn, user: dict = Depends(get_current_admin)):
+        """Lot 206 — valide en UNE fois l'accord des personnes qui ont cliqué (« Confirmer »…) : accord noté sur leur(s)
+        fiche(s) avec la date du clic, puis (si `campagne_id`) carrousel envoyé à celles qui ont une fiche. Celles sans fiche
+        passent dans « accords sans fiche » pour choisir leur client."""
+        from routes import carrousel_accords_orphelins as ao
+        par = user.get("full_name") or user.get("email") or "administrateur"
+        res = await ao.valider_clics(db, data.telephones, par)
+        envoi = None
+        if data.campagne_id:
+            avec_fiche = [{"id": v["fiche"]["id"], "nom": v["fiche"]["nom"] or v["nom"] or v["telephone"],
+                           "telephone": v["fiche"]["telephone"]} for v in res["valides"] if v["fiche"]]
+            envoi = await _completer_campagne(data.campagne_id, avec_fiche) if avec_fiche else None
+        logger.info("[carrousel] %d clic(s) validé(s) par %s ; envoi : %s", len(res["valides"]), par, envoi)
+        return {**res, "sans_fiche": sum(1 for v in res["valides"] if not v["fiche"]), "envoi": envoi}
 
     @api.post("/admin/whatsapp/carrousel/accords-orphelins/rattacher", tags=["Admin — Carrousel WhatsApp"])
     async def rattacher_orphelins(data: RattacherIn, user: dict = Depends(get_current_admin)):
@@ -1845,18 +1890,8 @@ def attach_carrousel_whatsapp_routes(
         res = await ao.rattacher(db, [i.model_dump() for i in data.items], valides, par)
         envoi = None
         if data.campagne_id and res["crees"]:
-            nouveaux = [{"id": c["id"], "nom": c["nom"], "telephone": numero_whatsapp(c["telephone"]), "statut": "EN_ATTENTE"}
-                        for c in res["crees"] if len(numero_whatsapp(c["telephone"])) >= 10]
-            r = await db.carrousel_campagnes.update_one(
-                {"id": data.campagne_id, "perimetre": "admin", "statut": "TERMINEE"},
-                {"$push": {"destinataires": {"$each": nouveaux}}, "$inc": {"compte.total": len(nouveaux)},
-                 "$set": {"statut": "EN_COURS", "termine_le": None, "complement_le": _maintenant(), "reprenable": True}})
-            if r.modified_count:
-                _lancer(data.campagne_id)
-                envoi = {"campagne_id": data.campagne_id, "destinataires": len(nouveaux)}
-            else:
-                envoi = {"campagne_id": data.campagne_id, "destinataires": 0,
-                         "erreur": "Cette campagne n'est plus terminée : choisissez-en une autre"}
+            envoi = await _completer_campagne(data.campagne_id, [
+                {"id": c["id"], "nom": c["nom"], "telephone": c["telephone"]} for c in res["crees"]])
         logger.info("[carrousel] %d accord(s) orphelin(s) rattaché(s) par %s ; envoi : %s", len(res["crees"]), par, envoi)
         return {**res, "envoi": envoi}
 
@@ -1913,7 +1948,7 @@ def attach_carrousel_whatsapp_routes(
         etats: Dict[str, dict] = {}
         for coll in ("directory_contacts", "tracked_users", "users"):
             async for d in db[coll].find({"id": {"$in": list(voulus)}},
-                                         {"_id": 0, "id": 1, "accepte_whatsapp": 1, "accord_demande_le": 1}):
+                                         {"_id": 0, "id": 1, "accepte_whatsapp": 1, "accord_demande_le": 1, "client_id": 1}):
                 etats.setdefault(d["id"], d)
         limite = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         ignores = {"deja_accepte": 0, "refus": 0, "demande_recente": 0, "sans_numero": 0}
@@ -1952,6 +1987,19 @@ def attach_carrousel_whatsapp_routes(
                 maintenant = _maintenant()
                 for coll in ("directory_contacts", "tracked_users", "users"):
                     await db[coll].update_one({"id": p["id"]}, {"$set": {"accord_demande_le": maintenant}})
+                # Lot 206 — la demande est enregistrée avec son identifiant WhatsApp : la réponse du client (clic sur un
+                # bouton, question) est alors reliée à CETTE demande (avant : message d'origine « indisponible »)
+                try:
+                    await db.whatsapp_messages.insert_one({
+                        "id": secrets.token_hex(12), "client_id": (etats.get(p["id"]) or {}).get("client_id"),
+                        "direction": "outbound", "to": p["telephone"], "phone_digits": numero_whatsapp(p["telephone"]),
+                        "template_name": nom_accord, "language_code": langue, "contact_id": p["id"],
+                        "body": "Demande d'accord WhatsApp (modèle « " + nom_accord + " »)", "accord_demande": True,
+                        "bulk": True, "ok": True, "status": r.get("status"), "message_id": r.get("message_id"),
+                        "wa_message_id": r.get("message_id"), "wa_status": "sent", "sender_label": "Demande d'accord",
+                        "created_at": maintenant, "sent_at": maintenant})
+                except Exception:  # noqa: BLE001 — le journal ne bloque jamais l'envoi
+                    logger.warning("[carrousel] demande d'accord non journalisée", exc_info=True)
             else:
                 echecs.append({"nom": p.get("nom") or p["telephone"],
                                "erreur": str(r.get("error") or r.get("message") or "refusé")[:160]})

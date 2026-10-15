@@ -54,6 +54,36 @@ def intention(texte: Optional[str], bouton_id: Optional[str] = None) -> Optional
     return None
 
 
+def sens_bouton(texte: Optional[str]) -> Optional[bool]:
+    """Lot 206 — sens du libellé d'un bouton de réponse rapide : True = accord (« Confirmer », « Oui », « J'accepte »…),
+    False = refus (« Non », « Stop », « Pas intéressé »…), None = libellé inconnu (rien n'est décidé).
+    Seul un clic sur une demande d'accord de SAWALI est interprété ainsi (voir le webhook), jamais un bouton quelconque."""
+    t = _normaliser(texte or "")
+    if not t:
+        return None
+    mots = t.split()
+    if "NON" in mots or "STOP" in mots or "REFUS" in t or "PAS INTERESS" in t or "DESINSCRI" in t or "ARRET" in mots:
+        return False
+    if "CONFIRM" in t or "ACCEPT" in t or "D ACCORD" in t or "OUI" in mots or "OK" in mots:
+        return True
+    return None
+
+
+async def demande_recente(db, chiffres: str, jours: int = 7, maintenant: Optional[datetime] = None) -> bool:
+    """Lot 206 — une demande d'accord a-t-elle été envoyée à ce numéro depuis moins de `jours` jours ? (champ
+    `accord_demande_le` des fiches). Sert à reconnaître le clic sur « Confirmer » d'une demande envoyée AVANT que les
+    envois soient journalisés avec leur identifiant WhatsApp."""
+    motif = motif_numero(chiffres)
+    if not motif:
+        return False
+    limite = ((maintenant or datetime.now(timezone.utc)) - timedelta(days=jours)).isoformat()
+    for coll, champs in ((db.directory_contacts, ("whatsapp", "phone")), (db.tracked_users, ("whatsapp_number", "phone")),
+                         (db.users, ("whatsapp_number", "phone"))):
+        if await coll.find_one({"accord_demande_le": {"$gte": limite}, "$or": [{c: {"$regex": motif}} for c in champs]}, {"_id": 1}):
+            return True
+    return False
+
+
 def motif_numero(chiffres: str) -> Optional[str]:
     """Expression régulière qui retrouve un numéro enregistré sous n'importe quelle forme
     (« +226 76 11 11 11 », « 76111111 », « 0022676111111 ») à partir de ses 8 derniers chiffres."""

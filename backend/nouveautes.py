@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "206", "date": "2026-10-15",
+        "titre": "✅ Clics « Confirmer » : accord noté automatiquement, rattrapage en un clic",
+        "description": "Un clic sur le bouton d'une demande d'accord (« Confirmer », « Oui ») note maintenant l'accord tout seul et la personne reçoit une réponse ; les demandes envoyées sont journalisées avec leur identifiant WhatsApp (le message d'origine est retrouvé). Les clics déjà reçus sans accord noté sont listés EN HAUT de la page Carrousel de l'administration : on les valide d'un coup et on envoie le carrousel, sans chercher chaque contact.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "205", "date": "2026-10-15",
         "titre": "✅ Carrousel : « Noter son accord » fonctionne pour les contacts d'une société",
         "description": "En administration, quand on choisit une société, l'accord noté à la main était cherché dans le mauvais annuaire : aucune fiche n'était modifiée, le succès s'affichait quand même et le bouton « Envoyer » restait grisé. L'accord atteint maintenant le contact de la société choisie, et un message d'erreur s'affiche si aucune fiche n'a pu être modifiée.",

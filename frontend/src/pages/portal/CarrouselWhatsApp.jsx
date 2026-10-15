@@ -1151,6 +1151,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
           {!etat.modele ? "Les modèles de carrousel ne sont pas encore renseignés par l'administration SAWALI." : ""}
         </div>
       )}
+      {/* Lots 204/206 — EN HAUT de la page : clics « Confirmer » à valider et accords sans fiche (traités en un clic) */}
+      {admin && <AccordsOrphelins />}
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
 
       {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
@@ -1285,8 +1287,6 @@ export default function CarrouselWhatsApp({ admin = false }) {
           « Demander l'accord » (boutons Oui / Non, noté automatiquement), ou donnez-leur le lien / QR code ci-dessous.
         </p>
         <LienAccord base={base} />
-        {/* Lot 204 — personnes qui ont accepté mais n'ont aucune fiche : rattacher à un client puis envoyer */}
-        {admin && <AccordsOrphelins />}
         {/* Lot 168 — administration : choisir la société dont on utilise les contacts et groupes */}
         {admin && (
           <div className="space-y-1 rounded-md border border-violet-200 bg-violet-50/50 p-3 text-xs text-slate-700" data-testid="choix-societe">

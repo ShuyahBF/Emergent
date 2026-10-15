@@ -3475,12 +3475,15 @@ const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = nu
             data-testid={`msg-quote-${m.id}`}
           >
             <p className={`font-semibold text-[10px] ${outbound ? "text-white/80" : "text-sky-700"}`}>
-              {quotedTarget?.direction === "outbound" ? "Vous" : "Contact"}
+              {/* Lot 197 : « En réponse à » + modèle d'origine ; l'aperçu gardé avec la réponse sert si l'original n'est pas chargé */}
+              ↪ En réponse à {(quotedTarget?.direction || m.reply_to_apercu?.sens) === "inbound" ? "un message du contact" : "votre message"}
+              {(quotedTarget?.template_name || m.reply_to_apercu?.modele) ? ` (modèle ${quotedTarget?.template_name || m.reply_to_apercu?.modele})` : ""}
+              {m.reply_to_apercu?.le ? ` · ${new Date(m.reply_to_apercu.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}` : ""}
             </p>
-            <p className="truncate italic">
+            <p className="line-clamp-3 whitespace-pre-wrap italic">
               {quotedTarget
-                ? (quotedTarget.body || quotedTarget.media_caption || (quotedTarget.media_kind ? `[${quotedTarget.media_kind}]` : "—")).slice(0, 120)
-                : "Message d'origine indisponible"}
+                ? (quotedTarget.template_rendered_body || quotedTarget.body || quotedTarget.media_caption || (quotedTarget.media_kind ? `[${quotedTarget.media_kind}]` : (quotedTarget.template_name ? `Modèle ${quotedTarget.template_name}` : "—"))).slice(0, 300)
+                : (m.reply_to_apercu?.texte || "Message d'origine indisponible")}
             </p>
           </div>
         )}

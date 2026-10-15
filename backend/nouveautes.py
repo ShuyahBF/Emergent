@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "197", "date": "2026-10-15",
+        "titre": "↪ « En réponse à » : on voit à quel message le client répond",
+        "description": "Quand un client clique sur le bouton d'un modèle (« Confirmer ») ou cite un message, la conversation affiche maintenant le message d'origine (modèle, texte, date) au-dessus de sa réponse, et le relais envoyé à l'admin le précise aussi.",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "196", "date": "2026-10-15",
         "titre": "📇 Un inconnu qui répond par un bouton, une image ou un vocal apparaît dans les conversations",
         "description": "Avant, seul un expéditeur inconnu qui écrivait du TEXTE était ajouté au carnet (si l'ajout automatique est activé) : un clic sur un bouton de modèle (« Confirmer »), une image ou un vocal était relayé à l'admin mais restait sans fiche, donc absent des conversations. L'ajout automatique s'applique maintenant à tous les types de messages.",

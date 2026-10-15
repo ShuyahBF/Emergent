@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "184", "date": "2026-10-15",
+        "titre": "📚 Liluvine répond d'après la base de connaissances, consignes réglables",
+        "description": "Les consignes de conversation sont modifiables dans les Paramètres (par défaut : répondre uniquement d'après la base de connaissances, rien d'inventé). La recherche Qdrant tient compte des messages précédents, l'assistant cité est le même dans le texte et la signature, et le journal indique si le ticket a été ouvert ou pourquoi il ne l'a pas été.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "183", "date": "2026-10-15",
         "titre": "🧾 Un prompt pour les clients à jour, un autre pour les clients en retard",
         "description": "Dans l'auto-réponse WhatsApp, deux nouveaux textes réglables : un pour les clients dont le contrat est à jour, un pour ceux en retard de paiement ou sans contrat (en plus du prompt des prospects). Vides, rien ne change ; un bouton charge un texte suggéré.",

@@ -57,3 +57,18 @@ def test_prompt_selon_contrat_lot183():
     assert prompt_selon_contrat(s, "retard") == "RETARD" and prompt_selon_contrat(s, "aucun") == "RETARD"
     assert prompt_selon_contrat(s, None) == "" and prompt_selon_contrat(s, "inconnu") == ""   # état inconnu : prompt du compte
     assert prompt_selon_contrat({}, "valide") == "" and prompt_selon_contrat(None, "retard") == ""
+
+
+def test_consignes_reglables_et_recherche_lot184():
+    from routes.liluvine_wa_autoreply import consignes_conversation, requete_recherche
+    # texte par défaut : base de connaissances uniquement, rien d'inventé, historique disponible
+    d = consignes_conversation(False)
+    assert "UNIQUEMENT à partir de la base de connaissances" in d and "N'invente rien" in d and "ne dis jamais que tu n'y as pas accès" in d
+    # texte réglé : remplace la base, la phrase sur l'offre reste
+    t = consignes_conversation(True, "  MES CONSIGNES  ")
+    assert "MES CONSIGNES" in t and "N'invente rien" not in t and "offre de ce client" in t
+    # requête Qdrant : les deux messages précédents du correspondant précèdent le message courant
+    h = [{"role": "user", "content": "Comment faire une vente"}, {"role": "assistant", "content": "ok"},
+         {"role": "user", "content": "Aizenta"}, {"role": "assistant", "content": "ok2"}]
+    assert requete_recherche("Historique", h) == "Comment faire une vente Aizenta Historique"
+    assert requete_recherche("Koloko", []) == "Koloko" and len(requete_recherche("x" * 900, [])) == 500

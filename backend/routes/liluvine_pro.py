@@ -87,6 +87,15 @@ Tu réponds toujours en **français**, de façon chaleureuse et concise.
 - Invite la personne à indiquer son nom, sa structure et son besoin pour qu'un conseiller la rappelle."""
 
 
+# Lot 184 — Consignes de conduite de la conversation (réglage `liluvine_wa_consignes_conversation`, vide = ce texte).
+# Ajoutées à CHAQUE réponse WhatsApp, après le prompt. Les phrases propres à l'offre du client restent dans le code.
+DEFAULT_WA_CONSIGNES_CONVERSATION = """[Conduite de la conversation]
+- Réponds directement à la dernière question. Ne te présente et ne salue PAS de nouveau si la conversation est déjà commencée (message précédent de ta part) : pas de « Bienvenue », pas de liste de ce que tu sais faire.
+- Ne cite JAMAIS la liste de tous les logiciels de SAWALI.
+- Une fois la demande précisée, réponds UNIQUEMENT à partir de la base de connaissances fournie. N'invente rien : ni étape, ni menu, ni bouton, ni tarif, ni délai. Si l'information n'y figure pas, dis-le simplement et propose qu'un conseiller humain reprenne la demande.
+- L'historique de la conversation t'est fourni : ne dis jamais que tu n'y as pas accès."""
+
+
 # Lot 183 — Prompts propres aux CLIENTS selon l'état de leur contrat (réglages `liluvine_wa_client_prompt` et
 # `liluvine_wa_client_retard_prompt`). Vides = comportement d'avant (prompt du compte). Textes suggérés, chargés d'un clic
 # dans Paramètres → Liluvine PRO — Auto-réponse WhatsApp.
@@ -209,6 +218,7 @@ class AutoreplyConfigPayload(BaseModel):
     prospect_system_prompt: Optional[str] = Field(None, max_length=20000)
     mode_instructions: Optional[str] = Field(None, max_length=4000)
     # Lot 181 — classement des conversations (catégories, une par entrée) et mise en relation avec l'assistant IA
+    consignes_conversation: Optional[str] = Field(None, max_length=4000)  # lot 184 : conduite de la conversation
     client_prompt: Optional[str] = Field(None, max_length=8000)           # lot 183 : client à jour
     client_retard_prompt: Optional[str] = Field(None, max_length=8000)    # lot 183 : client en retard / sans contrat
     classement_actif: Optional[bool] = None
@@ -769,6 +779,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "prospect_enabled": "liluvine_wa_prospect_enabled",
         "prospect_system_prompt": "liluvine_wa_prospect_system_prompt",
         "mode_instructions": "liluvine_wa_mode_instructions",
+        "consignes_conversation": "liluvine_wa_consignes_conversation",
         "client_prompt": "liluvine_wa_client_prompt",
         "client_retard_prompt": "liluvine_wa_client_retard_prompt",
         "classement_actif": "liluvine_classement_actif",
@@ -809,6 +820,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "prospect_enabled": s.get("liluvine_wa_prospect_enabled") is not False,
             "prospect_system_prompt": s.get("liluvine_wa_prospect_system_prompt") or "",
             "mode_instructions": s.get("liluvine_wa_mode_instructions") or "",
+            "consignes_conversation": s.get("liluvine_wa_consignes_conversation") or "",
+            "default_consignes_conversation": DEFAULT_WA_CONSIGNES_CONVERSATION,
             "client_prompt": s.get("liluvine_wa_client_prompt") or "",
             "client_retard_prompt": s.get("liluvine_wa_client_retard_prompt") or "",
             "default_client_prompt": DEFAULT_WA_CLIENT_PROMPT,

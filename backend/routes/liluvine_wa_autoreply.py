@@ -142,26 +142,31 @@ def historique_pour_llm(docs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return sortie
 
 
-def consignes_conversation(offre_connue: bool) -> str:
-    """Lot 179 — consignes de conduite de la conversation, ajoutées à CHAQUE réponse WhatsApp : Liluvine répond à la
-    question posée, ne se représente pas à chaque message et ne récite pas le catalogue de SAWALI. Quand l'offre du client
-    est connue, elle ne parle que de SES logiciels, produits et services. Fonction pure."""
-    texte = (
-        "\n\n[Conduite de la conversation]\n"
-        "- Réponds directement à la dernière question. Ne te présente et ne salue PAS de nouveau si la conversation est déjà "
-        "commencée (message précédent de ta part) : pas de « Bienvenue », pas de liste de ce que tu sais faire.\n"
-        "- Ne cite JAMAIS la liste de tous les logiciels de SAWALI. "
-    )
+def consignes_conversation(offre_connue: bool, texte_regle: Optional[str] = None) -> str:
+    """Lots 179/184 — consignes de conduite de la conversation, ajoutées à CHAQUE réponse WhatsApp. Le texte de base est
+    RÉGLABLE (`liluvine_wa_consignes_conversation`, vide = texte par défaut) ; seules les phrases sur l'offre du client
+    restent ici : offre connue → ne parler que de SES logiciels (et signaler un logiciel absent de l'offre) ; offre inconnue
+    → poser une seule question sans énumérer. Fonction pure."""
+    from routes.liluvine_pro import DEFAULT_WA_CONSIGNES_CONVERSATION
+    texte = "\n\n" + ((texte_regle or "").strip() or DEFAULT_WA_CONSIGNES_CONVERSATION) + "\n"
     if offre_connue:
-        texte += ("Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
+        texte += ("- Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
                   "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème. Si le client cite un logiciel "
                   "ABSENT de cette offre, dis-lui que tu ne le trouves pas dans son offre, demande-lui de confirmer le nom "
                   "et ne classe pas encore la demande.")
     else:
-        texte += ("Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte (« Quel est le nom de "
+        texte += ("- Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte (« Quel est le nom de "
                   "votre logiciel ? ») SANS proposer ni énumérer aucun nom de logiciel, même entre parenthèses ; commence "
                   "directement par la question, sans « Bonjour ».")
     return texte
+
+
+def requete_recherche(text: str, historique: List[Dict[str, str]]) -> str:
+    """Lot 184 — texte envoyé à la base de connaissances (Qdrant) : le message du correspondant PRÉCÉDÉ de ses deux messages
+    précédents. Un message court comme « Koloko » ou « Historique » ne retrouve rien seul ; avec la question d'avant, oui.
+    Fonction pure."""
+    avant = [m["content"] for m in (historique or []) if m.get("role") == "user"][-2:]
+    return " ".join([*avant, text or ""]).strip()[:500]
 
 
 async def should_autoreply(
@@ -1087,11 +1092,22 @@ async def autoreply_to_inbound(
             biz_ctx = await build_business_rag_context(db, phone_digits=phone_digits, query=text)
         except Exception:  # noqa: BLE001
             biz_ctx = ""
+    # Lot 184 — historique chargé AVANT la recherche : la requête Qdrant tient compte des messages précédents.
+    session_id = f"wa:{scope_uid}:{phone_digits}"
+    try:
+        depuis = (datetime.now(timezone.utc) - timedelta(hours=HISTORIQUE_HEURES)).isoformat()
+        recents = await db.liluvine_pro_messages.find(
+            {"session_id": session_id, "created_at": {"$gte": depuis}}, {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(HISTORIQUE_MAX_MESSAGES).to_list(HISTORIQUE_MAX_MESSAGES)
+        historique = historique_pour_llm(list(reversed(recents)))
+    except Exception:  # noqa: BLE001 — sans historique, Liluvine répond comme avant
+        logger.warning("[wa_autoreply] historique de la conversation illisible", exc_info=True)
+        historique = []
     # Iter38r-fix9c — Also inject the Knowledge Base for WhatsApp auto-reply
     try:
         from routes.liluvine_kb import build_kb_context
         # Lot 23 — un prospect ne reçoit que les entrées « tous » et « prospects » de la base.
-        kb = await build_kb_context(db, max_chars=4000, query=text,
+        kb = await build_kb_context(db, max_chars=4000, query=requete_recherche(text, historique),
                                     audience="prospects" if is_prospect else "clients")  # smaller budget for WA
     except Exception:
         kb = ""
@@ -1130,7 +1146,7 @@ async def autoreply_to_inbound(
         + (("\n\n" + kb) if kb else "")
         + contact_tag
         + offre_bloc          # lot 163 : offre du client lié (vide si aucune)
-        + consignes_conversation(bool(offre_bloc))   # lot 179 : pas de re-présentation, pas de catalogue
+        + consignes_conversation(bool(offre_bloc), settings_doc.get("liluvine_wa_consignes_conversation"))   # lots 179/184
     )
     # Lot 59 — consignes propres à la ligne qui a reçu le message (ex. accueil VIP)
     try:
@@ -1162,7 +1178,6 @@ async def autoreply_to_inbound(
         return {"ok": False, "reason": f"llm_import_failed: {exc!r}"}
     # Reuse a stable session per phone so the bot keeps context if the user
     # writes again within the same conversation.
-    session_id = f"wa:{scope_uid}:{phone_digits}"
     # Lot 181 — classement de la conversation (Technique, Comptabilité…) : consignes + conversation déjà classée ?
     from routes import liluvine_classement as _clas
     classement_actif = _clas.actif(settings_doc)
@@ -1180,16 +1195,6 @@ async def autoreply_to_inbound(
         sys_text = sys_text + _clas.consignes_classement(cats_classement, deja_classe)
     else:
         deja_classe = None
-    # Lot 182 — mémoire de la conversation : les derniers échanges de cette session sont rejoués au modèle.
-    try:
-        depuis = (datetime.now(timezone.utc) - timedelta(hours=HISTORIQUE_HEURES)).isoformat()
-        recents = await db.liluvine_pro_messages.find(
-            {"session_id": session_id, "created_at": {"$gte": depuis}}, {"_id": 0, "role": 1, "content": 1, "created_at": 1},
-        ).sort("created_at", -1).limit(HISTORIQUE_MAX_MESSAGES).to_list(HISTORIQUE_MAX_MESSAGES)
-        historique = historique_pour_llm(list(reversed(recents)))
-    except Exception:  # noqa: BLE001 — sans historique, Liluvine répond comme avant
-        logger.warning("[wa_autoreply] historique de la conversation illisible", exc_info=True)
-        historique = []
     try:
         chat = LlmChat(
             api_key=api_key, session_id=session_id, system_message=sys_text, initial_messages=historique,
@@ -1245,8 +1250,11 @@ async def autoreply_to_inbound(
         if marque and not deja_classe:
             classement = dict(marque)
             try:
-                from routes.liluvine_agents import get_agents
-                agent_classe = _clas.agent_pour_categorie(await get_agents(db), marque["categorie"])
+                from routes.liluvine_agents import get_agents, match_agent_for_message as match_agent_for_message_cl
+                agents_cl = await get_agents(db)
+                # catégorie → assistant ; à défaut, assistant dont la fonction correspond au sujet (même choix pour le texte et la signature)
+                agent_classe = _clas.agent_pour_categorie(agents_cl, marque["categorie"]) \
+                    or match_agent_for_message_cl(agents_cl, f"{marque['motif']} {text}")
             except Exception:  # noqa: BLE001
                 agent_classe = None
             ticket_cl = None
@@ -1255,9 +1263,16 @@ async def autoreply_to_inbound(
                 ticket_cl = await _offre_cl.ouvrir_ticket(
                     db, client_lie, contact, marque["motif"], text, motif=f"[{marque['categorie']}] {marque['motif']}",
                     categorie=marque["categorie"], source="liluvine_classement")
+                classement["ticket_statut"] = ("rattache" if (ticket_cl or {}).get("rattache") else "ouvert") if ticket_cl else "echec"
+            else:
+                classement["ticket_statut"] = "aucun_client"      # contact non relié à un client : pas de ticket
             classement["ticket"] = (ticket_cl or {}).get("number")
             classement["agent"] = (agent_classe or {}).get("prenom")
+            # mise en relation (+ n° de ticket), puis la réponse tirée de la base de connaissances si Liluvine en a écrit une
+            reponse_kb = reply.strip()
             reply = _clas.texte_mise_en_relation(agent_classe, marque["motif"], classement["ticket"])
+            if reponse_kb:
+                reply = f"{reply}\n\n{reponse_kb}"
 
     # Signature nominative : jusqu'à 5 agents (prénom + spécialité), paramétrés
     # par l'admin. L'agent dont le rôle correspond au contenu du message signe

@@ -480,7 +480,9 @@ async def autoreply_to_inbound(
     """
     phone_digits = inbound_doc.get("phone_digits") or _digits(inbound_doc.get("from", ""))
     text = (inbound_doc.get("body") or "").strip()
-    if (inbound_doc.get("message_type") or "text") != "text":
+    # Lot 200 : un clic sur un bouton (texte du bouton dans `body`) est aussi traité ; image, vocal… restent ignorés
+    clic_bouton = (inbound_doc.get("message_type") or "text") in ("button", "interactive") and bool(text)
+    if (inbound_doc.get("message_type") or "text") != "text" and not clic_bouton:
         return {"ok": False, "reason": "non_text_message"}
     # Skip if the message is a Liluvine remote command (! / / prefix already handled)
     # EXCEPT for the public commands `!Garde` and `!Meteo`/`!Météo` (handled below).
@@ -1272,6 +1274,11 @@ async def autoreply_to_inbound(
     try:
         from routes import wa_publication_contexte as _pub
         sys_text = sys_text + _pub.texte_contexte(await _pub.contexte_reponse(db, inbound_doc))
+        if clic_bouton:
+            sys_text = sys_text + (f"\n\nLe client n'a pas écrit : il a cliqué sur le bouton « {text[:60]} » d'un message de SAWALI. "
+                                   "Remercie-le de sa réponse en UNE phrase courte, confirme que sa réponse est bien prise en compte "
+                                   "si le contexte le permet, et propose-lui de poser sa question s'il a besoin d'une précision. "
+                                   "Ne le classe pas et n'ouvre aucune demande.")
     except Exception:  # noqa: BLE001
         logger.warning("[wa_autoreply] contexte de la publication indisponible", exc_info=True)
 

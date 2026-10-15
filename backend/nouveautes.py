@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "200", "date": "2026-10-15",
+        "titre": "🙏 Liluvine remercie un clic de bouton",
+        "description": "Quand un client clique sur le bouton d'un message de SAWALI (« Confirmer », « Oui »…) sans rien écrire, Liluvine le remercie en une phrase, selon la publication concernée (sondage, formulaire, carrousel, modèle), sans ouvrir de demande. Avant, elle ne répondait qu'aux messages écrits.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "199", "date": "2026-10-15",
         "titre": "🤖 Liluvine connaît la publication à laquelle le client répond",
         "description": "Sondage, formulaire, carrousel, message modèle ou message d'une plateforme : Liluvine reçoit le type, le titre et un résumé de la publication citée par le client (ou de la dernière publication envoyée à ce numéro dans les 72 h). Elle remercie un simple clic de bouton et répond aux questions de compréhension à partir du contenu, sans redemander l'objet.",

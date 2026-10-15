@@ -202,23 +202,33 @@ CLIENT_DEFAUT = "SAWALI-2S"     # client primaire : reçoit les tickets des exp�
 
 
 async def client_par_defaut(db, settings_doc: Optional[Dict[str, Any]], scope_uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Lot 186 — client choisi PAR DÉFAUT quand le contact n'est relié à aucun client : la société réglée
-    (`liluvine_wa_client_defaut`, « SAWALI-2S » sinon), insensible à la casse. Plusieurs comptes portent la même société :
-    on prend le compte qui reçoit la conversation, sinon un administrateur / superviseur, sinon le plus ancien.
-    → {id, company, offre_client} ou None (jamais d'exception)."""
+    """Lots 186/186.1 — client choisi PAR DÉFAUT quand le contact n'est relié à aucun client :
+    1. si une société est réglée (`liluvine_wa_client_defaut`), le compte de cette société (insensible à la casse) ;
+    2. sinon le CLIENT PRIMAIRE de la base (`is_primary_client`, désigné dans Admin → Clients : SAWALI-2S) ;
+    3. à défaut, le compte de la société « SAWALI-2S ».
+    Plusieurs comptes possibles : celui qui reçoit la conversation d'abord, puis un administrateur / superviseur, puis le
+    plus ancien. → {id, company, offre_client} ou None (jamais d'exception)."""
     try:
-        nom = str((settings_doc or {}).get("liluvine_wa_client_defaut") or "").strip() or CLIENT_DEFAUT
-        comptes = await db.users.find(
-            {"company": {"$regex": f"^{re.escape(nom)}$", "$options": "i"}},
-            {"_id": 0, "id": 1, "company": 1, "role": 1, "created_at": 1, "offre_client": 1}).to_list(200)
-        if not comptes:
-            return None
+        champs = {"_id": 0, "id": 1, "company": 1, "role": 1, "created_at": 1, "offre_client": 1}
 
         def rang(u: Dict[str, Any]):
             return (0 if u.get("id") == scope_uid else 1, 0 if u.get("role") in ("admin", "superviseur") else 1,
                     str(u.get("created_at") or ""))
+
+        async def par_societe(nom: str):
+            return await db.users.find({"company": {"$regex": f"^{re.escape(nom)}$", "$options": "i"}}, champs).to_list(200)
+
+        regle = str((settings_doc or {}).get("liluvine_wa_client_defaut") or "").strip()
+        comptes = await par_societe(regle) if regle else []
+        if not comptes and not regle:
+            comptes = await db.users.find({"is_primary_client": True}, champs).to_list(50)   # client primaire désigné en base
+        if not comptes and not regle:
+            comptes = await par_societe(CLIENT_DEFAUT)
+        if not comptes:
+            return None
         c = sorted(comptes, key=rang)[0]
-        return {"id": c["id"], "company": c.get("company") or nom, "offre_client": normaliser_offre(c.get("offre_client"))}
+        return {"id": c["id"], "company": c.get("company") or regle or CLIENT_DEFAUT,
+                "offre_client": normaliser_offre(c.get("offre_client"))}
     except Exception:  # noqa: BLE001
         logger.warning("[offre_client] client par défaut introuvable", exc_info=True)
         return None

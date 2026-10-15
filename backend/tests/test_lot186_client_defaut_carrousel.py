@@ -30,18 +30,26 @@ COMPTES = [
     {"id": "u-vieux", "company": "sawali-2s", "role": "client", "created_at": "2025-01-01"},
     {"id": "u-admin", "company": "SAWALI-2S", "role": "admin", "created_at": "2026-01-01",
      "offre_client": [{"nom": "Aizenta", "type": "logiciel"}]},
+    {"id": "u-primaire", "company": "SAWALI-2S", "role": "superviseur", "is_primary_client": True, "created_at": "2026-02-01"},
     {"id": "u-autre", "company": "Autre SA", "role": "admin", "created_at": "2024-01-01"},
 ]
 
 
-def test_client_par_defaut_sawali_2s():
+def test_client_par_defaut_est_le_client_primaire():
     db = _db(COMPTES)
     c = lancer(oc.client_par_defaut(db, {}, None))
-    assert c["id"] == "u-admin" and c["company"] == "SAWALI-2S"              # administrateur avant le plus ancien
-    assert c["offre_client"][0]["nom"] == "Aizenta"
-    assert lancer(oc.client_par_defaut(db, {}, "u-vieux"))["id"] == "u-vieux"  # le compte qui reçoit la conversation d'abord
-    assert lancer(oc.client_par_defaut(db, {"liluvine_wa_client_defaut": "autre sa"}, None))["id"] == "u-autre"  # réglable
+    assert c["id"] == "u-primaire" and c["company"] == "SAWALI-2S"             # le client primaire désigné en base
+    # société réglée : prioritaire sur le client primaire ; compte qui reçoit la conversation d'abord
+    assert lancer(oc.client_par_defaut(db, {"liluvine_wa_client_defaut": "autre sa"}, None))["id"] == "u-autre"
+    assert lancer(oc.client_par_defaut(db, {"liluvine_wa_client_defaut": "sawali-2s"}, "u-vieux"))["id"] == "u-vieux"
     assert lancer(oc.client_par_defaut(db, {"liluvine_wa_client_defaut": "Inconnue"}, None)) is None
+
+
+def test_client_par_defaut_sans_client_primaire_repli_sur_sawali_2s():
+    db = _db([c for c in COMPTES if not c.get("is_primary_client")])
+    c = lancer(oc.client_par_defaut(db, {}, None))
+    assert c["id"] == "u-admin" and c["offre_client"][0]["nom"] == "Aizenta"    # administrateur avant le plus ancien
+    assert lancer(oc.client_par_defaut(_db([{"id": "x", "company": "Autre"}]), {}, None)) is None
 
 
 def test_texte_compte_rendu_carrousel():

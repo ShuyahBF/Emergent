@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "186.1", "date": "2026-10-15",
+        "titre": "🏢 Client par défaut = client primaire de la base",
+        "description": "Quand le contact n'est relié à aucun client, le ticket de Liluvine va au client primaire désigné dans Admin → Clients (SAWALI-2S). Une société peut toujours être imposée dans les réglages de l'auto-réponse.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "186", "date": "2026-10-15",
         "titre": "📣 Compte rendu WhatsApp à chaque envoi de carrousels",
         "description": "À la fin de chaque campagne de carrousels, Liluvine écrit au numéro de votre choix : expéditeur, modèle, destinataires, envois réussis et échecs. Numéro réglable (vide = aucun message).",

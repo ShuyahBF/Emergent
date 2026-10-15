@@ -44,6 +44,8 @@ const REASON_LABELS = {
 const OFFRE_STATUT_LABELS = {
   offre_connue: ["Offre du client connue", "text-emerald-700 bg-emerald-50"],
   client_sans_offre: ["Client relié, mais son offre n'est pas saisie (fiche client → Offre)", "text-amber-800 bg-amber-50"],
+  client_defaut: ["Contact sans société : offre du client par défaut (client primaire) lue", "text-emerald-700 bg-emerald-50"],
+  client_defaut_sans_offre: ["Client par défaut utilisé, mais son offre n'est pas saisie (fiche client → Offre)", "text-amber-800 bg-amber-50"],
   contact_sans_client: ["Contact sans client relié (champ Société vide ou inconnu)", "text-amber-800 bg-amber-50"],
   prospect: ["Numéro traité en prospect (absent du carnet ou étiqueté prospect)", "text-violet-700 bg-violet-50"],
   ligne_non_plateforme: ["Ligne autre que la plateforme SAWALI : offre non lue", "text-slate-700 bg-slate-100"],

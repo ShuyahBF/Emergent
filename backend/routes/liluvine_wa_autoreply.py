@@ -1054,6 +1054,8 @@ async def autoreply_to_inbound(
     # (texte exact du propriétaire, signé par l'assistant IA) en ouvrant un ticket et en escaladant. Jamais bloquant.
     offre_bloc = ""
     client_lie = None   # lot 181 : client relié au contact (ticket du classement)
+    client_eff = None   # lot 187 : client retenu = client relié, sinon client par défaut (contact du carnet sans société)
+    client_defaut_utilise = False
     etat_contrat_cl = None   # lot 183 : « valide » | « retard » | « aucun » (prompt propre à chaque cas)
     # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
     # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
@@ -1062,9 +1064,20 @@ async def autoreply_to_inbound(
         try:
             from routes import offre_client as _offre
             client_lie = await _offre.client_du_contact(db, contact)
+            client_eff = client_lie
+            if not client_lie and contact:
+                # Lot 187 — un contact du carnet est forcément celui d'un client : sans société reconnue, c'est le client par
+                # défaut (client primaire, SAWALI-2S) dont on lit l'offre. Pas de refus d'assistance : pas de retard de paiement.
+                client_eff = await _offre.client_par_defaut(db, settings_doc, scope_uid)
+                client_defaut_utilise = bool(client_eff)
+            if client_eff:
+                offre_bloc = _offre.bloc_prompt(client_eff.get("company") or "", client_eff.get("offre_client") or [])
+                if client_defaut_utilise:
+                    offre_statut = "client_defaut" if offre_bloc else "client_defaut_sans_offre"
+                    etat_contrat_cl = "valide"
+                else:
+                    offre_statut = "offre_connue" if offre_bloc else "client_sans_offre"
             if client_lie:
-                offre_bloc = _offre.bloc_prompt(client_lie.get("company") or "", client_lie.get("offre_client") or [])
-                offre_statut = "offre_connue" if offre_bloc else "client_sans_offre"
                 from routes.vip_contrat import etat_contrat_contact
                 etat_ct = await etat_contrat_contact(db, contact, settings_doc)
                 etat_contrat_cl = etat_ct
@@ -1278,11 +1291,11 @@ async def autoreply_to_inbound(
                 agent_classe = None
             ticket_cl = None
             from routes import offre_client as _offre_cl
-            client_ticket = client_lie
+            client_ticket = client_lie or client_eff
             if not client_ticket:
-                # Lot 186 — contact non relié à un client : le ticket va au client par défaut (SAWALI-2S, réglable)
+                # Lot 186 — expéditeur non relié à un client (numéro inconnu) : ticket au client par défaut (SAWALI-2S, réglable)
                 client_ticket = await _offre_cl.client_par_defaut(db, settings_doc, scope_uid)
-                classement["client_defaut"] = bool(client_ticket)
+            classement["client_defaut"] = bool(client_ticket) and not client_lie
             if client_ticket:
                 contact_tk = contact or {"name": inbound_doc.get("from_profile_name") or inbound_doc.get("contact_name") or f"+{phone_digits}",
                                          "whatsapp": f"+{phone_digits}"}
@@ -1427,7 +1440,7 @@ async def autoreply_to_inbound(
         "[wa_autoreply] decision tel=%s contact=%r societe=%r prospect=%s ligne_plateforme=%s client_lie=%r contrat=%s "
         "offre=%s classement=%s ticket=%s assistant=%s",
         phone_digits, (contact or {}).get("name"), (contact or {}).get("company"), is_prospect, platform_tenant,
-        (client_lie or {}).get("company"), etat_contrat_cl, offre_statut,
+        (client_eff or {}).get("company"), etat_contrat_cl, offre_statut,
         (classement or {}).get("categorie"), (classement or {}).get("ticket_statut"), (classement or {}).get("agent"))
     return {
         "ok": True, "reason": "sent",

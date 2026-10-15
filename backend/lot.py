@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "186.1"
-LOT_LIBELLE = "Liluvine : le client par défaut est le client primaire désigné en base (SAWALI-2S)"
+LOT = "187"
+LOT_LIBELLE = "Liluvine : un contact du carnet sans société relève du client par défaut (client primaire) : offre, ticket et prompt"

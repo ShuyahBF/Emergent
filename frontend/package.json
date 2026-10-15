@@ -66,6 +66,7 @@
   },
   "scripts": {
     "start": "craco start",
+    "prebuild": "node scripts/indexer-parametres.js",
     "build": "craco build",
     "test": "craco test"
   },

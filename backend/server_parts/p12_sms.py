@@ -2709,7 +2709,10 @@ async def whatsapp_webhook_incoming(request: Request):
                         ar_result = {"ok": False, "reason": "relais_plateforme"}
                     elif skip_autoreply or hr_handled:
                         ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
-                    elif mtype != "text" or not text_body:
+                    elif (mtype != "text" or not text_body) and not (
+                            # Lot 200 — clic sur un bouton (modèle, message interactif) non traité plus haut : Liluvine remercie
+                            mtype in ("button", "interactive") and text_body and not flow_reply
+                            and (msg.get("interactive") or {}).get("type") != "call_permission_reply"):
                         ar_result = {"ok": False, "reason": "non_text_message", "message_type": mtype}
                     else:
                         ar_result = None

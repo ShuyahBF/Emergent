@@ -17,6 +17,9 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
   const [form, setForm] = useState({
     compte_id: "", page_id: "", nom: "", budget: "", jours: "7", pays: "BF", age_min: "18", age_max: "65", whatsapp: "",
     message: campagne.message || "",
+    // Lot 194 — message prérempli dans WhatsApp au clic, et réponse automatique de Liluvine à ce message
+    prerempli: "Bonjour, je suis intéressé(e) par vos produits.", avec_ref: true,
+    reponse_liluvine: "Merci pour votre intérêt ! 😊 Voici tout le catalogue : {lien}\nUn conseiller vous répond très vite.",
   });
   const [images, setImages] = useState(() => cartes.map(() => null));      // images de remplacement par carte
   const [bibliotheque, setBibliotheque] = useState(null);
@@ -84,8 +87,11 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
     setCreation(true);
     const attente = toast.loading("Patientez… création de la publicité chez Meta");     // règle « Attentes et chargements »
     try {
-      await apiClient.post(`/admin/carrousel/${campagne.id}/publicite`, { ...form, images }, { timeout: 180000 });
+      const { data } = await apiClient.post(`/admin/carrousel/${campagne.id}/publicite`,
+        { ...form, images, lien_presentation: campagne.url_presentation || "" }, { timeout: 180000 });
       toast.success("Publicité créée EN PAUSE : vérifiez-la, puis activez-la", { id: attente });
+      // Lot 194 : Meta a pu refuser le message prérempli (la publicité est alors créée sans) : on le dit
+      if (form.prerempli.trim() && !data.prerempli) toast.warning(`Message prérempli non appliqué : ${data.prerempli_erreur || "refusé par Meta"}`, { duration: 12000 });
       setConfirmer(false);
       chargerPublicites();
     } catch (e) { toast.error(detail(e, "Création impossible"), { id: attente }); } finally { setCreation(false); }
@@ -158,6 +164,17 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
               <label className={`${etiquette} sm:col-span-2`}>Texte de la publicité
                 <textarea value={form.message} onChange={maj("message")} rows={3} className={champ} data-testid="pub-message" />
               </label>
+              {/* Lot 194 — message prérempli et réponse automatique de Liluvine */}
+              <label className={`${etiquette} sm:col-span-2`}>Message prérempli dans WhatsApp (vide = aucun)
+                <input value={form.prerempli} onChange={maj("prerempli")} className={champ} maxLength={160} data-testid="pub-prerempli" />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-slate-700 sm:col-span-2">
+                <input type="checkbox" checked={form.avec_ref} onChange={(e) => { setForm((f) => ({ ...f, avec_ref: e.target.checked })); setConfirmer(false); }} data-testid="pub-avec-ref" />
+                Ajouter une référence « (réf. PUB-xxxx) » : elle rend le message unique pour que Liluvine reconnaisse cette publicité
+              </label>
+              <label className={`${etiquette} sm:col-span-2`}>Réponse automatique de Liluvine (vide = aucune ; « {"{lien}"} » = page de présentation)
+                <textarea value={form.reponse_liluvine} onChange={maj("reponse_liluvine")} rows={3} className={champ} data-testid="pub-reponse" />
+              </label>
             </section>
 
             <section>
@@ -209,6 +226,9 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
                         {p.statut === "ACTIVE" ? "ACTIVE" : "En pause"}
                       </span>
                       <span>{new Date(p.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · {p.compte_nom} · {p.page_nom} · {p.nb_cartes} cartes · {p.budget_jour} {p.devise}/jour · {(p.pays || []).join(", ")}</span>
+                      {p.prerempli
+                        ? <span className="basis-full text-slate-600">Message prérempli : « {p.prerempli} »{p.modele_liluvine ? " — Liluvine répond automatiquement" : ""}</span>
+                        : p.prerempli_erreur && <span className="basis-full text-amber-800">Message prérempli non appliqué : {p.prerempli_erreur}</span>}
                       <a href={p.gestionnaire} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-blue-700 underline"><ExternalLink className="h-3 w-3" />Gestionnaire de publicités</a>
                       <span className="ml-auto flex items-center gap-2">
                         {p.statut === "ACTIVE" ? (

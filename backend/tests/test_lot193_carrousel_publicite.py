@@ -123,3 +123,61 @@ def test_refus_comptes_et_pages_inconnus(env):
     with pytest.raises(HTTPException) as e:                                                     # Meta non connecté
         lancer(cp.creer_publicite(db, {"id": "autre"}, c, CORPS))
     assert e.value.status_code == 400
+
+
+# --- Lot 194 : message prérempli et réponse automatique de Liluvine ---------------------------------------------------
+def test_message_prerempli_et_reponse():
+    assert cp.message_prerempli("  Bonjour,   je suis  intéressé ", True, "PUB-AB12") == "Bonjour, je suis intéressé (réf. PUB-AB12)"
+    assert cp.message_prerempli("Bonjour", False, "PUB-AB12") == "Bonjour" and cp.message_prerempli("  ", True, "PUB-AB12") == ""
+    assert len(cp.message_prerempli("x" * 500, False, "R")) == 200
+    w = json.loads(cp.page_welcome_message("Bonjour (réf. PUB-AB12)"))
+    assert w["text_format"]["customer_action_type"] == "autofill_message"
+    assert w["text_format"]["message"]["autofill_message"]["content"] == "Bonjour (réf. PUB-AB12)"
+    cartes = [{"name": "A"}, {"name": "B"}]
+    assert "page_welcome_message" in cp.histoire_creative("P1", "m", cartes, "https://api.whatsapp.com/send", "Bonjour")["link_data"]
+    assert "page_welcome_message" not in cp.histoire_creative("P1", "m", cartes, "https://api.whatsapp.com/send")["link_data"]
+    assert cp.texte_reponse("Voici : {lien}", "https://s.test/p/abc") == "Voici : https://s.test/p/abc"
+    assert cp.texte_reponse("Bonjour {lien}", "") == "Bonjour" and cp.texte_reponse(None, "x") == ""
+
+
+CORPS_MSG = {**CORPS, "prerempli": "Bonjour, je veux en savoir plus", "avec_ref": True,
+             "reponse_liluvine": "Merci ! Tout le catalogue : {lien}", "lien_presentation": "https://s.test/p/pub1"}
+
+
+def test_creation_avec_message_prerempli_et_modele_liluvine(env):
+    db, appels, _ = env
+    c = lancer(db.carrousel_campagnes.find_one({"id": "camp1"}))
+    res = lancer(cp.creer_publicite(db, USER, c, CORPS_MSG))
+    crea = [a[1] for a in appels if a[0].endswith("/adcreatives")][0]
+    ld = json.loads(crea["object_story_spec"])["link_data"]
+    contenu = json.loads(ld["page_welcome_message"])["text_format"]["message"]["autofill_message"]["content"]
+    assert contenu == res["prerempli"] and contenu.startswith("Bonjour, je veux en savoir plus (réf. PUB-") and res["prerempli_erreur"] == ""
+    modele = lancer(db.liluvine_ad_templates.find_one({"id": res["modele_liluvine"]}))
+    assert modele["trigger_text"] == contenu and modele["active"] is True                      # Liluvine répond à CE texte
+    assert modele["response_text"] == "Merci ! Tout le catalogue : https://s.test/p/pub1" and modele["response_media_url"] == "https://x.test/a.jpg"
+
+
+def test_message_refuse_par_meta_publicite_creee_sans(env, monkeypatch):
+    db, appels, _ = env
+    ancien = cp._graph
+
+    async def graph_refuse(_db, chemin, jeton, donnees):
+        if chemin.endswith("/adcreatives") and "page_welcome_message" in donnees.get("object_story_spec", ""):
+            raise HTTPException(status_code=502, detail="Meta : page_welcome_message non pris en charge")
+        return await ancien(_db, chemin, jeton, donnees)
+
+    monkeypatch.setattr(cp, "_graph", graph_refuse)
+    c = lancer(db.carrousel_campagnes.find_one({"id": "camp1"}))
+    res = lancer(cp.creer_publicite(db, USER, c, CORPS_MSG))
+    assert res["statut"] == "PAUSED" and res["prerempli"] == "" and "page_welcome_message" in res["prerempli_erreur"]
+    assert res["modele_liluvine"] is None and lancer(db.liluvine_ad_templates.count_documents({})) == 0   # pas de réponse sans message prérempli
+    creatifs = [a for a in appels if a[0].endswith("/adcreatives")]
+    assert len(creatifs) == 1 and "page_welcome_message" not in creatifs[0][1]["object_story_spec"]       # créatif sans, une fois accepté
+
+
+def test_sans_message_prerempli_rien_de_plus(env):
+    db, appels, _ = env
+    c = lancer(db.carrousel_campagnes.find_one({"id": "camp1"}))
+    res = lancer(cp.creer_publicite(db, USER, c, CORPS))               # corps du lot 193 : aucun message prérempli
+    assert res["prerempli"] == "" and res["modele_liluvine"] is None and lancer(db.liluvine_ad_templates.count_documents({})) == 0
+    assert "page_welcome_message" not in [a[1] for a in appels if a[0].endswith("/adcreatives")][0]["object_story_spec"]

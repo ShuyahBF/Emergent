@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "178", "date": "2026-10-15",
+        "titre": "🧩 Liluvine connaît enfin l'offre du client",
+        "description": "Quand un client écrit sur la ligne SAWALI, Liluvine lit maintenant la liste de ses logiciels, produits et services et ne lui demande plus « de quel logiciel s'agit-il ? ». Le refus d'assistance pour contrat en retard (désactivé par défaut) est lui aussi enfin actif quand vous l'activez.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "177", "date": "2026-10-15",
         "titre": "🗄️ Services à renouveler : plusieurs organisations Atlas",
         "description": "La facture Atlas est lue pour chaque organisation dont les clés sont saisies (suffixe _2, _3 pour les suivantes) ; deux clusters de même nom sont distingués par leur projet, et l'échec d'une organisation n'empêche plus de lire les autres.",

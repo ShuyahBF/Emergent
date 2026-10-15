@@ -153,3 +153,11 @@ def test_lot169_copie_de_l_offre_d_un_client_a_d_autres():
     lancer(base.users.insert_one({"id": "vide", "company": "Vide"}))
     assert c.post("/api/admin/offre-client/copier", json={"source_id": "vide", "cible_ids": ["c1"]}).status_code == 409
     assert c.post("/api/admin/offre-client/copier", json={"source_id": "src", "cible_ids": ["c1"], "mode": "x"}).status_code == 422
+
+
+def test_lot178_offre_appliquee_sur_la_ligne_de_la_plateforme():
+    """Lot 178 : l'offre du client est lue quand un CLIENT de SAWALI écrit sur la ligne de la plateforme (avant : condition inversée)."""
+    from routes.liluvine_wa_autoreply import offre_du_client_applicable as ok
+    assert ok(is_prospect=False, platform_tenant=True) is True      # client de SAWALI sur la ligne SAWALI : offre lue
+    assert ok(is_prospect=True, platform_tenant=True) is False      # prospect : aucune offre
+    assert ok(is_prospect=False, platform_tenant=False) is False    # ligne d'un client (tenant) : ses contacts ne sont pas des clients de SAWALI

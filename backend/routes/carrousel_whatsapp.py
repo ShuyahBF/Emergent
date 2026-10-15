@@ -873,8 +873,27 @@ def attach_carrousel_whatsapp_routes(
     async def _contacts_portail(user: dict) -> Dict[str, Any]:
         return await _annuaire_pour_ids(await visible_client_ids(user))
 
+    SOCIETE_PLATEFORME = "@plateforme"           # lot 168.1 : SAWALI SMART SYSTEMS (comptes de l'administration)
+
+    async def _ids_plateforme() -> List[str]:
+        """Lot 168.1 — comptes de SAWALI SMART SYSTEMS : le compte plateforme et les comptes administrateurs (et leur
+        identifiant de rattachement) sous lesquels sont rangés ses contacts, utilisateurs suivis et groupes."""
+        ids = set()
+        async for u in db.users.find({"$or": [{"email": COMPTE_PLATEFORME}, {"role": "admin"}]},
+                                     {"_id": 0, "id": 1, "client_id": 1}):
+            ids.update(x for x in (u.get("id"), u.get("client_id")) if x)
+        return sorted(ids)
+
+    async def _societes_visibles(ids: List[str]) -> List[str]:
+        """Lot 168.1 — identifiants de société qu'un utilisateur du portail peut voir : les siens, plus SAWALI SMART
+        SYSTEMS s'il en fait partie (ses demandes et carrousels lui sont alors visibles)."""
+        plateforme = set(await _ids_plateforme())
+        return list(ids) + ([SOCIETE_PLATEFORME] if plateforme & set(ids) else [])
+
     async def _ids_societe(societe_id: str) -> List[str]:
         """Lot 168 — la société (compte client) et ses sous-comptes : les données de tous sont rangées sous leur identifiant."""
+        if societe_id == SOCIETE_PLATEFORME:
+            return await _ids_plateforme()
         sous = [u["id"] async for u in db.users.find({"parent_client_id": societe_id}, {"_id": 0, "id": 1})]
         return [societe_id] + sous
 
@@ -935,20 +954,25 @@ def attach_carrousel_whatsapp_routes(
             {"role": {"$in": ROLES_CLIENTS}, "email": {"$nin": [COMPTE_PLATEFORME]}},
             {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "parent_client_id": 1})}
 
+        plateforme = set(await _ids_plateforme())
+
         def racine(cid: str) -> str:
+            if cid in plateforme:
+                return SOCIETE_PLATEFORME
             return (comptes.get(cid) or {}).get("parent_client_id") or cid
 
         effectifs: Dict[str, Dict[str, int]] = {}
         for cle, coll in (("contacts", db.directory_contacts), ("suivis", db.tracked_users), ("groupes", db.contact_groups)):
             async for d in coll.find({}, {"_id": 0, "client_id": 1}):
                 cid = d.get("client_id")
-                if cid in comptes:
+                if cid in comptes or cid in plateforme:
                     e = effectifs.setdefault(racine(cid), {"contacts": 0, "suivis": 0, "groupes": 0})
                     e[cle] += 1
         lignes = []
         for rid, e in effectifs.items():
             c = comptes.get(rid) or {}
-            lignes.append({"id": rid, "nom": c.get("company") or c.get("full_name") or c.get("email") or rid, **e})
+            nom = "SAWALI SMART SYSTEMS" if rid == SOCIETE_PLATEFORME else (c.get("company") or c.get("full_name") or c.get("email") or rid)
+            lignes.append({"id": rid, "nom": nom, **e})
         return sorted(lignes, key=lambda x: x["nom"].lower())
 
     async def _clients_admin(user: Optional[dict] = None, societe_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1625,7 +1649,7 @@ def attach_carrousel_whatsapp_routes(
     async def campagnes_portail(user: dict = Depends(utilisateur)):
         """Campagnes du client + (lot 168) celles que l'administration SAWALI a lancées avec les contacts de sa société :
         le superviseur en voit le statut, sans pouvoir les annuler."""
-        ids = await visible_client_ids(user)
+        ids = await _societes_visibles(await visible_client_ids(user))
         lignes = await _campagnes({"$or": [{"perimetre": "client", "tenant_id": _tenant_id(user)},
                                            {"perimetre": "admin", "societe_id": {"$in": ids}}]})
         for c in lignes:
@@ -1635,7 +1659,7 @@ def attach_carrousel_whatsapp_routes(
 
     @api.get("/me/whatsapp/carrousel/campagnes/{cid}", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagne_portail(cid: str, user: dict = Depends(utilisateur)):
-        ids = await visible_client_ids(user)
+        ids = await _societes_visibles(await visible_client_ids(user))
         return await _campagne({"id": cid, "$or": [{"perimetre": "client", "tenant_id": _tenant_id(user)},
                                                    {"perimetre": "admin", "societe_id": {"$in": ids}}]})
 
@@ -1643,7 +1667,7 @@ def attach_carrousel_whatsapp_routes(
     async def demandes_accord_portail(user: dict = Depends(utilisateur)):
         """Lot 168 — statut des demandes d'autorisation (modèle d'accord) lancées ou programmées par l'administration
         SAWALI pour les contacts de la société de l'utilisateur. Lecture seule."""
-        ids = set(await visible_client_ids(user))
+        ids = set(await _societes_visibles(await visible_client_ids(user)))
         items = [i for i in await _items_prog() if i.get("societe_id") in ids]
         items.sort(key=lambda i: i.get("programme_le") or "", reverse=True)
         return {"demandes": [_vue_prog(i) for i in items]}

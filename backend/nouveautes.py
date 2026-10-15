@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "168.1", "date": "2026-10-15",
+        "titre": "🏢 SAWALI SMART SYSTEMS ajouté à la liste des sociétés",
+        "description": "Le sélecteur « Société » de Carrousel WhatsApp propose maintenant SAWALI SMART SYSTEMS (compte de l'administration) avec ses groupes, dont « Prospects publicités Facebook ». Son superviseur en voit les statuts.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "168", "date": "2026-10-15",
         "titre": "🏢 Contacts et groupes par société, statuts visibles du superviseur",
         "description": "Sur « Carrousel WhatsApp », l'administration choisit une société (ex. SAWALI SMART SYSTEMS) : ses groupes de contacts (ex. « Prospects publicités Facebook ») s'affichent, on coche groupes ou personnes puis on envoie ou programme la demande d'autorisation ou le carrousel. Le superviseur de la société en voit ensuite les statuts (lecture seule).",

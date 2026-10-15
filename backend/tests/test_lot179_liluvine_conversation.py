@@ -72,3 +72,16 @@ def test_consignes_reglables_et_recherche_lot184():
          {"role": "user", "content": "Aizenta"}, {"role": "assistant", "content": "ok2"}]
     assert requete_recherche("Historique", h) == "Comment faire une vente Aizenta Historique"
     assert requete_recherche("Koloko", []) == "Koloko" and len(requete_recherche("x" * 900, [])) == 500
+
+
+def test_choix_par_numero_lot185():
+    from routes.liluvine_wa_autoreply import traduire_choix_numerique
+    h = [{"role": "user", "content": "J'ai un souci"},
+         {"role": "assistant", "content": "Quelle catégorie ?\n1. Technique\n2) *Comptabilité*\n3 - Commercial\n4️⃣ Autre\nRépondez par le numéro."}]
+    assert traduire_choix_numerique("2", h) == "2 (option 2 : Comptabilité)"
+    assert traduire_choix_numerique(" N°3. ", h) == "N°3. (option 3 : Commercial)"
+    assert traduire_choix_numerique("4", h) == "4 (option 4 : Autre)"
+    assert traduire_choix_numerique("9", h) == "9"                                    # numéro absent de la liste
+    assert traduire_choix_numerique("2 factures impayées", h) == "2 factures impayées"  # phrase : jamais touchée
+    assert traduire_choix_numerique("2", []) == "2"                                   # pas de liste : inchangé
+    assert traduire_choix_numerique("", h) == ""

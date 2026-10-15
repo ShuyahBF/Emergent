@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "184.1"
-LOT_LIBELLE = "Liluvine : décision détaillée de chaque réponse dans les journaux du serveur (diagnostic du ticket et de l'offre)"
+LOT = "185"
+LOT_LIBELLE = "Liluvine numérote ses choix et comprend la réponse par un numéro"

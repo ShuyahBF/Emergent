@@ -62,7 +62,8 @@ def consignes_classement(cats: List[str], deja_classe: Optional[str] = None) -> 
         "- Avec le marqueur, écris la réponse à la demande tirée UNIQUEMENT de la base de connaissances (sans rien inventer ; "
         "si elle n'y figure pas, dis-le et propose un conseiller humain) : la phrase de mise en relation avec l'assistant et "
         "le numéro de ticket sont ajoutés automatiquement, ne les écris pas.\n"
-        "- Si la catégorie n'est pas claire, pose UNE seule question courte en proposant ces catégories, sans marqueur.\n"
+        "- Si la catégorie n'est pas claire, pose UNE seule question courte en proposant ces catégories NUMÉROTÉES (1. …  2. …), "
+        "sur des lignes séparées, et invite à répondre par le numéro ; sans marqueur.\n"
         "- Pas de marqueur pour une simple salutation ou une question d'information : seulement pour une demande à traiter."
     )
 

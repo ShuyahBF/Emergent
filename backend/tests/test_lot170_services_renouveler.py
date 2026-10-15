@@ -105,7 +105,7 @@ def test_lecture_atlas_authentification_digest_et_erreurs(monkeypatch):
             return await sr.lire_atlas(c)
 
     r = lancer(essai(serveur))
-    assert r["erreur"] is None and r["total"] == 50.0 and r["clusters"][0] == {"nom": "Cluster0", "montant": 40.0}
+    assert r["erreur"] is None and r["total"] == 50.0 and r["clusters"][0] == {"nom": "Cluster0", "groupe": "", "montant": 40.0}
     assert {c["nom"] for c in r["clusters"]} == {"Cluster0", "ekol", "Projet"}
     refus = lancer(essai(lambda req: httpx.Response(401, headers={"WWW-Authenticate": 'Digest realm="x", nonce="n", qop="auth"'})))
     assert "HTTP 401" in refus["erreur"] and "priv-secret" not in str(refus)                       # jamais la clé dans le message
@@ -173,3 +173,33 @@ def test_conversion_en_fcfa():
     assert t["mensuel_fcfa"] == 11105 and t["annuel_fcfa"] == 133260 and t["plateformes_fcfa"]["Ster"] == 6105
     assert t["devises_sans_taux"] == ["CHF"]
     assert "mensuel_fcfa" not in sr.totaux(lignes)                                       # sans taux : comportement d'avant
+
+
+def test_atlas_deux_organisations(monkeypatch):
+    """Lot 177 : deux organisations Atlas (suffixe _2), noms identiques distingués par le projet, échec partiel signalé."""
+    for k, v in {"ATLAS_API_PUBLIC_KEY": "p1", "ATLAS_API_PRIVATE_KEY": "s1", "ATLAS_ORG_ID": "orgA",
+                 "ATLAS_API_PUBLIC_KEY_2": "p2", "ATLAS_API_PRIVATE_KEY_2": "s2", "ATLAS_ORG_ID_2": "orgB"}.items():
+        monkeypatch.setenv(k, v)
+    factures = {"orgA": {"lineItems": [{"groupName": "Project 0", "clusterName": "Cluster0", "totalPriceCents": 331},
+                                       {"groupName": "Project 0", "clusterName": "ekol", "totalPriceCents": 0}]},
+                "orgB": {"lineItems": [{"groupName": "sawali", "clusterName": "Cluster0", "totalPriceCents": 5000},
+                                       {"groupName": "sawali", "clusterName": "Clusterbkp", "totalPriceCents": 900}]}}
+    statut = {"orgA": 200, "orgB": 200}
+
+    def repondre(requete):
+        org = requete.url.path.split("/")[5]
+        return httpx.Response(statut[org], json=factures[org])
+
+    async def lire():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(repondre)) as c:
+            return await sr.lire_atlas(c)
+
+    r = lancer(lire())
+    noms = {c["nom"]: c["montant"] for c in r["clusters"]}
+    assert noms == {"sawali · Cluster0": 50.0, "Clusterbkp": 9.0, "Project 0 · Cluster0": 3.31, "ekol": 0.0}   # doublon distingué, autres inchangés
+    assert r["erreur"] is None and r["total"] == 62.31 and "avertissement" not in r
+    statut["orgB"] = 403                                                                                         # une organisation échoue : l'autre reste lue
+    r = lancer(lire())
+    assert r["erreur"] is None and {c["nom"] for c in r["clusters"]} == {"Cluster0", "ekol"} and "organisation 2" in r["avertissement"]
+    statut["orgA"] = 403                                                                                         # toutes échouent : erreur
+    assert "organisation 1" in lancer(lire())["erreur"]

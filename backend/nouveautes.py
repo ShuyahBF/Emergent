@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "177", "date": "2026-10-15",
+        "titre": "🗄️ Services à renouveler : plusieurs organisations Atlas",
+        "description": "La facture Atlas est lue pour chaque organisation dont les clés sont saisies (suffixe _2, _3 pour les suivantes) ; deux clusters de même nom sont distingués par leur projet, et l'échec d'une organisation n'empêche plus de lire les autres.",
+        "rubrique": "💳 Services à renouveler — coûts",
+    },
+    {
         "lot": "176", "date": "2026-10-15",
         "titre": "⚙️ « Paramètres » : un pictogramme sur la ligne Alerte WhatsApp",
         "description": "Pour gagner de la place, le lien « Paramètres » de la barre latérale n'est plus qu'un pictogramme, juste après la bulle de notification de l'Alerte WhatsApp.",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "182", "date": "2026-10-15",
+        "titre": "🧠 Liluvine se souvient de la conversation",
+        "description": "Jusqu'ici, chaque message WhatsApp était traité comme le premier : Liluvine oubliait sa propre question et se représentait. Elle relit maintenant les derniers échanges (12 h, 12 messages). Si le client cite un logiciel absent de son offre, elle le lui signale avant de classer la demande.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "181", "date": "2026-10-15",
         "titre": "🗂️ Liluvine classe la conversation et passe la main à son assistant IA",
         "description": "Pendant une conversation WhatsApp, Liluvine range la demande (Technique, Comptabilité, Commercial…), ouvre un ticket dont le motif résume ce qu'elle a compris (client connu), puis met le correspondant en relation avec l'assistant IA concerné (prénom et fonction). Si la catégorie n'est pas claire, elle propose les catégories. Catégories réglables.",

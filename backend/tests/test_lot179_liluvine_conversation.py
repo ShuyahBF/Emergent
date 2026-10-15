@@ -29,3 +29,22 @@ def test_consignes_sans_re_presentation_ni_catalogue():
         assert "ne te présente" in t.lower() and "JAMAIS la liste de tous les logiciels" in t
     assert "offre de ce client" in consignes_conversation(True)
     assert "UNE seule question" in consignes_conversation(False)
+
+
+def test_historique_rejoue_au_modele_lot182():
+    """Lot 182 — la question précédente de Liluvine est rejouée, sinon « Koloko » est pris pour une nouvelle salutation."""
+    from routes.liluvine_wa_autoreply import historique_pour_llm
+    docs = [
+        {"role": "assistant", "content": "message orphelin"},                   # ne peut pas ouvrir l'historique
+        {"role": "user", "content": "Problème avec mon logiciel"},
+        {"role": "assistant", "content": "Quel est le nom de votre logiciel ?"},
+        {"role": "user", "content": "Koloko"},                                 # sans réponse : retiré (c'est le nouveau message)
+        {"role": "tool", "content": "x"}, {"role": "user", "content": "  "},
+    ]
+    h = historique_pour_llm(docs)
+    assert h == [{"role": "user", "content": "Problème avec mon logiciel"},
+                 {"role": "assistant", "content": "Quel est le nom de votre logiciel ?"}]
+    assert historique_pour_llm([]) == [] and historique_pour_llm(None) == []
+    fusion = historique_pour_llm([{"role": "user", "content": "a"}, {"role": "user", "content": "b"}, {"role": "assistant", "content": "c"}])
+    assert fusion == [{"role": "user", "content": "a\nb"}, {"role": "assistant", "content": "c"}]
+    assert len(historique_pour_llm([{"role": "user", "content": "x" * 5000}, {"role": "assistant", "content": "y"}])[0]["content"]) == 1200

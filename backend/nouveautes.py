@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "171", "date": "2026-10-15",
+        "titre": "⏸️ Webhook incidents : pause temporaire",
+        "description": "Nouveau bouton « Mettre en pause » sur le webhook Incidents serveur : les incidents entrants sont refusés (503) sans supprimer le mot de passe, et « Rétablir » le réactive en un clic.",
+        "rubrique": "🚨 Webhook Incidents entrant + Pays par défaut AMM",
+    },
+    {
         "lot": "170", "date": "2026-10-15",
         "titre": "💳 Services à renouveler : coûts par service, plateforme et cluster",
         "description": "Nouvelle rubrique : MongoDB Atlas (facture en cours, une ligne par cluster), Cloudflare R2 (estimation), Render, domaines… avec le montant à la date de lecture, par formule, par plateforme et par cluster, les échéances en couleur et un rappel WhatsApp 30, 7 et 1 jour avant puis le jour même.",

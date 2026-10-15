@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "168.2", "date": "2026-10-15",
+        "titre": "🏢 SAWALI SMART SYSTEMS : tous ses groupes et contacts retrouvés",
+        "description": "SAWALI SMART SYSTEMS (SAWALI-2S) n'est pas un client canonique : ses contacts et groupes sont rangés sous plusieurs identifiants. Le sélecteur « Société » les regroupe maintenant tous (comptes de la même société, anciens identifiants), avec les bons effectifs.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "168.1", "date": "2026-10-15",
         "titre": "🏢 SAWALI SMART SYSTEMS ajouté à la liste des sociétés",
         "description": "Le sélecteur « Société » de Carrousel WhatsApp propose maintenant SAWALI SMART SYSTEMS (compte de l'administration) avec ses groupes, dont « Prospects publicités Facebook ». Son superviseur en voit les statuts.",

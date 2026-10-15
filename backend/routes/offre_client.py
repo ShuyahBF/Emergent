@@ -198,7 +198,9 @@ async def _numero_ticket(db, client_id: str) -> str:
     return f"{prefixe}-{annee}-{seq:04d}"
 
 
-async def ouvrir_ticket(db, client: Dict[str, Any], contact: Optional[Dict[str, Any]], objet: str, texte: str) -> Optional[Dict[str, Any]]:
+async def ouvrir_ticket(db, client: Dict[str, Any], contact: Optional[Dict[str, Any]], objet: str, texte: str, *,
+                        motif: Optional[str] = None, categorie: Optional[str] = None,
+                        source: str = "liluvine_offre_client") -> Optional[Dict[str, Any]]:
     """Ouvre un ticket pour ce client — ou rattache la demande au ticket déjà ouvert (règle du lot 54 : un seul ticket
     ouvert par client). Renvoie {id, number, rattache} ou None en cas d'échec (jamais d'exception)."""
     try:
@@ -214,9 +216,12 @@ async def ouvrir_ticket(db, client: Dict[str, Any], contact: Optional[Dict[str, 
             "id": uuid.uuid4().hex, "number": numero, "client_id": client["id"],
             "contact_id": contact_id, "contact_name": (contact or {}).get("name"),
             "contact_phone": (contact or {}).get("whatsapp") or (contact or {}).get("phone"),
-            "motif": f"Demande d'assistance refusée (contrat pas à jour) : {objet}"[:200],
-            "status": "open", "notes": f"Message reçu : {texte[:500]}", "software": None, "incident_at": None,
-            "attach_wa_sms_history": False, "source": "liluvine_offre_client",
+            # Lot 181 : le classement par Liluvine fournit son propre motif et sa catégorie ; sinon, motif du refus d'assistance.
+            "motif": (motif or f"Demande d'assistance refusée (contrat pas à jour) : {objet}")[:200],
+            "category": categorie or None,
+            "status": "open", "notes": (f"Catégorie : {categorie}\n" if categorie else "") + f"Message reçu : {texte[:500]}",
+            "software": None, "incident_at": None,
+            "attach_wa_sms_history": False, "source": source,
             "opened_at": maintenant, "opened_by_id": "liluvine", "opened_by_label": "Liluvine (assistant IA)",
             "owner_id": client["id"], "owner_company": client.get("company") or None, "owner_parent_client_id": None,
             "shared_with_tenant": False, "editable_by_tenant": False,

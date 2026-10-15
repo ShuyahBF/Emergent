@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "174", "date": "2026-10-15",
+        "titre": "🔧 Cloudflare R2 : la lecture automatique fonctionne",
+        "description": "Dans « Services à renouveler », la lecture de Cloudflare R2 échouait (« cannot order by datetime ») ; la requête est corrigée et l'estimation du mois s'affiche.",
+        "rubrique": "💳 Services à renouveler — coûts",
+    },
+    {
         "lot": "173", "date": "2026-10-15",
         "titre": "⚙️ « Paramètres » épinglé en bas de la barre latérale",
         "description": "Le lien « Paramètres » quitte la liste défilante du menu : il est maintenant dans la partie basse fixe de la barre latérale, juste au-dessus de votre compte, toujours visible.",

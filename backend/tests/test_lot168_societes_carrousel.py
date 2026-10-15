@@ -144,3 +144,20 @@ def test_carrousel_admin_pour_une_societe_visible_non_annulable_du_superviseur(e
     assert client.get("/api/me/whatsapp/carrousel/campagnes", headers=h("cli_b")).json()["campagnes"] == []
     assert client.get("/api/me/whatsapp/carrousel/campagnes/camp1", headers=h("cli_a")).status_code == 200
     assert client.get("/api/me/whatsapp/carrousel/campagnes/camp1", headers=h("cli_b")).status_code == 404
+
+
+def test_sawali_smart_systems_dans_la_liste_des_societes(env):
+    """Lot 168.1 — le compte de l'administration (SAWALI SMART SYSTEMS) figure parmi les sociétés, avec ses groupes."""
+    client, db, envois = env
+    p = client.portal
+    p.call(db.tracked_users.insert_many, [
+        {"id": "f1", "client_id": "admin", "name": "Prospect FB", "whatsapp_number": "+226 76 66 66 01"}])
+    p.call(db.contact_groups.insert_one, {"id": "gf", "client_id": "admin", "name": "Prospects publicités Facebook",
+                                           "contact_ids": ["f1"]})
+    soc = client.get(URL + "/societes", headers=h("admin")).json()["societes"]
+    s = next(x for x in soc if x["nom"] == "SAWALI SMART SYSTEMS")
+    assert s["id"] == "@plateforme" and s["groupes"] == 1 and s["suivis"] == 1
+    ann = client.get(URL + "/destinataires?societe=@plateforme", headers=h("admin")).json()
+    assert any(g["nom"] == "Prospects publicités Facebook" for g in ann["groupes"])
+    r = client.post(URL + "/demande-accord-modele", headers=h("admin"), json={"ids": ["f1"], "societe_id": "@plateforme"})
+    assert r.json()["envoyees"] == 1 and len(envois) == 1

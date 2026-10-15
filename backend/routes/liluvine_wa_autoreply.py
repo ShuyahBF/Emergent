@@ -113,6 +113,29 @@ def prompt_selon_contrat(settings_doc: Optional[Dict[str, Any]], etat: Optional[
     return str((settings_doc or {}).get(cle) or "").strip() if cle else ""
 
 
+# Lot 191 — signatures de fin de message : lignes commençant par un tiret long (« — visitez notre site … », « — Illiass
+# (Commercial), assistant Liluvine 🤖 », « — 🤖 Réponse automatique Liluvine PRO ») et adresses web isolées qui les suivent.
+_LIGNE_SIGNATURE = re.compile(
+    r"[ \t]*[—–-][ \t]*(?:visitez notre site|.*assistant Liluvine|.*Réponse automatique Liluvine).*", re.IGNORECASE)
+_LIGNE_URL = re.compile(r"[ \t]*(?:https?://|www\.)\S+[ \t]*", re.IGNORECASE)
+
+
+def retirer_signatures_fin(texte: str, signatures: Any = ()) -> str:
+    """Lot 191 — retire du texte TOUTES les signatures de fin de message (connues ou reconnaissables) et renvoie le texte nu.
+    Avant : les réponses étaient mémorisées AVEC leur signature, rejouées au modèle (lot 182) qui la recopiait dans son
+    texte, puis le code l'ajoutait encore : « — visitez notre site » apparaissait 2 ou 3 fois. La signature est ajoutée UNE
+    fois, à l'envoi. Fonction pure."""
+    t = str(texte or "")
+    for sig in signatures or ():
+        sig = str(sig or "").strip()
+        if sig:
+            t = t.replace(sig, "")
+    lignes = t.rstrip().split("\n")
+    while lignes and (not lignes[-1].strip() or _LIGNE_SIGNATURE.fullmatch(lignes[-1]) or _LIGNE_URL.fullmatch(lignes[-1])):
+        lignes.pop()
+    return "\n".join(lignes).rstrip()
+
+
 HISTORIQUE_MAX_MESSAGES = 12      # derniers échanges rejoués au modèle
 HISTORIQUE_HEURES = 12            # au-delà, on repart d'une conversation neuve
 HISTORIQUE_MAX_CARACTERES = 1200  # par message rejoué
@@ -127,7 +150,10 @@ def historique_pour_llm(docs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     sortie: List[Dict[str, str]] = []
     for d in docs or []:
         role = d.get("role")
-        texte = str(d.get("content") or "").strip()[:HISTORIQUE_MAX_CARACTERES]
+        texte = str(d.get("content") or "").strip()
+        if role == "assistant":
+            texte = retirer_signatures_fin(texte)        # lot 191 : sans signature (sinon le modèle la recopie)
+        texte = texte[:HISTORIQUE_MAX_CARACTERES]
         if role not in ("user", "assistant") or not texte:
             continue
         if not sortie and role != "user":
@@ -1355,6 +1381,8 @@ async def autoreply_to_inbound(
             reply = _clas.texte_mise_en_relation(agent_classe, marque["motif"], classement["ticket"])
             if reponse_kb:
                 reply = f"{reply}\n\n{reponse_kb}"
+
+    reply = retirer_signatures_fin(reply)    # lot 191 : la signature est ajoutée UNE seule fois, plus bas
 
     # Signature nominative : jusqu'à 5 agents (prénom + spécialité), paramétrés
     # par l'admin. L'agent dont le rôle correspond au contenu du message signe

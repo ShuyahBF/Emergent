@@ -101,3 +101,19 @@ def test_donnees_du_compte_reservees_a_l_equipe_lot189():
     assert est_membre_equipe("22675000000", comptes, "sawali") is False       # client : jamais
     assert est_membre_equipe("22600000000", comptes, "sawali") is False       # inconnu
     assert est_membre_equipe("123", comptes, "sawali") is False and est_membre_equipe("", [], "sawali") is False
+
+
+def test_signature_en_un_seul_exemplaire_lot191():
+    from routes.liluvine_wa_autoreply import historique_pour_llm, retirer_signatures_fin
+    base = "Pour faire un inventaire, ouvrez le menu Stock.\n\n1. Choisir le magasin\n2. Lancer le comptage"
+    triple = base + "\n\n— visitez notre site www.sawalismartsystems.com\n\n— visitez notre site www.sawalismartsystems.com\n\n— visitez notre site\nwww.sawalismartsystems.com"
+    assert retirer_signatures_fin(triple) == base                                   # 3 copies → texte nu
+    assert retirer_signatures_fin(base + "\n\n— Illiass (Commercial), assistant Liluvine 🤖") == base
+    assert retirer_signatures_fin(base + "\n\n— 🤖 Réponse automatique Liluvine PRO") == base
+    assert retirer_signatures_fin(base + "\n\nMa signature perso", ["Ma signature perso"]) == base   # signature réglée
+    assert retirer_signatures_fin("— Option A\n— Option B") == "— Option A\n— Option B"   # tirets d'une liste : conservés
+    assert retirer_signatures_fin("") == "" and retirer_signatures_fin(None) == ""
+    # historique rejoué : les réponses de Liluvine sans signature
+    h = historique_pour_llm([{"role": "user", "content": "inventaire ?"},
+                             {"role": "assistant", "content": base + "\n\n— visitez notre site www.sawalismartsystems.com"}])
+    assert h[1]["content"] == base

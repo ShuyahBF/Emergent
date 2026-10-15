@@ -24,6 +24,9 @@ export default function AdminClients() {
   const [contratFilter, setContratFilter] = useState("all");
   const [sortBy, setSortBy] = useState("");      // "" | created_at | last_login_at | full_name
   const [sortOrder, setSortOrder] = useState("desc");
+  // Lot 202 — recherche libre et tri par clic sur l'en-tête d'une colonne (appliqués dans le navigateur)
+  const [recherche, setRecherche] = useState("");
+  const [tri, setTri] = useState({ cle: "", sens: "asc" });
   const [categories, setCategories] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -156,11 +159,55 @@ export default function AdminClients() {
     return { all: items.length, avec, sans: items.length - avec };
   }, [items]);
   // Lot 129 — liste réduite selon le filtre « Contrat » (les pastilles de rôle et les groupes en tiennent compte)
+  // Lot 202 — nombre de lignes (logiciels, produits, services) renseignées dans l'offre du client
+  const nbServices = (c) => (Array.isArray(c.offre_client) ? c.offre_client.length : 0);
+  const nbServicesActifs = (c) => (Array.isArray(c.offre_client) ? c.offre_client.filter((o) => o && o.actif !== false).length : 0);
+  // Lot 202 — texte sur lequel porte la recherche : nom, e-mail, société, catégorie, pays, ville, rôle, statut, n° de contrat, services
+  const texteRecherche = (c) => [
+    c.full_name, c.email, c.company, catOf(c.category_slug)?.label, c.country, c.city, c.role, c.account_status,
+    c.contract_number, ...(Array.isArray(c.offre_client) ? c.offre_client.map((o) => o?.nom) : []),
+  ].filter(Boolean).join(" ").toLowerCase();
   const itemsFiltres = useMemo(() => {
-    if (contratFilter === "avec") return items.filter(aUnContrat);
-    if (contratFilter === "sans") return items.filter((c) => !aUnContrat(c));
-    return items;
-  }, [items, contratFilter]);
+    let lignes = items;
+    if (contratFilter === "avec") lignes = lignes.filter(aUnContrat);
+    else if (contratFilter === "sans") lignes = lignes.filter((c) => !aUnContrat(c));
+    // Recherche : chaque mot saisi doit se retrouver quelque part dans la ligne (sans tenir compte des accents ni de la casse)
+    const mots = recherche.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(Boolean);
+    if (mots.length) {
+      lignes = lignes.filter((c) => {
+        const t = texteRecherche(c).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return mots.every((m) => t.includes(m));
+      });
+    }
+    return lignes;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, contratFilter, recherche, categories]);
+
+  // Lot 202 — valeur de tri de chaque colonne (nombres pour Services et Retard, texte pour les autres)
+  const valeurTri = (c, cle) => {
+    switch (cle) {
+      case "nom": return (c.full_name || "").toLowerCase();
+      case "email": return (c.email || "").toLowerCase();
+      case "categorie": return (catOf(c.category_slug)?.label || c.company || "").toLowerCase();
+      case "pays": return `${c.country || ""} ${c.city || ""}`.toLowerCase();
+      case "role": return (c.role || "").toLowerCase();
+      case "statut": return (c.account_status || "").toLowerCase();
+      case "services": return nbServices(c);
+      case "contrat": return (c.contract_number || "").toLowerCase();
+      case "retard": return computePaymentDelay(c)?.days ?? -1;
+      default: return "";
+    }
+  };
+  const basculerTri = (cle) => setTri((t) => (t.cle === cle ? { cle, sens: t.sens === "asc" ? "desc" : "asc" } : { cle, sens: "asc" }));
+  const enteteTri = (cle, libelle, alignement = "left") => (
+    <th className={`text-${alignement} px-4 py-3`} aria-sort={tri.cle === cle ? (tri.sens === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" onClick={() => basculerTri(cle)} className="inline-flex items-center gap-1 uppercase hover:text-sawali-blue"
+              data-testid={`tri-${cle}`} title={`Trier par ${libelle.toLowerCase()}`}>
+        {libelle}
+        <span className={tri.cle === cle ? "text-sawali-blue" : "text-slate-300"}>{tri.cle === cle ? (tri.sens === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
 
   const roleCounts = useMemo(() => {
     const counts = { all: itemsFiltres.length, other: 0 };
@@ -180,9 +227,20 @@ export default function AdminClients() {
       target.rows.push(c);
     });
     const all = [...groups, fallback].filter((g) => g.rows.length > 0);
+    // Lot 202 : tri par colonne à l'intérieur de chaque groupe de rôle
+    if (tri.cle) {
+      const sens = tri.sens === "asc" ? 1 : -1;
+      all.forEach((g) => {
+        g.rows = [...g.rows].sort((a, b) => {
+          const x = valeurTri(a, tri.cle); const y = valeurTri(b, tri.cle);
+          return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "fr", { numeric: true })) * sens;
+        });
+      });
+    }
     if (roleFilter === "all") return all;
     return all.filter((g) => g.role === roleFilter);
-  }, [itemsFiltres, roleFilter, ROLE_ORDER]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsFiltres, roleFilter, ROLE_ORDER, tri]);
 
   const open = (it = null) => {
     setEditing(it);
@@ -423,30 +481,45 @@ export default function AdminClients() {
         )}
       </div>
 
+      {/* Lot 202 — recherche dans le tableau */}
+      <div className="flex items-center gap-2 -mt-2">
+        <input
+          type="search"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Rechercher un client (nom, e-mail, société, pays, contrat, service…)"
+          className="w-full max-w-lg rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30"
+          data-testid="clients-recherche"
+        />
+        {recherche && <span className="text-xs text-slate-500" data-testid="clients-recherche-compte">{itemsFiltres.length} résultat{itemsFiltres.length > 1 ? "s" : ""}</span>}
+        {tri.cle && <button type="button" onClick={() => setTri({ cle: "", sens: "asc" })} className="text-xs rounded-full ring-1 ring-slate-200 bg-white px-3 py-1 hover:bg-slate-50" data-testid="clients-tri-effacer">Effacer le tri</button>}
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[1100px]">
+        <table className="w-full text-sm min-w-[1200px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
-              <th className="text-left px-4 py-3">Nom</th>
-              <th className="text-left px-4 py-3">Email</th>
-              <th className="text-left px-4 py-3">Catégorie</th>
-              <th className="text-left px-4 py-3">Pays</th>
-              <th className="text-left px-4 py-3">Rôle</th>
-              <th className="text-left px-4 py-3">Statut</th>
-              <th className="text-left px-4 py-3">N° Contrat</th>
-              <th className="text-left px-4 py-3">Retard</th>
+              {enteteTri("nom", "Nom")}
+              {enteteTri("email", "Email")}
+              {enteteTri("categorie", "Catégorie")}
+              {enteteTri("pays", "Pays")}
+              {enteteTri("role", "Rôle")}
+              {enteteTri("statut", "Statut")}
+              {enteteTri("services", "Services")}
+              {enteteTri("contrat", "N° Contrat")}
+              {enteteTri("retard", "Retard")}
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
             {items.length > 0 && groupedByRole.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client pour ces filtres (rôle / contrat).</td></tr>
+              <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">Aucun client pour ces filtres (recherche / rôle / contrat).</td></tr>
             )}
             {groupedByRole.map(({ role, label, color, rows }) => (
               <React.Fragment key={role}>
                 <tr className="bg-gradient-to-r from-sky-100/80 via-sky-50/60 to-transparent">
-                  <td colSpan={9} className="px-4 py-2">
+                  <td colSpan={10} className="px-4 py-2">
                     <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-sawali-blue" data-testid={`clients-group-${role}`}>
                       <UsersIcon className="h-3.5 w-3.5" />
                       <span>{label}</span>
@@ -502,6 +575,13 @@ export default function AdminClients() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
+                    </td>
+                    {/* Lot 202 — nombre de services (logiciels, produits, services) renseignés dans l'offre du client */}
+                    <td className="px-4 py-3 text-xs" data-testid={`client-services-${c.id}`}>
+                      <span className={`inline-flex min-w-[1.75rem] justify-center rounded-full px-2 py-0.5 font-semibold tabular-nums ${nbServices(c) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-400"}`}
+                            title={nbServices(c) ? `${nbServices(c)} ligne(s) dans l'offre du client (${nbServicesActifs(c)} active(s))` : "Offre du client non renseignée"}>
+                        {nbServices(c)}
+                      </span>
                     </td>
                     {/* 2026-02 fork iter103 — N° contrat + Retard paiement (rendus uniquement si champs renseignés) */}
                     <td className="px-4 py-3 text-xs" data-testid={`client-contract-${c.id}`}>

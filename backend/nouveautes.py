@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "202", "date": "2026-10-15",
+        "titre": "🔎 Clients : services remplis, recherche et tri par colonne",
+        "description": "Le tableau Administration → Clients affiche le nombre de services (lignes de l'offre du client) renseignés pour chaque client, une barre de recherche (nom, e-mail, société, pays, contrat, service) et des tris en cliquant sur l'en-tête de chaque colonne.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "201", "date": "2026-10-15",
         "titre": "📌 SMART Communications : en-tête fixe et nom du client",
         "description": "Sur la fiche d'un client (SMART Communications), l'en-tête reste affiché en haut pendant qu'on fait défiler les cartes, avec le nom du client concerné bien visible.",

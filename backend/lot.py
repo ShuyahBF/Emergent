@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "201"
-LOT_LIBELLE = "SMART Communications : en-tête fixe avec le nom du client de la fiche"
+LOT = "202"
+LOT_LIBELLE = "Clients : nombre de services remplis, recherche et tri par colonne"

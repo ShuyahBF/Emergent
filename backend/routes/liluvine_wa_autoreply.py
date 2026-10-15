@@ -302,6 +302,40 @@ def offre_du_client_applicable(is_prospect: bool, platform_tenant: bool) -> bool
     return bool(platform_tenant) and not is_prospect
 
 
+ROLES_EQUIPE = ("admin", "superviseur", "moderateur")
+
+
+def est_membre_equipe(chiffres: str, comptes: List[Dict[str, Any]], scope_uid: Optional[str]) -> bool:
+    """Lot 189 — l'expéditeur WhatsApp est-il un membre de l'équipe de la plateforme ? Oui si un compte administrateur /
+    superviseur / modérateur, ou un compte rattaché au compte qui reçoit la conversation, porte son numéro (8 derniers
+    chiffres, espaces et signes ignorés). Les clients (contacts du carnet) n'ont AUCUN rôle sur la plateforme : ils ne
+    reçoivent donc jamais les données internes du compte. Fonction pure."""
+    fin = re.sub(r"\D", "", chiffres or "")[-8:]
+    if len(fin) < 8:
+        return False
+    for c in comptes or []:
+        equipe = c.get("role") in ROLES_EQUIPE or scope_uid in (c.get("id"), c.get("client_id"), c.get("parent_client_id"))
+        if not equipe:
+            continue
+        for champ in ("phone", "whatsapp"):
+            if re.sub(r"\D", "", str(c.get(champ) or ""))[-8:] == fin:
+                return True
+    return False
+
+
+async def _expediteur_equipe(db, chiffres: str, scope_uid: Optional[str]) -> bool:
+    """Lot 189 — lit les comptes de l'équipe (peu nombreux) et applique `est_membre_equipe`. Jamais d'exception : en cas
+    d'erreur l'expéditeur est considéré comme extérieur (aucune donnée du compte)."""
+    try:
+        comptes = await db.users.find(
+            {"$or": [{"role": {"$in": list(ROLES_EQUIPE)}}, {"id": scope_uid}, {"client_id": scope_uid}, {"parent_client_id": scope_uid}]},
+            {"_id": 0, "id": 1, "role": 1, "client_id": 1, "parent_client_id": 1, "phone": 1, "whatsapp": 1}).to_list(2000)
+        return est_membre_equipe(chiffres, comptes, scope_uid)
+    except Exception:  # noqa: BLE001
+        logger.warning("[wa_autoreply] lecture de l'équipe impossible", exc_info=True)
+        return False
+
+
 def _is_platform_tenant(tenant_doc: Dict[str, Any]) -> bool:
     """Lot 21 — Le tenant est le compte de la plateforme SAWALI (admin ou
     superviseur), et non un client : il n'a pas de contrat avec lui-même, les
@@ -1117,7 +1151,13 @@ async def autoreply_to_inbound(
     if is_prospect:
         ctx, biz_ctx = "", ""
     else:
-        ctx = await _fetch_context_snippets(db, user_doc, text)
+        # Lot 189 — sur la ligne de la plateforme, seuls les membres de l'équipe reçoivent les données du compte (contacts,
+        # tickets, paiements, rendez-vous, notes) : les clients n'ont aucun rôle sur la plateforme. Les comptes clients
+        # (leurs propres lignes WhatsApp) gardent leur comportement.
+        if platform_tenant and not await _expediteur_equipe(db, phone_digits, scope_uid):
+            ctx = ""
+        else:
+            ctx = await _fetch_context_snippets(db, user_doc, text)
         # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…
         # Filtré par ACL (liste blanche par module/numéro).
         try:

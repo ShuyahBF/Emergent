@@ -218,3 +218,19 @@ def test_admin_payload_accepts_lot21_fields(env):
     payload = env.liluvine_pro.AutoreplyConfigPayload(
         prospect_enabled=False, prospect_system_prompt="P", mode_instructions="M")
     assert payload.prospect_enabled is False and payload.mode_instructions == "M"
+
+
+def test_client_de_la_plateforme_sans_donnees_du_compte_lot189(env):
+    """Lot 189 — sur la ligne de la plateforme, un client (contact du carnet, sans rôle) ne reçoit AUCUNE donnée interne du
+    compte ; un membre de l'équipe reconnu par son numéro les reçoit."""
+    contact = {"id": "c-client", "client_id": "pharma", "name": "Client fidèle"}
+    res = env.run(CLIENT_CONTACT, "sawali", contact=contact)
+    assert res["ok"] is True and res["prospect"] is False
+    assert "DONNEES_CRM_DU_TENANT" not in _FakeChat.last_system          # contacts, tickets, paiements… : jamais
+    assert "BASE_DE_CONNAISSANCE[clients]" in _FakeChat.last_system       # la base de connaissances reste donnée
+    # Membre de l'équipe : compte administrateur portant ce numéro
+    equipe = "22670000007"
+    env.loop.run_until_complete(env.db.users.insert_one({"id": "adm", "role": "admin", "phone": "+226 70 00 00 07"}))
+    res = env.run(equipe, "sawali", contact={"id": "c-client", "client_id": "pharma", "name": "Équipe"})
+    assert res["ok"] is True
+    assert "DONNEES_CRM_DU_TENANT" in _FakeChat.last_system

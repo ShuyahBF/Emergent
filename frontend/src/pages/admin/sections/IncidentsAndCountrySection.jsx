@@ -372,7 +372,22 @@ function ErrorRegistryWebhookCard({ apiBase }) {
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  // Lot 172 : pause temporaire du webhook (le token est conservé)
+  const [pause, setPause] = useState(false);
+  const [busyPause, setBusyPause] = useState(false);
+  const chargerPause = () => apiClient.get("/admin/errors-webhook/pause").then((r) => setPause(!!r.data?.pause)).catch(() => {});
+  const basculerPause = async () => {
+    setBusyPause(true);
+    try {
+      await apiClient.put("/admin/errors-webhook/pause", { pause: !pause });
+      toast.success(!pause ? "Webhook Registre des Erreurs mis en pause" : "Webhook Registre des Erreurs rétabli");
+      await chargerPause();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setBusyPause(false); }
+  };
   useEffect(() => {
+    chargerPause();
     apiClient.get("/admin/settings").then((r) => {
       const t = r.data?.errors_webhook_token || "";
       setToken(t);
@@ -425,7 +440,17 @@ function ErrorRegistryWebhookCard({ apiBase }) {
         </div>
         <span className={`text-[10px] uppercase tracking-wider font-medium px-2 py-1 rounded ring-1 self-start ${
           token ? "bg-amber-100 text-amber-800 ring-amber-300" : "bg-slate-100 text-slate-600 ring-slate-300"
-        }`}>{token ? "Token actif" : "Pas d'auth"}</span>
+        }`}>{pause ? "En pause" : token ? "Token actif" : "Pas d'auth"}</span>
+      </div>
+
+      {/* Lot 172 : interrupteur de pause temporaire */}
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <button onClick={basculerPause} disabled={busyPause}
+                className={`text-xs px-3 py-2 rounded text-white disabled:opacity-60 ${pause ? "bg-emerald-600 hover:bg-emerald-700" : "bg-amber-600 hover:bg-amber-700"}`}
+                data-testid="errors-webhook-pause-btn">
+          {pause ? "Rétablir le webhook" : "Mettre en pause (temporaire)"}
+        </button>
+        {pause && <span className="text-xs text-amber-800">En pause : les erreurs entrantes sont refusées (503). Le token est conservé.</span>}
       </div>
 
       <div className="space-y-3">

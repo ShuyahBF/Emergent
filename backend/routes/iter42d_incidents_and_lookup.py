@@ -258,6 +258,25 @@ def attach_iter42d_routes(
         )
         return {"ok": True, "pause": pause}
 
+    # Pause temporaire du webhook « Registre des Erreurs » (/api/errors/ingest) — même principe, token conservé.
+    @api.get("/admin/errors-webhook/pause", tags=["Admin — Incidents Webhook"])
+    async def admin_get_errors_webhook_pause(_: dict = Depends(get_current_admin)):
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {"pause": bool(s.get("errors_webhook_pause")), "pause_depuis": s.get("errors_webhook_pause_at")}
+
+    @api.put("/admin/errors-webhook/pause", tags=["Admin — Incidents Webhook"])
+    async def admin_pause_errors_webhook(payload: dict = Body(...), user: dict = Depends(get_current_admin)):
+        """{"pause": true} coupe l'entrée du Registre des Erreurs, {"pause": false} la rétablit (token inchangé)."""
+        pause = bool(payload.get("pause"))
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"errors_webhook_pause": pause,
+                      "errors_webhook_pause_at": _now_iso() if pause else None,
+                      "errors_webhook_pause_by": user.get("email")}},
+            upsert=True,
+        )
+        return {"ok": True, "pause": pause}
+
     @api.post("/admin/incidents-webhook/regenerate-password", tags=["Admin — Incidents Webhook"])
     async def admin_regen_incidents_password(user: dict = Depends(get_current_admin)):
         new_pwd = secrets.token_urlsafe(24)

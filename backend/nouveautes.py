@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "172", "date": "2026-10-15",
+        "titre": "⏸️ Webhook Registre des Erreurs : pause temporaire",
+        "description": "Le webhook « Registre des Erreurs » (Aizenta, Biolog…) a aussi son bouton « Mettre en pause » : les erreurs entrantes sont refusées (503) sans perdre le token, « Rétablir » le réactive.",
+        "rubrique": "🚨 Webhook Incidents entrant + Pays par défaut AMM",
+    },
+    {
         "lot": "171", "date": "2026-10-15",
         "titre": "⏸️ Webhook incidents : pause temporaire",
         "description": "Nouveau bouton « Mettre en pause » sur le webhook Incidents serveur : les incidents entrants sont refusés (503) sans supprimer le mot de passe, et « Rétablir » le réactive en un clic.",

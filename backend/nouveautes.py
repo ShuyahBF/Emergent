@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "193", "date": "2026-10-15",
+        "titre": "📣 Publicité à carrousel Click-to-WhatsApp",
+        "description": "Sur chaque envoi de carrousels (Administration), « Créer une publicité » monte une publicité à carrousel chez Meta avec votre compte publicitaire : compte, Page, budget par jour, durée, pays, âges, images remplaçables. Elle est créée EN PAUSE ; l'activation (début de la dépense) demande une confirmation. Les réponses arrivent sur WhatsApp, chez Liluvine.",
+        "rubrique": "Intégration Meta (Facebook / Messenger / Ads)",
+    },
+    {
         "lot": "192", "date": "2026-10-15",
         "titre": "📘 Publier un carrousel sur une Page Facebook de votre choix",
         "description": "Sur chaque envoi de carrousels (Administration), le bouton « Publier sur Facebook » demande d'abord la Page parmi celles du compte Facebook connecté, permet de remplacer l'image de chaque carte (fichier ou bibliothèque) pour cette Page, puis publie les photos avec le lien de la page de présentation, ou le lien seul, après confirmation.",

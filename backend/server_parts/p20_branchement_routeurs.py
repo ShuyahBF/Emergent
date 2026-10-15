@@ -1277,6 +1277,10 @@ _carrousel_wa = _attach_carrousel_wa(
 from routes.carrousel_facebook import attach_carrousel_facebook_routes as _attach_carrousel_fb  # noqa: E402
 _attach_carrousel_fb(api=api, db=db, get_current_admin=get_current_admin)
 
+# Lot 193 — publicité à carrousel « Click-to-WhatsApp » (compte publicitaire Meta), créée EN PAUSE
+from routes.carrousel_publicite import attach_carrousel_publicite_routes as _attach_carrousel_pub  # noqa: E402
+_attach_carrousel_pub(api=api, db=db, get_current_admin=get_current_admin)
+
 
 # Lot 164 — page publique d'accord WhatsApp (lien personnel par contact) : GET / POST /api/public/accord/{jeton}
 from routes.accord_page import setup_accord_page_routes as _setup_accord_page  # noqa: E402

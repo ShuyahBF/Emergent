@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "190", "date": "2026-10-15",
+        "titre": "🎫 Chaque nouvelle demande ouvre son ticket",
+        "description": "Une conversation n'est plus « déjà classée » pendant 6 heures : le classement ne vaut que 60 minutes et tant que la conversation est active (moins de 30 minutes entre deux échanges). Une nouvelle demande est classée, ticketée et confiée à l'assistant concerné.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "189", "date": "2026-10-15",
         "titre": "🔒 Données du compte réservées à l'équipe",
         "description": "Sur la ligne de la plateforme, un client (contact du carnet) ne reçoit plus les derniers contacts, tickets, paiements, rendez-vous et notes du compte : ces données ne sont données qu'aux membres de l'équipe (administrateur, superviseur, modérateur) reconnus par leur numéro. Les clients gardent la base de connaissances.",

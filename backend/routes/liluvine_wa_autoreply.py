@@ -1263,11 +1263,8 @@ async def autoreply_to_inbound(
     if classement_actif:
         deja_classe = None
         try:
-            sess = await db.liluvine_pro_sessions.find_one({"id": session_id}, {"_id": 0, "classement": 1}) or {}
-            cl = sess.get("classement") or {}
-            if cl.get("at") and (datetime.now(timezone.utc) - datetime.fromisoformat(str(cl["at"]).replace("Z", "+00:00"))
-                                 ).total_seconds() < _clas.DUREE_CLASSEE_HEURES * 3600:
-                deja_classe = cl.get("categorie") or "classée"
+            sess = await db.liluvine_pro_sessions.find_one({"id": session_id}, {"_id": 0, "classement": 1, "updated_at": 1}) or {}
+            deja_classe = _clas.classement_encore_valide(sess.get("classement"), sess.get("updated_at"))   # lot 190
         except Exception:  # noqa: BLE001
             deja_classe = None
         sys_text = sys_text + _clas.consignes_classement(cats_classement, deja_classe)
@@ -1484,10 +1481,10 @@ async def autoreply_to_inbound(
     # état du contrat, offre lue ou non, classement, ticket). Aucun secret : seulement des identifiants et des états.
     logger.info(
         "[wa_autoreply] decision tel=%s contact=%r societe=%r prospect=%s ligne_plateforme=%s client_lie=%r contrat=%s "
-        "offre=%s classement=%s ticket=%s assistant=%s",
+        "offre=%s classement=%s ticket=%s assistant=%s deja_classe=%s",
         phone_digits, (contact or {}).get("name"), (contact or {}).get("company"), is_prospect, platform_tenant,
         (client_eff or {}).get("company"), etat_contrat_cl, offre_statut,
-        (classement or {}).get("categorie"), (classement or {}).get("ticket_statut"), (classement or {}).get("agent"))
+        (classement or {}).get("categorie"), (classement or {}).get("ticket_statut"), (classement or {}).get("agent"), deja_classe)
     return {
         "ok": True, "reason": "sent",
         "wa_out_message_id": send_res.get("message_id"),

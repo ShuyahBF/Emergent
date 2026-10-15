@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "191", "date": "2026-10-15",
+        "titre": "✍️ Signature en un seul exemplaire",
+        "description": "Le bas de message (« — visitez notre site… », signature de l'assistant) n'est plus répété 2 ou 3 fois : les anciennes réponses sont rejouées au modèle sans leur signature, et celle que le modèle recopierait est retirée avant l'ajout unique à l'envoi.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "190", "date": "2026-10-15",
         "titre": "🎫 Chaque nouvelle demande ouvre son ticket",
         "description": "Une conversation n'est plus « déjà classée » pendant 6 heures : le classement ne vaut que 60 minutes et tant que la conversation est active (moins de 30 minutes entre deux échanges). Une nouvelle demande est classée, ticketée et confiée à l'assistant concerné.",

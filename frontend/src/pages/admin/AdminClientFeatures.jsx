@@ -372,13 +372,18 @@ export default function AdminClientFeatures() {
 
   return (
     <div className="space-y-6 p-6 max-w-4xl" data-testid="admin-client-features-page">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      {/* Lot 201 — en-tête FIXE (reste visible quand on fait défiler les cartes) avec le nom du client de la fiche */}
+      <div className="sticky top-14 lg:top-0 z-20 -mx-6 -mt-6 px-6 pt-4 pb-3 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm flex items-center justify-between flex-wrap gap-3"
+           data-testid="features-entete-fixe">
         <div>
           <Link to="/admin/clients" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sawali-blue mb-1">
             <ArrowLeft className="h-3 w-3" /> Retour aux clients
           </Link>
-          <h1 className="text-2xl font-display font-bold inline-flex items-center gap-2">
+          <h1 className="text-2xl font-display font-bold inline-flex items-center gap-2 flex-wrap">
             <ShieldCheck className="h-6 w-6 text-sawali-blue" /> SMART Communications
+            <span className="text-base font-semibold rounded-full bg-sawali-blue/10 text-sawali-blue px-3 py-0.5" data-testid="features-nom-client">
+              {data?.client?.company || data?.client?.full_name || "Client"}
+            </span>
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Fonctionnalités activables pour <strong>{data?.client?.full_name}</strong>

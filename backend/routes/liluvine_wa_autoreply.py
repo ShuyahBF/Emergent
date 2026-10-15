@@ -1267,6 +1267,14 @@ async def autoreply_to_inbound(
     except Exception:  # noqa: BLE001
         pass
 
+    # Lot 199 — publication de SAWALI (modèle, carrousel, formulaire, sondage, campagne…) à laquelle le client répond :
+    # son type et son titre sont donnés à Liluvine, qui peut ainsi répondre à une question sans redemander l'objet.
+    try:
+        from routes import wa_publication_contexte as _pub
+        sys_text = sys_text + _pub.texte_contexte(await _pub.contexte_reponse(db, inbound_doc))
+    except Exception:  # noqa: BLE001
+        logger.warning("[wa_autoreply] contexte de la publication indisponible", exc_info=True)
+
     # Call the LLM
     api_key = _cle_ia()
     if not api_key:

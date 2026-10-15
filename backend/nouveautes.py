@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "192", "date": "2026-10-15",
+        "titre": "📘 Publier un carrousel sur une Page Facebook de votre choix",
+        "description": "Sur chaque envoi de carrousels (Administration), le bouton « Publier sur Facebook » demande d'abord la Page parmi celles du compte Facebook connecté, permet de remplacer l'image de chaque carte (fichier ou bibliothèque) pour cette Page, puis publie les photos avec le lien de la page de présentation, ou le lien seul, après confirmation.",
+        "rubrique": "📣 Page Facebook animée par Liluvine",
+    },
+    {
         "lot": "191", "date": "2026-10-15",
         "titre": "✍️ Signature en un seul exemplaire",
         "description": "Le bas de message (« — visitez notre site… », signature de l'assistant) n'est plus répété 2 ou 3 fois : les anciennes réponses sont rejouées au modèle sans leur signature, et celle que le modèle recopierait est retirée avant l'ajout unique à l'envoi.",

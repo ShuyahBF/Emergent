@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";             // lot 79 : rôle 
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
+import FacebookCarrouselModal from "@/components/FacebookCarrouselModal";   // lot 192 : publier un carrousel sur une Page Facebook choisie
 import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 : maintenant / programmer + plages horaires
 
 const erreur = (e, defaut) => {
@@ -729,6 +730,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [images, setImages] = useState([]);
   const [annuaire, setAnnuaire] = useState({ contacts: [], groupes: [] });
   const [campagnes, setCampagnes] = useState([]);
+  const [fbCampagne, setFbCampagne] = useState(null);     // lot 192 : envoi à publier sur Facebook (administration)
   // Lot 156 : « Envois précédents » repliés par défaut (une ligne par envoi : date et heure) ; un clic déplie les autres informations.
   const [details, setDetails] = useState({});            // détail des destinataires par campagne (chargé au dépliage)
   const [deplies, setDeplies] = useState(() => new Set()); // campagnes dépliées
@@ -1542,6 +1544,13 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 onClick={() => { ouvrirCarrousel({ nom: "", message: c.message, cartes: c.cartes.map(({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee }) => ({ source, produit_id, image_url, titre, texte, lien, bouton, description_detaillee })) }); if (admin && c.regie_id) setRegieId(c.regie_id); toast.success("Carrousel rechargé dans l'éditeur — pensez à l'enregistrer sous un nom"); }}>
                 Recharger dans l'éditeur
               </Button>
+              {/* Lot 192 — publier sur une Page Facebook choisie (administration) */}
+              {admin && (
+                <Button size="sm" variant="outline" title="Choisir la Page Facebook, remplacer les images si besoin, puis publier"
+                        onClick={() => setFbCampagne(c)} data-testid={`fb-publier-${c.id}`}>
+                  Publier sur Facebook
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => basculerEnvoi(c.id)}>
                 {deplies.has(c.id) ? "Masquer" : "Détail"}
               </Button>
@@ -1615,6 +1624,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
           </div>
         )}
       </section>
+      {fbCampagne && <FacebookCarrouselModal campagne={fbCampagne} onClose={() => setFbCampagne(null)} />}
     </div>
   );
 }

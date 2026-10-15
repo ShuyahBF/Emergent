@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 CATEGORIES_DEFAUT = ["Technique", "Comptabilité", "Commercial", "Secrétariat / rendez-vous", "Autre"]
 MAX_CATEGORIES = 8
-# Une conversation déjà classée n'est pas re-classée (ni re-présentée) pendant cette durée.
-DUREE_CLASSEE_HEURES = 6
+# Lot 190 — une conversation déjà classée n'est pas re-classée (ni re-présentée) tant que le classement a moins de 60 min ET
+# que la conversation est active (dernier échange il y a moins de 30 min). Avant : 6 h quoi qu'il arrive, si bien qu'une
+# NOUVELLE demande posée plus tard ne déclenchait ni classement ni ticket.
+CLASSEMENT_VALIDE_MINUTES = 60
+CONVERSATION_ACTIVE_MINUTES = 30
 
 _MARQUEUR = re.compile(r"\[\s*CLASSE\s*:\s*([^\]|]+?)\s*(?:\|\s*([^\]]*?))?\s*\]", re.IGNORECASE)
 
@@ -108,3 +112,29 @@ def texte_mise_en_relation(agent: Optional[Dict[str, Any]], motif: str, ticket_n
     else:
         lignes.append("Je vous mets en relation avec votre assistant IA.")
     return "\n".join(lignes)
+
+
+def _date(valeur: Any) -> Optional[datetime]:
+    """Date ISO (avec ou sans fuseau) → datetime UTC, ou None si illisible."""
+    try:
+        d = datetime.fromisoformat(str(valeur).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def classement_encore_valide(classement: Optional[Dict[str, Any]], derniere_activite: Any,
+                             maintenant: Optional[datetime] = None) -> Optional[str]:
+    """Lot 190 — catégorie de la conversation si elle est DÉJÀ classée et que cela vaut encore, sinon None (nouvelle demande :
+    Liluvine classe de nouveau, ouvre un nouveau ticket et remet en relation). Valable si le classement date de moins de
+    60 min ET si le dernier échange date de moins de 30 min. Fonction pure."""
+    cl = classement or {}
+    fait_le, actif_le = _date(cl.get("at")), _date(derniere_activite)
+    if not fait_le:
+        return None
+    ref = maintenant or datetime.now(timezone.utc)
+    if ref - fait_le >= timedelta(minutes=CLASSEMENT_VALIDE_MINUTES):
+        return None
+    if actif_le and ref - actif_le >= timedelta(minutes=CONVERSATION_ACTIVE_MINUTES):
+        return None
+    return cl.get("categorie") or "classée"

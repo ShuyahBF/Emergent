@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "187", "date": "2026-10-15",
+        "titre": "🧩 Un contact sans société relève du client primaire",
+        "description": "Un contact du carnet dont la société n'est pas renseignée est rattaché au client par défaut (client primaire, SAWALI-2S) : Liluvine lit son offre, utilise le prompt « client à jour » et ouvre ses tickets sous ce client. Le journal indique ce choix.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "186.1", "date": "2026-10-15",
         "titre": "🏢 Client par défaut = client primaire de la base",
         "description": "Quand le contact n'est relié à aucun client, le ticket de Liluvine va au client primaire désigné dans Admin → Clients (SAWALI-2S). Une société peut toujours être imposée dans les réglages de l'auto-réponse.",

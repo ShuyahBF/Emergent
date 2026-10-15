@@ -87,6 +87,25 @@ Tu réponds toujours en **français**, de façon chaleureuse et concise.
 - Invite la personne à indiquer son nom, sa structure et son besoin pour qu'un conseiller la rappelle."""
 
 
+# Lot 183 — Prompts propres aux CLIENTS selon l'état de leur contrat (réglages `liluvine_wa_client_prompt` et
+# `liluvine_wa_client_retard_prompt`). Vides = comportement d'avant (prompt du compte). Textes suggérés, chargés d'un clic
+# dans Paramètres → Liluvine PRO — Auto-réponse WhatsApp.
+DEFAULT_WA_CLIENT_PROMPT = """Tu es Liluvine PRO, l'assistante virtuelle de SAWALI SMART SYSTEMS.
+La personne qui t'écrit est cliente, contrat à jour. Tu réponds toujours en **français**, de façon chaleureuse et concise.
+- Réponds directement à la dernière question ; ne te représente pas et ne salue pas de nouveau en cours de conversation.
+- Appuie-toi sur l'offre du client (ses logiciels, produits et services) et sur la base de connaissance ; ne cite jamais les autres logiciels de SAWALI.
+- Pour une demande d'assistance, comprends le problème, classe-le et mets le client en relation avec l'assistant concerné.
+- N'invente ni tarif, ni délai, ni engagement : si tu ne sais pas, propose qu'un conseiller le recontacte."""
+
+DEFAULT_WA_CLIENT_RETARD_PROMPT = """Tu es Liluvine PRO, l'assistante virtuelle de SAWALI SMART SYSTEMS.
+La personne qui t'écrit est cliente, mais son contrat n'est pas à jour (paiement en retard ou contrat absent).
+Tu réponds toujours en **français**, avec courtoisie et sans jamais accuser.
+- Ne fournis aucune assistance technique, intervention ni dépannage tant que la situation n'est pas régularisée.
+- Explique simplement que l'assistance reprendra dès la régularisation, et propose qu'un conseiller la recontacte.
+- N'évoque aucun montant ni détail contractuel précis ; ne parle d'aucun autre client.
+- Réponds aux questions générales sur SAWALI en t'appuyant uniquement sur la base de connaissance."""
+
+
 # Iter38r-fix9o (Item 1) — Tenant-configurable system prompt + escalation.
 # Au SCOPE MODULE (pas dans une closure de attach_liluvine_pro_routes) —
 # même raison que le hotfix Pydantic de vidal_securisation.py/vidal_patients.py :
@@ -190,6 +209,8 @@ class AutoreplyConfigPayload(BaseModel):
     prospect_system_prompt: Optional[str] = Field(None, max_length=20000)
     mode_instructions: Optional[str] = Field(None, max_length=4000)
     # Lot 181 — classement des conversations (catégories, une par entrée) et mise en relation avec l'assistant IA
+    client_prompt: Optional[str] = Field(None, max_length=8000)           # lot 183 : client à jour
+    client_retard_prompt: Optional[str] = Field(None, max_length=8000)    # lot 183 : client en retard / sans contrat
     classement_actif: Optional[bool] = None
     classement_categories: Optional[List[str]] = None
 
@@ -748,6 +769,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "prospect_enabled": "liluvine_wa_prospect_enabled",
         "prospect_system_prompt": "liluvine_wa_prospect_system_prompt",
         "mode_instructions": "liluvine_wa_mode_instructions",
+        "client_prompt": "liluvine_wa_client_prompt",
+        "client_retard_prompt": "liluvine_wa_client_retard_prompt",
         "classement_actif": "liluvine_classement_actif",
         "classement_categories": "liluvine_classement_categories",
     }
@@ -786,6 +809,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "prospect_enabled": s.get("liluvine_wa_prospect_enabled") is not False,
             "prospect_system_prompt": s.get("liluvine_wa_prospect_system_prompt") or "",
             "mode_instructions": s.get("liluvine_wa_mode_instructions") or "",
+            "client_prompt": s.get("liluvine_wa_client_prompt") or "",
+            "client_retard_prompt": s.get("liluvine_wa_client_retard_prompt") or "",
+            "default_client_prompt": DEFAULT_WA_CLIENT_PROMPT,
+            "default_client_retard_prompt": DEFAULT_WA_CLIENT_RETARD_PROMPT,
             "classement_actif": s.get("liluvine_classement_actif") is not False,
             "classement_categories": s.get("liluvine_classement_categories") or [],
             "default_classement_categories": ["Technique", "Comptabilité", "Commercial", "Secrétariat / rendez-vous", "Autre"],

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "183", "date": "2026-10-15",
+        "titre": "🧾 Un prompt pour les clients à jour, un autre pour les clients en retard",
+        "description": "Dans l'auto-réponse WhatsApp, deux nouveaux textes réglables : un pour les clients dont le contrat est à jour, un pour ceux en retard de paiement ou sans contrat (en plus du prompt des prospects). Vides, rien ne change ; un bouton charge un texte suggéré.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "182", "date": "2026-10-15",
         "titre": "🧠 Liluvine se souvient de la conversation",
         "description": "Jusqu'ici, chaque message WhatsApp était traité comme le premier : Liluvine oubliait sa propre question et se représentait. Elle relit maintenant les derniers échanges (12 h, 12 messages). Si le client cite un logiciel absent de son offre, elle le lui signale avant de classer la demande.",

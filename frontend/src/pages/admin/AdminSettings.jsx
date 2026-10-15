@@ -123,7 +123,7 @@ const NEW_LOTS = {
   "🎫 Tickets d'intervention — motif": "144",   // lot 144 : motif modifiable depuis la fiche du ticket
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
-  "🧩 Offre du client — Liluvine": "163",   // lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
+  "🧩 Offre du client — Liluvine": "169",   // lot 169 : copie de la liste d'un client à un autre ; lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
   "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
@@ -178,7 +178,7 @@ const NEW_SECTIONS = {
   "🎫 Tickets d'intervention — motif": "2026-10-14",   // lot 144
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
-  "🧩 Offre du client — Liluvine": "2026-10-14",   // lot 163
+  "🧩 Offre du client — Liluvine": "2026-10-15",   // lot 169 (lot 163 : 2026-10-14)
   "💬 Ligne VIP — contrat valide": "2026-10-14",   // lot 158
   "🖥️ Parc informatique — sites": "2026-10-14",   // lot 146
   "🖼️ Cadre des cartes": "2026-10-13",   // lot 136

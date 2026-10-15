@@ -114,3 +114,42 @@ def test_routes_offre_et_reglages():
                                                                 "message_defaut": oc.MESSAGE_REFUS_DEFAUT, "clients_avec_offre": 1}
     assert c.put("/api/admin/offre-client/reglages", json={"actif": True, "message": "sans variable"}).status_code == 422
     assert c.put("/api/admin/offre-client/reglages", json={"actif": True, "message": ""}).json()["actif"] is True
+
+
+def test_lot169_copie_de_l_offre_d_un_client_a_d_autres():
+    """Lot 169 — copie d'un client vers d'autres : remplacer / ajouter sans doublon, identifiants neufs, source intacte."""
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    base = mongomock_motor.AsyncMongoMockClient()["sawali_t169"]
+    lancer(base.users.insert_many([
+        {"id": "src", "company": "SOURCE", "offre_client": [{"id": "a1", "type": "logiciel", "nom": "SAWALI CRM", "version": "2"},
+                                                            {"id": "a2", "type": "service", "nom": "Hébergement"}]},
+        {"id": "c1", "company": "Cible Un", "offre_client": [{"id": "x", "type": "logiciel", "nom": "sawali crm"},
+                                                              {"id": "y", "type": "produit", "nom": "Caisse"}]},
+        {"id": "c2", "company": "Cible Deux"},
+        {"id": "adm", "role": "admin", "company": "Admin"}]))
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    oc.setup_offre_client_routes(db=base, api=api, get_current_admin=lambda: {"id": "a", "full_name": "Admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    liste = c.get("/api/admin/offre-client/clients").json()["clients"]
+    assert [x["nom"] for x in liste] == ["Cible Deux", "Cible Un", "SOURCE"] and {x["id"]: x["nb_lignes"] for x in liste}["src"] == 2
+    # Ajouter : « sawali crm » existe déjà (même type + même nom, sans tenir compte de la casse) → seule « Hébergement » est ajoutée
+    r = c.post("/api/admin/offre-client/copier", json={"source_id": "src", "cible_ids": ["c1", "c2", "zz", "src"], "mode": "ajouter"}).json()
+    assert r["source"] == "SOURCE" and r["clients"] == 2 and r["copiees"] == 3
+    assert [x["copiees"] for x in r["resultat"] if x["ok"]] == [1, 2] and r["resultat"][2]["ok"] is False
+    c1 = c.get("/api/admin/clients/c1/offre").json()
+    assert [l["nom"] for l in c1["lignes"]] == ["sawali crm", "Caisse", "Hébergement"] and c1["maj"]["copie_de"] == "SOURCE"
+    # Listes indépendantes : identifiants neufs, la source est intacte
+    ids_c2 = {l["id"] for l in c.get("/api/admin/clients/c2/offre").json()["lignes"]}
+    assert not ({"a1", "a2"} & ids_c2) and len(ids_c2) == 2
+    assert [l["id"] for l in c.get("/api/admin/clients/src/offre").json()["lignes"]] == ["a1", "a2"]
+    # Remplacer : la liste de la cible devient celle de la source
+    c.post("/api/admin/offre-client/copier", json={"source_id": "src", "cible_ids": ["c1"], "mode": "remplacer"})
+    assert [l["nom"] for l in c.get("/api/admin/clients/c1/offre").json()["lignes"]] == ["SAWALI CRM", "Hébergement"]
+    # Refus : source inconnue, source vide, mode inconnu
+    assert c.post("/api/admin/offre-client/copier", json={"source_id": "zz", "cible_ids": ["c1"]}).status_code == 404
+    assert c.post("/api/admin/offre-client/copier", json={"source_id": "c2x", "cible_ids": ["c1"]}).status_code == 404
+    lancer(base.users.insert_one({"id": "vide", "company": "Vide"}))
+    assert c.post("/api/admin/offre-client/copier", json={"source_id": "vide", "cible_ids": ["c1"]}).status_code == 409
+    assert c.post("/api/admin/offre-client/copier", json={"source_id": "src", "cible_ids": ["c1"], "mode": "x"}).status_code == 422

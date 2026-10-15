@@ -27,6 +27,10 @@
 #     déterministe, pour qu'un client en retard ne reçoive JAMAIS d'aide par erreur.
 #
 # Routes : GET/PUT /api/admin/clients/{id}/offre ; GET/PUT /api/admin/offre-client/reglages.
+# Lot 169 : copie de la liste d'un client vers un ou plusieurs autres — GET /api/admin/offre-client/clients (liste des
+#   clients avec le nombre de lignes de leur offre) et POST /api/admin/offre-client/copier {source_id, cible_ids, mode} ;
+#   mode « remplacer » (la liste de la cible devient celle de la source) ou « ajouter » (lignes absentes seulement : même
+#   type et même nom = déjà présente). Les lignes copiées reçoivent de NOUVEAUX identifiants (listes indépendantes).
 from __future__ import annotations
 
 import logging
@@ -284,6 +288,26 @@ class OffreIn(BaseModel):
     lignes: List[LigneOffreIn] = Field(default_factory=list)
 
 
+class CopieOffreIn(BaseModel):
+    """Lot 169 — copie de l'offre d'un client vers d'autres : `remplacer` ou `ajouter` (sans doublon type + nom)."""
+    source_id: str = Field(..., min_length=1, max_length=80)
+    cible_ids: List[str] = Field(..., min_length=1, max_length=200)
+    mode: str = Field(default="ajouter", pattern="^(remplacer|ajouter)$")
+
+
+def fusionner_offre(existante: List[Dict[str, Any]], copiee: List[Dict[str, Any]], mode: str) -> Tuple[List[Dict[str, Any]], int]:
+    """Lot 169 — liste obtenue en copiant `copiee` sur `existante`, et nombre de lignes reprises.
+    `remplacer` : la liste devient la copie ; `ajouter` : on garde l'existante et on ajoute les lignes absentes (même type
+    et même nom, sans tenir compte des accents ni de la casse), dans la limite de MAX_LIGNES. Identifiants toujours neufs."""
+    neuves = normaliser_offre([{**l, "id": ""} for l in copiee])      # id vide = nouvel identifiant : listes indépendantes
+    if mode == "remplacer":
+        return neuves, len(neuves)
+    cles = {(l["type"], _sans_accents(l["nom"])) for l in existante}
+    ajoutees = [l for l in neuves if (l["type"], _sans_accents(l["nom"])) not in cles]
+    ajoutees = ajoutees[: max(0, MAX_LIGNES - len(existante))]
+    return [*existante, *ajoutees], len(ajoutees)
+
+
 class ReglagesOffreIn(BaseModel):
     actif: bool = False
     message: str = Field(default="", max_length=500)
@@ -311,6 +335,47 @@ def setup_offre_client_routes(*, db, api, get_current_admin) -> None:
         maj = {"le": datetime.now(timezone.utc).isoformat(), "par": admin.get("full_name") or admin.get("email")}
         await db.users.update_one({"id": client_id}, {"$set": {"offre_client": lignes, "offre_client_maj": maj}})
         return {"ok": True, "lignes": lignes, "maj": maj}
+
+    @api.get("/admin/offre-client/clients", tags=["Admin — Offre du client"])
+    async def lister_clients(_: dict = Depends(get_current_admin)):
+        """Lot 169 — clients (comptes principaux) avec le nombre de lignes de leur offre : choix de la source ou des cibles
+        d'une copie. Triés par nom ; les administrateurs et le compte de la plateforme ne sont pas proposés."""
+        lignes = []
+        async for u in db.users.find({"role": {"$nin": ["admin", "superviseur"]}, "email": {"$ne": "admin@sawalismartsystems.com"},
+                                      "$or": [{"parent_client_id": {"$exists": False}}, {"parent_client_id": {"$in": [None, ""]}}]},
+                                     {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1}):
+            nom = u.get("company") or u.get("full_name") or ""
+            if nom:
+                lignes.append({"id": u["id"], "nom": nom, "nb_lignes": len(normaliser_offre(u.get("offre_client")))})
+        return {"clients": sorted(lignes, key=lambda c: _sans_accents(c["nom"]))}
+
+    @api.post("/admin/offre-client/copier", tags=["Admin — Offre du client"])
+    async def copier_offre(data: CopieOffreIn, admin: dict = Depends(get_current_admin)):
+        """Lot 169 — copie la liste de `source_id` vers chaque client de `cible_ids` (mode « remplacer » ou « ajouter »).
+        La source n'est jamais modifiée ; une cible inconnue est signalée sans bloquer les autres."""
+        src = await db.users.find_one({"id": data.source_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1})
+        if not src:
+            raise HTTPException(status_code=404, detail="Client source introuvable")
+        copiee = normaliser_offre(src.get("offre_client"))
+        if not copiee:
+            raise HTTPException(status_code=409, detail="La liste de ce client est vide : rien à copier")
+        nom_src = src.get("company") or src.get("full_name") or ""
+        maj = {"le": datetime.now(timezone.utc).isoformat(), "par": admin.get("full_name") or admin.get("email"),
+               "copie_de": nom_src}
+        resultat: List[Dict[str, Any]] = []
+        for cid in dict.fromkeys(data.cible_ids):                         # sans doublon, ordre conservé
+            if cid == data.source_id:
+                continue
+            cible = await db.users.find_one({"id": cid}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1})
+            if not cible:
+                resultat.append({"id": cid, "nom": "", "ok": False, "erreur": "Client introuvable"})
+                continue
+            liste, nb = fusionner_offre(normaliser_offre(cible.get("offre_client")), copiee, data.mode)
+            await db.users.update_one({"id": cid}, {"$set": {"offre_client": liste, "offre_client_maj": maj}})
+            resultat.append({"id": cid, "nom": cible.get("company") or cible.get("full_name") or "", "ok": True,
+                             "copiees": nb, "total": len(liste)})
+        return {"source": nom_src, "mode": data.mode, "resultat": resultat,
+                "copiees": sum(r.get("copiees", 0) for r in resultat), "clients": sum(1 for r in resultat if r["ok"])}
 
     async def _etat() -> Dict[str, Any]:
         s = await db.settings.find_one({"_id": "global"}) or {}

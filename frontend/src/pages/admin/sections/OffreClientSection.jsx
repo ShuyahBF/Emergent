@@ -38,6 +38,12 @@ export default function OffreClientSection() {
         Liluvine s'en sert pour ne plus poser de questions sur nos produits, mieux orienter ses réponses, demander des précisions si elle ne
         comprend pas, sinon escalader vers un humain.
       </p>
+      {/* Lot 169 — copie d'une liste d'un client à un autre */}
+      <p className="rounded-md bg-sky-50 p-2 text-xs text-sky-900 ring-1 ring-sky-200" data-testid="note-copie-offre">
+        <b>Copie (lot 169) :</b> sur la fiche d'un client, le bouton « Copier la liste d'un client à un autre » reprend la liste d'un autre client dans
+        l'éditeur (à enregistrer), ou envoie la liste enregistrée vers plusieurs clients à la fois — en ajoutant les lignes absentes (sans doublon)
+        ou en remplaçant leur liste. Les listes copiées restent indépendantes de la source.
+      </p>
       <label className="flex items-center gap-2">
         <input type="checkbox" checked={actif} onChange={(e) => setActif(e.target.checked)} data-testid="offre-refus-actif" />
         <span>Refuser l'assistance aux clients dont le contrat n'est pas à jour (ticket + escalade)</span>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "169", "date": "2026-10-15",
+        "titre": "📋 Offre du client : copier la liste d'un client à un autre",
+        "description": "Sur la fiche client (Logiciels, produits et services), « Copier la liste d'un client à un autre » reprend la liste d'un autre client dans l'éditeur, ou envoie la liste enregistrée vers plusieurs clients à la fois : au choix en ajoutant les lignes absentes ou en remplaçant la liste.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "168.3", "date": "2026-10-15",
         "titre": "🏢 SAWALI-2S : groupes et contacts retrouvés comme dans « Groupes de contacts »",
         "description": "Le sélecteur « Société » reconnaît SAWALI-2S et SAWALI SMART SYSTEMS comme une seule société (quelle que soit l'écriture, adresses @sawalismartsystems.com comprises) et compte les contacts et groupes rangés sous un compte OU créés par lui, comme la page « Groupes de contacts ».",

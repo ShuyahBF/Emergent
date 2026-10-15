@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "198"
-LOT_LIBELLE = "En réponse à : retrouve aussi les messages envoyés par une plateforme externe (plateforme, mode, date)"
+LOT = "199"
+LOT_LIBELLE = "Liluvine connaît la publication (sondage, formulaire, carrousel, modèle, plateforme) à laquelle le client répond"

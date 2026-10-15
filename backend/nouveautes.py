@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "199", "date": "2026-10-15",
+        "titre": "🤖 Liluvine connaît la publication à laquelle le client répond",
+        "description": "Sondage, formulaire, carrousel, message modèle ou message d'une plateforme : Liluvine reçoit le type, le titre et un résumé de la publication citée par le client (ou de la dernière publication envoyée à ce numéro dans les 72 h). Elle remercie un simple clic de bouton et répond aux questions de compréhension à partir du contenu, sans redemander l'objet.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "198", "date": "2026-10-15",
         "titre": "↪ « En réponse à » retrouve aussi les messages envoyés par les plateformes",
         "description": "Quand le message d'origine a été envoyé par une plateforme externe (adLyn, e-Kol, rendez-vous… via Liluvine), la conversation indique maintenant quelle plateforme a écrit et quand (le texte n'est volontairement pas conservé). Les anciennes réponses sont complétées à l'affichage.",

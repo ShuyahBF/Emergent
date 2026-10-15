@@ -941,12 +941,26 @@ function PortalLayoutInner({ admin = false }) {
             </NavLink>
           );
         };
-        return rendreMenu(links, rendreLien);
+        // Lot 173 : « Paramètres » n'est plus dans la liste défilante, il est épinglé dans le bas fixe de la barre latérale
+        return rendreMenu(links.filter((l) => l.to !== "/admin/settings"), rendreLien);
         })()}
       </nav>
 
       <div className={bureau ? "shrink-0 mt-3 border-t border-white/10 pt-3" : "mt-8 border-t border-white/10 pt-4"}
            data-testid={bureau ? "sidebar-bas" : undefined}>
+        {/* Lot 173 — « Paramètres » épinglé dans la partie basse fixe (toujours visible, sans défiler le menu).
+            Présent seulement si le profil y a droit (le lien reste dans `links`, filtré par rôle comme avant). */}
+        {links.some((l) => l.to === "/admin/settings") && (
+          <NavLink
+            to="/admin/settings"
+            onClick={() => setOpen(false)}
+            className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""} group mb-2`}
+            data-testid="sidebar-link--admin-settings"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="flex-1 truncate">Paramètres</span>
+          </NavLink>
+        )}
         <NavLink
           to="/portal/my-account"
           onClick={() => setOpen(false)}

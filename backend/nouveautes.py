@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "173", "date": "2026-10-15",
+        "titre": "⚙️ « Paramètres » épinglé en bas de la barre latérale",
+        "description": "Le lien « Paramètres » quitte la liste défilante du menu : il est maintenant dans la partie basse fixe de la barre latérale, juste au-dessus de votre compte, toujours visible.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "172", "date": "2026-10-15",
         "titre": "⏸️ Webhook Registre des Erreurs : pause temporaire",
         "description": "Le webhook « Registre des Erreurs » (Aizenta, Biolog…) a aussi son bouton « Mettre en pause » : les erreurs entrantes sont refusées (503) sans perdre le token, « Rétablir » le réactive.",

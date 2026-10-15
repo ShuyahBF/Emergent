@@ -151,7 +151,11 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         `{TicketDemnde: {...}}`, Biolog: `{Erreur: {...}}` etc.) ainsi que
         le format plat historique. L'unwrap est automatique.
         """
-        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1, "error_severity_mapping": 1}) or {}
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1, "error_severity_mapping": 1, "errors_webhook_pause": 1}) or {}
+        # Pause temporaire (lot 172) : refus 503 sans toucher au token ; réglée depuis les Paramètres.
+        if s.get("errors_webhook_pause"):
+            raise HTTPException(status_code=503, detail="Webhook registre des erreurs désactivé temporairement",
+                                headers={"Retry-After": "3600"})
         expected = (s.get("errors_webhook_token") or "").strip()
         if expected:
             got = (authorization or "").replace("Bearer ", "").strip()

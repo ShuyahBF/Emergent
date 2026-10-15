@@ -48,3 +48,21 @@ def test_pause_refuse_puis_retablit():
     # rétablissement : le même mot de passe refonctionne
     c.put("/api/admin/incidents-webhook/pause", json={"pause": False})
     assert c.post("/api/public/incidents", json=corps, headers=ent).status_code == 200
+
+
+def test_pause_registre_des_erreurs():
+    """Lot 172 : même interrupteur sur /api/errors/ingest (monté ici avec la base simulée)."""
+    from routes.error_registry import attach_error_registry_routes
+    c, db = construire()
+    # le registre est branché sur le même routeur /api que les routes d'administration
+    app = c.app
+    api = APIRouter(prefix="/api")
+    attach_error_registry_routes(api=api, db=db, get_current_user=lambda: {})
+    app.include_router(api)
+    corps = {"CodeApplicatif": "E1", "Motif": "Disque plein"}
+    assert c.get("/api/admin/errors-webhook/pause").json()["pause"] is False
+    c.put("/api/admin/errors-webhook/pause", json={"pause": True})
+    r = c.post("/api/errors/ingest", json=corps)
+    assert r.status_code == 503 and "temporairement" in r.json()["detail"]
+    c.put("/api/admin/errors-webhook/pause", json={"pause": False})
+    assert c.post("/api/errors/ingest", json=corps).status_code != 503

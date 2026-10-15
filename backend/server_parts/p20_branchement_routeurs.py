@@ -1269,6 +1269,7 @@ _carrousel_wa = _attach_carrousel_wa(
     save_and_log=_obj_storage.save_and_log,
     # Lot 114 — mêmes plages horaires d'envoi que les sondages / formulaires (lot 42) et envois programmés
     plages=_plages_envoi, is_preview_env=_is_preview_environment,
+    wa_send_text=_wa_send_text,      # lot 186 : compte rendu WhatsApp à l'administrateur à chaque envoi de carrousels
 )
 
 

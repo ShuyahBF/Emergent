@@ -852,6 +852,8 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     # S036 — Validate Liluvine escalation settings
     if "liluvine_escalation_wa_phone" in update:
         update["liluvine_escalation_wa_phone"] = (update["liluvine_escalation_wa_phone"] or "").strip()
+    if "carrousel_notif_wa_phone" in update:      # lot 186 : numéro du compte rendu des carrousels
+        update["carrousel_notif_wa_phone"] = (update["carrousel_notif_wa_phone"] or "").strip()
     if "liluvine_escalation_cooldown_minutes" in update and update["liluvine_escalation_cooldown_minutes"] is not None:
         try:
             v = int(update["liluvine_escalation_cooldown_minutes"])

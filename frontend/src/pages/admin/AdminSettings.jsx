@@ -2731,6 +2731,27 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
+      {/* Lot 186 — Compte rendu WhatsApp à l'admin à chaque envoi de carrousels */}
+      <Filterable title="Carrousels — compte rendu WhatsApp à l'admin" anchorId="s-carrousel-compte-rendu">
+        <Section icon={Brain} title="Liluvine vous tient au courant de chaque envoi de carrousels">
+          <p className="text-xs text-slate-500">
+            À la fin de chaque campagne de carrousels (administration ou clients), un message WhatsApp est envoyé à ce numéro :
+            expéditeur, modèle, nombre de destinataires, envois réussis et échecs. Laissez vide pour ne rien recevoir.
+          </p>
+          <Input
+            label="Numéro WhatsApp qui reçoit le compte rendu (E.164)"
+            value={s.carrousel_notif_wa_phone || ""}
+            onChange={(v) => upd("carrousel_notif_wa_phone", v)}
+            placeholder="+226XXXXXXXX"
+            testid="carrousel-notif-wa-phone"
+          />
+          <p className="text-[11px] text-slate-500">
+            ⚠️ L'envoi WhatsApp libre exige que ce numéro ait écrit au numéro de la plateforme dans les dernières 24 h
+            (fenêtre de service client Meta).
+          </p>
+        </Section>
+      </Filterable>
+
       {/* S038 — RAG semantic knowledge base (Qdrant) */}
       <Filterable title="RAG — Base de connaissance vectorielle (Qdrant) (S038)" anchorId="s-rag-qdrant">
         <Section icon={Brain} title="Recherche sémantique pour Liluvine PRO (RAG)">

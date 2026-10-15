@@ -407,6 +407,7 @@ def attach_carrousel_whatsapp_routes(
     save_and_log: Optional[Callable[..., Awaitable[dict]]] = None,
     plages: Optional[Dict[str, Any]] = None,
     is_preview_env: Callable[[], bool] = lambda: False,
+    wa_send_text: Optional[Callable[..., Awaitable[dict]]] = None,
 ) -> Dict[str, Any]:
     """Branche les routes du carrousel. `base_publique()` : adresse publique du site
     (PUBLIC_BASE_URL), utilisée pour les images et les liens des boutons.
@@ -1166,6 +1167,24 @@ def attach_carrousel_whatsapp_routes(
         fin = (datetime.now(timezone.utc) + timedelta(minutes=VERROU_MINUTES)).isoformat()
         await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": fin}})
 
+    async def _prevenir_admin(campagne_id: str) -> None:
+        """Lot 186 — Liluvine tient l'administrateur au courant : un message WhatsApp au numéro réglé dans les Paramètres
+        (`carrousel_notif_wa_phone`) à la fin de chaque campagne. Jamais bloquant : une erreur est seulement journalisée."""
+        try:
+            if wa_send_text is None:
+                return
+            reglages = await db.settings.find_one({"_id": "global"}, {"_id": 0, "carrousel_notif_wa_phone": 1}) or {}
+            numero = str(reglages.get("carrousel_notif_wa_phone") or "").strip()
+            if not numero:
+                return
+            c = await db.carrousel_campagnes.find_one({"id": campagne_id}, {"_id": 0}) or {}
+            from routes.carrousel_notification import texte_envoi_carrousel
+            res = await wa_send_text(numero, texte_envoi_carrousel(c))
+            logger.info("[carrousel] compte rendu de la campagne %s envoyé à l'administrateur : %s", campagne_id,
+                        "ok" if (res or {}).get("ok") else f"échec ({(res or {}).get('error')})")
+        except Exception:  # noqa: BLE001
+            logger.warning("[carrousel] compte rendu à l'administrateur impossible", exc_info=True)
+
     async def _executer(campagne_id: str) -> None:
         """Envoi un par un ; chaque résultat est gardé sur la campagne et dans
         whatsapp_messages (compteurs d'usage de la plateforme).
@@ -1244,8 +1263,10 @@ def attach_carrousel_whatsapp_routes(
                 except Exception:  # noqa: BLE001 — le journal ne bloque jamais l'envoi
                     pass
             # Tous servis : terminée (sauf si annulée entre-temps)
-            await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+            fin = await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
                 "statut": "TERMINEE", "termine_le": _maintenant(), "reprise_le": None}})
+            if getattr(fin, "modified_count", 0):
+                await _prevenir_admin(campagne_id)      # lot 186 : compte rendu au numéro réglé (une seule fois par campagne)
         finally:
             # Verrou libéré dans tous les cas (fin, arrêt hors plage, annulation, erreur)
             await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": None}})

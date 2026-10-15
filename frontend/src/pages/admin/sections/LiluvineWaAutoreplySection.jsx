@@ -92,6 +92,8 @@ export default function LiluvineWaAutoreplySection() {
         prospect_enabled: r.data.prospect_enabled !== false,
         prospect_system_prompt: r.data.prospect_system_prompt || "",
         mode_instructions: r.data.mode_instructions || "",
+        // Lot 184 — consignes de conduite de la conversation (vide = texte par défaut)
+        consignes_conversation: r.data.consignes_conversation || "",
         // Lot 183 — prompts propres aux clients (contrat à jour / en retard ou sans contrat)
         client_prompt: r.data.client_prompt || "",
         client_retard_prompt: r.data.client_retard_prompt || "",
@@ -135,6 +137,8 @@ export default function LiluvineWaAutoreplySection() {
         prospect_enabled: !!form.prospect_enabled,
         prospect_system_prompt: form.prospect_system_prompt || "",
         mode_instructions: form.mode_instructions || "",
+        // Lot 184 : consignes de conversation (vide = texte par défaut)
+        consignes_conversation: form.consignes_conversation || "",
         // Lot 183 : prompts clients (vide = prompt du compte, comme avant)
         client_prompt: form.client_prompt || "",
         client_retard_prompt: form.client_retard_prompt || "",
@@ -406,6 +410,38 @@ export default function LiluvineWaAutoreplySection() {
           placeholder={cfg.default_mode_instructions || ""}
           className="w-full text-xs rounded-lg border border-sky-300 px-3 py-2 bg-white font-mono leading-relaxed"
           data-testid="liluvine-mode-instructions"
+        />
+      </div>
+
+      {/* Lot 184 — Consignes de conduite de la conversation (toutes les réponses) */}
+      <div className="rounded-lg ring-1 ring-indigo-200 bg-indigo-50/40 p-3 space-y-2" data-testid="liluvine-consignes-section">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-indigo-900 inline-flex items-center gap-1.5">
+            <MessageCircle className="h-3.5 w-3.5" /> Consignes de conversation (toutes les réponses)
+          </h3>
+          {/* Pré-remplit la zone avec le texte par défaut, pour le modifier plutôt que partir de zéro */}
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, consignes_conversation: cfg.default_consignes_conversation || "" })}
+            className="text-[10px] inline-flex items-center gap-1 text-indigo-700 hover:underline"
+            data-testid="liluvine-consignes-load-default"
+          >
+            <Copy className="h-3 w-3" /> Partir du texte par défaut
+          </button>
+        </div>
+        <p className="text-[10px] text-indigo-900/80">
+          Ajoutées à chaque réponse : ne pas se représenter, ne pas citer tous les logiciels, répondre uniquement à partir de la
+          base de connaissances (Qdrant) sans rien inventer… Les phrases liées à l'offre du client sont ajoutées automatiquement.
+          <strong> Vide = texte par défaut (affiché en grisé).</strong>
+        </p>
+        <textarea
+          value={form.consignes_conversation}
+          onChange={(e) => setForm({ ...form, consignes_conversation: e.target.value })}
+          rows={7}
+          maxLength={4000}
+          placeholder={cfg.default_consignes_conversation || ""}
+          className="w-full text-xs rounded-lg border border-indigo-300 px-3 py-2 bg-white font-mono leading-relaxed"
+          data-testid="liluvine-consignes"
         />
       </div>
 
@@ -739,7 +775,12 @@ export default function LiluvineWaAutoreplySection() {
                         {d.prospect && <span className="ml-1 text-[10px] rounded bg-violet-50 text-violet-700 px-1">prospect</span>}
                         {d.classement && (
                           <span className="ml-1 text-[10px] rounded bg-emerald-50 text-emerald-700 px-1" data-testid={`liluvine-classement-${d.id}`}>
-                            {d.classement.categorie}{d.classement.ticket ? ` · ticket ${d.classement.ticket}` : ""}{d.classement.agent ? ` · ${d.classement.agent}` : ""}
+                            {d.classement.categorie}
+                            {d.classement.ticket_statut === "ouvert" && ` · ticket ${d.classement.ticket}`}
+                            {d.classement.ticket_statut === "rattache" && ` · rattaché au ticket ${d.classement.ticket}`}
+                            {d.classement.ticket_statut === "echec" && " · ticket NON créé (erreur)"}
+                            {d.classement.ticket_statut === "aucun_client" && " · pas de ticket : contact sans client relié"}
+                            {d.classement.agent ? ` · ${d.classement.agent}` : ""}
                           </span>
                         )}
                         {d.offre_statut && OFFRE_STATUT_LABELS[d.offre_statut] && (

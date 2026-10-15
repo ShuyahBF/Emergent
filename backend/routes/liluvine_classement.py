@@ -59,6 +59,9 @@ def consignes_classement(cats: List[str], deja_classe: Optional[str] = None) -> 
         f"Catégories possibles : {', '.join(cats)}.\n"
         "- Quand tu as compris ce que le correspondant demande ET dans quelle catégorie cela se range, termine ta réponse par "
         "le marqueur exact [CLASSE: <catégorie> | <motif en 12 mots maximum>] (catégorie recopiée telle quelle dans la liste).\n"
+        "- Avec le marqueur, écris la réponse à la demande tirée UNIQUEMENT de la base de connaissances (sans rien inventer ; "
+        "si elle n'y figure pas, dis-le et propose un conseiller humain) : la phrase de mise en relation avec l'assistant et "
+        "le numéro de ticket sont ajoutés automatiquement, ne les écris pas.\n"
         "- Si la catégorie n'est pas claire, pose UNE seule question courte en proposant ces catégories, sans marqueur.\n"
         "- Pas de marqueur pour une simple salutation ou une question d'information : seulement pour une demande à traiter."
     )

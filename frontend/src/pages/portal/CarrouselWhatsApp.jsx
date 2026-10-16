@@ -16,6 +16,9 @@
   Lot 114 — « Envoyer maintenant » ou « Programmer le JJ/MM/AAAA à HH:MM » (heure de Ouagadougou), dans les plages
   horaires d'envoi fixées par l'Admin (Paramètres) : hors plage, l'envoi attend et reprend tout seul. Chaque envoi
   affiche son statut (Programmée, En attente, En cours, Terminée, Annulée) et peut être annulé tant qu'il n'est pas fini.
+  Lot 212 — DEUX ONGLETS : « Préparer un envoi » (modèles, carrousels enregistrés, message et cartes, destinataires) et
+  « Suivi de vos envois » (ancien bloc 3 « Envois précédents »). À l'ouverture de la page, s'il n'y a rien à faire (WhatsApp prêt,
+  aucun accord à traiter, aucun travail non envoyé) on arrive directement sur le suivi ; après un envoi, le suivi s'ouvre.
 */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -637,7 +640,7 @@ function MesCarrousels({ base, courant, onOuvrir, onEnregistre, rafraichir, onCo
           <div className="mb-1">
             Modèles chez Meta <span className="font-mono">{meta.prefixe}_2 … _10</span> : ce sont des <b>cadres vides</b> (un par
             nombre de cartes). Meta ne garde ni vos images ni vos textes : ils sont dans « Mes carrousels » (si enregistrés)
-            ou dans « 3. Envois précédents ». Cliquez sur un modèle pour composer un carrousel de ce nombre de cartes.
+            ou dans l'onglet « Suivi de vos envois ». Cliquez sur un modèle pour composer un carrousel de ce nombre de cartes.
           </div>
           <div className="flex flex-wrap gap-1.5">
             {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
@@ -732,6 +735,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
   const [images, setImages] = useState([]);
   const [annuaire, setAnnuaire] = useState({ contacts: [], groupes: [] });
   const [campagnes, setCampagnes] = useState([]);
+  // Lot 212 — onglets « Préparer un envoi » / « Suivi de vos envois » ; null = pas encore décidé (on attend de savoir s'il y a quelque chose à faire)
+  const [onglet, setOnglet] = useState(null);
+  const [brouillonLu, setBrouillonLu] = useState(false);              // le brouillon automatique a été lu (ou sa lecture a échoué)
+  const [brouillonModifie, setBrouillonModifie] = useState(null);      // date du dernier enregistrement automatique d'un travail non vide
+  const [aTraiter, setATraiter] = useState(admin ? null : 0);         // accords / clics « Confirmer » à traiter (administration) ; null = pas encore connu
   const [pubCampagne, setPubCampagne] = useState(null);   // lot 193 : envoi à promouvoir par une publicité (administration)
   const [fbCampagne, setFbCampagne] = useState(null);     // lot 192 : envoi à publier sur Facebook (administration)
   // Lot 156 : « Envois précédents » repliés par défaut (une ligne par envoi : date et heure) ; un clic déplie les autres informations.
@@ -837,12 +845,14 @@ export default function CarrouselWhatsApp({ admin = false }) {
             setCourant(null);
           }
           setAutoLe(b.modifie_le);
+          setBrouillonModifie(b.modifie_le || null);
           toast.info(`Travail en cours restauré (enregistré automatiquement le ${dateFr(b.modifie_le)})`);
         }
       } catch (e) {
         /* sans brouillon automatique, l'éditeur reste vide */
       } finally {
         autoPret.current = true;
+        if (!fini) setBrouillonLu(true);
       }
     })();
     return () => { fini = true; };
@@ -1053,6 +1063,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
       }
       setProgrammeLe("");
       setTimeout(charger, data.statut === "EN_COURS" ? 3000 : 300);
+      charger();
+      ouvrirSuivi();                       // lot 212 : après l'envoi, on passe au suivi
     } catch (e) {
       const motif = erreur(e, "Envoi refusé");
       toast.error(motif, { id: attente, duration: 10000 });
@@ -1094,7 +1106,24 @@ export default function CarrouselWhatsApp({ admin = false }) {
       setAnnulation("");
     }
   };
-  // Lot 114 — envois programmés, en attente d'une plage horaire ou en cours (liste dédiée en tête de la section 3)
+  // Lot 212 — choix de l'onglet à l'ouverture. « Quelque chose à faire » = WhatsApp / modèles pas prêts, accords ou clics à traiter
+  // (administration), ou travail enregistré automatiquement APRÈS le dernier envoi (plus d'une minute : on laisse passer l'enregistrement
+  // automatique qui suit un envoi). Sinon, et s'il existe des envois, on ouvre directement le suivi.
+  useEffect(() => {
+    if (onglet || !etat || !brouillonLu || aTraiter === null) return;
+    const derniere = campagnes.reduce((m, c) => (c.cree_le > m ? c.cree_le : m), "");
+    const travailNonEnvoye = !!brouillonModifie && (!derniere || new Date(brouillonModifie) - new Date(derniere) > 60000);
+    setOnglet(etat.pret && aTraiter === 0 && !travailNonEnvoye && campagnes.length > 0 ? "suivi" : "preparer");
+  }, [onglet, etat, brouillonLu, brouillonModifie, aTraiter, campagnes]);
+  // Filet de sécurité : si un signal n'arrive jamais (réseau lent), on ouvre « Préparer un envoi » au bout de 6 s
+  useEffect(() => {
+    if (onglet) return undefined;
+    const t = setTimeout(() => setOnglet((o) => o || "preparer"), 6000);
+    return () => clearTimeout(t);
+  }, [onglet]);
+  const ouvrirSuivi = () => { setOnglet("suivi"); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); };
+
+  // Lot 114 — envois programmés, en attente d'une plage horaire ou en cours (liste dédiée en tête de l'onglet « Suivi de vos envois »)
   const envoisActifs = useMemo(() => campagnes.filter((c) => STATUTS_ACTIFS.includes(c.statut)), [campagnes]);
   // Lot 114 — relecture toutes les 30 s tant qu'un envoi est en cours (onglet visible seulement)
   useEffect(() => {
@@ -1151,8 +1180,27 @@ export default function CarrouselWhatsApp({ admin = false }) {
           {!etat.modele ? "Les modèles de carrousel ne sont pas encore renseignés par l'administration SAWALI." : ""}
         </div>
       )}
+      {/* Lot 212 — deux onglets : préparer un envoi / suivre les envois (le suivi s'ouvre seul s'il n'y a rien à faire, et après chaque envoi) */}
+      <div role="tablist" aria-label="Carrousel WhatsApp" className="flex flex-wrap gap-2 border-b border-slate-200 pb-2" data-testid="carrousel-onglets">
+        <button type="button" role="tab" aria-selected={onglet === "preparer"} onClick={() => setOnglet("preparer")} data-testid="carrousel-onglet-preparer"
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${onglet === "preparer" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+          <Send className="h-4 w-4" /> Préparer un envoi
+        </button>
+        <button type="button" role="tab" aria-selected={onglet === "suivi"} onClick={() => setOnglet("suivi")} data-testid="carrousel-onglet-suivi"
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${onglet === "suivi" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+          <Package className="h-4 w-4" /> Suivi de vos envois
+          {envoisActifs.length > 0 && (
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${onglet === "suivi" ? "bg-white text-emerald-700" : "bg-amber-200 text-amber-900"}`}
+                  title="Envois programmés, en attente ou en cours" data-testid="carrousel-onglet-suivi-actifs">{envoisActifs.length}</span>
+          )}
+        </button>
+      </div>
+      {!onglet && <div className="flex justify-center p-8" data-testid="carrousel-onglet-attente"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}
+
+      {/* Onglet 1 — Préparer un envoi (reste monté, seulement masqué : le travail en cours n'est jamais perdu en changeant d'onglet) */}
+      <div className={onglet === "preparer" ? "space-y-5" : "hidden"} data-testid="carrousel-onglet-preparer-contenu">
       {/* Lots 204/206 — EN HAUT de la page : clics « Confirmer » à valider et accords sans fiche (traités en un clic) */}
-      {admin && <AccordsOrphelins />}
+      {admin && <AccordsOrphelins onCompte={setATraiter} />}
       {admin && <Reglages etat={etat} onEnregistre={charger} />}
 
       {/* Lot 77 — carrousels nommés : liste, statut Meta, ouvrir, dupliquer */}
@@ -1463,7 +1511,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
             <b>{silencieux.length} destinataire(s) sur {retenus.length} n'ont jamais écrit à votre ligne WhatsApp</b> :
             {" "}{silencieux.slice(0, 6).map((c) => c.nom).join(", ")}{silencieux.length > 6 ? `, … (+${silencieux.length - 6})` : ""}.
             WhatsApp peut refuser de leur remettre un message marketing (code 131049, « healthy ecosystem engagement ») même si l'envoi est
-            accepté. Demandez-leur d'écrire d'abord un mot à votre ligne, puis vérifiez la remise dans « Envois précédents ».
+            accepté. Demandez-leur d'écrire d'abord un mot à votre ligne, puis vérifiez la remise dans l'onglet « Suivi de vos envois ».
           </div>
         )}
         <div className="flex flex-wrap items-center gap-3 boutons-distincts">
@@ -1484,10 +1532,22 @@ export default function CarrouselWhatsApp({ admin = false }) {
         </div>
       </section>
 
-      {/* 3. Campagnes */}
+      </div>
+
+      {/* Onglet 2 — Suivi de vos envois (ancien bloc « 3. Envois précédents », lot 212) */}
+      <div className={onglet === "suivi" ? "space-y-5" : "hidden"} data-testid="carrousel-onglet-suivi-contenu">
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> 3. Envois précédents</h2>
+        <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> Suivi de vos envois</h2>
         {campagnes.length === 0 && <p className="text-sm text-slate-500">Aucun envoi pour le moment.</p>}
+        {/* Pourquoi « En attente » ? (lot 212) — expliqué dès qu'un envoi attend */}
+        {campagnes.some((c) => c.statut === "EN_ATTENTE") && (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="carrousel-explication-attente">
+            <b>Pourquoi « En attente » ?</b> Un envoi attend quand il tombe <b>hors des plages horaires d'envoi</b> (jours et heures réglés par l'administrateur dans
+            Paramètres → Plages horaires d'envoi) : il reprend tout seul à l'ouverture suivante. Cela peut aussi arriver <b>au milieu d'un envoi</b> : si la plage se
+            ferme avant que tous les destinataires soient servis, ceux déjà servis le restent et les autres partent à la réouverture. La date de reprise et le motif
+            sont indiqués sur chaque envoi concerné ; « Annuler » arrête l'attente.
+          </div>
+        )}
         {/* Lot 114 — envois programmés / en attente / en cours, avec annulation */}
         {envoisActifs.length > 0 && (
           <div className="rounded-md border border-sky-200 bg-sky-50/60 p-3 text-sm" data-testid="carrousel-envois-programmes">
@@ -1504,7 +1564,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                       <td className="py-1 pr-2"><PastilleStatut statut={c.statut} libelle={c.statut_libelle} /></td>
                       <td className="py-1 pr-2">
                         {c.statut === "PROGRAMMEE" && <>le {dateFr(c.programme_le)}</>}
-                        {c.statut === "EN_ATTENTE" && <>reprendra le {dateFr(c.reprise_le)}</>}
+                        {c.statut === "EN_ATTENTE" && <>reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? <span className="block text-amber-700">{c.motif_arret}</span> : null}</>}
                         {c.statut === "EN_COURS" && <>en cours d'envoi…</>}
                       </td>
                       <td className="max-w-[240px] truncate py-1 pr-2">{c.message}</td>
@@ -1638,6 +1698,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
           </div>
         )}
       </section>
+      </div>
       {fbCampagne && <FacebookCarrouselModal campagne={fbCampagne} onClose={() => setFbCampagne(null)} />}
       {pubCampagne && <PubliciteCarrouselModal campagne={pubCampagne} onClose={() => setPubCampagne(null)} />}
     </div>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "210.1", "date": "2026-10-16",
+        "titre": "📅 Rappels d'échéance : fin du mois calendaire",
+        "description": "Sur chaque ligne de l'offre d'un client, la case « Fin de mois calendaire » fixe l'échéance au dernier jour du mois : Liluvine rappelle N jours avant (ex. 3 jours avant le 31) aux décisionnaires du client, chaque mois.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "210", "date": "2026-10-16",
         "titre": "🔔 Rappels d'échéance des produits et services du client (WhatsApp aux décisionnaires)",
         "description": "Chaque ligne de l'offre d'un client a maintenant une durée, une date de début et des jours de rappel (ex. 30 j, rappel 3 j avant). Chaque matin, Liluvine prévient tous les décisionnaires du client des échéances proches. À activer ici (interrupteur général, modèle WhatsApp, simulation). La liste des clients garde aussi ses boutons d'action visibles.",

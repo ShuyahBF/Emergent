@@ -8,10 +8,11 @@
 # En résumé (pour un développeur WinDev) :
 #   - DONNÉES : sur chaque ligne de l'offre du client (db.users.offre_client, aucune nouvelle collection — cluster plein) :
 #       date_debut  : début de la période en cours (AAAA-MM-JJ) ;  duree_jours : durée de la période (30 = un mois) ;
+#       fin_de_mois : l'échéance est le DERNIER JOUR DU MOIS calendaire (lot 210.1 ; la durée en jours est alors ignorée) ;
 #       rappel_jours: jours AVANT l'échéance où rappeler (ex. [7, 3]) ;  alerte_active : rappel AUTORISÉ pour cette ligne ;
 #       reconduction: vrai = la période suivante commence à l'échéance (la date de début n'est pas à ressaisir) ;
 #       rappels_envoyes : « échéance|palier » déjà envoyés (jamais deux fois le même rappel).
-#   - ÉCHÉANCE = date_debut + duree_jours. Avec reconduction, tant qu'elle est passée, on ajoute une durée.
+#   - ÉCHÉANCE = date_debut + duree_jours, ou le dernier jour du mois si « fin de mois » est coché. Avec reconduction, tant qu'elle est passée, on ajoute une durée.
 #   - RAPPEL : à J − palier (un jour de rattrapage si l'envoi a échoué la veille). Une ligne inactive, sans alerte autorisée,
 #     sans date de début ou sans durée n'est jamais rappelée.
 #   - DESTINATAIRES : les contacts « décisionnaires » du client (directory_contacts.is_decision_maker). UN message par
@@ -26,6 +27,7 @@
 # Routes (administrateur) : GET/PUT /api/admin/offre-client/rappels ; POST /api/admin/offre-client/rappels/executer {simuler}.
 from __future__ import annotations
 
+import calendar
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -55,10 +57,24 @@ def _jour(texte: Any) -> Optional[date]:
         return None
 
 
+def fin_du_mois(jour: date) -> date:
+    """Dernier jour du mois calendaire de `jour` (28, 29, 30 ou 31)."""
+    return jour.replace(day=calendar.monthrange(jour.year, jour.month)[1])
+
+
 def echeance_ligne(ligne: Dict[str, Any], aujourdhui: date) -> Optional[date]:
-    """Prochaine échéance d'une ligne : début + durée ; avec reconduction, la première échéance qui n'est pas passée.
-    None si la ligne n'a pas de date de début ou de durée. Sans reconduction, une échéance passée reste passée."""
+    """Prochaine échéance d'une ligne.
+    - « fin de mois calendaire » (lot 210.1) : dernier jour du mois de la date de début ; avec reconduction, dernier jour du
+      mois en cours (donc chaque mois), la date de début n'étant alors même plus nécessaire ;
+    - sinon début + durée ; avec reconduction, la première échéance qui n'est pas passée.
+    None si les données manquent. Sans reconduction, une échéance passée reste passée."""
     debut, duree = _jour(ligne.get("date_debut")), int(ligne.get("duree_jours") or 0)
+    if ligne.get("fin_de_mois") is True:
+        reference = debut or (aujourdhui if ligne.get("reconduction") is not False else None)
+        if not reference:
+            return None
+        fin = fin_du_mois(reference)
+        return fin_du_mois(aujourdhui) if ligne.get("reconduction") is not False and fin < aujourdhui else fin
     if not debut or duree <= 0:
         return None
     fin = debut + timedelta(days=duree)

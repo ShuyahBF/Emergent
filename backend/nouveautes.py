@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "219", "date": "2026-10-17",
+        "titre": "📊 Carrousel WhatsApp : synthèse de vos envois et « Replier tout »",
+        "description": "Nouvel onglet « Synthèse de vos envois » : choisissez une période (du … au) et voyez, avec graphiques, les clics, vues de la présentation et « Je suis intéressé » par carrousel et par carte, et la remise par destinataire. Le suivi a aussi un bouton « Replier tout ».",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "218", "date": "2026-10-16",
         "titre": "▶️ Envois en attente : reprise immédiate si la plage s'élargit",
         "description": "Quand vous reculez l'heure de fin des plages d'envoi, les carrousels « En attente » à cause des plages repartent seuls dans la minute (sans attendre le lendemain). Un bouton « Reprendre maintenant » force aussi la reprise ; la plage horaire reste contrôlée avant chaque message.",

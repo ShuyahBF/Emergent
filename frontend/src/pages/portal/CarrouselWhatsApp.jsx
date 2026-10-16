@@ -23,7 +23,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Megaphone,
+  ArrowLeft, ArrowRight, BarChart3, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink, FolderOpen, GalleryHorizontalEnd, ImagePlus, Loader2, Megaphone,
   Package, Plus, MessageSquareReply, RefreshCw, Save, Send, Settings, Share2, Sparkles, Trash2, Users, XCircle,
 } from "lucide-react";
 import QRCode from "qrcode";                                  // lot 79 : QR code du lien d'accord
@@ -34,6 +34,7 @@ import { pageVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pa
 import PubliciteCarrouselModal from "@/components/PubliciteCarrouselModal";   // lot 193 : publicité à carrousel Click-to-WhatsApp (compte publicitaire Meta)
 import FacebookCarrouselModal from "@/components/FacebookCarrouselModal";   // lot 192 : publier un carrousel sur une Page Facebook choisie
 import AccordsOrphelins from "@/components/AccordsOrphelins";   // lot 204 : accords sans fiche → rattacher à un client puis envoyer
+import CarrouselSynthese from "./CarrouselSynthese";   // lot 219 : onglet « Synthèse de vos envois »
 import EnvoiProgrammation from "@/components/EnvoiProgrammation";   // lot 114 : maintenant / programmer + plages horaires
 
 const erreur = (e, defaut) => {
@@ -1220,6 +1221,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
                   title="Envois programmés, en attente ou en cours" data-testid="carrousel-onglet-suivi-actifs">{envoisActifs.length}</span>
           )}
         </button>
+        {/* Lot 219 — synthèse sur une période (graphiques) */}
+        <button type="button" role="tab" aria-selected={onglet === "synthese"} onClick={() => setOnglet("synthese")} data-testid="carrousel-onglet-synthese"
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${onglet === "synthese" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+          <BarChart3 className="h-4 w-4" /> Synthèse de vos envois
+        </button>
       </div>
       {!onglet && <div className="flex justify-center p-8" data-testid="carrousel-onglet-attente"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}
 
@@ -1560,15 +1566,26 @@ export default function CarrouselWhatsApp({ admin = false }) {
 
       </div>
 
+      {/* Onglet 3 — Synthèse de vos envois (lot 219) : monté seulement quand on l'ouvre */}
+      {onglet === "synthese" && <CarrouselSynthese base={base} />}
+
       {/* Onglet 2 — Suivi de vos envois (ancien bloc « 3. Envois précédents », lot 212) */}
       <div className={onglet === "suivi" ? "space-y-5" : "hidden"} data-testid="carrousel-onglet-suivi-contenu">
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> Suivi de vos envois</h2>
+          {/* Lot 219 — replie d'un coup tous les envois dépliés */}
+          <div className="flex items-center gap-2">
+          {deplies.size > 0 && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setDeplies(new Set())} data-testid="carrousel-suivi-replier-tout">
+              <ChevronRight className="mr-1 h-4 w-4" /> Replier tout ({deplies.size})
+            </Button>
+          )}
           {/* Lot 217 — actualise les statuts et l'historique sans recharger la page */}
           <Button type="button" size="sm" variant="outline" onClick={actualiserSuivi} disabled={majSuivi} data-testid="carrousel-suivi-actualiser">
             {majSuivi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />} Actualiser
           </Button>
+          </div>
         </div>
         {campagnes.length === 0 && <p className="text-sm text-slate-500">Aucun envoi pour le moment.</p>}
         {/* Pourquoi « En attente » ? (lot 212) — expliqué dès qu'un envoi attend */}

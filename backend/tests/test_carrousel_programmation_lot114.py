@@ -334,3 +334,26 @@ def test_lot218_plage_elargie_reprise_immediate_et_bouton(env):
     etat["ferme"] = False
     client.portal.call(moteur["lancer_echus"], True)
     assert campagne(client, cid)["statut"] == "TERMINEE" and len(envois) == 2
+
+
+def test_lot219_synthese_par_periode(env):
+    """Lot 219 — synthèse d'une période : totaux, détail par carrousel/carte et par destinataire ; période sans envoi = vide."""
+    client, db, envois, etat, moteur = env
+    r = envoyer_portail(client)
+    cid = r.json()["id"]
+    camp = campagne(client, cid)
+    # Un clic et une vue sur la 1re carte
+    code = camp["cartes"][0]["code_lien"]
+    client.portal.call(db.carrousel_liens.update_one, {"code": code}, {"$set": {"clics": 3, "vues": 2, "interesses": 1}})
+    aujourdhui = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    s = client.get(f"/api/me/whatsapp/carrousel/synthese?du={aujourdhui}&au={aujourdhui}", headers=h("cli_a")).json()
+    assert s["totaux"]["envois"] == 1 and s["totaux"]["servis"] == 2
+    assert (s["totaux"]["clics"], s["totaux"]["vues"], s["totaux"]["interesses"]) == (3, 2, 1)
+    assert s["carrousels"][0]["cartes"][0]["clics"] == 3
+    assert len(s["destinataires"]) == 2 and all(d["recus"] == 1 for d in s["destinataires"])
+    # Période passée : aucun envoi
+    vide = client.get("/api/me/whatsapp/carrousel/synthese?du=2020-01-01&au=2020-01-31", headers=h("cli_a")).json()
+    assert vide["totaux"]["envois"] == 0 and vide["carrousels"] == [] and vide["destinataires"] == []
+    # Dates incohérentes ou invalides : refus clair
+    assert client.get("/api/me/whatsapp/carrousel/synthese?du=2026-02-01&au=2026-01-01", headers=h("cli_a")).status_code == 400
+    assert client.get("/api/me/whatsapp/carrousel/synthese?du=abc", headers=h("cli_a")).status_code == 400

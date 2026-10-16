@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "217", "date": "2026-10-16",
+        "titre": "🔄 Suivi des carrousels : bouton « Actualiser »",
+        "description": "L'onglet « Suivi de vos envois » du Carrousel WhatsApp a son bouton « Actualiser » : il relit les statuts et l'historique (y compris la remise des envois dépliés) sans recharger la page.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "216", "date": "2026-10-16",
         "titre": "🕗 Plages d'envoi : début et fin, sans pause cachée",
         "description": "Par défaut, une seule plage (heure de début → heure de fin) est proposée, plus de pause 12:00–15:00 imposée. Si votre réglage contient une pause, elle est signalée en orange avec un bouton « Plage continue » pour la supprimer en un clic.",

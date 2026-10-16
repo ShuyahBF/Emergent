@@ -1132,6 +1132,17 @@ export default function CarrouselWhatsApp({ admin = false }) {
     return () => clearInterval(t);
   }, [campagnes, charger]);
 
+  // Lot 217 — bouton « Actualiser » de l'onglet Suivi : relit les envois (statuts) et le détail des envois dépliés (remise réelle)
+  const [majSuivi, setMajSuivi] = useState(false);
+  const actualiserSuivi = async () => {
+    setMajSuivi(true);
+    try {
+      await charger();
+      await Promise.all([...deplies].map((id) => ouvrirDetail(id).catch(() => {})));
+      toast.success("Suivi actualisé");
+    } finally { setMajSuivi(false); }
+  };
+
   const ouvrirDetail = async (id) => {
     const { data } = await apiClient.get(`${base}/campagnes/${id}`);
     setDetails((p) => ({ ...p, [id]: data }));
@@ -1537,7 +1548,13 @@ export default function CarrouselWhatsApp({ admin = false }) {
       {/* Onglet 2 — Suivi de vos envois (ancien bloc « 3. Envois précédents », lot 212) */}
       <div className={onglet === "suivi" ? "space-y-5" : "hidden"} data-testid="carrousel-onglet-suivi-contenu">
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> Suivi de vos envois</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Package className="h-4 w-4" /> Suivi de vos envois</h2>
+          {/* Lot 217 — actualise les statuts et l'historique sans recharger la page */}
+          <Button type="button" size="sm" variant="outline" onClick={actualiserSuivi} disabled={majSuivi} data-testid="carrousel-suivi-actualiser">
+            {majSuivi ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />} Actualiser
+          </Button>
+        </div>
         {campagnes.length === 0 && <p className="text-sm text-slate-500">Aucun envoi pour le moment.</p>}
         {/* Pourquoi « En attente » ? (lot 212) — expliqué dès qu'un envoi attend */}
         {campagnes.some((c) => c.statut === "EN_ATTENTE") && (

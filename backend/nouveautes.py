@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "216", "date": "2026-10-16",
+        "titre": "🕗 Plages d'envoi : début et fin, sans pause cachée",
+        "description": "Par défaut, une seule plage (heure de début → heure de fin) est proposée, plus de pause 12:00–15:00 imposée. Si votre réglage contient une pause, elle est signalée en orange avec un bouton « Plage continue » pour la supprimer en un clic.",
+        "rubrique": "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)",
+    },
+    {
         "lot": "215", "date": "2026-10-16",
         "titre": "🕒 Envois en attente : l'heure de l'arrêt est indiquée",
         "description": "Un envoi de carrousel « En attente » affiche maintenant l'heure à laquelle il s'est arrêté, avec le motif et le nombre de destinataires déjà servis. Le motif décrit toujours le dernier arrêt : il ne veut plus rien dire de l'heure de l'envoi d'origine.",

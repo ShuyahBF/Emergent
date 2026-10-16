@@ -33,6 +33,12 @@ export default function PlagesEnvoiSection() {
   const basculerJour = (j) => setCfg({ ...cfg, jours: cfg.jours.includes(j) ? cfg.jours.filter((x) => x !== j) : [...cfg.jours, j].sort() });
   const majPlage = (i, champ, v) => setCfg({ ...cfg, plages: cfg.plages.map((p, k) => (k === i ? { ...p, [champ]: v } : p)) });
 
+  // Lot 216 — pauses : intervalles « vides » entre deux plages (ex. 12:00 → 15:00), triées par heure de début
+  const triees = [...cfg.plages].sort((a, b) => a.de.localeCompare(b.de));
+  const pauses = triees.slice(1).map((p, i) => ({ de: triees[i].a, a: p.de })).filter((x) => x.de < x.a);
+  // Lot 216 — « Plage continue » : une seule plage du plus tôt au plus tard
+  const plageContinue = () => setCfg({ ...cfg, plages: [{ de: triees[0].de, a: triees[triees.length - 1].a }] });
+
   const enregistrer = async () => {
     setEnreg(true);
     try {
@@ -73,8 +79,18 @@ export default function PlagesEnvoiSection() {
               className="p-1 text-rose-500 hover:bg-rose-50 rounded" title="Retirer la plage"><Trash2 className="h-4 w-4" /></button>
           </div>
         ))}
+        {/* Lot 216 — avertissement : une pause existe entre deux plages */}
+        {pauses.length > 0 && (
+          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-300 p-2 text-xs text-amber-900" data-testid="plages-pause">
+            ⚠️ Pause : aucun envoi de {pauses.map((x) => `${x.de} à ${x.a}`).join(" ni de ")}.
+            Si vous voulez seulement une heure de début et une heure de fin,{" "}
+            <button type="button" onClick={plageContinue} data-testid="plages-continue" className="font-semibold underline">
+              cliquez sur « Plage continue »
+            </button>.
+          </div>
+        )}
         <button type="button" onClick={() => setCfg({ ...cfg, plages: [...cfg.plages, { de: "08:00", a: "12:00" }] })}
-          className="inline-flex items-center gap-1 text-xs text-sawali-blue hover:underline"><Plus className="h-3.5 w-3.5" /> Ajouter une plage</button>
+          className="inline-flex items-center gap-1 text-xs text-sawali-blue hover:underline"><Plus className="h-3.5 w-3.5" /> Ajouter une plage (pause entre deux plages)</button>
       </div>
       <label className="block text-xs text-slate-600">Fuseau horaire
         <input value={cfg.fuseau} onChange={(e) => setCfg({ ...cfg, fuseau: e.target.value })}

@@ -101,9 +101,10 @@ export default function ClientDocuments() {
             const fileUrl = url(it);
             return (
               <div key={it.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid={`doc-card-${it.id}`}>
-                <div className="h-36 bg-gradient-to-br from-sawali-navy to-sawali-navy-dark flex items-center justify-center">
+                {/* Lot 222 : fond clair pour tous les comptes (comme la page des documents de l'administration) */}
+                <div className="h-36 bg-slate-50 flex items-center justify-center">
                   {it.cover_image_url ? <img src={it.cover_image_url} alt="" className="h-full w-full object-cover" /> :
-                    it.body_html && !fileUrl ? <Globe className="h-10 w-10 text-sawali-blue-light/70" /> :
+                    it.body_html && !fileUrl ? <Globe className="h-10 w-10 text-slate-400" /> :
                     fileUrl ? (
                       <a
                         href={fileUrl}
@@ -115,9 +116,9 @@ export default function ClientDocuments() {
                         data-testid={`doc-icon-${it.id}`}
                       >
                         <Icn className="h-12 w-12" color={fi.color} strokeWidth={1.6} />
-                        {fi.ext && <span className="text-[10px] uppercase tracking-widest font-mono text-sawali-blue-light/70">.{fi.ext}</span>}
+                        {fi.ext && <span className="text-[10px] uppercase tracking-widest font-mono text-slate-500">.{fi.ext}</span>}
                       </a>
-                    ) : <FileText className="h-10 w-10 text-sawali-blue-light/70" />}
+                    ) : <FileText className="h-10 w-10 text-slate-400" />}
                 </div>
                 <div className="p-4">
                   <h3 className="font-display font-semibold">{it.title}</h3>

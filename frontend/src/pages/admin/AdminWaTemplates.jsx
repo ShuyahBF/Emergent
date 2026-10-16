@@ -29,8 +29,9 @@ export default function AdminWaTemplates() {
   const [filter, setFilter] = useState("ALL");
   const [previewing, setPreviewing] = useState(null);
 
-  const load = async () => {
-    setLoading(true);
+  // Lot 214 — `silencieux` : relecture sans écran « Chargement… » (le tableau reste affiché, seules les valeurs changent)
+  const load = async (silencieux = false) => {
+    if (!silencieux) setLoading(true);
     try {
       const r = await apiClient.get("/admin/whatsapp/templates?carrousels=true");   // lot 100 : la gestion montre aussi les carrousels
       setResp(r.data || { configured: false, items: [] });
@@ -42,12 +43,19 @@ export default function AdminWaTemplates() {
   };
   useEffect(() => { load(); }, []);
 
+  // Lot 214 — met à jour UNE ligne (toutes les langues du même nom) sans recharger la page : la note et l'interrupteur
+  // « Disponible utilisateurs » n'ont besoin d'aucune relecture, la valeur enregistrée est déjà connue
+  const majLigne = (name, patch) => setResp((r) => ({
+    ...r, items: (r.items || []).map((t) => (t.name === name ? { ...t, ...patch } : t)),
+  }));
+
   const remove = async (name) => {
     if (!window.confirm(`Supprimer DÉFINITIVEMENT le template "${name}" sur Meta ? Cette action supprime toutes les langues.`)) return;
     try {
       await apiClient.delete(`/admin/whatsapp/templates/${encodeURIComponent(name)}`);
       toast.success("Template supprimé");
-      await load();
+      // Lot 214 — seule la ligne supprimée disparaît (plus de rechargement complet de la page)
+      setResp((r) => ({ ...r, items: (r.items || []).filter((t) => t.name !== name) }));
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur Meta");
     }
@@ -88,7 +96,7 @@ export default function AdminWaTemplates() {
             <MessageCircle className="h-3.5 w-3.5" /> Messagerie
           </Link>
           <button
-            onClick={load}
+            onClick={() => load()}
             className="inline-flex items-center gap-1 text-xs rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
             data-testid="templates-refresh"
           >
@@ -207,10 +215,10 @@ export default function AdminWaTemplates() {
                       )}
                     </td>
                     <td className="py-2 px-3 max-w-xs">
-                      <NoteCell template={t} onSaved={load} />
+                      <NoteCell template={t} onSaved={(patch) => majLigne(t.name, patch)} />
                     </td>
                     <td className="py-2 px-3 text-center">
-                      <AvailabilityToggle template={t} onSaved={load} />
+                      <AvailabilityToggle template={t} onSaved={(patch) => majLigne(t.name, patch)} />
                     </td>
                     <td className="py-2 px-3 text-right">
                       <div className="inline-flex gap-1">
@@ -243,7 +251,7 @@ export default function AdminWaTemplates() {
       {showForm && (
         <CreateTemplateModal
           onClose={() => setShowForm(false)}
-          onCreated={async () => { setShowForm(false); await load(); }}
+          onCreated={async () => { setShowForm(false); await load(true); }}
           creating={creating}
           setCreating={setCreating}
         />
@@ -510,7 +518,7 @@ function NoteCell({ template, onSaved }) {
       await apiClient.put(`/admin/whatsapp/template-notes/${encodeURIComponent(template.name)}`, { description: val });
       toast.success("Note enregistrée");
       setEditing(false);
-      if (onSaved) onSaved();
+      if (onSaved) onSaved({ note_description: val });      // lot 214 : seule cette ligne est mise à jour
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
@@ -557,7 +565,7 @@ function AvailabilityToggle({ template, onSaved }) {
     setPending(true);
     try {
       await apiClient.put(`/admin/whatsapp/template-notes/${encodeURIComponent(template.name)}`, { is_available_for_users: next });
-      if (onSaved) onSaved();
+      if (onSaved) onSaved({ is_available_for_users: next });      // lot 214 : seule cette ligne est mise à jour, sans recharger la page
     } catch (err) {
       setVal(!next);
       toast.error(err?.response?.data?.detail || "Erreur");

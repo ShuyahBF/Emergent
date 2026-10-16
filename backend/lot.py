@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "213"
-LOT_LIBELLE = "Bibliothèque de médias : fichiers perdus signalés et retirables (plus de vignettes cassées), copie durable automatique des fichiers à risque, avertissement à l'envoi sans copie durable"
+LOT = "214"
+LOT_LIBELLE = "Templates WhatsApp (administration) : activer / désactiver un template, modifier sa note ou le supprimer ne recharge plus toute la page, seule la ligne change"

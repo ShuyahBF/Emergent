@@ -1544,8 +1544,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
           <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="carrousel-explication-attente">
             <b>Pourquoi « En attente » ?</b> Un envoi attend quand il tombe <b>hors des plages horaires d'envoi</b> (jours et heures réglés par l'administrateur dans
             Paramètres → Plages horaires d'envoi) : il reprend tout seul à l'ouverture suivante. Cela peut aussi arriver <b>au milieu d'un envoi</b> : si la plage se
-            ferme avant que tous les destinataires soient servis, ceux déjà servis le restent et les autres partent à la réouverture. La date de reprise et le motif
-            sont indiqués sur chaque envoi concerné ; « Annuler » arrête l'attente.
+            ferme avant que tous les destinataires soient servis, ceux déjà servis le restent et les autres partent à la réouverture. La date de reprise, le motif et l'heure de l'arrêt
+            sont indiqués sur chaque envoi concerné (le motif décrit le DERNIER arrêt) ; « Annuler » arrête l'attente.
           </div>
         )}
         {/* Lot 114 — envois programmés / en attente / en cours, avec annulation */}
@@ -1564,7 +1564,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                       <td className="py-1 pr-2"><PastilleStatut statut={c.statut} libelle={c.statut_libelle} /></td>
                       <td className="py-1 pr-2">
                         {c.statut === "PROGRAMMEE" && <>le {dateFr(c.programme_le)}</>}
-                        {c.statut === "EN_ATTENTE" && <>reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? <span className="block text-amber-700">{c.motif_arret}</span> : null}</>}
+                        {c.statut === "EN_ATTENTE" && <>reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? <span className="block text-amber-700">{c.motif_arret}{c.motif_arret_le ? ` — arrêt constaté le ${dateFr(c.motif_arret_le)}` : ""}</span> : null}</>}
                         {c.statut === "EN_COURS" && <>en cours d'envoi…</>}
                       </td>
                       <td className="max-w-[240px] truncate py-1 pr-2">{c.message}</td>
@@ -1595,7 +1595,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               {/* Lot 114 — statut en pastille, date programmée, reprise prévue, motif d'arrêt */}
               <PastilleStatut statut={c.statut} libelle={c.statut_libelle} />
               {c.programme_le && <span className="text-xs text-sky-700">programmé le {dateFr(c.programme_le)}</span>}
-              {c.statut === "EN_ATTENTE" && c.reprise_le && <span className="text-xs text-amber-700">reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? ` — ${c.motif_arret}` : ""}</span>}
+              {c.statut === "EN_ATTENTE" && c.reprise_le && <span className="text-xs text-amber-700">reprendra le {dateFr(c.reprise_le)}{c.motif_arret ? ` — ${c.motif_arret}` : ""}{c.motif_arret && c.motif_arret_le ? ` (arrêt constaté le ${dateFr(c.motif_arret_le)}` + (c.compte?.envoyes ? `, après ${c.compte.envoyes} envoi(s) sur ${c.compte.total}` : "") + ")" : ""}</span>}
               {c.statut === "ANNULEE" && (
                 <span className="text-xs text-slate-500">
                   {c.annule_le ? `annulé le ${dateFr(c.annule_le)}` : ""}{c.annule_par ? ` par ${c.annule_par}` : ""}

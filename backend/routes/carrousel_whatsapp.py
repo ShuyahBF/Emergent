@@ -1228,13 +1228,13 @@ def attach_carrousel_whatsapp_routes(
                     if not _regie_peut_attendre(str(exc)) or not c.get("programme_le"):
                         await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
                             "statut": "ANNULEE", "annule_le": _maintenant(), "annule_par": "Régie publicitaire",
-                            "motif_arret": str(exc)[:300]}})
+                            "motif_arret": str(exc)[:300], "motif_arret_le": _maintenant()}})
                         logger.info("[carrousel] campagne %s annulée au moment de l'envoi : %s", campagne_id, exc)
                         return
                     # Régie pas encore commencée / en pause : on réessaie dans une heure
                     reprise = datetime.now(timezone.utc) + timedelta(hours=1)
                     await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
-                        "statut": "EN_ATTENTE", "reprise_le": reprise.isoformat(), "motif_arret": str(exc)[:300]}})
+                        "statut": "EN_ATTENTE", "reprise_le": reprise.isoformat(), "motif_arret": str(exc)[:300], "motif_arret_le": _maintenant()}})
                     return
             comps = composants(c["expediteur"], c["message"], c["cartes"])
             for i, d in enumerate(c["destinataires"]):
@@ -1255,7 +1255,7 @@ def attach_carrousel_whatsapp_routes(
                     except Exception:  # noqa: BLE001 — le motif ne bloque jamais l'arrêt propre
                         pass
                     await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
-                        "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat(), "motif_arret": motif}})
+                        "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat(), "motif_arret": motif, "motif_arret_le": _maintenant()}})
                     # Lot 212 — niveau « warning » : le niveau « info » de ce module n'apparaît pas dans les journaux de Render,
                     # on ne voyait donc jamais pourquoi un envoi s'arrêtait (constat du 16/10/2026)
                     logger.warning("[carrousel] campagne %s arrêtée hors plage au destinataire %s/%s : reprise le %s", campagne_id,
@@ -1304,7 +1304,7 @@ def attach_carrousel_whatsapp_routes(
             reprise = datetime.now(timezone.utc) + timedelta(minutes=10)
             await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
                 "statut": "EN_ATTENTE", "reprise_le": reprise.isoformat(),
-                "motif_arret": f"Erreur technique, nouvelle tentative automatique : {str(exc)[:200]}"}})
+                "motif_arret": f"Erreur technique, nouvelle tentative automatique : {str(exc)[:200]}", "motif_arret_le": _maintenant()}})
         finally:
             # Verrou libéré dans tous les cas (fin, arrêt hors plage, annulation, erreur)
             await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": None}})

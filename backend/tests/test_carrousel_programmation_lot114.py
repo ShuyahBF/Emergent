@@ -307,3 +307,13 @@ def test_lot212_erreur_inattendue_jamais_silencieuse(env, monkeypatch):
     assert camp["statut"] == "EN_ATTENTE" and envois == []
     assert "Erreur technique" in camp["motif_arret"] and "panne simulée" in camp["motif_arret"]
     assert camp["reprise_le"] > datetime.now(timezone.utc).isoformat()
+
+
+def test_lot215_heure_de_l_arret_enregistree(env):
+    """Lot 215 — un arrêt hors plage enregistre le motif ET l'heure de l'arrêt (le motif décrit le dernier arrêt)."""
+    client, db, envois, etat, moteur = env
+    etat["fermer_apres"] = 1                                # la plage se referme après le 1er envoi
+    r = envoyer_portail(client)
+    camp = campagne(client, r.json()["id"])
+    assert camp["statut"] == "EN_ATTENTE" and camp["motif_arret"]
+    assert camp["motif_arret_le"] and camp["motif_arret_le"] <= datetime.now(timezone.utc).isoformat()

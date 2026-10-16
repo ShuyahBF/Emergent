@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "210.2", "date": "2026-10-16",
+        "titre": "💬 Rappels d'échéance : message paramétrable et modèle Meta associé",
+        "description": "Le texte du rappel se modifie dans les Paramètres ; le même texte devient le modèle WhatsApp Meta (créé et suivi en un clic). Dans la fenêtre de 24 h, Liluvine envoie le texte libre ; hors fenêtre, le modèle approuvé.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "210.1", "date": "2026-10-16",
         "titre": "📅 Rappels d'échéance : fin du mois calendaire",
         "description": "Sur chaque ligne de l'offre d'un client, la case « Fin de mois calendaire » fixe l'échéance au dernier jour du mois : Liluvine rappelle N jours avant (ex. 3 jours avant le 31) aux décisionnaires du client, chaque mois.",

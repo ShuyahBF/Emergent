@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "210.1"
-LOT_LIBELLE = "Offre du client : échéance à la fin du mois calendaire (rappel N jours avant le dernier jour du mois)"
+LOT = "210.2"
+LOT_LIBELLE = "Rappels d'échéance : message paramétrable et modèle Meta associé (texte libre dans la fenêtre de 24 h, modèle hors fenêtre), création et état du modèle depuis les Paramètres"

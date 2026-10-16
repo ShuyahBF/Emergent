@@ -4,6 +4,7 @@
 // - L'offre de chaque client se saisit sur sa fiche (SMART Communications) ; Liluvine l'utilise toujours (sans effet si vide).
 // Lot 210 — RAPPELS D'ÉCHÉANCE : GET / PUT /api/admin/offre-client/rappels  { actif, modele, langue, message } et
 //   POST /api/admin/offre-client/rappels/executer { simuler } (simulation par défaut : rien n'est envoyé).
+//   Lot 210.2 : le texte du rappel est paramétrable et sert aussi de corps au modèle Meta ; GET / POST /admin/offre-client/rappels/modele.
 //   Chaque ligne de l'offre d'un client a une durée, une date de début, des jours de rappel et une alerte AUTORISÉE ; chaque matin
 //   (07 h 30), Liluvine prévient tous les décisionnaires du client. Interrupteur général DÉSACTIVÉ par défaut.
 // - Le refus est DÉSACTIVÉ par défaut. Activé : un contact lié à un client dont le contrat n'est pas à jour (orange / rouge ;
@@ -27,9 +28,10 @@ export default function OffreClientSection() {
   const [rMessage, setRMessage] = useState("");
   const [rOccupe, setROccupe] = useState("");     // "" | "enregistrer" | "simuler" | "envoyer"
   const [apercu, setApercu] = useState(null);     // résultat d'une simulation ou d'un passage manuel
+  const [modeleMeta, setModeleMeta] = useState(null);   // lot 210.2 : état du modèle chez Meta { etat, motif_refus, erreur }
 
   const chargerRappels = () => apiClient.get("/admin/offre-client/rappels").then((r) => {
-    setRappels(r.data); setRActif(!!r.data.actif); setRModele(r.data.modele || ""); setRLangue(r.data.langue || "fr"); setRMessage(r.data.message || "");
+    setRappels(r.data); setRActif(!!r.data.actif); setRModele(r.data.modele || r.data.modele_defaut || ""); setRLangue(r.data.langue || "fr"); setRMessage(r.data.message || "");
   }).catch(() => toast.error("Réglages des rappels illisibles"));
   useEffect(() => { chargerRappels(); }, []);
 
@@ -40,6 +42,21 @@ export default function OffreClientSection() {
       const { data } = await apiClient.put("/admin/offre-client/rappels", { actif: rActif, modele: rModele, langue: rLangue, message: rMessage === rappels?.message_defaut ? "" : rMessage });
       setRappels(data); toast.success("Réglages des rappels enregistrés");
     } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); } finally { setROccupe(""); }
+  };
+  // Lot 210.2 — état du modèle chez Meta (ABSENT, PENDING, APPROVED, REJECTED…)
+  const verifierModele = async () => {
+    setROccupe("etat");
+    try { const { data } = await apiClient.get("/admin/offre-client/rappels/modele"); setModeleMeta(data); }
+    catch (e) { toast.error(e?.response?.data?.detail || "État du modèle illisible"); } finally { setROccupe(""); }
+  };
+  // Lot 210.2 — soumet à Meta le modèle construit depuis le texte ENREGISTRÉ
+  const creerModele = async () => {
+    setROccupe("modele");
+    try {
+      const { data } = await apiClient.post("/admin/offre-client/rappels/modele");
+      setModeleMeta(data);
+      if (data.ok) toast.success("Modèle soumis à Meta : approbation en général en quelques minutes."); else toast.error(data.erreur || "Création refusée");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Création impossible"); } finally { setROccupe(""); }
   };
   // Simulation (rien n'est envoyé) ou passage manuel de Liluvine (envoie vraiment, après confirmation)
   const lancer = async (simuler) => {
@@ -119,14 +136,52 @@ export default function OffreClientSection() {
               </label>
             </div>
             <p className="rounded-md bg-white p-2 text-xs text-amber-900 ring-1 ring-amber-200">
-              <b>Important :</b> WhatsApp n'autorise un message à un contact qui n'a pas écrit depuis 24 h que par un <b>modèle approuvé</b>.
-              Sans modèle renseigné, le texte libre ci-dessous n'arrive que si le décisionnaire a écrit récemment.
+              <b>Comment ça part :</b> si le décisionnaire a écrit à SAWALI depuis moins de 24 h, Liluvine envoie le <b>texte libre</b> ci-dessous ;
+              sinon (cas habituel) WhatsApp n'accepte que le <b>modèle approuvé par Meta</b>, construit à partir du <b>même texte</b>.
             </p>
             <label className="block text-xs font-medium text-slate-700">
-              Texte libre — <code>{"{contact}"}</code> <code>{"{client}"}</code> <code>{"{liste}"}</code> (obligatoire)
+              Message du rappel — <code>{"{contact}"}</code> <code>{"{client}"}</code> <code>{"{liste}"}</code> (obligatoire). Pas de variable tout au début ni tout à la fin.
               <textarea rows={3} maxLength={700} value={rMessage} onChange={(e) => setRMessage(e.target.value)} placeholder={rappels.message_defaut}
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" data-testid="offre-rappel-message" />
             </label>
+            {/* Lot 210.2 — ce que recevra le décisionnaire, et le corps du modèle Meta correspondant */}
+            <div className="grid gap-2 md:grid-cols-2 text-xs">
+              <div className="rounded-md bg-white p-2 ring-1 ring-slate-200" data-testid="offre-rappel-apercu">
+                <div className="mb-1 font-semibold text-slate-700">Aperçu du texte libre (enregistré)</div>
+                <div className="whitespace-pre-line text-slate-600">{rappels.apercu}</div>
+              </div>
+              <div className="rounded-md bg-white p-2 ring-1 ring-slate-200" data-testid="offre-rappel-corps-modele">
+                <div className="mb-1 font-semibold text-slate-700">Corps du modèle Meta (enregistré)</div>
+                <div className="text-slate-600">{rappels.corps_modele}</div>
+                <div className="mt-1 text-slate-400">{"{{1}}"} contact · {"{{2}}"} client · {"{{3}}"} produits à renouveler</div>
+              </div>
+            </div>
+            <div className="grid gap-2 md:grid-cols-[2fr_1fr]">
+              <label className="block text-xs font-medium text-slate-700">
+                Nom du modèle WhatsApp (minuscules, chiffres et _)
+                <input value={rModele} onChange={(e) => setRModele(e.target.value.toLowerCase())} maxLength={100} placeholder={rappels.modele_defaut}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" data-testid="offre-rappel-modele" />
+              </label>
+              <label className="block text-xs font-medium text-slate-700">Langue du modèle
+                <input value={rLangue} onChange={(e) => setRLangue(e.target.value)} maxLength={10} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 boutons-distincts">
+              <button type="button" onClick={creerModele} disabled={!!rOccupe || !rappels.modele} className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40" data-testid="offre-rappel-creer-modele"
+                title="Enregistrez d'abord le nom et le texte : le modèle est construit depuis le texte enregistré">
+                {rOccupe === "modele" ? "Patientez…" : "📤 Créer le modèle chez Meta"}
+              </button>
+              <button type="button" onClick={verifierModele} disabled={!!rOccupe} className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200 disabled:opacity-50" data-testid="offre-rappel-etat-modele">
+                {rOccupe === "etat" ? "Patientez…" : "🔍 Vérifier l'état du modèle"}
+              </button>
+              {modeleMeta && (
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${modeleMeta.etat === "APPROVED" ? "bg-emerald-100 text-emerald-800" : ["REJECTED", "ERREUR", "EXISTANT"].includes(modeleMeta.etat) ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`} data-testid="offre-rappel-etat-badge">
+                  {modeleMeta.nom || "modèle"} : {modeleMeta.etat === "APPROVED" ? "approuvé ✓" : modeleMeta.etat === "PENDING" ? "en revue chez Meta" : modeleMeta.etat === "ABSENT" ? "absent chez Meta" : modeleMeta.etat}
+                </span>
+              )}
+            </div>
+            {modeleMeta?.motif_refus && modeleMeta.motif_refus !== "NONE" && <p className="text-xs text-rose-700">Motif du refus : {modeleMeta.motif_refus}</p>}
+            {modeleMeta?.erreur && <p className="text-xs text-rose-700">{modeleMeta.erreur}</p>}
             <div className="flex flex-wrap items-center gap-2 boutons-distincts">
               <button type="button" onClick={enregistrerRappels} disabled={!!rOccupe} className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50" data-testid="offre-rappel-enregistrer">
                 {rOccupe === "enregistrer" ? "Patientez…" : "Enregistrer"}
@@ -157,7 +212,7 @@ export default function OffreClientSection() {
                       {d.alerte && <div className="text-rose-700">{d.alerte}</div>}
                       {(d.destinataires || []).map((x, k) => (
                         <div key={k} className={x.ok === false ? "text-rose-700" : "text-slate-600"}>
-                          → {x.nom || "décisionnaire"} {x.telephone}{x.ok === true ? " : envoyé ✓" : x.ok === false ? ` : échec (${x.erreur || "—"})` : " : serait prévenu"}
+                          → {x.nom || "décisionnaire"} {x.telephone}{x.ok === true ? ` : envoyé ✓${x.canal ? ` (${x.canal})` : ""}` : x.ok === false ? ` : échec (${x.erreur || "—"})` : " : serait prévenu"}
                         </div>
                       ))}
                     </div>

@@ -127,7 +127,7 @@ const NEW_LOTS = {
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
   "💳 Services à renouveler — coûts": "170",   // lot 170 : montant par service, formule, plateforme et cluster ; rappels d'échéance
-  "🧩 Offre du client — Liluvine": "169",   // lot 169 : copie de la liste d'un client à un autre ; lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
+  "🧩 Offre du client — Liluvine": "210",   // lot 210 : durée, échéance et rappels WhatsApp aux décisionnaires ; lot 169 : copie de la liste d'un client à un autre ; lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
   "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable
@@ -183,7 +183,7 @@ const NEW_SECTIONS = {
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
   "💳 Services à renouveler — coûts": "2026-10-15",   // lot 170
-  "🧩 Offre du client — Liluvine": "2026-10-15",   // lot 169 (lot 163 : 2026-10-14)
+  "🧩 Offre du client — Liluvine": "2026-10-16",   // lot 210 (lot 169 : 2026-10-15 ; lot 163 : 2026-10-14)
   "💬 Ligne VIP — contrat valide": "2026-10-14",   // lot 158
   "🖥️ Parc informatique — sites": "2026-10-14",   // lot 146
   "🖼️ Cadre des cartes": "2026-10-13",   // lot 136
@@ -287,7 +287,7 @@ const NEW_DESCRIPTIONS = {
   "🟥 Pseudo contrat VALIDE": "Case sur la fiche client : contrat traité comme VALIDE pendant 5 jours (puce, ligne Liluvine VIP, états Loois non anonymisés), même si des paiements n'ont pas été mis à jour ; clients concernés marqués en rouge dans la liste (lot 159).",
   "👥 Contacts des plateformes": "SAWALI lit chaque nuit les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis (lot 161).",
   "💳 Services à renouveler — coûts": "Les services à renouveler (MongoDB Atlas, Render, Cloudflare R2, domaines…) avec le montant à la date de lecture, par service et formule, par plateforme et par cluster ; Atlas lu automatiquement, R2 estimé, rappels WhatsApp avant chaque échéance.",
-  "🧩 Offre du client — Liluvine": "Liste des logiciels, produits et services de chaque client (fiche client → SMART Communications) : Liluvine ne pose plus de questions sur nos produits ; contrat pas à jour + demande d'assistance = refus signé par l'assistant IA, ticket et escalade (à activer ici).",
+  "🧩 Offre du client — Liluvine": "Liste des logiciels, produits et services de chaque client (fiche client → SMART Communications) : Liluvine ne pose plus de questions sur nos produits ; contrat pas à jour + demande d'assistance = refus signé par l'assistant IA, ticket et escalade (à activer ici) ; rappels WhatsApp d'échéance des produits aux décisionnaires (lot 210).",
   "💬 Ligne VIP — contrat valide": "La ligne Liluvine VIP est réservée aux clients dont le contrat est valide : message automatique paramétrable et activable, canal choisi dans la conversation, réponse forcée sur la ligne standard avec notification (lot 158).",
   "🖥️ Parc informatique — sites": "Équipements du Parc informatique regroupés par nom de site ; « Renommer / Définir le site » pour tout un groupe ; « Compléter les sites (Loois) » reprend le site du dernier signal des machines sans site (lot 146).",
   "🖼️ Cadre des cartes": "Mince filet foncé autour des cartes d'information (noir par défaut, gris foncé, bleu ou aucun) : le gris sur gris se distinguait mal ; réglage commun à tous les écrans (lot 136).",

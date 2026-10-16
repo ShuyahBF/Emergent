@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "221", "date": "2026-10-17",
+        "titre": "🔧 Carrousel WhatsApp : synthèse, « Replier tout » et « Pas intéressé » enfin en ligne",
+        "description": "Un contrôle de qualité du code avait bloqué la mise en ligne de l'écran des lots 219 et 220. Corrigé : l'onglet « Synthèse de vos envois », le bouton « Replier tout » et le bouton « Pas intéressé » de la page de présentation sont disponibles.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "220", "date": "2026-10-17",
         "titre": "🙅 Page de présentation : bouton « Pas intéressé »",
         "description": "Chaque carte de la page de présentation a un bouton « Pas intéressé » (compté une fois par appareil et par carte). Le chiffre apparaît dans le suivi de chaque envoi, dans la synthèse avec graphiques et dans le rapport de l'annonceur pour les carrousels sponsorisés.",

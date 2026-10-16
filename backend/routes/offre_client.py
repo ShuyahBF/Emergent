@@ -28,7 +28,8 @@
 #
 # Lot 210 — ÉCHÉANCES ET RAPPELS : chaque ligne porte aussi date_debut (AAAA-MM-JJ), duree_jours (0 = pas d'échéance),
 #   fin_de_mois (échéance = dernier jour du mois calendaire), rappel_jours (ex. [3] ou [7, 3]), reconduction (la période suivante commence à l'échéance, vrai par défaut),
-#   alerte_active (rappel AUTORISÉ pour cette ligne, faux par défaut) et rappels_envoyes (suivi interne, jamais modifié à la main).
+#   montant + devise (montant de la souscription POUR CE CLIENT, lot 210.3 : remis à 0 lors d'une copie vers un autre client),
+#   alerte_active (rappel AUTORISÉ pour cette ligne, faux par défaut), montant + devise (montant POUR CE CLIENT, lot 210.3 ; remis à 0 lors d'une copie vers un autre client) et rappels_envoyes (suivi interne, jamais modifié à la main).
 #   Chaque matin, Liluvine envoie un WhatsApp aux décisionnaires du client — voir routes/offre_client_rappels.py.
 # Routes : GET/PUT /api/admin/clients/{id}/offre ; GET/PUT /api/admin/offre-client/reglages.
 # Lot 169 : copie de la liste d'un client vers un ou plusieurs autres — GET /api/admin/offre-client/clients (liste des
@@ -87,6 +88,15 @@ def _date_iso(valeur: Any) -> str:
         return ""
 
 
+def _montant(valeur: Any) -> float:
+    """Montant positif arrondi au centime (0 si absent ou illisible), plafonné à 1 000 milliards."""
+    try:
+        n = float(str(valeur).replace(" ", "").replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+    return round(min(max(n, 0.0), 1e12), 2)
+
+
 def _entier(valeur: Any, mini: int, maxi: int) -> int:
     """Entier borné entre mini et maxi (0 si illisible)."""
     try:
@@ -138,6 +148,9 @@ def normaliser_offre(brut: Any) -> List[Dict[str, Any]]:
             "duree_jours": _entier(ligne.get("duree_jours"), 0, 3650),
             "rappel_jours": _rappels(ligne.get("rappel_jours")),
             "reconduction": ligne.get("reconduction") is not False,
+            # Lot 210.3 — montant de la souscription POUR CE CLIENT (il diffère d'un client à l'autre) et sa devise
+            "montant": _montant(ligne.get("montant")),
+            "devise": (str(ligne.get("devise") or "").strip().upper()[:6] or "FCFA"),
             "fin_de_mois": ligne.get("fin_de_mois") is True,       # échéance = dernier jour du mois (la durée en jours est alors ignorée)
             "alerte_active": ligne.get("alerte_active") is True,
             "rappels_envoyes": [str(x)[:40] for x in (ligne.get("rappels_envoyes") or []) if x][-12:]
@@ -377,6 +390,8 @@ class LigneOffreIn(BaseModel):
     reconduction: bool = True
     fin_de_mois: bool = False
     alerte_active: bool = False
+    montant: float = Field(default=0, ge=0, le=1e12)       # lot 210.3 : montant pour ce client
+    devise: str = Field(default="FCFA", max_length=6)
 
 
 class OffreIn(BaseModel):
@@ -394,7 +409,7 @@ def fusionner_offre(existante: List[Dict[str, Any]], copiee: List[Dict[str, Any]
     """Lot 169 — liste obtenue en copiant `copiee` sur `existante`, et nombre de lignes reprises.
     `remplacer` : la liste devient la copie ; `ajouter` : on garde l'existante et on ajoute les lignes absentes (même type
     et même nom, sans tenir compte des accents ni de la casse), dans la limite de MAX_LIGNES. Identifiants toujours neufs."""
-    neuves = normaliser_offre([{**l, "id": "", "date_debut": "", "rappels_envoyes": []} for l in copiee])      # id vide = nouvel identifiant : listes indépendantes
+    neuves = normaliser_offre([{**l, "id": "", "date_debut": "", "rappels_envoyes": [], "montant": 0} for l in copiee])      # id vide = nouvel identifiant : listes indépendantes
     if mode == "remplacer":
         return neuves, len(neuves)
     cles = {(l["type"], _sans_accents(l["nom"])) for l in existante}

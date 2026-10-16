@@ -119,7 +119,7 @@ MAINTENANT = datetime(2026, 10, 28, 7, 30, tzinfo=timezone.utc)
 
 def base(actif=True, decideurs=True):
     db = mongomock_motor.AsyncMongoMockClient()["t"]
-    lancer(db.settings.insert_one({"_id": "global", "offre_rappel_actif": actif}))
+    lancer(db.settings.insert_one({"_id": "global", "offre_rappel_actif": actif, "offre_rappel_mode": "auto", "super_admin_phone": "+226 70 00 00 99"}))
     lancer(db.users.insert_many([
         {"id": "C1", "company": "Pharmacie X", "offre_client": [ligne(), ligne(id="L2", nom="Autre", alerte_active=False)]},
         {"id": "C2", "company": "Sans alerte", "offre_client": [ligne(alerte_active=False)]},
@@ -311,3 +311,115 @@ def test_routes_modele_et_reglages_valides():
     # Sans WhatsApp configuré, la création du modèle est refusée clairement (rien n'est envoyé à Meta)
     r = c.post("/api/admin/offre-client/rappels/modele")
     assert r.status_code == 400 and "WhatsApp non configuré" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 210.3 — montant par client et avis du propriétaire
+# ---------------------------------------------------------------------------------------------------------------------
+def test_montant_par_ligne_normalise_et_remis_a_zero_a_la_copie():
+    l = ligne(montant="25 000,50", devise="xof")
+    assert l["montant"] == 25000.5 and l["devise"] == "XOF"
+    assert ligne(montant="abc")["montant"] == 0 and ligne(montant=-5)["montant"] == 0 and ligne()["devise"] == "FCFA"
+    copie, _ = oc.fusionner_offre([], [ligne(montant=25000)], "remplacer")
+    assert copie[0]["montant"] == 0                      # le montant est propre à chaque client : jamais copié
+
+
+def test_phrase_avec_montant():
+    assert rr.montant_texte(25000) == "25 000 FCFA" and rr.montant_texte(1250.5, "EUR") == "1 250.50 EUR" and rr.montant_texte(0) == ""
+    assert rr.phrase_echeance("CRM", 3, date(2026, 10, 31), 25000) == "CRM : dans 3 jours (le 31/10/2026) — 25 000 FCFA"
+    assert " — " not in rr.phrase_echeance("CRM", 3, date(2026, 10, 31))        # sans montant : pas de tiret
+
+
+def base_avis(mode="avis", montant=25000):
+    db = mongomock_motor.AsyncMongoMockClient()["t3"]
+    lancer(db.settings.insert_one({"_id": "global", "offre_rappel_actif": True, "offre_rappel_mode": mode, "super_admin_phone": "+226 70 00 00 99"}))
+    lancer(db.users.insert_many([
+        {"id": "C1", "company": "Pharmacie X", "offre_client": [ligne(montant=montant), ligne(id="L2", nom="Sauvegarde", montant=10000, rappel_jours=[3])]},
+        {"id": "C2", "company": "Clinique Y", "offre_client": [ligne(id="L3", nom="CRM", montant=50000)]},
+    ]))
+    lancer(db.directory_contacts.insert_many([
+        {"client_id": "C1", "name": "Awa", "whatsapp": "+226 70 00 00 01", "is_decision_maker": True},
+        {"client_id": "C1", "name": "Moussa", "phone": "22670000002", "is_decision_maker": True},
+    ]))                                                  # C2 n'a aucun décisionnaire
+    return db
+
+
+def test_collecte_une_ligne_par_client_et_produit_avec_les_contacts():
+    db = base_avis()
+    els = lancer(rr.collecter(db, date(2026, 10, 28)))
+    assert [(e["n"], e["client"], e["produit"]) for e in els] == [(1, "Clinique Y", "CRM"), (2, "Pharmacie X", "Contrôle à distance"), (3, "Pharmacie X", "Sauvegarde")]
+    assert els[1]["montant"] == 25000 and [c["nom"] for c in els[1]["contacts"]] == ["Awa", "Moussa"]
+    assert els[0]["contacts"] == []
+    txt = rr.texte_recap(els)
+    assert "1) Clinique Y — ⚠ aucun décisionnaire — CRM" in txt and "2) Pharmacie X — Awa, Moussa — Contrôle à distance" in txt
+    assert "25 000 FCFA" in txt and "rappel 1,2,5" in txt
+
+
+def test_mode_avis_envoie_le_recapitulatif_au_proprietaire_et_rien_aux_clients(monkeypatch):
+    from routes import appel_proprietaire as ap
+    relais, envois = [], []
+
+    async def faux_relais(db, s, cfg, numero_id, proprio, texte, variables, maintenant):
+        relais.append((proprio, texte)); return {"ok": True}
+    monkeypatch.setattr(ap, "envoyer_relais", faux_relais)
+    db = base_avis()
+    bilan = lancer(rr.rappeler(db, MAINTENANT, faux_envoi(envois)))
+    assert envois == [] and bilan["mode"] == "avis" and bilan["recap"]["envoye"] is True and bilan["elements"] == 3
+    assert relais[0][0] == "22670000099" and "Pharmacie X" in relais[0][1]
+    assert lancer(db.users.find_one({"id": "C1"}))["offre_client"][0]["rappels_envoyes"] == []     # rien n'est marqué avant l'accord
+    # Un second passage le même jour ne renvoie pas le récapitulatif ; le bouton manuel (forcer) le peut
+    assert lancer(rr.rappeler(db, MAINTENANT, faux_envoi(envois)))["recap"]["envoye"] is False
+    assert lancer(rr.rappeler(db, MAINTENANT, faux_envoi(envois), forcer=True))["recap"]["envoye"] is True
+
+
+def test_reponse_rappel_envoie_aux_decisionnaires_choisis(monkeypatch):
+    from routes import appel_proprietaire as ap
+
+    async def faux_relais(*a, **k):
+        return {"ok": True}
+    monkeypatch.setattr(ap, "envoyer_relais", faux_relais)
+    db, envois = base_avis(), []
+    lancer(rr.rappeler(db, MAINTENANT, faux_envoi(envois)))
+    s = lancer(db.settings.find_one({"_id": "global"}))
+    # Un autre numéro, ou un message ordinaire, n'est pas pris pour une réponse
+    assert lancer(rr.traiter_reponse(db, s, "22660000000", "rappel 2", faux_envoi(envois))) is None
+    assert lancer(rr.traiter_reponse(db, s, "22670000099", "bonjour", faux_envoi(envois))) is None
+    assert lancer(rr.traiter_reponse(db, s, "22670000099", "ok 1,2", faux_envoi(envois))) is None      # « ok » reste aux retards de paiement
+    # « rappel 2,3 » : les deux produits de Pharmacie X partent chez ses deux décisionnaires (un message chacun, produits regroupés)
+    rep = lancer(rr.traiter_reponse(db, s, "+226 70 00 00 99", "Rappel 2,3", faux_envoi(envois)))
+    assert "✅" in rep and "Pharmacie X" in rep
+    assert sorted(e[0] for e in envois) == ["22670000001", "22670000002"] and all(len(e[3]) == 2 for e in envois)
+    assert "Contrôle à distance" in envois[0][3][0] and "25 000 FCFA" in envois[0][3][0]
+    # Les paliers sont marqués : plus de rappel le lendemain ; une seconde réponse « rappel 2 » dit « déjà envoyé »
+    assert len(lancer(rr.collecter(db, MAINTENANT.replace(day=29).date()))) == 1                      # ne reste que CRM (Clinique Y)
+    assert "Déjà envoyé" in lancer(rr.traiter_reponse(db, s, "22670000099", "rappel 2", faux_envoi(envois)))
+    assert len(envois) == 2
+
+
+def test_reponse_rappel_tous_numero_inconnu_et_client_sans_decisionnaire(monkeypatch):
+    from routes import appel_proprietaire as ap
+
+    async def faux_relais(*a, **k):
+        return {"ok": True}
+    monkeypatch.setattr(ap, "envoyer_relais", faux_relais)
+    db, envois = base_avis(), []
+    lancer(rr.rappeler(db, MAINTENANT, faux_envoi(envois)))
+    s = lancer(db.settings.find_one({"_id": "global"}))
+    rep = lancer(rr.traiter_reponse(db, s, "22670000099", "rappel 1 et 9", faux_envoi(envois)))
+    assert "⚠️" in rep and "aucun décisionnaire" in rep.lower() and "inconnu" in rep.lower()       # 1 = Clinique Y sans décisionnaire ; 9 n'existe pas
+    assert envois == []
+    rep = lancer(rr.traiter_reponse(db, s, "22670000099", "rappel tous", faux_envoi(envois)))
+    assert "Pharmacie X" in rep and len(envois) == 2
+
+
+def test_mode_par_defaut_est_avis_et_route_valide_le_mode():
+    assert rr.reglages({})["mode"] == "avis" and rr.reglages({"offre_rappel_mode": "auto"})["mode"] == "auto" and rr.reglages({"offre_rappel_mode": "x"})["mode"] == "avis"
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    db = mongomock_motor.AsyncMongoMockClient()["t4"]
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    rr.setup_offre_client_rappels_routes(db=db, api=api, get_current_admin=lambda: {"role": "admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    assert c.put("/api/admin/offre-client/rappels", json={"actif": True, "mode": "bizarre", "modele": "", "langue": "fr", "message": ""}).status_code == 422
+    assert c.put("/api/admin/offre-client/rappels", json={"actif": True, "mode": "auto", "modele": "", "langue": "fr", "message": ""}).json()["mode"] == "auto"

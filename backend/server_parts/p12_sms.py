@@ -1929,6 +1929,17 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue
                         except Exception:  # noqa: BLE001 — ne bloque jamais la réception
                             logger.warning("[retards] réponse « ok » non traitée", exc_info=True)
+                        # Lot 210.3 — réponse du propriétaire au récapitulatif des échéances de produits et services
+                        # (« rappel 1,2,5 » / « rappel tous ») : envoi aux décisionnaires choisis, confirmation, puis fin.
+                        try:
+                            from routes.offre_client_rappels import traiter_reponse as _offre_reponse
+                            s_offre = await db.settings.find_one({"_id": "global"}) or {}
+                            confirmation_offre = await _offre_reponse(db, s_offre, digits_only, text_body)
+                            if confirmation_offre:
+                                await _wa_send_text(from_num, confirmation_offre)
+                                continue
+                        except Exception:  # noqa: BLE001 — ne bloque jamais la réception
+                            logger.warning("[offre_rappels] réponse « rappel » non traitée", exc_info=True)
                         # Lot 79 — accord WhatsApp donné ou retiré par la personne elle-même
                         # (« OUI NOUVEAUTES » via le lien / QR code, ou « STOP ») : noté, confirmé, puis fin.
                         # Placé APRÈS le cockpit admin et la validation LinkedIn (qui ont leur propre « STOP »).

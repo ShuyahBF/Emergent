@@ -280,6 +280,9 @@ _setup_offre_client(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 210 — rappels d'échéance des produits et services d'un client (WhatsApp aux décisionnaires)
 from routes.offre_client_rappels import setup_offre_client_rappels_routes as _setup_offre_rappels  # noqa: E402
 _setup_offre_rappels(db=db, api=api, get_current_admin=get_current_admin)
+# Lot 211 — rendez-vous fictifs préparés chaque matin par Liluvine (Google Agenda)
+from routes.rdv_fictifs import setup_rdv_fictifs_routes as _setup_rdv_fictifs  # noqa: E402
+_setup_rdv_fictifs(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 170 — services à renouveler (Atlas, Render, R2…) : montants par service, formule, plateforme et cluster, rappels d'échéance
 from routes.services_renouveler import setup_services_renouveler_routes as _setup_services_renouveler  # noqa: E402
 _setup_services_renouveler(db=db, api=api, get_current_admin=get_current_admin)

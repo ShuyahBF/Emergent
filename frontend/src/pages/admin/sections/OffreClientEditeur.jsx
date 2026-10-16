@@ -4,7 +4,7 @@
 // quelle assistance est visée quand le contrat n'est pas à jour.
 //   GET / PUT /api/admin/clients/{id}/offre   { lignes: [{ id, type, nom, description, version, actif }] }
 // Aucune nouvelle collection : la liste est enregistrée sur la fiche du client.
-// Lot 210 — chaque ligne a aussi : date_debut, duree_jours (0 = pas d'échéance), rappel_jours (ex. 7, 3), reconduction, fin_de_mois (lot 210.1 : échéance au dernier jour du mois) et alerte_active.
+// Lot 210 — chaque ligne a aussi : date_debut, duree_jours (0 = pas d'échéance), rappel_jours (ex. 7, 3), reconduction, fin_de_mois (lot 210.1 : échéance au dernier jour du mois), alerte_active, montant et devise (lot 210.3 : montant pour ce client).
 //   Chaque matin, Liluvine prévient par WhatsApp les décisionnaires du client des échéances proches (réglages : Paramètres → Offre du client).
 // Lot 169 — COPIE d'un client à un autre :
 //   GET  /api/admin/offre-client/clients                         liste des clients et nombre de lignes de leur offre
@@ -105,7 +105,7 @@ export default function OffreClientEditeur({ clientId }) {
   // Modifie un champ d'une ligne
   const changer = (i, champ, valeur) => setLignes(lignes.map((l, k) => (k === i ? { ...l, [champ]: valeur } : l)));
   // Ajoute une ligne vide
-  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true, date_debut: "", duree_jours: 0, rappel_jours: [], reconduction: true, fin_de_mois: false, alerte_active: false }]);
+  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true, date_debut: "", duree_jours: 0, rappel_jours: [], reconduction: true, fin_de_mois: false, alerte_active: false, montant: 0, devise: "FCFA" }]);
   // Enregistre toute la liste (les lignes sans nom sont ignorées par le serveur)
   const enregistrer = async () => {
     setOccupe(true);
@@ -139,6 +139,12 @@ export default function OffreClientEditeur({ clientId }) {
             <button type="button" className="text-xs text-rose-700 hover:underline" onClick={() => setLignes(lignes.filter((_, k) => k !== i))}>Retirer</button>
             {/* Lot 210 — durée de souscription, échéance et rappels (seconde rangée de la ligne) */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-2 text-xs text-slate-700 md:col-span-full" data-testid={`offre-echeance-${i}`}>
+              {/* Lot 210.3 — montant de cette souscription POUR CE CLIENT (il diffère d'un client à l'autre) */}
+              <label className="flex items-center gap-1 font-semibold" title="Montant de cette souscription pour ce client">Montant
+                <input type="number" min={0} step="any" className="w-28 rounded border border-slate-300 px-2 py-1 text-right" value={l.montant || ""} placeholder="0"
+                  onChange={(e) => changer(i, "montant", Math.max(0, Number(e.target.value) || 0))} data-testid={`offre-montant-${i}`} />
+                <input className="w-16 rounded border border-slate-300 px-2 py-1 uppercase" maxLength={6} value={l.devise || "FCFA"} onChange={(e) => changer(i, "devise", e.target.value.toUpperCase())} aria-label="Devise" />
+              </label>
               <label className="flex items-center gap-1">Début de période
                 <input type="date" className="rounded border border-slate-300 px-2 py-1" value={l.date_debut || ""} onChange={(e) => changer(i, "date_debut", e.target.value)} />
               </label>

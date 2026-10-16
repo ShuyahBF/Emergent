@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "210.2"
-LOT_LIBELLE = "Rappels d'échéance : message paramétrable et modèle Meta associé (texte libre dans la fenêtre de 24 h, modèle hors fenêtre), création et état du modèle depuis les Paramètres"
+LOT = "211"
+LOT_LIBELLE = "Rappels d'échéance soumis à l'avis du propriétaire (récapitulatif client/contact/produit/montant, réponse « rappel 1,2 »), montant par client et par produit ; rendez-vous fictifs préparés chaque matin par Liluvine"

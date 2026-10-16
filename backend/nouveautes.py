@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "218", "date": "2026-10-16",
+        "titre": "▶️ Envois en attente : reprise immédiate si la plage s'élargit",
+        "description": "Quand vous reculez l'heure de fin des plages d'envoi, les carrousels « En attente » à cause des plages repartent seuls dans la minute (sans attendre le lendemain). Un bouton « Reprendre maintenant » force aussi la reprise ; la plage horaire reste contrôlée avant chaque message.",
+        "rubrique": "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)",
+    },
+    {
         "lot": "217", "date": "2026-10-16",
         "titre": "🔄 Suivi des carrousels : bouton « Actualiser »",
         "description": "L'onglet « Suivi de vos envois » du Carrousel WhatsApp a son bouton « Actualiser » : il relit les statuts et l'historique (y compris la remise des envois dépliés) sans recharger la page.",

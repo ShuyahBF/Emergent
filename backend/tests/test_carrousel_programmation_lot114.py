@@ -317,3 +317,20 @@ def test_lot215_heure_de_l_arret_enregistree(env):
     camp = campagne(client, r.json()["id"])
     assert camp["statut"] == "EN_ATTENTE" and camp["motif_arret"]
     assert camp["motif_arret_le"] and camp["motif_arret_le"] <= datetime.now(timezone.utc).isoformat()
+
+
+def test_lot218_plage_elargie_reprise_immediate_et_bouton(env):
+    """Lot 218 — plage élargie : un envoi en attente hors plage repart dès que la plage est ouverte, sans attendre
+    la reprise du lendemain ; « Reprendre maintenant » re-contrôle la plage (fermée : l'envoi reste en attente)."""
+    client, db, envois, etat, moteur = env
+    etat["ferme"] = True
+    r = envoyer_portail(client)
+    cid = r.json()["id"]
+    assert r.json()["statut"] == "EN_ATTENTE" and envois == []
+    # Plage toujours fermée : le planificateur ne touche à rien
+    client.portal.call(moteur["lancer_echus"], True)
+    assert campagne(client, cid)["statut"] == "EN_ATTENTE" and envois == []
+    # Plage élargie (ouverte maintenant) : reprise dans la minute, SANS rendre la campagne échue
+    etat["ferme"] = False
+    client.portal.call(moteur["lancer_echus"], True)
+    assert campagne(client, cid)["statut"] == "TERMINEE" and len(envois) == 2

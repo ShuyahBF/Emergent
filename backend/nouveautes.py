@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "215", "date": "2026-10-16",
+        "titre": "🕒 Envois en attente : l'heure de l'arrêt est indiquée",
+        "description": "Un envoi de carrousel « En attente » affiche maintenant l'heure à laquelle il s'est arrêté, avec le motif et le nombre de destinataires déjà servis. Le motif décrit toujours le dernier arrêt : il ne veut plus rien dire de l'heure de l'envoi d'origine.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "214", "date": "2026-10-16",
         "titre": "⚡ Templates WhatsApp : la ligne seule se met à jour",
         "description": "Sur la page Templates WhatsApp, activer ou désactiver un template, modifier sa note ou le supprimer ne recharge plus toute la page (plus d'effet visible) : seule la ligne concernée change et vous pouvez enchaîner.",

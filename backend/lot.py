@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "214"
-LOT_LIBELLE = "Templates WhatsApp (administration) : activer / désactiver un template, modifier sa note ou le supprimer ne recharge plus toute la page, seule la ligne change"
+LOT = "215"
+LOT_LIBELLE = "Carrousel WhatsApp : l'heure de l'arrêt d'un envoi en attente est enregistrée et affichée avec son motif (le motif décrit le dernier arrêt)"

@@ -18,7 +18,7 @@ const champ = "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs";
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const MOYENS = { bouton: "bouton de la demande d'accord", "mot-clé": "mot-clé", lien: "lien d'accord" };
 
-export default function AccordsOrphelins() {
+export default function AccordsOrphelins({ onCompte }) {   // onCompte(n) : nombre d'éléments à traiter (la page choisit son onglet d'après lui)
   const [donnees, setDonnees] = useState(null);          // {orphelins, clients, campagnes}
   const [choix, setChoix] = useState({});                // téléphone → { coche, client_id, nom }
   const [clientTous, setClientTous] = useState("");      // client appliqué à toutes les lignes cochées
@@ -30,10 +30,11 @@ export default function AccordsOrphelins() {
     try {
       const { data } = await apiClient.get("/admin/whatsapp/carrousel/accords-orphelins");
       setDonnees(data);
+      onCompte?.((data.orphelins || []).length + (data.clics || []).length);
       setCampagne((c) => c || data.campagnes?.[0]?.id || "");
       setChoix((anc) => Object.fromEntries((data.orphelins || []).map((o) => [o.telephone, anc[o.telephone] || { coche: false, client_id: "", nom: o.nom || "" }])));
-    } catch { setDonnees({ orphelins: [], clients: [], campagnes: [] }); }
-  }, []);
+    } catch { setDonnees({ orphelins: [], clients: [], campagnes: [] }); onCompte?.(0); }
+  }, [onCompte]);
   useEffect(() => { lire(); }, [lire]);
 
   const clics = donnees?.clics || [];

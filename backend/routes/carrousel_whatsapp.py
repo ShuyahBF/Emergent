@@ -1256,7 +1256,10 @@ def attach_carrousel_whatsapp_routes(
                         pass
                     await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
                         "statut": "EN_ATTENTE", "reprise_le": ouverture.isoformat(), "motif_arret": motif}})
-                    logger.info("[carrousel] campagne %s hors plage : reprise le %s", campagne_id, ouverture.isoformat())
+                    # Lot 212 — niveau « warning » : le niveau « info » de ce module n'apparaît pas dans les journaux de Render,
+                    # on ne voyait donc jamais pourquoi un envoi s'arrêtait (constat du 16/10/2026)
+                    logger.warning("[carrousel] campagne %s arrêtée hors plage au destinataire %s/%s : reprise le %s", campagne_id,
+                                   i + 1, len(c["destinataires"]), ouverture.isoformat())
                     return
                 try:
                     r = await wa_send_template(d["telephone"], c["modele"], c["langue"], comps,
@@ -1296,6 +1299,12 @@ def attach_carrousel_whatsapp_routes(
                 "statut": "TERMINEE", "termine_le": _maintenant(), "reprise_le": None}})
             if getattr(fin, "modified_count", 0):
                 await _prevenir_admin(campagne_id)      # lot 186 : compte rendu au numéro réglé (une seule fois par campagne)
+        except Exception as exc:  # noqa: BLE001 — erreur inattendue : jamais d'arrêt silencieux (lot 212)
+            logger.warning("[carrousel] campagne %s interrompue par une erreur : %s", campagne_id, exc, exc_info=True)
+            reprise = datetime.now(timezone.utc) + timedelta(minutes=10)
+            await db.carrousel_campagnes.update_one({"id": campagne_id, "statut": "EN_COURS"}, {"$set": {
+                "statut": "EN_ATTENTE", "reprise_le": reprise.isoformat(),
+                "motif_arret": f"Erreur technique, nouvelle tentative automatique : {str(exc)[:200]}"}})
         finally:
             # Verrou libéré dans tous les cas (fin, arrêt hors plage, annulation, erreur)
             await db.carrousel_campagnes.update_one({"id": campagne_id}, {"$set": {"verrou_jusqu_a": None}})

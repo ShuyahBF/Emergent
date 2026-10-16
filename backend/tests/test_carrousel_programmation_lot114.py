@@ -291,3 +291,19 @@ def test_lot155_destinataires_jamais_repondus_signales(env):
         "id": "in1", "direction": "inbound", "phone_digits": numero_whatsapp(avec_tel["telephone"]), "body": "bonjour"})
     apres = {c["id"]: c["a_repondu"] for c in client.get("/api/me/whatsapp/carrousel/destinataires", headers=h("cli_a")).json()["contacts"]}
     assert apres[avec_tel["id"]] is True and sum(apres.values()) >= 1
+
+
+def test_lot212_erreur_inattendue_jamais_silencieuse(env, monkeypatch):
+    """Lot 212 — une erreur inattendue pendant l'envoi ne laisse plus la campagne « En cours » à l'infini : elle passe « En attente »
+    avec un motif lisible et une nouvelle tentative automatique dans 10 minutes ; rien n'est envoyé ni renvoyé deux fois."""
+    client, db, envois, etat, moteur = env
+
+    def casse(*a, **k):
+        raise RuntimeError("panne simulée")
+    monkeypatch.setattr(cw, "composants", casse)
+    r = envoyer_portail(client)
+    assert r.status_code == 202
+    camp = campagne(client, r.json()["id"])
+    assert camp["statut"] == "EN_ATTENTE" and envois == []
+    assert "Erreur technique" in camp["motif_arret"] and "panne simulée" in camp["motif_arret"]
+    assert camp["reprise_le"] > datetime.now(timezone.utc).isoformat()

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "212", "date": "2026-10-16",
+        "titre": "📦 Carrousel WhatsApp : onglet « Suivi de vos envois »",
+        "description": "La page Carrousel a maintenant deux onglets : « Préparer un envoi » et « Suivi de vos envois » (l'ancien bloc 3). Le suivi s'ouvre tout seul quand il n'y a rien à faire, et juste après chaque envoi. Les envois « En attente » expliquent pourquoi et quand ils reprennent.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "211", "date": "2026-10-16",
         "titre": "📅 Rendez-vous fictifs préparés chaque matin par Liluvine",
         "description": "Dès 6 h, Liluvine crée 2 à 4 rendez-vous fictifs par jour ouvré (réunions, formations, dépannages, suivis, assistances…) pour toute la semaine, dans l'agenda sup.alphasofti@gmail.com. Sans invité ni notification, et par défaut sans bloquer les créneaux de réservation. À activer ici ; bouton pour tout supprimer.",

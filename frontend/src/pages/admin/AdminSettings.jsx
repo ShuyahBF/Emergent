@@ -120,7 +120,7 @@ const NEW_LOTS = {
   "🧹 Libérer l'Espace": "116",   // lot 116 : collections les moins utilisées ;   // lot 113 : bouton unique de nettoyage (sauvegardes R2 + bases Atlas obsolètes)
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "111",   // lot 111 : carrousel piloté par la régie, clics facturés (dédupliqués 24 h)
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "119",   // lot 119 : robots (centres de données) masqués ; lot 109 : WhatsApp à chaque connexion sur une plateforme, bouton « Visiter le site »
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "117.1",   // lot 117.1 : série approuvée réutilisée ; lot 117 : modèles conformes ; lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "212",   // lot 212 : onglet « Suivi de vos envois » ; lot 117.1 : série approuvée réutilisée ; lot 117 : modèles conformes ; lot 115.1 : motif des refus Meta ; lot 114 : envois programmés et plages horaires ; lot 94 ; lot 100 : carrousels exclus des listes ordinaires de modèles ; lot 111 : page de présentation #carte-n
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
@@ -177,7 +177,7 @@ const NEW_SECTIONS = {
   "🧹 Libérer l'Espace": "2026-10-12",   // lots 113 et 116
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "2026-10-11",   // lot 111
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "2026-10-12",   // lot 119 (créée au lot 109)
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-12",   // lot 94 ; lot 111
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "2026-10-16",   // lot 212 (lots 94 et 111 : 2026-10-12)
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
@@ -281,7 +281,7 @@ const NEW_DESCRIPTIONS = {
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",
   "📣 Page Facebook animée par Liluvine": "Liluvine publie sur la page Facebook des membres consentants de beAuthentik : photo au visage masqué et bio relue par l'IA, après votre validation (lot 96) ; erreur de lecture des pages expliquée et bouton « Reconnecter Facebook » (lot 99) ; kit de lancement de la Page beAuthentik : visuels, textes « À propos » et 8 publications (lot 105) ; une configuration par plateforme — beAuthentik, ZandGo, adLyn, bfmobility — avec sa page, ses jours et heure, sa légende, la publication de produits ou de véhicules relus par l'IA, un kit de lancement par plateforme et le filtre de la file par plateforme (lot 132).",
   "📈 Disponibilité (/uptime) — journal des sondes": "Sondes de /uptime corrigées (port Render) et bouton « Remettre à zéro le journal » pour effacer les anciens historiques (lot 95).",
-  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; lot 100 : carrousels hors des listes ordinaires de modèles ; lot 111 : description détaillée par carte et page de présentation de tout le carrousel, ouverte sur la carte (#carte-n), avec « Je suis intéressé ».",
+  "🖼️ Carrousel WhatsApp — modèles Meta et images IA": "Modèles carrousels Meta et images IA ; lot 100 : carrousels hors des listes ordinaires de modèles ; lot 111 : description détaillée par carte et page de présentation de tout le carrousel, ouverte sur la carte (#carte-n), avec « Je suis intéressé » ; lot 212 : onglets « Préparer un envoi » / « Suivi de vos envois », motif des envois en attente.",
   "📣 Régie publicitaire — carrousels WhatsApp sponsorisés": "Carrousel WhatsApp vendu à un annonceur : clics facturés au coût par clic (une fois par appareil et par carte sur 24 h), coût par envoi, envoi bloqué si budget épuisé, rapport public de l'annonceur (lot 111).",
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "222", "date": "2026-10-17",
+        "titre": "📄 Documents : même fond clair pour tous les comptes",
+        "description": "Les vignettes de la page Documentation avaient un fond noir pour les utilisateurs et un fond clair pour le superviseur. Le fond est maintenant clair pour tous les comptes.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "221", "date": "2026-10-17",
         "titre": "🔧 Carrousel WhatsApp : synthèse, « Replier tout » et « Pas intéressé » enfin en ligne",
         "description": "Un contrôle de qualité du code avait bloqué la mise en ligne de l'écran des lots 219 et 220. Corrigé : l'onglet « Synthèse de vos envois », le bouton « Replier tout » et le bouton « Pas intéressé » de la page de présentation sont disponibles.",

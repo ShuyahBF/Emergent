@@ -4,6 +4,8 @@
 // quelle assistance est visée quand le contrat n'est pas à jour.
 //   GET / PUT /api/admin/clients/{id}/offre   { lignes: [{ id, type, nom, description, version, actif }] }
 // Aucune nouvelle collection : la liste est enregistrée sur la fiche du client.
+// Lot 210 — chaque ligne a aussi : date_debut, duree_jours (0 = pas d'échéance), rappel_jours (ex. 7, 3), reconduction et alerte_active.
+//   Chaque matin, Liluvine prévient par WhatsApp les décisionnaires du client des échéances proches (réglages : Paramètres → Offre du client).
 // Lot 169 — COPIE d'un client à un autre :
 //   GET  /api/admin/offre-client/clients                         liste des clients et nombre de lignes de leur offre
 //   POST /api/admin/offre-client/copier {source_id, cible_ids, mode}   mode « remplacer » ou « ajouter » (sans doublon)
@@ -17,6 +19,21 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
 const TYPES = [["logiciel", "Logiciel"], ["produit", "Produit"], ["service", "Service / prestation"]];
+
+// Lot 210 — échéance calculée (même règle que le serveur : début + durée ; avec reconduction, la première échéance non passée)
+function EcheanceInfo({ ligne }) {
+  const { date_debut: debut, duree_jours: duree } = ligne;
+  if (!debut || !(duree > 0)) return <span className="text-slate-400">Échéance : renseignez début et durée</span>;
+  const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
+  const fin = new Date(`${debut}T00:00:00`); fin.setDate(fin.getDate() + duree);
+  if (ligne.reconduction !== false && fin < aujourdhui) {
+    const periodes = Math.ceil((aujourdhui - fin) / 86400000 / duree);
+    fin.setDate(fin.getDate() + periodes * duree);
+  }
+  const jours = Math.round((fin - aujourdhui) / 86400000);
+  const couleur = jours < 0 ? "text-rose-700" : jours <= 7 ? "text-amber-700" : "text-emerald-700";
+  return <span className={`font-semibold ${couleur}`}>Échéance le {fin.toLocaleDateString("fr-FR")} ({jours < 0 ? `dépassée de ${-jours} j` : jours === 0 ? "aujourd'hui" : `dans ${jours} j`})</span>;
+}
 
 export default function OffreClientEditeur({ clientId }) {
   const [lignes, setLignes] = useState(null);         // lignes en cours d'édition
@@ -78,7 +95,7 @@ export default function OffreClientEditeur({ clientId }) {
   // Modifie un champ d'une ligne
   const changer = (i, champ, valeur) => setLignes(lignes.map((l, k) => (k === i ? { ...l, [champ]: valeur } : l)));
   // Ajoute une ligne vide
-  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true }]);
+  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true, date_debut: "", duree_jours: 0, rappel_jours: [], reconduction: true, alerte_active: false }]);
   // Enregistre toute la liste (les lignes sans nom sont ignorées par le serveur)
   const enregistrer = async () => {
     setOccupe(true);
@@ -110,6 +127,27 @@ export default function OffreClientEditeur({ clientId }) {
             <input className="rounded border border-slate-300 px-2 py-1 text-xs" placeholder="Précision utile à Liluvine (modules, site…)" maxLength={300} value={l.description} onChange={(e) => changer(i, "description", e.target.value)} />
             <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={l.actif !== false} onChange={(e) => changer(i, "actif", e.target.checked)} /> Actif</label>
             <button type="button" className="text-xs text-rose-700 hover:underline" onClick={() => setLignes(lignes.filter((_, k) => k !== i))}>Retirer</button>
+            {/* Lot 210 — durée de souscription, échéance et rappels (seconde rangée de la ligne) */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-2 text-xs text-slate-700 md:col-span-full" data-testid={`offre-echeance-${i}`}>
+              <label className="flex items-center gap-1">Début de période
+                <input type="date" className="rounded border border-slate-300 px-2 py-1" value={l.date_debut || ""} onChange={(e) => changer(i, "date_debut", e.target.value)} />
+              </label>
+              <label className="flex items-center gap-1">Durée (jours)
+                <input type="number" min={0} max={3650} className="w-20 rounded border border-slate-300 px-2 py-1" value={l.duree_jours || 0}
+                  onChange={(e) => changer(i, "duree_jours", Math.max(0, Number(e.target.value) || 0))} title="30 = un mois ; 0 = pas d'échéance" />
+              </label>
+              <label className="flex items-center gap-1">Rappel (jours avant)
+                <input className="w-24 rounded border border-slate-300 px-2 py-1" placeholder="ex. 7, 3" key={(l.rappel_jours || []).join(",")} defaultValue={(l.rappel_jours || []).join(", ")}
+                  onBlur={(e) => changer(i, "rappel_jours", e.target.value.split(/[,;\s]+/).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n >= 0 && n <= 365))} />
+              </label>
+              <label className="flex items-center gap-1" title="La période suivante commence à l'échéance : pas besoin de ressaisir la date">
+                <input type="checkbox" checked={l.reconduction !== false} onChange={(e) => changer(i, "reconduction", e.target.checked)} /> Reconduction automatique
+              </label>
+              <label className="flex items-center gap-1 font-semibold" title="Autorise Liluvine à rappeler cette échéance aux décisionnaires du client">
+                <input type="checkbox" checked={!!l.alerte_active} onChange={(e) => changer(i, "alerte_active", e.target.checked)} data-testid={`offre-alerte-${i}`} /> 🔔 Alerte autorisée
+              </label>
+              <EcheanceInfo ligne={l} />
+            </div>
           </div>
         ))}
       </div>

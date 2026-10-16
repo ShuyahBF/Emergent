@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "210", "date": "2026-10-16",
+        "titre": "🔔 Rappels d'échéance des produits et services du client (WhatsApp aux décisionnaires)",
+        "description": "Chaque ligne de l'offre d'un client a maintenant une durée, une date de début et des jours de rappel (ex. 30 j, rappel 3 j avant). Chaque matin, Liluvine prévient tous les décisionnaires du client des échéances proches. À activer ici (interrupteur général, modèle WhatsApp, simulation). La liste des clients garde aussi ses boutons d'action visibles.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "209", "date": "2026-10-15",
         "titre": "🛠️ Validation des clics « Confirmer » corrigée (journal des accords sans nouvelle collection)",
         "description": "La validation échouait (« validation impossible ») car le journal des accords voulait créer une collection alors que le cluster Atlas est plein (500 sur 500). Le journal est maintenant gardé dans un document existant. Un « OK merci, je patiente ! » n'est plus pris pour un accord, et un message d'erreur précis s'affiche en cas de problème.",

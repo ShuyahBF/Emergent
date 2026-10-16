@@ -508,7 +508,7 @@ export default function AdminClients() {
               {enteteTri("services", "Services")}
               {enteteTri("contrat", "N° Contrat")}
               {enteteTri("retard", "Retard")}
-              <th className="text-right px-4 py-3">Actions</th>
+              <th className="text-right px-4 py-3 sticky right-0 z-10 bg-slate-50 shadow-[-6px_0_6px_-6px_rgba(15,23,42,0.25)]">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -530,7 +530,7 @@ export default function AdminClients() {
                 {rows.map((c) => (
                   <tr
                     key={c.id}
-                    className={`border-t border-slate-100 hover:bg-sky-50/70 hover:ring-1 hover:ring-sky-200 transition-colors ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`}
+                    className={`group border-t border-slate-100 hover:bg-sky-50/70 hover:ring-1 hover:ring-sky-200 transition-colors ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`}
                     data-testid={`client-row-${c.id}`}
                   >
                     <td className="px-4 py-3 font-medium">
@@ -628,7 +628,7 @@ export default function AdminClients() {
                         );
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right whitespace-nowrap sticky right-0 z-10 bg-white group-hover:bg-sky-50 shadow-[-6px_0_6px_-6px_rgba(15,23,42,0.25)]" data-testid={`client-actions-${c.id}`}>
                       {c.is_primary_client ? (
                         <button onClick={() => unsetPrimary(c.id)} title="Retirer le statut primaire" className="text-amber-500 hover:text-amber-600 mr-3" data-testid={`unset-primary-${c.id}`}>
                           <StarOff className="h-4 w-4 inline" />

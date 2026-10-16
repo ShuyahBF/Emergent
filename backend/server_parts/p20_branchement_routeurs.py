@@ -277,6 +277,9 @@ _setup_contacts_plateformes(db=db, api=api, get_current_admin=get_current_admin,
 # Lot 163 — offre du client (logiciels, produits, services) connue de Liluvine + refus d'assistance si contrat pas à jour
 from routes.offre_client import setup_offre_client_routes as _setup_offre_client  # noqa: E402
 _setup_offre_client(db=db, api=api, get_current_admin=get_current_admin)
+# Lot 210 — rappels d'échéance des produits et services d'un client (WhatsApp aux décisionnaires)
+from routes.offre_client_rappels import setup_offre_client_rappels_routes as _setup_offre_rappels  # noqa: E402
+_setup_offre_rappels(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 170 — services à renouveler (Atlas, Render, R2…) : montants par service, formule, plateforme et cluster, rappels d'échéance
 from routes.services_renouveler import setup_services_renouveler_routes as _setup_services_renouveler  # noqa: E402
 _setup_services_renouveler(db=db, api=api, get_current_admin=get_current_admin)

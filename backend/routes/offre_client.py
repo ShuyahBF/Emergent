@@ -26,6 +26,10 @@
 #     Détection par mots-clés (assistance, maintenance, panne, bug, erreur, dépannage, support, intervention…) : volontairement
 #     déterministe, pour qu'un client en retard ne reçoive JAMAIS d'aide par erreur.
 #
+# Lot 210 — ÉCHÉANCES ET RAPPELS : chaque ligne porte aussi date_debut (AAAA-MM-JJ), duree_jours (0 = pas d'échéance),
+#   rappel_jours (ex. [3] ou [7, 3]), reconduction (la période suivante commence à l'échéance, vrai par défaut),
+#   alerte_active (rappel AUTORISÉ pour cette ligne, faux par défaut) et rappels_envoyes (suivi interne, jamais modifié à la main).
+#   Chaque matin, Liluvine envoie un WhatsApp aux décisionnaires du client — voir routes/offre_client_rappels.py.
 # Routes : GET/PUT /api/admin/clients/{id}/offre ; GET/PUT /api/admin/offre-client/reglages.
 # Lot 169 : copie de la liste d'un client vers un ou plusieurs autres — GET /api/admin/offre-client/clients (liste des
 #   clients avec le nombre de lignes de leur offre) et POST /api/admin/offre-client/copier {source_id, cible_ids, mode} ;
@@ -74,6 +78,39 @@ def _sans_accents(s: Any) -> str:
 # ---------------------------------------------------------------------------------------------------------------------
 # Offre du client
 # ---------------------------------------------------------------------------------------------------------------------
+def _date_iso(valeur: Any) -> str:
+    """Date AAAA-MM-JJ valide, sinon chaîne vide (les 10 premiers caractères d'un horodatage ISO sont acceptés)."""
+    texte = str(valeur or "").strip()[:10]
+    try:
+        return datetime.strptime(texte, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _entier(valeur: Any, mini: int, maxi: int) -> int:
+    """Entier borné entre mini et maxi (0 si illisible)."""
+    try:
+        return max(mini, min(maxi, int(float(valeur))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _rappels(valeur: Any) -> List[int]:
+    """Jours de rappel avant l'échéance : liste d'entiers 0..365 sans doublon, du plus lointain au plus proche, 5 au plus.
+    Accepte une liste ou un texte (« 7, 3 » ou « 3 »)."""
+    if isinstance(valeur, str):
+        valeur = re.split(r"[,;\s]+", valeur.strip())
+    jours = set()
+    for x in (valeur if isinstance(valeur, (list, tuple)) else []):
+        try:
+            n = int(float(x))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= n <= 365:
+            jours.add(n)
+    return sorted(jours, reverse=True)[:5]
+
+
 def normaliser_offre(brut: Any) -> List[Dict[str, Any]]:
     """Liste propre : type connu, nom obligatoire, textes bornés, au plus MAX_LIGNES lignes, identifiants uniques."""
     sortie: List[Dict[str, Any]] = []
@@ -96,6 +133,14 @@ def normaliser_offre(brut: Any) -> List[Dict[str, Any]]:
             "description": str(ligne.get("description") or "").strip()[:300],
             "version": str(ligne.get("version") or "").strip()[:40],
             "actif": ligne.get("actif") is not False,
+            # Lot 210 — échéance et rappels
+            "date_debut": _date_iso(ligne.get("date_debut")),
+            "duree_jours": _entier(ligne.get("duree_jours"), 0, 3650),
+            "rappel_jours": _rappels(ligne.get("rappel_jours")),
+            "reconduction": ligne.get("reconduction") is not False,
+            "alerte_active": ligne.get("alerte_active") is True,
+            "rappels_envoyes": [str(x)[:40] for x in (ligne.get("rappels_envoyes") or []) if x][-12:]
+            if isinstance(ligne.get("rappels_envoyes"), list) else [],
         })
         if len(sortie) >= MAX_LIGNES:
             break
@@ -324,6 +369,12 @@ class LigneOffreIn(BaseModel):
     description: str = Field(default="", max_length=300)
     version: str = Field(default="", max_length=40)
     actif: bool = True
+    # Lot 210 — échéance et rappels (voir routes/offre_client_rappels.py)
+    date_debut: str = Field(default="", max_length=10)
+    duree_jours: int = Field(default=0, ge=0, le=3650)
+    rappel_jours: List[int] = Field(default_factory=list, max_length=10)
+    reconduction: bool = True
+    alerte_active: bool = False
 
 
 class OffreIn(BaseModel):
@@ -341,7 +392,7 @@ def fusionner_offre(existante: List[Dict[str, Any]], copiee: List[Dict[str, Any]
     """Lot 169 — liste obtenue en copiant `copiee` sur `existante`, et nombre de lignes reprises.
     `remplacer` : la liste devient la copie ; `ajouter` : on garde l'existante et on ajoute les lignes absentes (même type
     et même nom, sans tenir compte des accents ni de la casse), dans la limite de MAX_LIGNES. Identifiants toujours neufs."""
-    neuves = normaliser_offre([{**l, "id": ""} for l in copiee])      # id vide = nouvel identifiant : listes indépendantes
+    neuves = normaliser_offre([{**l, "id": "", "date_debut": "", "rappels_envoyes": []} for l in copiee])      # id vide = nouvel identifiant : listes indépendantes
     if mode == "remplacer":
         return neuves, len(neuves)
     cles = {(l["type"], _sans_accents(l["nom"])) for l in existante}
@@ -373,7 +424,9 @@ def setup_offre_client_routes(*, db, api, get_current_admin) -> None:
         """Remplace la liste (lignes sans nom ignorées, identifiants attribués au besoin)."""
         if not await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1}):
             raise HTTPException(status_code=404, detail="Client introuvable")
-        lignes = normaliser_offre([l.model_dump() for l in data.lignes])
+        deja = {l["id"]: l.get("rappels_envoyes") or [] for l in normaliser_offre(
+            (await db.users.find_one({"id": client_id}, {"_id": 0, "offre_client": 1}) or {}).get("offre_client"))}
+        lignes = normaliser_offre([{**l.model_dump(), "rappels_envoyes": deja.get(l.id or "", [])} for l in data.lignes])
         maj = {"le": datetime.now(timezone.utc).isoformat(), "par": admin.get("full_name") or admin.get("email")}
         await db.users.update_one({"id": client_id}, {"$set": {"offre_client": lignes, "offre_client_maj": maj}})
         return {"ok": True, "lignes": lignes, "maj": maj}

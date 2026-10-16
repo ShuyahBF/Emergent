@@ -1396,6 +1396,24 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            # Lot 210 — Liluvine inspecte chaque matin les produits et services de chaque client dont l'alerte est autorisée et
+            # prévient par WhatsApp tous ses décisionnaires des échéances proches (interrupteur général : Paramètres → Offre du client)
+            async def _scheduled_offre_client_rappels():
+                try:
+                    from routes.offre_client_rappels import rappeler as _rappeler_offres
+                    bilan = await _rappeler_offres(db)
+                    if bilan.get("envoyes") or bilan.get("echecs"):
+                        logger.info("[offre_rappels] %s message(s) envoyé(s), %s échec(s), %s client(s) sans décisionnaire",
+                                    bilan.get("envoyes"), bilan.get("echecs"), bilan.get("sans_decisionnaire"))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[offre_rappels] tâche quotidienne en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_offre_client_rappels,
+                CronTrigger(hour=7, minute=30, timezone="Africa/Abidjan"),
+                id="offre_client_rappels_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Lot 96 — page Facebook animée par Liluvine : préparation aux jours et à l'heure choisis
             async def _scheduled_fb_animation():
                 try:

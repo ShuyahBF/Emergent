@@ -1384,6 +1384,64 @@ def attach_carrousel_whatsapp_routes(
         await lancer_echus()
         return {"ok": True, "id": c["id"]}
 
+    async def _synthese(filtre: dict, du: Optional[str], au: Optional[str]) -> dict:
+        """Lot 219 — synthèse d'une période (du … au, jours inclus) : par carrousel (avec le détail par carte) et par destinataire.
+        Les clics, vues de présentation et « Je suis intéressé » sont comptés PAR CARTE (le lien d'une carte est le même pour tous
+        les destinataires) : ils ne peuvent donc pas être attribués à un destinataire. Par destinataire, on donne la remise réelle
+        (remis / lu / non remis). Lectures EN BLOC (une requête par collection), jamais une lecture par ligne."""
+        def _jour(texte: Optional[str], fin: bool) -> Optional[str]:
+            if not texte:
+                return None
+            try:
+                d = datetime.strptime(texte[:10], "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Date invalide (format attendu : AAAA-MM-JJ)")
+            return d.strftime("%Y-%m-%dT23:59:59.999999") if fin else d.strftime("%Y-%m-%dT00:00:00")
+        debut, fin = _jour(du, False), _jour(au, True)
+        if debut and fin and debut > fin:
+            raise HTTPException(status_code=400, detail="La date de début doit précéder la date de fin")
+        plage = {k: v for k, v in (("$gte", debut), ("$lte", fin)) if v}
+        requete = {**filtre, **({"cree_le": plage} if plage else {})}
+        campagnes = await db.carrousel_campagnes.find(requete, {"_id": 0}).sort("cree_le", -1).limit(200).to_list(200)
+        ids = [c["id"] for c in campagnes]
+        codes = [x.get("code_lien") for c in campagnes for x in c.get("cartes") or [] if x.get("code_lien")]
+        stats = {x["code"]: x async for x in db.carrousel_liens.find(
+            {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "vues": 1, "interesses": 1})}
+        suivi = {m["message_id"]: m.get("wa_status") or "sent" async for m in db.whatsapp_messages.find(
+            {"carrousel_id": {"$in": ids}}, {"_id": 0, "message_id": 1, "wa_status": 1}) if m.get("message_id")}
+        par_carrousel, par_dest = [], {}
+        total = {"envois": len(campagnes), "servis": 0, "remis": 0, "lus": 0, "non_remis": 0, "clics": 0, "vues": 0, "interesses": 0}
+        for c in campagnes:
+            cartes, ligne = [], {"remis": 0, "lus": 0, "non_remis": 0, "servis": 0}
+            for x in c.get("cartes") or []:
+                st = stats.get(x.get("code_lien")) or {}
+                cartes.append({"titre": x.get("titre") or "", "clics": int(st.get("clics") or 0),
+                               "vues": int(st.get("vues") or 0), "interesses": int(st.get("interesses") or 0)})
+            for d in c.get("destinataires") or []:
+                if d.get("statut") != "ENVOYE":
+                    continue
+                etat = suivi.get(d.get("message_id")) or "sent"
+                cle = d.get("telephone") or d.get("nom") or ""
+                p = par_dest.setdefault(cle, {"nom": d.get("nom") or "", "telephone": d.get("telephone") or "", "recus": 0,
+                                              "remis": 0, "lus": 0, "non_remis": 0, "dernier": ""})
+                p["recus"] += 1
+                p["dernier"] = max(p["dernier"], c.get("cree_le") or "")
+                ligne["servis"] += 1
+                if etat == "failed":
+                    p["non_remis"] += 1; ligne["non_remis"] += 1
+                elif etat == "read":
+                    p["lus"] += 1; ligne["lus"] += 1
+                elif etat == "delivered":
+                    p["remis"] += 1; ligne["remis"] += 1
+            ligne.update({"id": c["id"], "cree_le": c.get("cree_le"), "modele": c.get("modele") or "", "message": (c.get("message") or "")[:80],
+                          "cartes": cartes, "clics": sum(x["clics"] for x in cartes), "vues": sum(x["vues"] for x in cartes),
+                          "interesses": sum(x["interesses"] for x in cartes)})
+            par_carrousel.append(ligne)
+            for k in ("servis", "remis", "lus", "non_remis", "clics", "vues", "interesses"):
+                total[k] += ligne[k]
+        destinataires = sorted(par_dest.values(), key=lambda p: (-p["recus"], p["nom"].lower()))
+        return {"du": du, "au": au, "totaux": total, "carrousels": par_carrousel, "destinataires": destinataires}
+
     async def _planificateur() -> None:
         """Boucle de fond : démarre les campagnes échues et reprend les interrompues, toutes les minutes."""
         while True:
@@ -1753,6 +1811,13 @@ def attach_carrousel_whatsapp_routes(
             if c.get("perimetre") == "admin":
                 c["annulable"] = False                       # lancée par l'administration : elle seule peut l'annuler
         return {"campagnes": lignes}
+
+    @api.get("/me/whatsapp/carrousel/synthese", tags=["Portail Client — Carrousel WhatsApp"])
+    async def synthese_portail(du: Optional[str] = None, au: Optional[str] = None, user: dict = Depends(utilisateur)):
+        """Lot 219 — synthèse d'une période, mêmes envois visibles que le suivi (les siens + ceux lancés pour sa société)."""
+        ids = await _societes_visibles(await visible_client_ids(user))
+        return await _synthese({"$or": [{"perimetre": "client", "tenant_id": _tenant_id(user)},
+                                        {"perimetre": "admin", "societe_id": {"$in": ids}}]}, du, au)
 
     @api.get("/me/whatsapp/carrousel/campagnes/{cid}", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagne_portail(cid: str, user: dict = Depends(utilisateur)):
@@ -2270,6 +2335,10 @@ def attach_carrousel_whatsapp_routes(
     @api.get("/admin/whatsapp/carrousel/campagnes/{cid}", tags=["Admin — Carrousel WhatsApp"])
     async def campagne_admin(cid: str, _: dict = Depends(get_current_admin)):
         return await _campagne({"id": cid, "perimetre": "admin"})
+
+    @api.get("/admin/whatsapp/carrousel/synthese", tags=["Admin — Carrousel WhatsApp"])
+    async def synthese_admin(du: Optional[str] = None, au: Optional[str] = None, _: dict = Depends(get_current_admin)):
+        return await _synthese({"perimetre": "admin"}, du, au)
 
     @api.post("/admin/whatsapp/carrousel/campagnes/{cid}/reprendre", tags=["Admin — Carrousel WhatsApp"])
     async def admin_reprendre(cid: str, user: dict = Depends(get_current_admin)):

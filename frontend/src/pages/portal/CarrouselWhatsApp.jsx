@@ -1697,7 +1697,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 <thead className="text-left text-slate-500">
                   <tr><th className="py-1 pr-2">Carte</th><th className="py-1 pr-2 text-right">Clics</th>
                     {c.regie_id && <th className="py-1 pr-2 text-right">Facturés</th>}
-                    <th className="py-1 pr-2 text-right">Vues présentation</th><th className="py-1 text-right">« Je suis intéressé »</th></tr>
+                    <th className="py-1 pr-2 text-right">Vues présentation</th><th className="py-1 pr-2 text-right">« Je suis intéressé »</th><th className="py-1 text-right">« Pas intéressé »</th></tr>
                 </thead>
                 <tbody>
                   {c.cartes.map((k, i) => (
@@ -1706,7 +1706,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
                       <td className="py-1 pr-2 text-right tabular-nums">{k.clics}</td>
                       {c.regie_id && <td className="py-1 pr-2 text-right tabular-nums">{k.clics_factures || 0}</td>}
                       <td className="py-1 pr-2 text-right tabular-nums">{k.vues || 0}</td>
-                      <td className="py-1 text-right tabular-nums">{k.interesses || 0}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{k.interesses || 0}</td>
+                      <td className="py-1 text-right tabular-nums">{k.pas_interesses || 0}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -4,7 +4,7 @@
     - Par carrousel (et par carte) : clics, vues de la présentation, « Je suis intéressé ».
     - Par destinataire : nombre de carrousels reçus, remis, lus, non remis.
   Les clics / vues / intéressés sont comptés PAR CARTE (le lien d'une carte est identique pour tous les destinataires) :
-  ils ne sont donc pas rattachés à un destinataire précis. « Pas intéressé » n'est pas mesuré (aucun bouton ne le remonte).
+  ils ne sont donc pas rattachés à un destinataire précis. « Pas intéressé » vient du bouton de la page de présentation (une fois par appareil et par carte).
   API : GET {base}/synthese?du=AAAA-MM-JJ&au=AAAA-MM-JJ (base = /me/… ou /admin/whatsapp/carrousel).
 */
 import React, { useCallback, useEffect, useState } from "react";
@@ -20,7 +20,7 @@ const jourIso = (decalage = 0) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 const dateCourte = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "");
-const COULEURS = { clics: "#0ea5e9", vues: "#8b5cf6", interesses: "#10b981", remis: "#38bdf8", lus: "#10b981", non_remis: "#f43f5e" };
+const COULEURS = { clics: "#0ea5e9", vues: "#8b5cf6", interesses: "#10b981", pas_interesses: "#f59e0b", remis: "#38bdf8", lus: "#10b981", non_remis: "#f43f5e" };
 
 export default function CarrouselSynthese({ base }) {
   const [du, setDu] = useState(jourIso(-30));
@@ -44,13 +44,13 @@ export default function CarrouselSynthese({ base }) {
   // Un point par carrousel (le plus ancien à gauche) pour le graphique « par carrousel »
   const serieCarrousels = (data?.carrousels || []).slice().reverse().map((c) => ({
     nom: `${dateCourte(c.cree_le)} · ${(c.message || c.modele || "").slice(0, 14)}`,
-    clics: c.clics, vues: c.vues, interesses: c.interesses,
+    clics: c.clics, vues: c.vues, interesses: c.interesses, pas_interesses: c.pas_interesses,
   }));
   // Cumul par rang de carte (carte 1, carte 2…) sur toute la période
   const serieCartes = [];
   (data?.carrousels || []).forEach((c) => c.cartes.forEach((x, i) => {
-    serieCartes[i] = serieCartes[i] || { nom: `Carte ${i + 1}`, clics: 0, vues: 0, interesses: 0 };
-    serieCartes[i].clics += x.clics; serieCartes[i].vues += x.vues; serieCartes[i].interesses += x.interesses;
+    serieCartes[i] = serieCartes[i] || { nom: `Carte ${i + 1}`, clics: 0, vues: 0, interesses: 0, pas_interesses: 0 };
+    serieCartes[i].clics += x.clics; serieCartes[i].vues += x.vues; serieCartes[i].interesses += x.interesses; serieCartes[i].pas_interesses += x.pas_interesses;
   }));
   // Remise par destinataire : les 10 plus servis
   const serieDest = (data?.destinataires || []).slice(0, 10).map((d) => ({ nom: (d.nom || d.telephone).slice(0, 16), remis: d.remis, lus: d.lus, non_remis: d.non_remis }));
@@ -101,7 +101,7 @@ export default function CarrouselSynthese({ base }) {
 
       {!data ? <div className="flex justify-center p-6"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div> : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
             <Tuile titre="Carrousels envoyés" valeur={t.envois} />
             <Tuile titre="Messages servis" valeur={t.servis} />
             <Tuile titre="Lus" valeur={t.lus} couleur={COULEURS.lus} />
@@ -109,15 +109,16 @@ export default function CarrouselSynthese({ base }) {
             <Tuile titre="Clics" valeur={t.clics} couleur={COULEURS.clics} />
             <Tuile titre="Vues présentation" valeur={t.vues} couleur={COULEURS.vues} />
             <Tuile titre="Je suis intéressé" valeur={t.interesses} couleur={COULEURS.interesses} />
+            <Tuile titre="Pas intéressé" valeur={t.pas_interesses} couleur={COULEURS.pas_interesses} />
           </div>
           <p className="text-xs text-slate-500">
             Les clics, vues et « Je suis intéressé » sont comptés par carte : le lien d'une carte est le même pour tous les destinataires,
-            on ne peut donc pas savoir qui a cliqué. « Pas intéressé » n'est pas mesuré (aucun bouton ne le remonte).
+            on ne peut donc pas savoir qui a cliqué. « Pas intéressé » vient du bouton de la page de présentation (une fois par appareil et par carte).
           </p>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Graphique titre="Par carrousel" donnees={serieCarrousels} series={[["clics", "Clics"], ["vues", "Vues présentation"], ["interesses", "Je suis intéressé"]]} />
-            <Graphique titre="Par carte (cumul de la période)" donnees={serieCartes} series={[["clics", "Clics"], ["vues", "Vues présentation"], ["interesses", "Je suis intéressé"]]} />
+            <Graphique titre="Par carrousel" donnees={serieCarrousels} series={[["clics", "Clics"], ["vues", "Vues présentation"], ["interesses", "Je suis intéressé"], ["pas_interesses", "Pas intéressé"]]} />
+            <Graphique titre="Par carte (cumul de la période)" donnees={serieCartes} series={[["clics", "Clics"], ["vues", "Vues présentation"], ["interesses", "Je suis intéressé"], ["pas_interesses", "Pas intéressé"]]} />
           </div>
           <Graphique titre="Remise par destinataire (les 10 plus servis)" donnees={serieDest} series={[["remis", "Remis"], ["lus", "Lus"], ["non_remis", "Non remis"]]} />
 
@@ -127,10 +128,10 @@ export default function CarrouselSynthese({ base }) {
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-slate-500">
                 <th className="py-1 pr-2">Date</th><th className="pr-2">Message</th><th className="pr-2 text-right">Servis</th>
-                <th className="pr-2 text-right">Clics</th><th className="pr-2 text-right">Vues</th><th className="text-right">Intéressés</th>
+                <th className="pr-2 text-right">Clics</th><th className="pr-2 text-right">Vues</th><th className="pr-2 text-right">Intéressés</th><th className="text-right">Pas intéressés</th>
               </tr></thead>
               <tbody>
-                {data.carrousels.length === 0 && <tr><td colSpan={6} className="py-2 text-slate-500">Aucun envoi sur la période.</td></tr>}
+                {data.carrousels.length === 0 && <tr><td colSpan={7} className="py-2 text-slate-500">Aucun envoi sur la période.</td></tr>}
                 {data.carrousels.map((c) => (
                   <tr key={c.id} className="border-t border-slate-100">
                     <td className="py-1 pr-2 whitespace-nowrap">{new Date(c.cree_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
@@ -138,7 +139,8 @@ export default function CarrouselSynthese({ base }) {
                     <td className="pr-2 text-right tabular-nums">{c.servis}</td>
                     <td className="pr-2 text-right tabular-nums">{c.clics}</td>
                     <td className="pr-2 text-right tabular-nums">{c.vues}</td>
-                    <td className="text-right tabular-nums">{c.interesses}</td>
+                    <td className="pr-2 text-right tabular-nums">{c.interesses}</td>
+                    <td className="text-right tabular-nums">{c.pas_interesses}</td>
                   </tr>
                 ))}
               </tbody>

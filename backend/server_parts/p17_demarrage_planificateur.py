@@ -1414,6 +1414,24 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            # Lot 211 — chaque matin dès 06 h 00, Liluvine prépare les rendez-vous FICTIFS de la semaine (2 à 4 par jour ouvré) dans
+            # le Google Agenda relié (sup.alphasofti@gmail.com) ; désactivé par défaut (Paramètres → Rendez-vous fictifs)
+            async def _scheduled_rdv_fictifs():
+                try:
+                    from routes.rdv_fictifs import generer as _generer_rdv
+                    bilan = await _generer_rdv(db)
+                    if bilan.get("evenements") or bilan.get("erreur"):
+                        logger.info("[rdv_fictifs] %s jour(s), %s rendez-vous créé(s)%s", bilan.get("jours"), bilan.get("evenements"),
+                                    f" — {bilan['erreur']}" if bilan.get("erreur") else "")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[rdv_fictifs] tâche du matin en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_rdv_fictifs,
+                CronTrigger(hour=6, minute=0, timezone="Africa/Abidjan"),
+                id="rdv_fictifs_quotidien",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Lot 96 — page Facebook animée par Liluvine : préparation aux jours et à l'heure choisis
             async def _scheduled_fb_animation():
                 try:

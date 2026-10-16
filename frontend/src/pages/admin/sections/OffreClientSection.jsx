@@ -4,6 +4,7 @@
 // - L'offre de chaque client se saisit sur sa fiche (SMART Communications) ; Liluvine l'utilise toujours (sans effet si vide).
 // Lot 210 — RAPPELS D'ÉCHÉANCE : GET / PUT /api/admin/offre-client/rappels  { actif, modele, langue, message } et
 //   POST /api/admin/offre-client/rappels/executer { simuler } (simulation par défaut : rien n'est envoyé).
+//   Lot 210.3 : mode « avis » (défaut) : récapitulatif au propriétaire, réponse « rappel 1,2 » ; mode « auto » : envoi direct. Montant par ligne.
 //   Lot 210.2 : le texte du rappel est paramétrable et sert aussi de corps au modèle Meta ; GET / POST /admin/offre-client/rappels/modele.
 //   Chaque ligne de l'offre d'un client a une durée, une date de début, des jours de rappel et une alerte AUTORISÉE ; chaque matin
 //   (07 h 30), Liluvine prévient tous les décisionnaires du client. Interrupteur général DÉSACTIVÉ par défaut.
@@ -23,6 +24,7 @@ export default function OffreClientSection() {
   // Lot 210 — rappels d'échéance
   const [rappels, setRappels] = useState(null);   // réponse du serveur (réglages + dernier passage)
   const [rActif, setRActif] = useState(false);
+  const [rMode, setRMode] = useState("avis");     // lot 210.3 : « avis » (récapitulatif au propriétaire) ou « auto » (envoi direct)
   const [rModele, setRModele] = useState("");
   const [rLangue, setRLangue] = useState("fr");
   const [rMessage, setRMessage] = useState("");
@@ -31,7 +33,7 @@ export default function OffreClientSection() {
   const [modeleMeta, setModeleMeta] = useState(null);   // lot 210.2 : état du modèle chez Meta { etat, motif_refus, erreur }
 
   const chargerRappels = () => apiClient.get("/admin/offre-client/rappels").then((r) => {
-    setRappels(r.data); setRActif(!!r.data.actif); setRModele(r.data.modele || r.data.modele_defaut || ""); setRLangue(r.data.langue || "fr"); setRMessage(r.data.message || "");
+    setRappels(r.data); setRActif(!!r.data.actif); setRMode(r.data.mode || "avis"); setRModele(r.data.modele || r.data.modele_defaut || ""); setRLangue(r.data.langue || "fr"); setRMessage(r.data.message || "");
   }).catch(() => toast.error("Réglages des rappels illisibles"));
   useEffect(() => { chargerRappels(); }, []);
 
@@ -39,7 +41,7 @@ export default function OffreClientSection() {
   const enregistrerRappels = async () => {
     setROccupe("enregistrer");
     try {
-      const { data } = await apiClient.put("/admin/offre-client/rappels", { actif: rActif, modele: rModele, langue: rLangue, message: rMessage === rappels?.message_defaut ? "" : rMessage });
+      const { data } = await apiClient.put("/admin/offre-client/rappels", { actif: rActif, mode: rMode, modele: rModele, langue: rLangue, message: rMessage === rappels?.message_defaut ? "" : rMessage });
       setRappels(data); toast.success("Réglages des rappels enregistrés");
     } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); } finally { setROccupe(""); }
   };
@@ -60,12 +62,16 @@ export default function OffreClientSection() {
   };
   // Simulation (rien n'est envoyé) ou passage manuel de Liluvine (envoie vraiment, après confirmation)
   const lancer = async (simuler) => {
-    if (!simuler && !window.confirm("Envoyer MAINTENANT les rappels du jour aux décisionnaires concernés ?")) return;
+    if (!simuler && !window.confirm(rappels?.mode === "avis" ? "Vous envoyer MAINTENANT le récapitulatif des échéances du jour (rien n'est envoyé aux clients avant votre réponse) ?" : "Envoyer MAINTENANT les rappels du jour aux décisionnaires concernés ?")) return;
     setROccupe(simuler ? "simuler" : "envoyer");
     try {
       const { data } = await apiClient.post("/admin/offre-client/rappels/executer", { simuler });
       setApercu(data);
-      if (!simuler) { toast.success(`${data.envoyes} message(s) envoyé(s), ${data.echecs} échec(s)`); chargerRappels(); }
+      if (!simuler) {
+        if (data.mode === "avis") toast[data.recap?.envoye ? "success" : "error"](data.recap?.envoye ? "Récapitulatif envoyé sur votre WhatsApp : répondez « rappel 1,2 »." : (data.recap?.erreur || data.recap?.raison || "Récapitulatif non envoyé"));
+        else toast.success(`${data.envoyes} message(s) envoyé(s), ${data.echecs} échec(s)`);
+        chargerRappels();
+      }
     } catch (e) { toast.error(e?.response?.data?.detail || "Passage impossible"); } finally { setROccupe(""); }
   };
 
@@ -156,6 +162,15 @@ export default function OffreClientSection() {
                 <div className="mt-1 text-slate-400">{"{{1}}"} contact · {"{{2}}"} client · {"{{3}}"} produits à renouveler</div>
               </div>
             </div>
+            {/* Lot 210.3 — avis du propriétaire avant tout envoi aux clients */}
+            <fieldset className="space-y-1 rounded-md bg-white p-2 text-xs ring-1 ring-amber-200" data-testid="offre-rappel-mode">
+              <legend className="px-1 font-semibold text-slate-800">Qui décide de l'envoi ?</legend>
+              <label className="flex items-start gap-2"><input type="radio" name="mode-rappel" className="mt-0.5" checked={rMode === "avis"} onChange={() => setRMode("avis")} />
+                <span><b>Pour avis (conseillé)</b> — chaque matin Liluvine vous envoie la liste : <i>client · contacts · produit · montant · échéance</i>. Vous répondez
+                  <b> « rappel 1,2,5 »</b> (ou <b>« rappel tous »</b>) : elle l'envoie alors aux décisionnaires. Sans réponse, rien ne part chez les clients.</span></label>
+              <label className="flex items-start gap-2"><input type="radio" name="mode-rappel" className="mt-0.5" checked={rMode === "auto"} onChange={() => setRMode("auto")} />
+                <span><b>Automatique</b> — Liluvine envoie directement aux décisionnaires, sans vous demander.</span></label>
+            </fieldset>
             <div className="grid gap-2 md:grid-cols-[2fr_1fr]">
               <label className="block text-xs font-medium text-slate-700">
                 Nom du modèle WhatsApp (minuscules, chiffres et _)
@@ -191,7 +206,7 @@ export default function OffreClientSection() {
               </button>
               <button type="button" onClick={() => lancer(false)} disabled={!!rOccupe || !rappels.actif} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-40" data-testid="offre-rappel-envoyer"
                 title={rappels.actif ? "Envoie les rappels du jour maintenant" : "Activez et enregistrez d'abord l'envoi quotidien"}>
-                {rOccupe === "envoyer" ? "Patientez…" : "Envoyer maintenant"}
+                {rOccupe === "envoyer" ? "Patientez…" : (rappels.mode === "avis" ? "Envoyer le récapitulatif maintenant" : "Envoyer maintenant")}
               </button>
             </div>
             {/* Résultat d'une simulation ou du dernier passage de Liluvine */}
@@ -202,7 +217,10 @@ export default function OffreClientSection() {
                 <div className="space-y-1 rounded-md bg-white p-2 text-xs ring-1 ring-slate-200" data-testid="offre-rappel-bilan">
                   <p className="font-semibold">
                     {r.simule ? "Simulation" : "Dernier passage"} du {new Date(r.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} :
-                    {" "}{r.clients} client(s) à rappeler, {r.messages} message(s){r.simule ? " à envoyer" : `, ${r.envoyes} envoyé(s), ${r.echecs} échec(s)`}.
+                    {" "}{r.clients} client(s), {r.elements ?? 0} échéance(s) à rappeler
+                    {r.simule ? `, ${r.messages} message(s) à envoyer aux décisionnaires${r.mode === "avis" ? " APRÈS votre accord" : ""}`
+                      : r.mode === "avis" ? (r.recap?.envoye ? " — récapitulatif envoyé au propriétaire, en attente de sa réponse" : ` — récapitulatif non envoyé (${r.recap?.erreur || r.recap?.raison || "—"})`)
+                      : `, ${r.envoyes} envoyé(s), ${r.echecs} échec(s)`}.
                   </p>
                   {r.sans_decisionnaire > 0 && <p className="text-rose-700">⚠ {r.sans_decisionnaire} client(s) sans décisionnaire joignable : marquez un contact « décisionnaire » avec un numéro WhatsApp.</p>}
                   {!r.simule && !r.actif && <p className="text-slate-500">L'envoi quotidien était désactivé : rien n'est parti.</p>}

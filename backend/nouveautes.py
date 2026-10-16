@@ -17,6 +17,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "211", "date": "2026-10-16",
+        "titre": "📅 Rendez-vous fictifs préparés chaque matin par Liluvine",
+        "description": "Dès 6 h, Liluvine crée 2 à 4 rendez-vous fictifs par jour ouvré (réunions, formations, dépannages, suivis, assistances…) pour toute la semaine, dans l'agenda sup.alphasofti@gmail.com. Sans invité ni notification, et par défaut sans bloquer les créneaux de réservation. À activer ici ; bouton pour tout supprimer.",
+        "rubrique": "📅 Rendez-vous fictifs — Liluvine",
+    },
+    {
+        "lot": "210.3", "date": "2026-10-16",
+        "titre": "🔔 Rappels d'échéance : avis du propriétaire et montant par client",
+        "description": "Chaque matin, Liluvine vous envoie la liste (client, contacts, produit, montant, échéance) ; vous répondez « rappel 1,2 » ou « rappel tous » pour l'envoyer aux décisionnaires. Chaque ligne d'offre porte maintenant le montant propre à ce client.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "210.2", "date": "2026-10-16",
         "titre": "💬 Rappels d'échéance : message paramétrable et modèle Meta associé",
         "description": "Le texte du rappel se modifie dans les Paramètres ; le même texte devient le modèle WhatsApp Meta (créé et suivi en un clic). Dans la fenêtre de 24 h, Liluvine envoie le texte libre ; hors fenêtre, le modèle approuvé.",

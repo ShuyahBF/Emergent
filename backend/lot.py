@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "212"
-LOT_LIBELLE = "Carrousel WhatsApp : onglet « Suivi de vos envois » (ouvert seul s'il n'y a rien à faire et après chaque envoi) ; arrêts d'envoi visibles dans le journal et erreurs inattendues sans arrêt silencieux"
+LOT = "213"
+LOT_LIBELLE = "Bibliothèque de médias : fichiers perdus signalés et retirables (plus de vignettes cassées), copie durable automatique des fichiers à risque, avertissement à l'envoi sans copie durable"

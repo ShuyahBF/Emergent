@@ -7,6 +7,41 @@
 # ============================================================
 # Media library (shared per-client bank for WhatsApp templates)
 # ============================================================
+_MIROIRS_EN_COURS: set = set()   # fichiers dont la copie durable est en cours (évite deux copies simultanées)
+
+
+async def _copier_durablement(file_docs: list) -> int:
+    """Lot 213 — AUTO-RÉPARATION : un fichier encore sur le disque du serveur mais sans copie durable (envoyé quand le stockage était
+    indisponible) serait perdu au prochain redéploiement. On le copie dans le stockage et on note son chemin sur sa fiche.
+    Tâche de fond (jamais dans la requête d'une page), au plus 10 fichiers par passage, sans jamais lever d'exception."""
+    faits = 0
+    try:
+        from storage import aupload_bytes, astorage_available
+        if not await astorage_available():
+            return 0
+        for f in file_docs[:10]:
+            if f["id"] in _MIROIRS_EN_COURS:
+                continue
+            _MIROIRS_EN_COURS.add(f["id"])
+            try:
+                local = UPLOAD_DIR / f["stored_name"]
+                if not local.exists():
+                    continue
+                chemin = await aupload_bytes(f"files/{f['stored_name']}", local.read_bytes(),
+                                             f.get("content_type") or "application/octet-stream")
+                await db.files.update_one({"id": f["id"]}, {"$set": {"storage_path": chemin, "storage_error": None}})
+                faits += 1
+            except Exception as exc:  # noqa: BLE001 — un fichier en échec ne bloque pas les autres
+                logger.warning("[media_library] copie durable impossible pour %s : %s", f.get("id"), exc)
+            finally:
+                _MIROIRS_EN_COURS.discard(f["id"])
+        if faits:
+            logger.info("[media_library] %s fichier(s) copié(s) dans le stockage durable (auto-réparation)", faits)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[media_library] auto-réparation impossible : %s", exc)
+    return faits
+
+
 @api.get("/me/media-library", tags=["Portail Client"])
 async def me_media_library(
     request: Request,
@@ -30,13 +65,14 @@ async def me_media_library(
     items = await db.media_library.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     # Iter37g — Rewrite public_url with the current host
     base = _public_base_url(request).rstrip("/")
+    # Lot 213 — UNE seule lecture des fiches de fichiers (au lieu d'une par média : règle 7, pas de boucle N+1)
+    ids_fichiers = [it["file_id"] for it in items if it.get("file_id")]
+    fichiers = {f["id"]: f async for f in db.files.find(
+        {"id": {"$in": ids_fichiers}}, {"_id": 0, "id": 1, "url": 1, "stored_name": 1, "storage_path": 1, "content_type": 1})}
+    a_risque = []
     for it in items:
-        # Pull the file row to recover the relative path
-        rel = None
-        if it.get("file_id"):
-            file_doc = await db.files.find_one({"id": it["file_id"]}, {"_id": 0, "url": 1})
-            if file_doc and file_doc.get("url"):
-                rel = file_doc["url"]
+        file_doc = fichiers.get(it.get("file_id")) if it.get("file_id") else None
+        rel = (file_doc or {}).get("url")
         if not rel:
             # Last-ditch: try to extract /api/files/... from the stored absolute URL
             stored = it.get("public_url") or ""
@@ -45,6 +81,21 @@ async def me_media_library(
                 rel = stored[idx:]
         if rel:
             it["public_url"] = f"{base}{rel}"
+        # Lot 213 — état du fichier, sans le lire : « durable » = copie dans le stockage (survit aux redéploiements) ;
+        # « perdu » = ni copie sur le disque du serveur, ni copie durable (ou fiche de fichier absente) : irrécupérable,
+        # le lien est définitivement cassé. Un fichier non durable mais encore sur le disque est « à risque ».
+        sur_disque = False
+        if file_doc and file_doc.get("stored_name"):
+            try:
+                sur_disque = (UPLOAD_DIR / file_doc["stored_name"]).exists()
+            except OSError:
+                sur_disque = False
+        from media_etat import a_copier, etat_fichier
+        it["durable"], it["perdu"] = etat_fichier(file_doc, sur_disque)
+        if a_copier(file_doc, sur_disque):
+            a_risque.append(file_doc)
+    if a_risque:
+        asyncio.create_task(_copier_durablement(a_risque))     # en arrière-plan : la liste répond tout de suite
     return items
 
 
@@ -107,7 +158,11 @@ async def me_media_library_create(
         "public_url": public_url,
         "created_at": _now(),
     }
-    await db.media_library.insert_one(media.copy())
+    # Lot 213 — sans copie durable (stockage R2 indisponible ou en échec), le fichier disparaît au prochain redéploiement :
+    # on le dit tout de suite au lieu de laisser un lien qui cassera plus tard
+    media["durable"] = bool(storage_path)
+    media["perdu"] = False
+    await db.media_library.insert_one({k: v for k, v in media.items() if k not in ("durable", "perdu")})
     media.pop("_id", None)
     return media
 

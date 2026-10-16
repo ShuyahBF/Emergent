@@ -127,7 +127,7 @@ const NEW_LOTS = {
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
   "💳 Services à renouveler — coûts": "170",   // lot 170 : montant par service, formule, plateforme et cluster ; rappels d'échéance
-  "🧩 Offre du client — Liluvine": "210.1",   // lot 210.1 : fin de mois calendaire ; lot 210 : durée, échéance et rappels WhatsApp aux décisionnaires ; lot 169 : copie de la liste d'un client à un autre ; lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
+  "🧩 Offre du client — Liluvine": "210.2",   // lot 210.2 : message paramétrable et modèle Meta associé ; lot 210.1 : fin de mois calendaire ; lot 210 : durée, échéance et rappels WhatsApp aux décisionnaires ; lot 169 : copie de la liste d'un client à un autre ; lot 163 : logiciels, produits et services du client connus de Liluvine ; assistance refusée si contrat pas à jour
   "💬 Ligne VIP — contrat valide": "158",   // lot 158 : ligne VIP réservée aux contrats valides, message paramétrable, canal choisi dans la conversation
   "🖥️ Parc informatique — sites": "146",   // lot 146 : rupture par nom de site, renommage, complément depuis Loois
   "🖼️ Cadre des cartes": "136",   // lot 136 : filet autour des cartes, couleur réglable

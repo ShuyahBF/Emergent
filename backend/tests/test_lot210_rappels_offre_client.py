@@ -221,3 +221,93 @@ def test_fin_de_mois_normalisee_et_copiee():
     assert ligne(fin_de_mois="oui")["fin_de_mois"] is False
     copie, _ = oc.fusionner_offre([], [ligne(fin_de_mois=True)], "remplacer")
     assert copie[0]["fin_de_mois"] is True
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 210.2 — message paramétrable et modèle Meta associé
+# ---------------------------------------------------------------------------------------------------------------------
+def test_corps_du_modele_deduit_du_texte_libre():
+    corps = rr.corps_modele("Bonjour {contact}, pour {client} : {liste}. Merci de renouveler.")
+    assert corps == "Bonjour {{1}}, pour {{2}} : {{3}}. Merci de renouveler."
+    assert "{{" in rr.corps_modele("")                                       # texte par défaut
+    assert rr.verifier_message("") is None and rr.verifier_message(rr.MESSAGE_DEFAUT) is None   # le texte par défaut est valable chez Meta
+
+
+def test_regles_meta_sur_le_texte():
+    assert "{liste}" in rr.verifier_message("Bonjour {contact}, votre offre expire bientôt.")           # {liste} obligatoire
+    assert "inconnue" in rr.verifier_message("Bonjour {contact}, {produit} : {liste} merci").lower()    # variable inconnue
+    assert rr.verifier_message("{contact}, voici {liste} merci") is not None                            # variable au tout début
+    assert rr.verifier_message("Bonjour, voici {liste}") is not None                                    # variable à la toute fin
+    assert rr.verifier_message("Bonjour {contact}{client} voici {liste} merci") is not None             # deux variables collées
+    assert rr.verifier_message("Bonjour {contact}, voici {liste} merci.") is None
+
+
+def test_definition_envoyee_a_meta():
+    d = rr.definition_modele("rappel_echeance_produits", "fr", "")
+    assert d["name"] == "rappel_echeance_produits" and d["language"] == "fr" and d["category"] == "UTILITY"
+    corps = d["components"][0]
+    assert corps["type"] == "BODY" and corps["text"] == rr.corps_modele("")
+    assert len(corps["example"]["body_text"][0]) == 3                          # un exemple par variable (exigé par Meta)
+    assert rr.RE_NOM_MODELE.match("rappel_echeance_produits") and not rr.RE_NOM_MODELE.match("Rappel-1")
+
+
+def test_hors_fenetre_modele_dans_la_fenetre_texte_libre(monkeypatch):
+    # Faux module « server » : on observe quel canal est utilisé
+    import types
+    from datetime import timedelta
+    envois = []
+
+    async def texte(to, message, **kw):
+        envois.append(("texte", to)); return {"ok": True}
+
+    async def modele(to, nom, langue, composants):
+        envois.append(("modele", to, nom, [p["text"] for p in composants[0]["parameters"]])); return {"ok": True}
+
+    dernier = {"v": None}
+
+    async def dernier_entrant(scope, **kw):
+        return dernier["v"]
+
+    faux = types.SimpleNamespace(_wa_send_text=texte, _wa_send_template=modele, _wa_last_inbound_iso=dernier_entrant)
+    monkeypatch.setitem(sys.modules, "server", faux)
+    regl = {"actif": True, "modele": "rappel_x", "langue": "fr", "message": rr.MESSAGE_DEFAUT}
+
+    # Le décisionnaire n'a jamais écrit : hors fenêtre → modèle Meta
+    r = lancer(rr.envoyer_whatsapp(regl, "22670000001", "Awa", "Pharmacie X", ["A : demain"]))
+    assert r["ok"] and r["canal"] == "modèle Meta" and envois[-1][0] == "modele" and envois[-1][3][0] == "Awa"
+    # Il a écrit il y a 2 h : fenêtre ouverte → texte libre
+    dernier["v"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    r = lancer(rr.envoyer_whatsapp(regl, "22670000001", "Awa", "Pharmacie X", ["A : demain"]))
+    assert r["canal"] == "texte libre" and envois[-1][0] == "texte"
+    # Il a écrit il y a 30 h : hors fenêtre → modèle
+    dernier["v"] = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    assert lancer(rr.envoyer_whatsapp(regl, "22670000001", "Awa", "X", ["A"]))["canal"] == "modèle Meta"
+    # Sans modèle réglé et hors fenêtre : texte libre tenté, l'erreur explique quoi faire
+    async def refus(to, message, **kw):
+        return {"ok": False, "error": "Re-engagement message"}
+    faux._wa_send_text = refus
+    r = lancer(rr.envoyer_whatsapp({**regl, "modele": ""}, "22670000001", "Awa", "X", ["A"]))
+    assert not r["ok"] and "modèle Meta" in r["erreur"]
+
+
+def test_routes_modele_et_reglages_valides():
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    db = mongomock_motor.AsyncMongoMockClient()["t2"]
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    rr.setup_offre_client_rappels_routes(db=db, api=api, get_current_admin=lambda: {"role": "admin"})
+    app.include_router(api)
+    c = TestClient(app)
+    # Texte invalide refusé avec un message clair
+    r = c.put("/api/admin/offre-client/rappels", json={"actif": False, "modele": "", "langue": "fr", "message": "Bonjour sans liste"})
+    assert r.status_code == 422 and "{liste}" in r.json()["detail"]
+    r = c.put("/api/admin/offre-client/rappels", json={"actif": False, "modele": "Nom Invalide", "langue": "fr", "message": ""})
+    assert r.status_code == 422
+    # Réglages valides : aperçu et corps du modèle renvoyés
+    r = c.put("/api/admin/offre-client/rappels", json={"actif": True, "modele": "rappel_x", "langue": "fr",
+                                                       "message": "Bonjour {contact}, pour {client} : {liste} à renouveler."})
+    assert r.status_code == 200 and r.json()["corps_modele"] == "Bonjour {{1}}, pour {{2}} : {{3}} à renouveler."
+    assert "Awa" in r.json()["apercu"]
+    # Sans WhatsApp configuré, la création du modèle est refusée clairement (rien n'est envoyé à Meta)
+    r = c.post("/api/admin/offre-client/rappels/modele")
+    assert r.status_code == 400 and "WhatsApp non configuré" in r.json()["detail"]

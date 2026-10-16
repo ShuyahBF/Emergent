@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("sawali.carrousel_regie")
 
 PLACEMENT_CARROUSEL = "carrousel_wa"          # placement des campagnes de régie « Carrousel WhatsApp »
-TYPES_EVENEMENT = ("vue", "interesse")         # événements comptés par carte sur la page de présentation
+TYPES_EVENEMENT = ("vue", "interesse", "pas_interesse")         # événements comptés par carte sur la page de présentation
 DEDUP_HEURES_DEFAUT = 24                       # fenêtre de déduplication par défaut (réglable dans Paramètres)
 CHEMIN_PRESENTATION_CAMPAGNE = "/presentation/c/"   # page publique de toutes les cartes d'une campagne
 
@@ -266,7 +266,8 @@ async def enregistrer_evenement(db, *, campagne: Dict[str, Any], carte_index: in
     if await _deja_vu(db, "carrousel_evenements", cle, heures):
         return False
     await db.carrousel_evenements.insert_one({**cle, "jour": _jour(), "cree_le": _maintenant().isoformat()})
-    champ = "vues" if type_evt == "vue" else "interesses"
+    # lot 220 : « Pas intéressé » compté à part (champ pas_interesses)
+    champ = {"vue": "vues", "interesse": "interesses", "pas_interesse": "pas_interesses"}[type_evt]
     await db.carrousel_liens.update_one({"campagne_id": campagne["id"], "carte_index": carte_index},
                                         {"$inc": {champ: 1}})
     # Carrousel sponsorisé : chiffres repris dans le rapport de l'annonceur (totaux et ligne du jour)
@@ -351,13 +352,13 @@ async def stats_cartes(db, campagne: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Chiffres de chaque carte d'une campagne : clics bruts, clics facturés, vues, « Je suis intéressé »."""
     liens = {x.get("carte_index"): x async for x in db.carrousel_liens.find(
         {"campagne_id": campagne["id"]}, {"_id": 0, "carte_index": 1, "clics": 1, "clics_factures": 1,
-                                          "vues": 1, "interesses": 1})}
+                                          "vues": 1, "interesses": 1, "pas_interesses": 1})}
     lignes = []
     for i, c in enumerate(campagne.get("cartes") or []):
         x = liens.get(i) or {}
         lignes.append({"n": i + 1, "titre": c.get("titre") or "", "clics": int(x.get("clics") or 0),
                        "clics_factures": int(x.get("clics_factures") or 0), "vues": int(x.get("vues") or 0),
-                       "interesses": int(x.get("interesses") or 0)})
+                       "interesses": int(x.get("interesses") or 0), "pas_interesses": int(x.get("pas_interesses") or 0)})
     return lignes
 
 
@@ -382,6 +383,7 @@ async def rapport_carrousel(db, b: Dict[str, Any]) -> Dict[str, Any]:
         "clics_hors_budget": int(b.get("carrousel_clics_hors_budget") or 0),
         "vues": int(b.get("carrousel_vues") or 0),
         "interesses": int(b.get("carrousel_interesses") or 0),
+        "pas_interesses": int(b.get("carrousel_pas_interesses") or 0),
         "cost_per_click": float(b.get("cost_per_click") or 0),
         "cost_per_impression": float(b.get("cost_per_impression") or 0),
         "campagnes": detail,

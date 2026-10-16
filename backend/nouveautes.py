@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "220", "date": "2026-10-17",
+        "titre": "🙅 Page de présentation : bouton « Pas intéressé »",
+        "description": "Chaque carte de la page de présentation a un bouton « Pas intéressé » (compté une fois par appareil et par carte). Le chiffre apparaît dans le suivi de chaque envoi, dans la synthèse avec graphiques et dans le rapport de l'annonceur pour les carrousels sponsorisés.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "219", "date": "2026-10-17",
         "titre": "📊 Carrousel WhatsApp : synthèse de vos envois et « Replier tout »",
         "description": "Nouvel onglet « Synthèse de vos envois » : choisissez une période (du … au) et voyez, avec graphiques, les clics, vues de la présentation et « Je suis intéressé » par carrousel et par carte, et la remise par destinataire. Le suivi a aussi un bouton « Replier tout ».",

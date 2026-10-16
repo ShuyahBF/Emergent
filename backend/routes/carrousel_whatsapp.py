@@ -330,7 +330,7 @@ class EvenementIn(BaseModel):
     campagne: Optional[str] = Field(None, max_length=40)
     code: Optional[str] = Field(None, max_length=40)
     carte: int = Field(..., ge=1, le=CARTES_MAX)
-    type: Literal["vue", "interesse"]
+    type: Literal["vue", "interesse", "pas_interesse"]   # lot 220 : « Pas intéressé »
 
 
 class BrouillonIn(BaseModel):
@@ -1406,17 +1406,18 @@ def attach_carrousel_whatsapp_routes(
         ids = [c["id"] for c in campagnes]
         codes = [x.get("code_lien") for c in campagnes for x in c.get("cartes") or [] if x.get("code_lien")]
         stats = {x["code"]: x async for x in db.carrousel_liens.find(
-            {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "vues": 1, "interesses": 1})}
+            {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "vues": 1, "interesses": 1, "pas_interesses": 1})}
         suivi = {m["message_id"]: m.get("wa_status") or "sent" async for m in db.whatsapp_messages.find(
             {"carrousel_id": {"$in": ids}}, {"_id": 0, "message_id": 1, "wa_status": 1}) if m.get("message_id")}
         par_carrousel, par_dest = [], {}
-        total = {"envois": len(campagnes), "servis": 0, "remis": 0, "lus": 0, "non_remis": 0, "clics": 0, "vues": 0, "interesses": 0}
+        total = {"envois": len(campagnes), "servis": 0, "remis": 0, "lus": 0, "non_remis": 0, "clics": 0, "vues": 0, "interesses": 0, "pas_interesses": 0}
         for c in campagnes:
             cartes, ligne = [], {"remis": 0, "lus": 0, "non_remis": 0, "servis": 0}
             for x in c.get("cartes") or []:
                 st = stats.get(x.get("code_lien")) or {}
                 cartes.append({"titre": x.get("titre") or "", "clics": int(st.get("clics") or 0),
-                               "vues": int(st.get("vues") or 0), "interesses": int(st.get("interesses") or 0)})
+                               "vues": int(st.get("vues") or 0), "interesses": int(st.get("interesses") or 0),
+                               "pas_interesses": int(st.get("pas_interesses") or 0)})
             for d in c.get("destinataires") or []:
                 if d.get("statut") != "ENVOYE":
                     continue
@@ -1435,9 +1436,10 @@ def attach_carrousel_whatsapp_routes(
                     p["remis"] += 1; ligne["remis"] += 1
             ligne.update({"id": c["id"], "cree_le": c.get("cree_le"), "modele": c.get("modele") or "", "message": (c.get("message") or "")[:80],
                           "cartes": cartes, "clics": sum(x["clics"] for x in cartes), "vues": sum(x["vues"] for x in cartes),
-                          "interesses": sum(x["interesses"] for x in cartes)})
+                          "interesses": sum(x["interesses"] for x in cartes),
+                          "pas_interesses": sum(x["pas_interesses"] for x in cartes)})
             par_carrousel.append(ligne)
-            for k in ("servis", "remis", "lus", "non_remis", "clics", "vues", "interesses"):
+            for k in ("servis", "remis", "lus", "non_remis", "clics", "vues", "interesses", "pas_interesses"):
                 total[k] += ligne[k]
         destinataires = sorted(par_dest.values(), key=lambda p: (-p["recus"], p["nom"].lower()))
         return {"du": du, "au": au, "totaux": total, "carrousels": par_carrousel, "destinataires": destinataires}
@@ -1474,13 +1476,14 @@ def attach_carrousel_whatsapp_routes(
             codes = [x.get("code_lien") for x in c.get("cartes") or []]
             # Lot 111 — par carte : clics, clics facturés (sponsorisé), vues de la présentation, « Je suis intéressé »
             stats = {x["code"]: x async for x in db.carrousel_liens.find(
-                {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "clics_factures": 1, "vues": 1, "interesses": 1})}
+                {"code": {"$in": codes}}, {"_id": 0, "code": 1, "clics": 1, "clics_factures": 1, "vues": 1, "interesses": 1, "pas_interesses": 1})}
             for x in c.get("cartes") or []:
                 s = stats.get(x.get("code_lien")) or {}
                 x["clics"] = int(s.get("clics") or 0)
                 x["clics_factures"] = int(s.get("clics_factures") or 0)
                 x["vues"] = int(s.get("vues") or 0)
                 x["interesses"] = int(s.get("interesses") or 0)
+                x["pas_interesses"] = int(s.get("pas_interesses") or 0)
             c["regie_nom"] = noms_regie.get(c.get("regie_id"), "")
             # Lot 114 — libellé français du statut (pastille) et possibilité d'annuler
             c["statut_libelle"] = STATUTS_CAMPAGNE.get(c.get("statut"), c.get("statut") or "")
@@ -2412,6 +2415,8 @@ def attach_carrousel_whatsapp_routes(
                 {"vues": {"$gt": 0}}, {"_id": 0, "vues": 1})]),
             "interesses": sum([int(x.get("interesses") or 0) async for x in db.carrousel_liens.find(
                 {"interesses": {"$gt": 0}}, {"_id": 0, "interesses": 1})]),
+            "pas_interesses": sum([int(x.get("pas_interesses") or 0) async for x in db.carrousel_liens.find(
+                {"pas_interesses": {"$gt": 0}}, {"_id": 0, "pas_interesses": 1})]),
         }
 
     # Lot 114 — pour le branchement (démarrage du planificateur) et les tests

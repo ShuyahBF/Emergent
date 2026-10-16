@@ -357,3 +357,21 @@ def test_lot219_synthese_par_periode(env):
     # Dates incohérentes ou invalides : refus clair
     assert client.get("/api/me/whatsapp/carrousel/synthese?du=2026-02-01&au=2026-01-01", headers=h("cli_a")).status_code == 400
     assert client.get("/api/me/whatsapp/carrousel/synthese?du=abc", headers=h("cli_a")).status_code == 400
+
+
+def test_lot220_pas_interesse_compte_par_carte_et_dedoublonne(env):
+    """Lot 220 — « Pas intéressé » : compté par carte (une fois par appareil), visible dans la liste et la synthèse."""
+    client, db, envois, etat, moteur = env
+    cid = envoyer_portail(client).json()["id"]
+    camp = campagne(client, cid)
+    code = camp["cartes"][0]["code_lien"]
+    r = client.post("/api/public/carrousel/evenement", json={"code": code, "carte": 1, "type": "pas_interesse"})
+    assert r.status_code == 200 and r.json()["compte"] is True
+    # Même appareil, même carte : pas compté deux fois
+    assert client.post("/api/public/carrousel/evenement", json={"code": code, "carte": 1, "type": "pas_interesse"}).json()["compte"] is False
+    liste = client.get("/api/me/whatsapp/carrousel/campagnes", headers=h("cli_a")).json()["campagnes"]
+    assert liste[0]["cartes"][0]["pas_interesses"] == 1 and liste[0]["cartes"][0]["interesses"] == 0
+    jour = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    s = client.get(f"/api/me/whatsapp/carrousel/synthese?du={jour}&au={jour}", headers=h("cli_a")).json()
+    assert s["totaux"]["pas_interesses"] == 1
+    assert client.post("/api/public/carrousel/evenement", json={"code": code, "carte": 1, "type": "autre"}).status_code == 422

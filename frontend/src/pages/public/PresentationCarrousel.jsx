@@ -93,6 +93,7 @@ export default function PresentationCarrousel() {
   const [active, setActive] = useState(1);            // carte visible (pastille surlignée)
   const [enValeur, setEnValeur] = useState(0);        // carte mise en valeur (contour animé), 0 = aucune
   const [interesses, setInteresses] = useState({});   // cartes déjà signalées « intéressé » (évite le double envoi)
+  const [refus, setRefus] = useState({});              // lot 220 : cartes déjà signalées « pas intéressé »
   const barreRef = useRef(null);
 
   // 1. Lecture du carrousel (page publique : pas de connexion)
@@ -169,6 +170,13 @@ export default function PresentationCarrousel() {
     if (!donnees?.contact_whatsapp) {
       toast.success(`Merci ! Répondez au message WhatsApp${donnees?.expediteur ? ` de ${donnees.expediteur}` : ""} pour en parler.`);
     }
+  };
+
+  // Lot 220 — « Pas intéressé » : simple statistique (une fois par carte), rien n'est ouvert et rien n'est demandé
+  const signalerRefus = (carte) => {
+    if (refus[carte.n]) return;
+    apiClient.post("/public/carrousel/evenement", { campagne: id, carte: carte.n, type: "pas_interesse" }).catch(() => {});
+    setRefus((x) => ({ ...x, [carte.n]: true }));
   };
 
   // Attente : jauge qui tourne + « Patientez… » (comme les autres pages publiques)
@@ -275,6 +283,11 @@ export default function PresentationCarrousel() {
                         <MessageCircle className="h-5 w-5" /> Je suis intéressé
                       </button>
                     )}
+                    {/* Lot 220 — Pas intéressé : bouton discret, compté dans la synthèse de l'expéditeur */}
+                    <button type="button" onClick={() => signalerRefus(c)} disabled={!!refus[c.n]} data-testid={`pas-interesse-${c.n}`}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold text-slate-200 ring-1 ring-white/20 hover:bg-white/5 disabled:opacity-60">
+                      Pas intéressé
+                    </button>
                     {c.lien && (
                       <a href={c.lien} target="_blank" rel="noopener noreferrer nofollow"
                          className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold text-slate-100 ring-1 ring-white/20 hover:bg-white/5">
@@ -288,6 +301,7 @@ export default function PresentationCarrousel() {
                       </button>
                     )}
                   </div>
+                  {refus[c.n] && <p className="mt-2 text-xs text-slate-300">Merci, votre réponse a été transmise.</p>}
                   {interesses[c.n] && <p className="mt-2 text-xs text-emerald-300">Merci, votre intérêt a été transmis.</p>}
                 </div>
               </div>

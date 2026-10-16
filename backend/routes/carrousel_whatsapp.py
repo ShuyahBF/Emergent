@@ -1327,6 +1327,13 @@ def attach_carrousel_whatsapp_routes(
         `attendre=True` (tests) : les envois sont faits avant de rendre la main. Renvoie le nombre lancé."""
         maintenant = _maintenant()
         a_lancer: List[str] = []
+        # Lot 218 — plage horaire élargie : un envoi EN ATTENTE à cause des plages, dont la reprise était fixée à la
+        # prochaine ouverture de l'ANCIEN réglage, repart dès que la plage est ouverte maintenant (sans attendre demain)
+        if await _attente() is None:
+            await db.carrousel_campagnes.update_many(
+                {"statut": "EN_ATTENTE", "reprise_le": {"$gt": maintenant},
+                 "$or": [{"motif_arret": {"$regex": "^Hors des plages"}}, {"motif_arret": None}, {"motif_arret": {"$exists": False}}]},
+                {"$set": {"reprise_le": maintenant}})
         async for c in db.carrousel_campagnes.find(
                 {"statut": {"$in": ["PROGRAMMEE", "EN_ATTENTE"]}, "reprise_le": {"$lte": maintenant}},
                 {"_id": 0, "id": 1}):
@@ -1364,6 +1371,18 @@ def attach_carrousel_whatsapp_routes(
                                                         "il ne peut plus être annulé")
         logger.info("[carrousel] campagne %s annulée par %s", c["id"], user.get("email") or user.get("id"))
         return {"ok": True, "id": c["id"], "statut": "ANNULEE", "statut_libelle": STATUTS_CAMPAGNE["ANNULEE"]}
+
+    async def _reprendre(filtre: dict) -> dict:
+        """Lot 218 — « Reprendre maintenant » : un envoi EN ATTENTE repart tout de suite. Les plages horaires sont
+        re-contrôlées avant chaque message : hors plage, l'envoi se remet en attente (jamais d'envoi de nuit)."""
+        c = await db.carrousel_campagnes.find_one(filtre, {"_id": 0, "id": 1, "statut": 1})
+        if not c:
+            raise HTTPException(status_code=404, detail="Campagne introuvable")
+        r = await db.carrousel_campagnes.update_one({"id": c["id"], "statut": "EN_ATTENTE"}, {"$set": {"reprise_le": _maintenant()}})
+        if not r.modified_count:
+            raise HTTPException(status_code=409, detail="Seul un envoi « En attente » peut être repris maintenant")
+        await lancer_echus()
+        return {"ok": True, "id": c["id"]}
 
     async def _planificateur() -> None:
         """Boucle de fond : démarre les campagnes échues et reprend les interrompues, toutes les minutes."""
@@ -2251,6 +2270,14 @@ def attach_carrousel_whatsapp_routes(
     @api.get("/admin/whatsapp/carrousel/campagnes/{cid}", tags=["Admin — Carrousel WhatsApp"])
     async def campagne_admin(cid: str, _: dict = Depends(get_current_admin)):
         return await _campagne({"id": cid, "perimetre": "admin"})
+
+    @api.post("/admin/whatsapp/carrousel/campagnes/{cid}/reprendre", tags=["Admin — Carrousel WhatsApp"])
+    async def admin_reprendre(cid: str, user: dict = Depends(get_current_admin)):
+        return await _reprendre({"id": cid})
+
+    @api.post("/me/whatsapp/carrousel/campagnes/{cid}/reprendre", tags=["Portail Client — Carrousel WhatsApp"])
+    async def me_reprendre(cid: str, user: dict = Depends(utilisateur)):
+        return await _reprendre({"id": cid, "perimetre": "client", "tenant_id": _tenant_id(user)})
 
     @api.post("/admin/whatsapp/carrousel/campagnes/{cid}/annuler", tags=["Admin — Carrousel WhatsApp"])
     async def annuler_admin(cid: str, user: dict = Depends(get_current_admin)):

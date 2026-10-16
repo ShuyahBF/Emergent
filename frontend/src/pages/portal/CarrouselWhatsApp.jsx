@@ -1091,6 +1091,21 @@ export default function CarrouselWhatsApp({ admin = false }) {
   };
 
   // Lot 114 — annuler un envoi programmé, en attente ou en cours (les destinataires déjà servis le restent)
+  // Lot 218 — « Reprendre maintenant » : un envoi en attente repart tout de suite si la plage horaire est ouverte
+  const [reprise, setReprise] = useState("");
+  const reprendre = async (c) => {
+    setReprise(c.id);
+    const attente = toast.loading("Patientez… reprise de l'envoi");
+    try {
+      await apiClient.post(`${base}/campagnes/${c.id}/reprendre`);
+      toast.success("Reprise demandée : l'envoi repart si la plage horaire est ouverte", { id: attente });
+      await charger();
+    } catch (e) {
+      toast.error(erreur(e, "Reprise impossible"), { id: attente });
+    } finally {
+      setReprise("");
+    }
+  };
   const [annulation, setAnnulation] = useState("");
   const annuler = async (c) => {
     if (!window.confirm(`Annuler cet envoi (${PASTILLES_STATUT[c.statut]?.[1] || c.statut}) ? Les messages déjà partis ne sont pas rappelés.`)) return;
@@ -1587,6 +1602,12 @@ export default function CarrouselWhatsApp({ admin = false }) {
                       <td className="max-w-[240px] truncate py-1 pr-2">{c.message}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{c.compte.envoyes} / {c.compte.total}</td>
                       <td className="py-1 text-right">
+                        {c.statut === "EN_ATTENTE" && (
+                          <Button size="sm" variant="outline" className="mr-1" disabled={reprise === c.id} onClick={() => reprendre(c)}
+                                  data-testid={`reprendre-campagne-${c.id}`}>
+                            {reprise === c.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />} Reprendre maintenant
+                          </Button>
+                        )}
                         <Button size="sm" variant="outline" disabled={annulation === c.id} onClick={() => annuler(c)}
                                 data-testid={`annuler-campagne-${c.id}`}>
                           <XCircle className="mr-1 h-3.5 w-3.5" /> Annuler
@@ -1618,6 +1639,11 @@ export default function CarrouselWhatsApp({ admin = false }) {
                   {c.annule_le ? `annulé le ${dateFr(c.annule_le)}` : ""}{c.annule_par ? ` par ${c.annule_par}` : ""}
                   {c.motif_arret ? ` — ${c.motif_arret}` : ""}
                 </span>
+              )}
+              {c.annulable && c.statut === "EN_ATTENTE" && (
+                <Button size="sm" variant="outline" disabled={reprise === c.id} onClick={() => reprendre(c)}>
+                  <Send className="mr-1 h-3.5 w-3.5" /> Reprendre maintenant
+                </Button>
               )}
               {c.annulable && (
                 <Button size="sm" variant="ghost" className="text-red-700" disabled={annulation === c.id} onClick={() => annuler(c)}>

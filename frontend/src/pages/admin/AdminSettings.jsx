@@ -165,7 +165,7 @@ const NEW_LOTS = {
   "Maintenance — Déconnexion de tous les utilisateurs": "50",
   "Abonnements (grâce et coupure) et sessions des comptes": "50",
   "Sauvegarde / transfert des données": "49",
-  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "114",   // lot 42 ; lot 114 : carrousels soumis aux plages et programmables
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "216",   // lot 42 ; lot 114 : carrousels ; lot 216 : plage continue début → fin
 };
 
 const NEW_SECTIONS = {
@@ -230,7 +230,7 @@ const NEW_SECTIONS = {
   // Lot 49 — export / import complets chiffrés, sauvegarde quotidienne vers R2
   "Sauvegarde / transfert des données": "2026-10-02",
   // Lot 42 — plages horaires d'envoi des sondages et formulaires
-  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-10-12",   // lot 114
+  "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)": "2026-10-16",   // lot 216
   // 2026-02 (fork) — Configurable WhatsApp inbound notification sound
   "🔔 WhatsApp — Son de notification (message entrant)": "2026-02-14",
   // S-iter39o (2026-02 post-handoff) — Qdrant RAG

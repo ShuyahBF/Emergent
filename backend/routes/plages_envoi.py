@@ -29,7 +29,8 @@ DOC_ID = "plages_envoi"
 JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 DEFAUT: Dict[str, Any] = {
     "actif": False, "fuseau": "Africa/Ouagadougou", "jours": [0, 1, 2, 3, 4, 5],
-    "plages": [{"de": "08:00", "a": "12:00"}, {"de": "15:00", "a": "19:00"}],
+    # lot 216 : une seule plage continue (heure de début → heure de fin), sans pause déjeuner imposée
+    "plages": [{"de": "08:00", "a": "19:00"}],
 }
 RE_HEURE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 

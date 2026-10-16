@@ -27,7 +27,7 @@
 #     déterministe, pour qu'un client en retard ne reçoive JAMAIS d'aide par erreur.
 #
 # Lot 210 — ÉCHÉANCES ET RAPPELS : chaque ligne porte aussi date_debut (AAAA-MM-JJ), duree_jours (0 = pas d'échéance),
-#   rappel_jours (ex. [3] ou [7, 3]), reconduction (la période suivante commence à l'échéance, vrai par défaut),
+#   fin_de_mois (échéance = dernier jour du mois calendaire), rappel_jours (ex. [3] ou [7, 3]), reconduction (la période suivante commence à l'échéance, vrai par défaut),
 #   alerte_active (rappel AUTORISÉ pour cette ligne, faux par défaut) et rappels_envoyes (suivi interne, jamais modifié à la main).
 #   Chaque matin, Liluvine envoie un WhatsApp aux décisionnaires du client — voir routes/offre_client_rappels.py.
 # Routes : GET/PUT /api/admin/clients/{id}/offre ; GET/PUT /api/admin/offre-client/reglages.
@@ -138,6 +138,7 @@ def normaliser_offre(brut: Any) -> List[Dict[str, Any]]:
             "duree_jours": _entier(ligne.get("duree_jours"), 0, 3650),
             "rappel_jours": _rappels(ligne.get("rappel_jours")),
             "reconduction": ligne.get("reconduction") is not False,
+            "fin_de_mois": ligne.get("fin_de_mois") is True,       # échéance = dernier jour du mois (la durée en jours est alors ignorée)
             "alerte_active": ligne.get("alerte_active") is True,
             "rappels_envoyes": [str(x)[:40] for x in (ligne.get("rappels_envoyes") or []) if x][-12:]
             if isinstance(ligne.get("rappels_envoyes"), list) else [],
@@ -374,6 +375,7 @@ class LigneOffreIn(BaseModel):
     duree_jours: int = Field(default=0, ge=0, le=3650)
     rappel_jours: List[int] = Field(default_factory=list, max_length=10)
     reconduction: bool = True
+    fin_de_mois: bool = False
     alerte_active: bool = False
 
 

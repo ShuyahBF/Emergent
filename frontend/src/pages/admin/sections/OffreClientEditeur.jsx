@@ -4,7 +4,7 @@
 // quelle assistance est visée quand le contrat n'est pas à jour.
 //   GET / PUT /api/admin/clients/{id}/offre   { lignes: [{ id, type, nom, description, version, actif }] }
 // Aucune nouvelle collection : la liste est enregistrée sur la fiche du client.
-// Lot 210 — chaque ligne a aussi : date_debut, duree_jours (0 = pas d'échéance), rappel_jours (ex. 7, 3), reconduction et alerte_active.
+// Lot 210 — chaque ligne a aussi : date_debut, duree_jours (0 = pas d'échéance), rappel_jours (ex. 7, 3), reconduction, fin_de_mois (lot 210.1 : échéance au dernier jour du mois) et alerte_active.
 //   Chaque matin, Liluvine prévient par WhatsApp les décisionnaires du client des échéances proches (réglages : Paramètres → Offre du client).
 // Lot 169 — COPIE d'un client à un autre :
 //   GET  /api/admin/offre-client/clients                         liste des clients et nombre de lignes de leur offre
@@ -23,12 +23,22 @@ const TYPES = [["logiciel", "Logiciel"], ["produit", "Produit"], ["service", "Se
 // Lot 210 — échéance calculée (même règle que le serveur : début + durée ; avec reconduction, la première échéance non passée)
 function EcheanceInfo({ ligne }) {
   const { date_debut: debut, duree_jours: duree } = ligne;
-  if (!debut || !(duree > 0)) return <span className="text-slate-400">Échéance : renseignez début et durée</span>;
   const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
-  const fin = new Date(`${debut}T00:00:00`); fin.setDate(fin.getDate() + duree);
-  if (ligne.reconduction !== false && fin < aujourdhui) {
-    const periodes = Math.ceil((aujourdhui - fin) / 86400000 / duree);
-    fin.setDate(fin.getDate() + periodes * duree);
+  const dernierJour = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);      // dernier jour du mois de d
+  let fin;
+  if (ligne.fin_de_mois) {
+    // Fin de mois calendaire : dernier jour du mois de la date de début ; avec reconduction, du mois en cours
+    const ref = debut ? new Date(`${debut}T00:00:00`) : (ligne.reconduction !== false ? aujourdhui : null);
+    if (!ref) return <span className="text-slate-400">Échéance : renseignez la date de début</span>;
+    fin = dernierJour(ref);
+    if (ligne.reconduction !== false && fin < aujourdhui) fin = dernierJour(aujourdhui);
+  } else {
+    if (!debut || !(duree > 0)) return <span className="text-slate-400">Échéance : renseignez début et durée</span>;
+    fin = new Date(`${debut}T00:00:00`); fin.setDate(fin.getDate() + duree);
+    if (ligne.reconduction !== false && fin < aujourdhui) {
+      const periodes = Math.ceil((aujourdhui - fin) / 86400000 / duree);
+      fin.setDate(fin.getDate() + periodes * duree);
+    }
   }
   const jours = Math.round((fin - aujourdhui) / 86400000);
   const couleur = jours < 0 ? "text-rose-700" : jours <= 7 ? "text-amber-700" : "text-emerald-700";
@@ -95,7 +105,7 @@ export default function OffreClientEditeur({ clientId }) {
   // Modifie un champ d'une ligne
   const changer = (i, champ, valeur) => setLignes(lignes.map((l, k) => (k === i ? { ...l, [champ]: valeur } : l)));
   // Ajoute une ligne vide
-  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true, date_debut: "", duree_jours: 0, rappel_jours: [], reconduction: true, alerte_active: false }]);
+  const ajouter = () => setLignes([...lignes, { id: "", type: "logiciel", nom: "", description: "", version: "", actif: true, date_debut: "", duree_jours: 0, rappel_jours: [], reconduction: true, fin_de_mois: false, alerte_active: false }]);
   // Enregistre toute la liste (les lignes sans nom sont ignorées par le serveur)
   const enregistrer = async () => {
     setOccupe(true);
@@ -132,8 +142,12 @@ export default function OffreClientEditeur({ clientId }) {
               <label className="flex items-center gap-1">Début de période
                 <input type="date" className="rounded border border-slate-300 px-2 py-1" value={l.date_debut || ""} onChange={(e) => changer(i, "date_debut", e.target.value)} />
               </label>
-              <label className="flex items-center gap-1">Durée (jours)
-                <input type="number" min={0} max={3650} className="w-20 rounded border border-slate-300 px-2 py-1" value={l.duree_jours || 0}
+              {/* Lot 210.1 — échéance au dernier jour du mois calendaire (la durée en jours est alors ignorée) */}
+              <label className="flex items-center gap-1 font-semibold" title="L'échéance est le dernier jour du mois (28, 29, 30 ou 31), chaque mois">
+                <input type="checkbox" checked={!!l.fin_de_mois} onChange={(e) => changer(i, "fin_de_mois", e.target.checked)} data-testid={`offre-fin-mois-${i}`} /> 📅 Fin de mois calendaire
+              </label>
+              <label className={`flex items-center gap-1 ${l.fin_de_mois ? "opacity-40" : ""}`}>Durée (jours)
+                <input type="number" min={0} max={3650} disabled={!!l.fin_de_mois} className="w-20 rounded border border-slate-300 px-2 py-1" value={l.duree_jours || 0}
                   onChange={(e) => changer(i, "duree_jours", Math.max(0, Number(e.target.value) || 0))} title="30 = un mois ; 0 = pas d'échéance" />
               </label>
               <label className="flex items-center gap-1">Rappel (jours avant)

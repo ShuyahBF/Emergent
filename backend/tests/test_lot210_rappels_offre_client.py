@@ -189,3 +189,35 @@ def test_la_tache_ne_leve_jamais():
         settings = None
     bilan = lancer(rr.rappeler(Casse(), MAINTENANT, faux_envoi([])))
     assert "erreur" in bilan
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 210.1 — fin de mois calendaire
+# ---------------------------------------------------------------------------------------------------------------------
+def test_fin_de_mois_calendaire():
+    l = ligne(fin_de_mois=True, duree_jours=0, date_debut="")
+    assert rr.echeance_ligne(l, date(2026, 10, 16)) == date(2026, 10, 31)       # mois de 31 jours
+    assert rr.echeance_ligne(l, date(2026, 11, 2)) == date(2026, 11, 30)        # le mois suivant : reconduction mensuelle
+    assert rr.echeance_ligne(l, date(2028, 2, 10)) == date(2028, 2, 29)         # année bissextile
+    assert rr.echeance_ligne(l, date(2027, 2, 10)) == date(2027, 2, 28)
+    # Sans reconduction, il faut une date de début ; l'échéance passée reste passée
+    assert rr.echeance_ligne(ligne(fin_de_mois=True, reconduction=False, date_debut=""), date(2026, 10, 16)) is None
+    assert rr.echeance_ligne(ligne(fin_de_mois=True, reconduction=False, date_debut="2026-09-10"), date(2026, 10, 16)) == date(2026, 9, 30)
+
+
+def test_rappel_trois_jours_avant_la_fin_du_mois():
+    l = ligne(fin_de_mois=True, duree_jours=0, date_debut="", rappel_jours=[3])
+    assert rr.a_rappeler(l, date(2026, 10, 28))["jours"] == 3                   # 28/10 pour une échéance au 31/10
+    assert rr.a_rappeler(l, date(2026, 11, 27))["jours"] == 3                   # 27/11 pour le 30/11
+    assert rr.a_rappeler(l, date(2026, 10, 27)) is None
+    # Le suivi est par échéance : le rappel d'octobre n'empêche pas celui de novembre
+    envoye = ligne(fin_de_mois=True, duree_jours=0, date_debut="", rappel_jours=[3], rappels_envoyes=["2026-10-31|3"])
+    assert rr.a_rappeler(envoye, date(2026, 10, 28)) is None
+    assert rr.a_rappeler(envoye, date(2026, 11, 27))["cles"] == ["2026-11-30|3"]
+
+
+def test_fin_de_mois_normalisee_et_copiee():
+    assert ligne(fin_de_mois=True)["fin_de_mois"] is True
+    assert ligne(fin_de_mois="oui")["fin_de_mois"] is False
+    copie, _ = oc.fusionner_offre([], [ligne(fin_de_mois=True)], "remplacer")
+    assert copie[0]["fin_de_mois"] is True

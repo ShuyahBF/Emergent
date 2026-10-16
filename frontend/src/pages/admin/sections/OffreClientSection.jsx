@@ -97,7 +97,7 @@ export default function OffreClientSection() {
       <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3" data-testid="offre-rappels">
         <h4 className="text-sm font-semibold text-slate-900">🔔 Rappels d'échéance (WhatsApp aux décisionnaires)</h4>
         <p className="text-xs text-slate-600">
-          Sur la fiche d'un client, chaque ligne a une <b>date de début</b>, une <b>durée</b> (30 = un mois) et des <b>jours de rappel</b> (ex. 7, 3) ;
+          Sur la fiche d'un client, chaque ligne a une <b>date de début</b>, une <b>durée</b> (30 = un mois) ou la case <b>« 📅 Fin de mois calendaire »</b> (échéance = dernier jour du mois, chaque mois), et des <b>jours de rappel</b> (ex. 3 = le 28 d'un mois de 31 jours) ;
           cochez « 🔔 Alerte autorisée » pour les lignes à rappeler. Chaque matin à 07 h 30, Liluvine inspecte les lignes autorisées et prévient
           <b> tous les contacts décisionnaires</b> du client (un message par décisionnaire, toutes les échéances du jour regroupées).
           {rappels ? <> {rappels.clients_avec_alerte} client(s) ont au moins une alerte autorisée.</> : null}

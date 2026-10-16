@@ -38,7 +38,9 @@ export default function CarrouselSynthese({ base }) {
       toast.error(e?.response?.data?.detail || "Synthèse indisponible");
     } finally { setCharge(false); }
   }, [base, du, au]);
-  useEffect(() => { lire(); }, []); // eslint-disable-line react-hooks/exhaustive-deps — lecture à l'ouverture, ensuite au clic sur « Afficher »
+  // Lecture à l'ouverture seulement ; ensuite, au clic sur « Afficher »
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { lire(); }, []);
 
   const t = data?.totaux;
   // Un point par carrousel (le plus ancien à gauche) pour le graphique « par carrousel »

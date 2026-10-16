@@ -305,7 +305,7 @@ def test_rapport_public_annonceur(env):
     c = rap["carrousel"]
     assert (c["envois"], c["clics_bruts"], c["clics_facturables"], c["vues"], c["interesses"]) == (1, 1, 1, 1, 1)
     carte2 = c["campagnes"][0]["cartes"][1]
-    assert carte2 == {"n": 2, "titre": "Promo", "clics": 1, "clics_factures": 1, "vues": 1, "interesses": 1}
+    assert carte2 == {"n": 2, "titre": "Promo", "clics": 1, "clics_factures": 1, "vues": 1, "interesses": 1, "pas_interesses": 0}   # lot 220
     jour = rap["daily"][-1]
     assert jour["impressions"] == 1 and jour["clicks"] == 1 and jour["vues"] == 1 and jour["interesses"] == 1
     brut = json.dumps(rap, ensure_ascii=False)

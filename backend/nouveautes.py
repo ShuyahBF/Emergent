@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "214", "date": "2026-10-16",
+        "titre": "⚡ Templates WhatsApp : la ligne seule se met à jour",
+        "description": "Sur la page Templates WhatsApp, activer ou désactiver un template, modifier sa note ou le supprimer ne recharge plus toute la page (plus d'effet visible) : seule la ligne concernée change et vous pouvez enchaîner.",
+        "rubrique": "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels",
+    },
+    {
         "lot": "213", "date": "2026-10-16",
         "titre": "🖼️ Bibliothèque de médias : fichiers introuvables signalés, copie durable automatique",
         "description": "Les fichiers perdus lors d'une mise à jour (jamais copiés dans le stockage durable) s'affichent « Fichier introuvable » au lieu d'un lien cassé, ne peuvent plus servir d'en-tête et se retirent en un clic. Les fichiers encore présents mais sans copie durable sont copiés automatiquement ; un nouvel upload sans copie durable prévient tout de suite.",

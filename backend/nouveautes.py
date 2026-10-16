@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "213", "date": "2026-10-16",
+        "titre": "🖼️ Bibliothèque de médias : fichiers introuvables signalés, copie durable automatique",
+        "description": "Les fichiers perdus lors d'une mise à jour (jamais copiés dans le stockage durable) s'affichent « Fichier introuvable » au lieu d'un lien cassé, ne peuvent plus servir d'en-tête et se retirent en un clic. Les fichiers encore présents mais sans copie durable sont copiés automatiquement ; un nouvel upload sans copie durable prévient tout de suite.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "212", "date": "2026-10-16",
         "titre": "📦 Carrousel WhatsApp : onglet « Suivi de vos envois »",
         "description": "La page Carrousel a maintenant deux onglets : « Préparer un envoi » et « Suivi de vos envois » (l'ancien bloc 3). Le suivi s'ouvre tout seul quand il n'y a rien à faire, et juste après chaque envoi. Les envois « En attente » expliquent pourquoi et quand ils reprennent.",

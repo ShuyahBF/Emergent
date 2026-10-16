@@ -1420,6 +1420,8 @@ const WhatsAppModal = ({ contact, onClose, onSent, userRole }) => {
       if (!link) throw new Error("URL publique manquante");
       setHeaderMedia({ link, kind: r.data?.kind || "document", filename: r.data?.filename || file.name });
       toast.success("Fichier ajouté à la bibliothèque et prêt pour l'en-tête");
+      // Lot 213 — sans copie durable, le fichier disparaîtrait au prochain redéploiement : on prévient tout de suite
+      if (r.data?.durable === false) toast.warning("Attention : ce fichier n'a pas pu être copié dans le stockage durable ; il peut disparaître lors d'une prochaine mise à jour. Ré-uploadez-le plus tard.", { duration: 10000 });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Échec de l'upload");
     } finally {
@@ -1644,6 +1646,9 @@ const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedi
   const [showLibrary, setShowLibrary] = useState(false);
   const [library, setLibrary] = useState([]);
   const [libLoading, setLibLoading] = useState(false);
+  // Lot 213 — fichiers dont le lien est cassé : signalés par le serveur (« perdu ») ou constatés à l'affichage (image qui ne charge pas)
+  const [casses, setCasses] = useState(() => new Set());
+  const [retrait, setRetrait] = useState(false);
 
   useEffect(() => {
     if (!showLibrary) return;
@@ -1725,17 +1730,49 @@ const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedi
             {!libLoading && filtered.length === 0 && (
               <p className="text-[11px] text-slate-500 italic">Aucun {wantedKind} dans la bibliothèque. Uploadez ci-dessus.</p>
             )}
+            {/* Lot 213 — fichiers perdus (irrécupérables après un redéploiement) : plus de vignette cassée, retrait en un clic */}
+            {filtered.some((m) => m.perdu || casses.has(m.id)) && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 ring-1 ring-amber-200" data-testid="wa-header-media-perdus">
+                <span>
+                  <b>{filtered.filter((m) => m.perdu || casses.has(m.id)).length} fichier(s) introuvable(s)</b> : ils n'existent plus sur le serveur (perdus lors
+                  d'une mise à jour, avant la copie durable). Retirez-les puis ré-uploadez-les si besoin.
+                </span>
+                <button type="button" disabled={retrait} data-testid="wa-header-media-retirer-perdus"
+                  className="ml-auto rounded bg-amber-600 px-2 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                  onClick={async () => {
+                    const ids = filtered.filter((m) => m.perdu || casses.has(m.id)).map((m) => m.id);
+                    if (!window.confirm(`Retirer ${ids.length} fichier(s) introuvable(s) de la bibliothèque ?`)) return;
+                    setRetrait(true);
+                    try {
+                      for (const id of ids) { await apiClient.delete(`/me/media-library/${id}`).catch(() => {}); }
+                      setLibrary((l) => l.filter((x) => !ids.includes(x.id)));
+                      toast.success(`${ids.length} fichier(s) retiré(s)`);
+                    } finally { setRetrait(false); }
+                  }}>
+                  {retrait ? "Patientez…" : "Retirer les fichiers introuvables"}
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {filtered.map((m) => (
+              {filtered.map((m) => {
+                const casse = !!m.perdu || casses.has(m.id);
+                return (
                 <button
                   key={m.id}
                   type="button"
+                  disabled={casse}
                   onClick={() => uploadHeader(null, m)}
-                  className="rounded border border-slate-200 bg-white hover:border-sawali-blue p-1.5 text-left"
+                  className={`rounded border p-1.5 text-left ${casse ? "border-amber-200 bg-amber-50/60 cursor-not-allowed" : "border-slate-200 bg-white hover:border-sawali-blue"}`}
                   data-testid={`wa-header-media-pick-${m.id}`}
+                  title={casse ? "Fichier introuvable : il ne peut plus servir d'en-tête" : undefined}
                 >
-                  {m.kind === "image" ? (
-                    <img src={m.public_url} alt="" className="h-16 w-full object-cover rounded" />
+                  {casse ? (
+                    <div className="h-16 flex flex-col items-center justify-center rounded bg-amber-100 text-[10px] font-semibold text-amber-800" data-testid={`wa-header-media-perdu-${m.id}`}>
+                      <FileTextIcon className="h-5 w-5" /> Fichier introuvable
+                    </div>
+                  ) : m.kind === "image" ? (
+                    <img src={m.public_url} alt="" className="h-16 w-full object-cover rounded"
+                         onError={() => setCasses((c) => (c.has(m.id) ? c : new Set(c).add(m.id)))} />
                   ) : (
                     <div className="h-16 flex items-center justify-center bg-slate-100 rounded text-slate-500">
                       {m.kind === "video" ? <Video className="h-6 w-6" /> : <FileTextIcon className="h-6 w-6" />}
@@ -1743,7 +1780,8 @@ const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedi
                   )}
                   <p className="text-[10px] mt-1 truncate">{m.label || m.filename}</p>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

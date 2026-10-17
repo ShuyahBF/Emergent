@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "239", "date": "2026-10-17",
+        "titre": "🗞️ Actualités : plafond d'appels IA relevé à 150 par jour",
+        "description": "Paiement Mobile résume maintenant 4 catégories (Presse locale, Tech, Mode, Coaching personnel) : le plafond quotidien passe de 40 à 150 résumés.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "238", "date": "2026-10-17",
         "titre": "🎯 Paramètres : les cartes Nouveautés ouvrent la bonne rubrique",
         "description": "Un clic sur une carte (ou sur « Aller à ») amène exactement sur la rubrique visée : la page se recale tant que les rubriques voisines se chargent, au lieu de s'arrêter trop haut, trop bas ou sur la voisine.",

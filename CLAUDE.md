@@ -66,6 +66,17 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
   d'icônes, d'onglets ou de pagination n'en ont pas besoin. Même principe sur toute autre plateforme.
 - Les écrans importants (alertes à traiter, encadrés d'action) se placent EN HAUT de la page, jamais enfouis dans une section.
 
+## Outils de maintenance et d'analyse (règle 9, 17/10/2026 : « règle ultra importante »)
+Le propriétaire vient de WinDev : il ne maîtrise ni Python ni PowerShell et préfère les interfaces graphiques.
+- NE JAMAIS lui concevoir d'outil de maintenance ou d'analyse qui demande le moins du monde de manipuler Python, PowerShell ou Visual Studio.
+- Privilégier une INTERFACE GRAPHIQUE dans la plateforme : rubrique des Paramètres avec un bouton, puis tableau, graphiques et export CSV.
+  Calcul en arrière-plan (règle 7), lecture seule par défaut, aucune nouvelle collection (cluster MongoDB plein), accès réservé au bon rôle.
+  Modèle : « Audit des collections MongoDB » (lot 225, `backend/routes/audit_collections_mongo.py`).
+- Si PowerShell est vraiment inévitable (action sur un poste Windows, sans interface possible) : TOUT dans UN SEUL fichier de commandes
+  (.ps1) prêt à l'emploi, commenté bloc par bloc, accompagné d'un mode d'emploi détaillé (où l'enregistrer, comment le lancer,
+  ce qu'il affiche, que faire en cas d'erreur). Secrets saisis à l'écran, jamais écrits dans un fichier ni dans le chat.
+- Un outil à usage unique (script Python, suite de commandes à enchaîner) n'est PAS une réponse acceptable.
+
 ## Attentes et chargements
 - Toute attente longue (connexion, recherche…) affiche un toast « Patientez… »
   et une jauge circulaire transparente (arc qui tourne), comme sur SAWALI.

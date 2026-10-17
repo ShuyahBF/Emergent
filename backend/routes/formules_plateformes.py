@@ -29,6 +29,7 @@ Pour un développeur WinDev (c'est l'équivalent de deux fichiers HFSQL + des pr
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -48,6 +49,10 @@ logger = logging.getLogger("sawali.formules_plateformes")
 _transport: Optional[httpx.AsyncBaseTransport] = None
 # Transcription de remplacement (tests) : async (octets, extension, langue) → texte ; None = Whisper (ia_client)
 _transcrire: Optional[Callable] = None
+# Stockage des archives chiffrées (lot 233) : crochets remplacés par les tests ; en production, Cloudflare R2 (object_storage.py)
+_ecrire_archive: Optional[Callable] = None
+_lire_archive: Optional[Callable] = None
+_effacer_archive: Optional[Callable] = None
 # Lecture OCR de remplacement (tests) : async (octets, type_mime, nom, consigne) → dict ; None = vrai moteur ocr_core
 _analyser: Optional[Callable] = None
 
@@ -67,7 +72,12 @@ CONSIGNE_ORDONNANCE = (
     "Tu ne donnes AUCUN conseil médical : tu retranscris seulement.")
 # Fonctions qu'une formule peut débloquer (liste fermée : alimente la liste déroulante d'administration)
 FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
-             "transcription_vocale": "Transcription vocale (notes de 30 secondes)"}
+             "transcription_vocale": "Transcription vocale (notes de 30 secondes)",
+             "archives_cloud": "Archives en ligne chiffrées (documents importants)"}
+FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
+ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
+ARCHIVE_FICHIER_MAX = 8_000_000           # octets d'un document chiffré (le site réduit les photos avant de chiffrer)
+ARCHIVE_META_MAX = 6000                   # caractères des informations chiffrées d'un document (titre, catégorie, étiquettes…)
 FONCTION_OCR = "ocr_ordonnances"          # une seule fonction débloque toutes les lectures OCR
 FONCTION_VOIX = "transcription_vocale"    # lot 229 : transcription des notes vocales
 VOIX_PAR_JOUR_DEFAUT = 10                 # notes par jour et par utilisateur (réglable)
@@ -146,6 +156,24 @@ class PispiConfirmationIn(BaseModel):
     reference_bancaire: Optional[str] = Field(None, max_length=120)
 
 
+class ArchiveCleIn(BaseModel):
+    """Sel public et jeton de contrôle de la phrase secrète (jamais la phrase elle-même, jamais la clé)."""
+    utilisateur: Utilisateur
+    sel: str = Field(..., min_length=16, max_length=64)
+    verif: str = Field(..., min_length=16, max_length=600)
+
+
+class ArchiveAjoutIn(BaseModel):
+    utilisateur: Utilisateur
+    meta: str = Field(..., min_length=16, max_length=ARCHIVE_META_MAX)          # informations du document, CHIFFRÉES par le site
+    contenu: str = Field(..., min_length=40, max_length=12_000_000)             # document CHIFFRÉ par le site, en base64
+
+
+class ArchiveIdIn(BaseModel):
+    utilisateur: Utilisateur
+    id: str = Field(..., min_length=8, max_length=64)
+
+
 class CatalogueIn(BaseModel):
     utilisateur: Utilisateur
 
@@ -198,6 +226,7 @@ class ReglagesIn(BaseModel):
     parrainage_jours: int = Field(..., ge=0, le=90)           # jours offerts à CHACUN (0 = parrainage sans récompense)
     ocr_par_jour: Optional[int] = Field(None, ge=1, le=500)   # lectures OCR par jour et par utilisateur
     voix_par_jour: Optional[int] = Field(None, ge=1, le=200)  # notes vocales transcrites par jour et par utilisateur
+    archives_mo: Optional[int] = Field(None, ge=10, le=5000)  # espace d'archives en ligne par utilisateur, en Mo
 
 
 async def _whisper(octets: bytes, extension: str, langue: str) -> str:
@@ -591,6 +620,123 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                 resultat[m["utilisateur_id"]] = sorted(actifs, key=lambda x: x["expire_le"] or "", reverse=True)
         return {"abonnes": resultat}
 
+    # ------------------------------------------------------------------ archives en ligne chiffrées (lot 233)
+    # Le site chiffre LUI-MÊME chaque document et ses informations (AES-256-GCM, clé dérivée d'une phrase secrète que SAWALI ne connaît pas) :
+    # ici ne transitent et ne sont gardés que des octets illisibles. Lire et supprimer restent permis après la fin de l'abonnement ;
+    # ajouter exige un abonnement actif qui débloque « archives_cloud ».
+    async def reglage_archives_octets() -> int:
+        s = await db.settings.find_one({"_id": "global"}, {"archives_plateformes_mo": 1}) or {}
+        return int(s.get("archives_plateformes_mo") or ARCHIVES_MO_DEFAUT) * 1_000_000
+
+    async def usage_archives(m: dict) -> tuple:
+        """(octets utilisés, nombre de documents) d'un utilisateur : une seule lecture."""
+        octets, n = 0, 0
+        async for a in db.archives_cloud.find({"plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0, "taille": 1}):
+            octets += int(a.get("taille") or 0)
+            n += 1
+        return octets, n
+
+    def chemin_archive(m: dict, archive_id: str) -> str:
+        return f"sawali/archives/{m['plateforme']}/{m['id']}/{archive_id}"
+
+    @router.post("/formules-plateformes/archives/etat")
+    async def archives_etat(request: Request):
+        """Abonnement actif ? sel et jeton de contrôle de la phrase secrète (s'ils existent), espace utilisé et espace total."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(CatalogueIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        utilise, n = await usage_archives(m)
+        cle = m.get("archives_cle") or {}
+        return {"abonne": bool(d.utilisateur.acces_libre or acces_fonction(m, FONCTION_ARCHIVES)), "sel": cle.get("sel"), "verif": cle.get("verif"),
+                "quota_octets": await reglage_archives_octets(), "utilise_octets": utilise, "nombre": n, "fichier_max_octets": ARCHIVE_FICHIER_MAX}
+
+    @router.post("/formules-plateformes/archives/cle")
+    async def archives_cle(request: Request):
+        """Première activation : enregistre le sel et le jeton de contrôle (JAMAIS la phrase). Une seule fois : changer de phrase rendrait
+        les documents déjà archivés illisibles."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveCleIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        existante = m.get("archives_cle")
+        if existante:
+            if existante.get("sel") == d.sel:
+                return {"ok": True}
+            raise HTTPException(status_code=409, detail="Une phrase secrète est déjà enregistrée pour vos archives")
+        await db.membres_plateformes.update_one({"id": m["id"], "archives_cle": {"$exists": False}}, {"$set": {"archives_cle": {"sel": d.sel, "verif": d.verif}}})
+        return {"ok": True}
+
+    @router.post("/formules-plateformes/archives/liste")
+    async def archives_liste(request: Request):
+        """Documents archivés : identifiant, informations chiffrées, taille, date. Le site les déchiffre pour chercher."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(CatalogueIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        docs = await db.archives_cloud.find({"plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0, "plateforme": 0, "membre_id": 0}).sort("cree_le", -1).to_list(3000)
+        return {"archives": docs}
+
+    @router.post("/formules-plateformes/archives/ajouter")
+    async def archives_ajouter(request: Request):
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveAjoutIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        await exiger_abonnement(emetteur["code"], m, FONCTION_ARCHIVES, "Archives en ligne", d.utilisateur.acces_libre)
+        if not m.get("archives_cle"):
+            raise HTTPException(status_code=409, detail="Choisissez d'abord la phrase secrète de vos archives")
+        try:
+            octets = base64.b64decode(d.contenu, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="Document illisible")
+        if len(octets) > ARCHIVE_FICHIER_MAX:
+            raise HTTPException(status_code=413, detail=f"Document trop volumineux : {ARCHIVE_FICHIER_MAX // 1_000_000} Mo au plus")
+        utilise, _ = await usage_archives(m)
+        quota = await reglage_archives_octets()
+        if utilise + len(octets) > quota:
+            raise HTTPException(status_code=413, detail=f"Espace d'archives plein ({quota // 1_000_000} Mo) : supprimez des documents ou demandez plus d'espace")
+        archive_id = str(uuid.uuid4())
+        chemin = chemin_archive(m, archive_id)
+        if _ecrire_archive:
+            await _ecrire_archive(chemin, octets)
+        else:
+            import object_storage
+            await object_storage.put_object(chemin, octets, "application/octet-stream")
+        doc = {"id": archive_id, "plateforme": m["plateforme"], "membre_id": m["id"], "meta": d.meta, "taille": len(octets), "chemin": chemin, "cree_le": _iso(_maintenant())}
+        await db.archives_cloud.insert_one(doc.copy())
+        return {"id": archive_id, "taille": len(octets), "cree_le": doc["cree_le"], "utilise_octets": utilise + len(octets)}
+
+    @router.post("/formules-plateformes/archives/telecharger")
+    async def archives_telecharger(request: Request):
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveIdIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        a = await db.archives_cloud.find_one({"id": d.id, "plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        if _lire_archive:
+            octets = await _lire_archive(a["chemin"])
+        else:
+            import object_storage
+            octets, _ = await object_storage.get_object(a["chemin"])
+        return {"id": a["id"], "meta": a["meta"], "contenu": base64.b64encode(octets).decode("ascii")}
+
+    @router.post("/formules-plateformes/archives/supprimer")
+    async def archives_supprimer(request: Request):
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveIdIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        a = await db.archives_cloud.find_one({"id": d.id, "plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        try:
+            if _effacer_archive:
+                await _effacer_archive(a["chemin"])
+            else:
+                import storage
+                await asyncio.to_thread(storage.delete_bytes, a["chemin"], False)
+        except Exception as exc:  # noqa: BLE001 — l'inscription en base est retirée quand même (aucun document « fantôme » dans la liste)
+            logger.warning("[archives] objet non supprimé (%s)", type(exc).__name__)
+        await db.archives_cloud.delete_one({"id": a["id"]})
+        return {"ok": True}
+
     @router.post("/formules-plateformes/ocr")
     async def ocr(request: Request):
         """Lecture OCR d'une photo (plaque de marchand, ordonnance), réservée aux abonnés d'une formule qui débloque l'OCR."""
@@ -717,6 +863,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         return {"formules": formules, "plateformes": await plateformes_connues(), "fonctions": FONCTIONS,
                 "membres": await db.membres_plateformes.count_documents({}), "parrainage_jours": await reglages_parrainage(),
                 "ocr_par_jour": await reglage_ocr_par_jour(), "voix_par_jour": await reglage_voix_par_jour(),
+                "archives_mo": (await reglage_archives_octets()) // 1_000_000,
                 "pispi_demandes": await db.payments.count_documents({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
 
@@ -759,8 +906,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             maj["ocr_plateformes_par_jour"] = r.ocr_par_jour
         if r.voix_par_jour is not None:
             maj["transcription_plateformes_par_jour"] = r.voix_par_jour
+        if r.archives_mo is not None:
+            maj["archives_plateformes_mo"] = r.archives_mo
         await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour(),
-                "voix_par_jour": await reglage_voix_par_jour()}
+                "voix_par_jour": await reglage_voix_par_jour(), "archives_mo": (await reglage_archives_octets()) // 1_000_000}
 
     return router

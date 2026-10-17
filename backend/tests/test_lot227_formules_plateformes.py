@@ -535,3 +535,108 @@ def test_pispi_un_utilisateur_ne_declare_pas_la_demande_d_un_autre(env, pispi_ac
     ref = demander(env, f, U("u1")).json()["reference"]
     r = appel(env, "formules-plateformes/pispi/declarer", {"utilisateur": U("u2", "70 99 99 99"), "reference": ref, "reference_bancaire": "TX-1234"})
     assert r.status_code == 404
+
+
+# ── Lot 233 : archives en ligne chiffrées ─────────────────────────────────────────────────────
+@pytest.fixture()
+def archives_stock(env):
+    """Stockage R2 simulé : un dictionnaire chemin → octets."""
+    boite = {}
+
+    async def ecrire(chemin, octets):
+        boite[chemin] = octets
+
+    async def lire(chemin):
+        return boite[chemin]
+
+    async def effacer(chemin):
+        boite.pop(chemin, None)
+
+    fp._ecrire_archive, fp._lire_archive, fp._effacer_archive = ecrire, lire, effacer
+    yield boite
+    fp._ecrire_archive = fp._lire_archive = fp._effacer_archive = None
+
+
+import base64 as _b64
+
+SEL = "A" * 24
+VERIF = "B" * 40
+META = "M" * 40
+
+
+def arch(env, action, u=None, **plus):
+    return appel(env, f"formules-plateformes/archives/{action}", {"utilisateur": u or U(), **plus})
+
+
+def abonne_archives(env, u=None):
+    f = formule(env, nom="Archives", prix=2000, fonctions=["archives_cloud"])
+    payer(env, u or U(), f)
+    return f
+
+
+def test_archives_refusees_sans_abonnement_avec_le_prix(env, archives_stock):
+    formule(env, nom="Archives", prix=2000, fonctions=["archives_cloud"])
+    assert arch(env, "cle", sel=SEL, verif=VERIF).status_code == 200
+    r = arch(env, "ajouter", meta=META, contenu=_b64.b64encode(b"x" * 100).decode())
+    assert r.status_code == 402 and "2 000 FCFA" in r.json()["detail"]["message"] and not archives_stock
+
+
+def test_archives_cycle_complet_et_lecture_apres_expiration(env, archives_stock):
+    u = U()
+    abonne_archives(env, u)
+    assert arch(env, "etat", u).json()["abonne"] is True and arch(env, "etat", u).json()["sel"] is None
+    # La phrase secrète n'est enregistrée qu'une fois (sel et jeton de contrôle seulement)
+    assert arch(env, "cle", u, sel=SEL, verif=VERIF).status_code == 200
+    assert arch(env, "cle", u, sel=SEL, verif=VERIF).status_code == 200                 # même sel : sans effet
+    assert arch(env, "cle", u, sel="C" * 24, verif=VERIF).status_code == 409             # autre sel : refusé (documents illisibles sinon)
+    secret = bytes(range(200))
+    r = arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(secret).decode())
+    assert r.status_code == 200
+    aid = r.json()["id"]
+    assert list(archives_stock.values()) == [secret]                                     # octets gardés tels quels : jamais lus ni modifiés
+    liste = arch(env, "liste", u).json()["archives"]
+    assert [a["id"] for a in liste] == [aid] and liste[0]["meta"] == META and liste[0]["taille"] == 200
+    assert arch(env, "etat", u).json()["utilise_octets"] == 200 and arch(env, "etat", u).json()["nombre"] == 1
+    # Fin de l'abonnement : on peut toujours LIRE et SUPPRIMER, plus ajouter
+    env.portal.call(env.db.membres_plateformes.update_many, {}, {"$set": {"abonnements": {}}})
+    assert arch(env, "etat", u).json()["abonne"] is False
+    dl = arch(env, "telecharger", u, id=aid).json()
+    assert _b64.b64decode(dl["contenu"]) == secret and dl["meta"] == META
+    assert arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"y" * 100).decode()).status_code == 402
+    assert arch(env, "supprimer", u, id=aid).status_code == 200
+    assert arch(env, "liste", u).json()["archives"] == [] and not archives_stock
+    assert arch(env, "telecharger", u, id=aid).status_code == 404
+
+
+def test_archives_cloisonnees_par_utilisateur(env, archives_stock):
+    a, b = U("u1"), U("u2", "70 99 99 99")
+    abonne_archives(env, a)
+    arch(env, "cle", a, sel=SEL, verif=VERIF)
+    aid = arch(env, "ajouter", a, meta=META, contenu=_b64.b64encode(b"z" * 100).decode()).json()["id"]
+    assert arch(env, "liste", b).json()["archives"] == []
+    assert arch(env, "telecharger", b, id=aid).status_code == 404 and arch(env, "supprimer", b, id=aid).status_code == 404
+
+
+def test_archives_limites_de_taille_et_d_espace(env, archives_stock):
+    u = {**U(), "acces_libre": True}                                                      # administrateur : dispensé d'abonnement
+    arch(env, "cle", u, sel=SEL, verif=VERIF)
+    assert arch(env, "ajouter", u, meta=META, contenu="@@@@" * 20).status_code == 422     # pas du base64
+    gros = _b64.b64encode(b"g" * (fp.ARCHIVE_FICHIER_MAX + 1)).decode()
+    assert arch(env, "ajouter", u, meta=META, contenu=gros).status_code == 413
+    assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_mo": 10}).status_code == 200      # espace : 10 Mo
+    un_peu_moins = _b64.b64encode(b"q" * 6_000_000).decode()
+    assert arch(env, "ajouter", u, meta=META, contenu=un_peu_moins).status_code == 200
+    r = arch(env, "ajouter", u, meta=META, contenu=un_peu_moins)
+    assert r.status_code == 413 and "plein" in r.json()["detail"]
+
+
+def test_archives_phrase_obligatoire_avant_d_ajouter(env, archives_stock):
+    u = {**U(), "acces_libre": True}
+    r = arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"x" * 100).decode())
+    assert r.status_code == 409 and "phrase secrète" in r.json()["detail"]
+
+
+def test_archives_reglage_admin_de_l_espace(env):
+    assert env.get("/api/admin/formules-plateformes").json()["archives_mo"] == 200
+    assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_mo": 500}).json()["archives_mo"] == 500
+    assert env.get("/api/admin/formules-plateformes").json()["archives_mo"] == 500

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "236", "date": "2026-10-17",
+        "titre": "📣 « Devenir annonceur » : formule Annonceur payante",
+        "description": "Créez une formule avec la fonction « Annonceur » : seuls ses abonnés peuvent passer des annonces ; le menu de Paiement Mobile affiche son prix et mène au paiement.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "235", "date": "2026-10-17",
         "titre": "📣 Annonceurs de Paiement Mobile : tarifs, devis en direct et annonces des abonnés",
         "description": "Un abonné peut passer une annonce (image ou vidéo chiffrée) : vous fixez les tarifs, il voit son devis en direct, paie par PawaPay ou PI-SPI et suit ses statistiques ; seul SAWALI peut corriger un montant.",

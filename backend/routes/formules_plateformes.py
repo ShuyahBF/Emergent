@@ -74,6 +74,7 @@ CONSIGNE_ORDONNANCE = (
 FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
              "transcription_vocale": "Transcription vocale (notes de 30 secondes)",
              "archives_cloud": "Archives en ligne chiffrées (documents importants)"}
+FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiques)"   # lot 236
 FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
 ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
 ARCHIVE_FICHIER_MAX = 8_000_000           # octets d'un document chiffré (le site réduit les photos avant de chiffrer)
@@ -932,5 +933,6 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
 
     # Outils partagés avec le module des annonceurs (lot 235) : signature des plateformes, fiche membre, lecture des corps
     from types import SimpleNamespace
-    router.outils = SimpleNamespace(plateforme_signee=plateforme_signee, membre=membre, lire=lire)
+    router.outils = SimpleNamespace(plateforme_signee=plateforme_signee, membre=membre, lire=lire,
+                                    acces_fonction=acces_fonction, exiger_abonnement=exiger_abonnement)
     return router

@@ -61,6 +61,7 @@ _lire: Optional[Callable] = None        # async (chemin) → octets
 
 ID_REGLAGES = "annonceurs_plateformes"
 PLACEMENT = "paiementmobile"
+FONCTION = "annonceur_pm"       # fonction débloquée par la formule « Annonceur » (créée dans Formules des plateformes)
 FLOW = "annonce_plateforme"
 STATUTS_PISPI_OUVERTS = ("pispi_attente", "pispi_verification")
 TYPES_IMAGE = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG", "image/webp": b"RIFF"}
@@ -290,18 +291,15 @@ def make_annonceurs_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[
         return {k: t[k] for k in ("formats", "options", "remises", "duree_min", "duree_max", "avance_max_jours", "image_max_ko", "video_max_mo", "actif")}
 
     def est_abonne(m: dict, libre: bool) -> bool:
-        """Annonceur = utilisateur ayant un abonnement ACTIF (n'importe quelle formule) ; le super-administrateur est dispensé."""
-        if libre:
-            return True
-        maintenant = _maintenant()
-        return any(jours_restants(a.get("expire_le"), maintenant) > 0 for a in (m.get("abonnements") or {}).values())
+        """Annonceur = utilisateur dont un abonnement ACTIF débloque la fonction « annonceur_pm » ; le super-administrateur est dispensé."""
+        return bool(libre or outils.acces_fonction(m, FONCTION))
 
     async def exiger_annonceur(request: Request, modele):
         emetteur, corps = await outils.plateforme_signee(request)
         d = outils.lire(modele, corps)
         m = await outils.membre(emetteur["code"], d.utilisateur)
-        if not est_abonne(m, d.utilisateur.acces_libre):
-            raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": "Pour passer une annonce, il faut d'abord être abonné : prenez une formule dans « Abonnement »."})
+        # Refus 402 sans la formule « Annonceur » : le message donne son NOM et son PRIX
+        await outils.exiger_abonnement(emetteur["code"], m, FONCTION, "L'espace annonceur", d.utilisateur.acces_libre)
         return emetteur, d, m
 
     def vue(c: dict) -> dict:
@@ -323,7 +321,10 @@ def make_annonceurs_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[
         emetteur, corps = await outils.plateforme_signee(request)
         d = outils.lire(UtilisateurIn, corps)
         m = await outils.membre(emetteur["code"], d.utilisateur)
-        return {"tarifs": vue_tarifs(await tarifs()), "est_abonne": est_abonne(m, d.utilisateur.acces_libre)}
+        # Si l'utilisateur n'a pas la formule Annonceur : on propose la moins chère (nom, prix, durée) pour « Devenir annonceur »
+        formules = await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": True, "fonctions": FONCTION}, {"_id": 0}).sort("prix", 1).to_list(5)
+        offre = [{"id": f["id"], "nom": f["nom"], "prix": f["prix"], "duree_jours": f.get("duree_jours") or 30} for f in formules]
+        return {"tarifs": vue_tarifs(await tarifs()), "est_abonne": est_abonne(m, d.utilisateur.acces_libre), "formules": offre}
 
     @router.post("/annonceurs-plateformes/devis")
     async def route_devis(request: Request):

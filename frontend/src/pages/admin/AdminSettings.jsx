@@ -94,6 +94,7 @@ import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessio
 import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
 import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSection";  // lot 52
 import WaUsageLignesSection from "@/pages/admin/sections/WaUsageLignesSection";   // lot 224 — suivi des lignes WhatsApp
+import AuditCollectionsMongoSection from "@/pages/admin/sections/AuditCollectionsMongoSection";   // lot 225 — audit des collections MongoDB
 import PispiSection from "@/pages/admin/sections/PispiSection";  // lot 57.8 — encaissement PI-SPI
 import JournalVoirEnTantQueSection from "@/pages/admin/sections/JournalVoirEnTantQueSection";   // lot 44
 import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — version détaillée
@@ -159,6 +160,7 @@ const NEW_LOTS = {
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
   "Transmission WA Universelle Liluvine (webhook entrant)": "112.1",   // lot 112.1 : texte libre si la fenêtre de 24 h est ouverte ; lot 107.1 : échec de retour effacé   // lots 83-84 : réponses citées ; lots 102-103 : assistant de la plateforme, mot-clé ; lot 104 : codes OTP par modèle
+  "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "225",   // lot 225
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "224",   // lot 224
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "223",   // lot 59 ; lot 223 : lignes privées et ligne par plateforme
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "57.8",
@@ -219,6 +221,7 @@ const NEW_SECTIONS = {
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
   "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-12",   // lot 102 ; lot 107.1
+  "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "2026-10-17",   // lot 225
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "2026-10-17",   // lot 224
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "2026-10-17",   // lot 223
   // Lot 57.8 — encaissement PI-SPI (QR de la banque sur les factures émises par SAWALI)
@@ -306,6 +309,7 @@ const NEW_DESCRIPTIONS = {
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "Numéros interdits aux commandes « ! » avec message de refus de Liluvine (lot 61).",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
   "Transmission WA Universelle Liluvine (webhook entrant)": "Adresse de l'assistant de chaque plateforme ; « !zandgo … » le joint à tout moment, FIN rend la main (lots 102-103).",
+  "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "Un clic : pour chaque collection de chaque base du cluster, date de dernière utilisation, statut (vide, active, inactive) et conseil, avec graphiques et export CSV (lot 225).",
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "Messages, modèles Meta (catégorie) et coût de l'IA par ligne WhatsApp, par mois ou période, avec détail date/heure et export CSV (lot 224).",
   "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels": "Plusieurs numéros (Standard, VIP, Publicités, ligne privée), couleurs des pastilles, appels (lots 59-60, 223).",
   "Encaissement PI-SPI (paiement instantané BCEAO) — factures": "QR de paiement instantané de la banque sur les factures (lot 57.8).",
@@ -1425,6 +1429,11 @@ export default function AdminSettings() {
       {/* Lot 224 — consommations par ligne WhatsApp et par période (facturation éventuelle d'une plateforme comme ALBARKA) */}
       <Filterable title="📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période" anchorId="s-wa-usage-lignes" category="comms">
         <WaUsageLignesSection />
+      </Filterable>
+
+      {/* Lot 225 — audit d'utilisation des collections MongoDB (lecture seule) : libérer des collections avant de payer un palier supérieur */}
+      <Filterable title="🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)" anchorId="s-audit-mongo" category="diagnostics">
+        <AuditCollectionsMongoSection />
       </Filterable>
 
       {/* Lot 67.1 — historique des appels automatiques de Liluvine : durées, coûts, synthèse par période */}

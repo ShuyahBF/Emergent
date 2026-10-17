@@ -1233,6 +1233,10 @@ api.include_router(_make_liluvine_emetteurs_router(db=db, get_current_admin=get_
 # Lot 224 — suivi des consommations WhatsApp par ligne et par période (facturation éventuelle d'une plateforme comme ALBARKA)
 from routes.wa_usage_lignes import make_wa_usage_router as _make_wa_usage_router  # noqa: E402
 api.include_router(_make_wa_usage_router(db=db, get_current_admin=get_current_admin))
+# Lot 225 — audit d'utilisation des collections MongoDB (lecture seule, en un clic) : administrateur principal seulement
+from auth import get_super_admin as _get_super_admin_audit  # noqa: E402
+from routes.audit_collections_mongo import make_audit_mongo_router as _make_audit_mongo_router  # noqa: E402
+api.include_router(_make_audit_mongo_router(db=db, get_super_admin=_get_super_admin_audit))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

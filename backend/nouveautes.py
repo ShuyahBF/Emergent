@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "225", "date": "2026-10-17",
+        "titre": "🗄️ Audit des collections MongoDB : lesquelles ne servent plus ?",
+        "description": "Nouvelle rubrique des Paramètres : un bouton analyse toutes les collections du cluster (lecture seule) et indique pour chacune sa dernière utilisation, son statut (vide, active, inactive) et un conseil, avec tableau, graphiques et export CSV. Utile pour libérer de la place avant de payer un palier MongoDB supérieur.",
+        "rubrique": "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)",
+    },
+    {
         "lot": "224", "date": "2026-10-17",
         "titre": "📊 Suivi des lignes WhatsApp : consommations par ligne et par période",
         "description": "Nouvelle rubrique des Paramètres : pour chaque ligne (ex. ALBARKA) et chaque mois ou période, les messages envoyés et reçus, les modèles Meta par nom et catégorie, la consommation d'IA de Liluvine, le détail date/heure et un export CSV. Une ligne privée se coche aussi, pour un utilisateur précis, dans la fiche de l'utilisateur suivi.",

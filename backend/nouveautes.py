@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "238", "date": "2026-10-17",
+        "titre": "🎯 Paramètres : les cartes Nouveautés ouvrent la bonne rubrique",
+        "description": "Un clic sur une carte (ou sur « Aller à ») amène exactement sur la rubrique visée : la page se recale tant que les rubriques voisines se chargent, au lieu de s'arrêter trop haut, trop bas ou sur la voisine.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "237", "date": "2026-10-17",
         "titre": "🗞️ Résumés de la presse pour Paiement Mobile",
         "description": "Paiement Mobile collecte chaque matin les médias choisis par son administrateur ; SAWALI résume les articles par l'IA (40 appels par jour au plus). Rien n'est gardé chez SAWALI.",

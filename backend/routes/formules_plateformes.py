@@ -169,6 +169,12 @@ class ArchiveAjoutIn(BaseModel):
     contenu: str = Field(..., min_length=40, max_length=12_000_000)             # document CHIFFRÉ par le site, en base64
 
 
+class ArchiveModifierIn(BaseModel):
+    utilisateur: Utilisateur
+    id: str = Field(..., min_length=8, max_length=64)
+    meta: str = Field(..., min_length=16, max_length=ARCHIVE_META_MAX)          # nouvelles informations, CHIFFRÉES par le site
+
+
 class ArchiveIdIn(BaseModel):
     utilisateur: Utilisateur
     id: str = Field(..., min_length=8, max_length=64)
@@ -717,6 +723,18 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             import object_storage
             octets, _ = await object_storage.get_object(a["chemin"])
         return {"id": a["id"], "meta": a["meta"], "contenu": base64.b64encode(octets).decode("ascii")}
+
+    @router.post("/formules-plateformes/archives/modifier")
+    async def archives_modifier(request: Request):
+        """Remplace les informations chiffrées d'un document (titre, catégorie, étiquettes…) ; le document lui-même ne change pas.
+        Permis après la fin de l'abonnement (rangement de ses propres documents)."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveModifierIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        r = await db.archives_cloud.update_one({"id": d.id, "plateforme": m["plateforme"], "membre_id": m["id"]}, {"$set": {"meta": d.meta}})
+        if not r.matched_count:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        return {"ok": True}
 
     @router.post("/formules-plateformes/archives/supprimer")
     async def archives_supprimer(request: Request):

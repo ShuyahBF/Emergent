@@ -4,6 +4,8 @@
     - Chaque paiement (page PawaPay hébergée) active la formule pour sa durée ; un nouveau paiement avant l'échéance S'AJOUTE au temps restant.
     - Parrainage : jours offerts à CHACUN (parrain et filleul) quand le filleul paie sa première formule (0 = désactivé).
     - Suivi : abonnés actifs, ventes et chiffre d'affaires par formule ; une formule déjà vendue n'est jamais supprimée, elle est désactivée.
+  Lot 228 : la fonction « OCR » de la formule débloque les lectures de plaques de marchands et d'ordonnances ; refusées sans abonnement actif
+  (message avec le nom et le prix de la formule) ; limite de lectures par jour réglable ici.
   API : GET/POST/PUT/DELETE /admin/formules-plateformes, PUT /admin/formules-plateformes-reglages (backend/routes/formules_plateformes.py).
 */
 import React, { useCallback, useEffect, useState } from "react";
@@ -17,6 +19,7 @@ export default function FormulesPlateformesSection() {
   const [d, setD] = useState(null);
   const [edition, setEdition] = useState(null);       // formule en cours de saisie (id absent = nouvelle)
   const [jours, setJours] = useState(7);
+  const [ocrJour, setOcrJour] = useState(30);        // lots 228 : lectures OCR par jour et par utilisateur
   const [envoi, setEnvoi] = useState(false);
 
   const charger = useCallback(async () => {
@@ -24,6 +27,7 @@ export default function FormulesPlateformesSection() {
       const r = await apiClient.get("/admin/formules-plateformes");
       setD(r.data);
       setJours(r.data.parrainage_jours);
+      setOcrJour(r.data.ocr_par_jour);
     } catch (e) { toast.error(e?.response?.data?.detail || "Formules indisponibles (réservé à l'administrateur principal)"); }
   }, []);
   useEffect(() => { charger(); }, [charger]);
@@ -50,7 +54,7 @@ export default function FormulesPlateformesSection() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Suppression impossible"); }
   };
   const enregistrerParrainage = async () => {
-    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours) }); toast.success("Parrainage enregistré"); charger(); }
+    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour) }); toast.success("Réglages enregistrés"); charger(); }
     catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
   };
 
@@ -74,8 +78,11 @@ export default function FormulesPlateformesSection() {
         <label className="flex flex-col gap-1">Parrainage : jours offerts à chacun (parrain et filleul)
           <input type="number" min={0} max={90} value={jours} onChange={(e) => setJours(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="parrainage-jours" />
         </label>
+        <label className="flex flex-col gap-1">OCR : lectures par jour et par utilisateur
+          <input type="number" min={1} max={500} value={ocrJour} onChange={(e) => setOcrJour(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="ocr-par-jour" />
+        </label>
         <button type="button" onClick={enregistrerParrainage} className="rounded bg-slate-800 px-3 py-1.5 text-white">Enregistrer</button>
-        <span className="text-slate-500">0 = pas de récompense. Donnés à la première formule payée du filleul.</span>
+        <span className="text-slate-500">Parrainage : 0 = pas de récompense (donnés à la première formule payée du filleul). OCR : protège le coût de l'IA ; refusé sans abonnement.</span>
       </div>
 
       <div className="flex items-center justify-between">

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "227.1"
-LOT_LIBELLE = "Formules des plateformes : l'adresse de retour de la page de paiement PawaPay porte le numéro du paiement (la plateforme vérifie l'achat au retour)"
+LOT = "228"
+LOT_LIBELLE = "OCR réservé aux abonnés des plateformes : lecture des plaques de marchands et des ordonnances par photo, refus avec le prix de la formule sans abonnement, limite par jour"

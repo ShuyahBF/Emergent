@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "231", "date": "2026-10-17",
+        "titre": "👥 Abonnements actifs des comptes de Paiement Mobile (liste de l'administrateur)",
+        "description": "La plateforme demande à SAWALI, pour une liste de comptes, les abonnements actifs avec leur formule, leurs fonctions et leur date d'expiration : l'administrateur de Paiement Mobile les voit dans sa liste des comptes.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "230", "date": "2026-10-17",
         "titre": "🛡️ Super-administrateur dispensé d'abonnement (OCR, transcription vocale)",
         "description": "Sur Paiement Mobile, le super-administrateur utilise l'OCR et la transcription vocale sans avoir payé de formule ; il peut désactiver cette dispense (mode démo) pour voir ce que voit un utilisateur. Les limites par jour restent appliquées.",

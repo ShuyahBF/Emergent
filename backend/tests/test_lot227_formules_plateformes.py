@@ -437,3 +437,20 @@ def test_acces_libre_garde_la_limite_par_jour(env):
         if r.status_code != 200:
             break
     assert r.status_code == 429                                                    # la dispense ne lève pas le plafond de coût
+
+
+# ── Lot 231 : abonnements actifs de plusieurs comptes ─────────────────────────────────────────
+def test_abonnes_liste_les_abonnements_actifs(env):
+    f = formule(env, nom="Voix", prix=1500, fonctions=["transcription_vocale"])
+    abonne, autre = U(), {**U(), "id": "autre-compte"}
+    payer(env, abonne, f)
+    r = appel(env, "formules-plateformes/abonnes", {"utilisateurs": [abonne["id"], autre["id"], "inconnu"]})
+    assert r.status_code == 200
+    ab = r.json()["abonnes"]
+    assert list(ab) == [abonne["id"]]                                            # seuls les comptes abonnés apparaissent
+    a = ab[abonne["id"]][0]
+    assert a["formule"] == "Voix" and a["fonctions"] == ["transcription_vocale"] and a["expire_le"] and a["jours_restants"] > 0
+
+
+def test_abonnes_limite_de_200_comptes(env):
+    assert appel(env, "formules-plateformes/abonnes", {"utilisateurs": ["x"] * 201}).status_code == 422

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "233", "date": "2026-10-17",
+        "titre": "🗄️ Archives en ligne chiffrées (reçus, pièces d'identité, cartes grises…)",
+        "description": "Les utilisateurs de Paiement Mobile archivent leurs documents importants ; le site les chiffre avant l'envoi (phrase secrète connue d'eux seuls) et SAWALI ne garde que des octets illisibles dans R2. Nouvelle fonction « Archives en ligne chiffrées » à cocher dans une formule ; espace par utilisateur réglable (200 Mo au départ). Sans abonnement, les documents restent sur l'appareil.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "232", "date": "2026-10-17",
         "titre": "🏦 Paiement PI-SPI des abonnements (version manuelle)",
         "description": "Les utilisateurs de Paiement Mobile peuvent payer leur abonnement avec le QR PI-SPI de la banque, puis déclarer la référence bancaire. Les demandes à vérifier apparaissent en haut de la rubrique : vous confirmez après contrôle du relevé et la formule s'active. Prêt pour l'automatique dès qu'une banque fournira son API.",

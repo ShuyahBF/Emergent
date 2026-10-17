@@ -121,3 +121,15 @@ def test_factory_returns_all_helpers():
     assert not missing_constants, f"missing constants: {missing_constants}"
     for name in expected_callables:
         assert callable(helpers[name]), f"{name} not callable"
+
+
+def test_lot241_adresses_web_laissees_intactes():
+    """Lot 241 : un « _ » dans une adresse web (jeton de lien) ne reçoit aucun caractère invisible ; le reste du texte reste protégé."""
+    from routes.whatsapp_helpers import _wa_neutralize_underscores as n
+    lien = "https://zandgo.shop/panier-partage/lhpBhgqxzOcw12oH4F_oY0g7p12p-b7G"
+    texte = f"Réf Off_07f24ab4 : {lien} fin_de_phrase"
+    r = n(texte)
+    assert lien in r and "​" not in lien                       # adresse web copiée telle quelle
+    assert "Off_​07f24ab4" in r and "fin_​de_​phrase" in r      # le reste est protégé comme avant
+    assert n(r) == r                                                  # idempotent
+    assert n("http://a.test/x_y_z, puis https://b.test/p_q") == "http://a.test/x_y_z, puis https://b.test/p_q"

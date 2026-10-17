@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "241", "date": "2026-10-17",
+        "titre": "🔗 WhatsApp : les liens contenant un « _ » ne sont plus abîmés",
+        "description": "SAWALI ajoutait un caractère invisible après chaque « _ » des messages WhatsApp (pour éviter l'italique), y compris dans les adresses web : un lien comme le panier partagé de ZandGo s'affichait « invalide » une fois cliqué. Les adresses web sont maintenant laissées intactes ; le reste du texte est protégé comme avant.",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "240", "date": "2026-10-17",
         "titre": "📆 Carrousels : lever l'exclusion du samedi et du dimanche",
         "description": "Nouvelle case dans les plages d'envoi : les carrousels WhatsApp peuvent partir aussi le samedi et le dimanche (mêmes heures), même si ces jours sont exclus pour les sondages et les formulaires.",

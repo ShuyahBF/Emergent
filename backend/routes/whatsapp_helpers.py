@@ -117,6 +117,9 @@ def _wa_window_open(last_inbound_iso: Optional[str], window_seconds: int = 24 * 
 _WA_UNDERSCORE_PATTERN = None  # lazy-compiled regex
 
 
+_WA_URL_PATTERN = None  # lazy-compiled regex (adresses web, laissées intactes)
+
+
 def _wa_neutralize_underscores(text: str) -> str:
     """Neutralise multi-underscore words that break the WhatsApp italic parser.
 
@@ -124,22 +127,34 @@ def _wa_neutralize_underscores(text: str) -> str:
     want to sanitize before splitting/joining. `_wa_send_text` already applies
     this automatically to every outbound text, so most callers don't need
     to invoke it explicitly.
+
+    Lot 241 — les ADRESSES WEB (http:// ou https://) ne sont JAMAIS modifiées : un « _ » y fait partie du code du lien
+    (ex. jeton de panier partagé de ZandGo « …oH4F_oY0g… »). Le caractère invisible ajouté rendait le lien « invalide » une fois
+    cliqué (le serveur lisait un autre code). WhatsApp n'applique pas la mise en italique à l'intérieur d'une adresse web.
     """
     if not text or "_" not in text:
         return text
-    global _WA_UNDERSCORE_PATTERN
+    global _WA_UNDERSCORE_PATTERN, _WA_URL_PATTERN
+    import re as _re
     if _WA_UNDERSCORE_PATTERN is None:
-        import re as _re
         _WA_UNDERSCORE_PATTERN = _re.compile(r"(\w)_(\w)")
+    if _WA_URL_PATTERN is None:
+        _WA_URL_PATTERN = _re.compile(r"(https?://[^\s<>\"']+)", _re.I)
     # ZWSP inserted after every underscore between word chars. Loop until
     # stable so overlapping groups like `a_b_c` are fully sanitised.
     _ZWSP = "\u200B"
-    prev = None
-    out = text
-    while out != prev:
-        prev = out
-        out = _WA_UNDERSCORE_PATTERN.sub(lambda m: f"{m.group(1)}_{_ZWSP}{m.group(2)}", out)
-    return out
+
+    def _neutraliser(morceau: str) -> str:
+        prev = None
+        out = morceau
+        while out != prev:
+            prev = out
+            out = _WA_UNDERSCORE_PATTERN.sub(lambda m: f"{m.group(1)}_{_ZWSP}{m.group(2)}", out)
+        return out
+
+    # re.split avec groupe capturant : les indices impairs sont les adresses web (copiées telles quelles)
+    morceaux = _WA_URL_PATTERN.split(text)
+    return "".join(m if i % 2 else _neutraliser(m) for i, m in enumerate(morceaux))
 
 
 # ---------------------------------------------------------------------------

@@ -930,4 +930,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour(),
                 "voix_par_jour": await reglage_voix_par_jour(), "archives_mo": (await reglage_archives_octets()) // 1_000_000}
 
+    # Outils partagés avec le module des annonceurs (lot 235) : signature des plateformes, fiche membre, lecture des corps
+    from types import SimpleNamespace
+    router.outils = SimpleNamespace(plateforme_signee=plateforme_signee, membre=membre, lire=lire)
     return router

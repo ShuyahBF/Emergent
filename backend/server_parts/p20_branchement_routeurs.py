@@ -1239,9 +1239,15 @@ from routes.audit_collections_mongo import make_audit_mongo_router as _make_audi
 api.include_router(_make_audit_mongo_router(db=db, get_super_admin=_get_super_admin_audit))
 # Lot 227 — formules (abonnements) et parrainage des utilisateurs des plateformes (Paiement Mobile…) : encaissement PawaPay
 from routes.formules_plateformes import make_formules_plateformes as _make_formules_plateformes  # noqa: E402
-api.include_router(_make_formules_plateformes(
-    db=db, get_super_admin=_get_super_admin_audit, hooks_apres_paiement=_HOOKS_APRES_PAIEMENT,
-    pawapay={"jeton": _pawapay_active_token, "hotes": PAWAPAY_HOSTS, "devise": _pawapay_currency_for_country}))
+_PAWAPAY_PLATEFORMES = {"jeton": _pawapay_active_token, "hotes": PAWAPAY_HOSTS, "devise": _pawapay_currency_for_country}
+_routeur_formules = _make_formules_plateformes(
+    db=db, get_super_admin=_get_super_admin_audit, hooks_apres_paiement=_HOOKS_APRES_PAIEMENT, pawapay=_PAWAPAY_PLATEFORMES)
+api.include_router(_routeur_formules)
+# Lot 235 — annonceurs des plateformes : devis en direct, médias chiffrés, paiement (PawaPay / PI-SPI), statistiques
+from routes.annonceurs_plateformes import make_annonceurs_plateformes as _make_annonceurs_plateformes  # noqa: E402
+api.include_router(_make_annonceurs_plateformes(
+    db=db, get_super_admin=_get_super_admin_audit, hooks_apres_paiement=_HOOKS_APRES_PAIEMENT, pawapay=_PAWAPAY_PLATEFORMES,
+    outils=_routeur_formules.outils))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

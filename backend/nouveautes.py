@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "235", "date": "2026-10-17",
+        "titre": "📣 Annonceurs de Paiement Mobile : tarifs, devis en direct et annonces des abonnés",
+        "description": "Un abonné peut passer une annonce (image ou vidéo chiffrée) : vous fixez les tarifs, il voit son devis en direct, paie par PawaPay ou PI-SPI et suit ses statistiques ; seul SAWALI peut corriger un montant.",
+        "rubrique": "📣 Annonceurs des plateformes — tarifs, devis et annonces des abonnés",
+    },
+    {
         "lot": "234", "date": "2026-10-17",
         "titre": "🏷️ Archives en ligne : modifier titre, catégorie et étiquettes",
         "description": "Un utilisateur de Paiement Mobile peut corriger les informations d'un document archivé en ligne sans le renvoyer ; elles restent chiffrées par son site. Permis même après la fin de l'abonnement.",

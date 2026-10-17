@@ -64,6 +64,7 @@ def env():
     yield c
     fp._transport = None
     fp._analyser = None
+    fp._transcrire = None
     c.__exit__(None, None, None)
 
 
@@ -325,3 +326,91 @@ def test_ocr_image_invalide(env, image):
 def test_ocr_signature_obligatoire(env):
     faux_ocr()
     assert env.post("/api/formules-plateformes/ocr", json={"utilisateur": U(), "type": "plaque_marchand", "image": IMAGE}).status_code == 401
+
+
+# ---------------------------------------------------------------- lot 229 : transcription vocale réservée aux abonnés
+AUDIO = "data:audio/webm;base64," + __import__("base64").b64encode(b"\x1aE\xdf\xa3" + b"1" * 400).decode()
+
+
+def faux_stt(texte="Bonjour, je serai en retard.", erreur=False):
+    appels = []
+
+    async def stt(octets, extension, langue):
+        appels.append((len(octets), extension, langue))
+        if erreur:
+            raise RuntimeError("panne")
+        return texte
+
+    fp._transcrire = stt
+    return appels
+
+
+def voix(env, u=None, audio=AUDIO, duree=12.5):
+    return appel(env, "formules-plateformes/transcrire", {"utilisateur": u or U(), "audio": audio, "duree_s": duree})
+
+
+def abonne_voix(env, u=None, **plus):
+    f = formule(env, nom="Voix", prix=1500, fonctions=["transcription_vocale"], **plus)
+    payer(env, u or U(), f)
+    return f
+
+
+def test_voix_refusee_sans_abonnement_avec_le_prix(env):
+    appels = faux_stt()
+    formule(env, nom="Voix", prix=1500, fonctions=["transcription_vocale"])
+    formule(env, nom="OCR seul", prix=100000, fonctions=["ocr_ordonnances"])           # ne débloque pas la voix : jamais citée
+    r = voix(env)
+    assert r.status_code == 402 and not appels
+    d = r.json()["detail"]
+    assert d["formule"]["nom"] == "Voix" and "1 500 FCFA" in d["message"] and d["message"].startswith("Transcription vocale réservée")
+
+
+def test_voix_abonne_transcrit(env):
+    appels = faux_stt()
+    abonne_voix(env)
+    r = voix(env)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "texte": "Bonjour, je serai en retard.", "duree_s": 12.5, "restant_aujourdhui": 9}
+    assert appels == [(404, ".webm", "fr")]
+    assert voix(env, U("autre")).status_code == 402
+
+
+def test_voix_l_ocr_ne_debloque_pas_la_voix(env):
+    faux_stt()
+    f = formule(env)                                                                   # fonction OCR seulement
+    payer(env, U(), f)
+    assert voix(env).status_code == 402
+
+
+def test_voix_limites_duree_taille_et_jour(env):
+    appels = faux_stt()
+    abonne_voix(env)
+    assert voix(env, duree=45).status_code == 422                                       # plus de 30 s annoncées
+    gros = "data:audio/webm;base64," + __import__("base64").b64encode(b"x" * 950_000).decode()
+    assert voix(env, audio=gros).status_code == 413 and not appels                      # trop lourd pour 30 s
+    assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "voix_par_jour": 2}).json()["voix_par_jour"] == 2
+    assert voix(env).status_code == 200 and voix(env).status_code == 200
+    r = voix(env)
+    assert r.status_code == 429 and "2 notes" in r.json()["detail"]
+
+
+def test_voix_silence_ou_panne_ne_comptent_pas(env):
+    faux_stt(texte="   ")
+    abonne_voix(env)
+    assert voix(env).status_code == 422                                                 # aucune parole
+    faux_stt(erreur=True)
+    assert voix(env).status_code == 502
+    faux_stt()
+    assert voix(env).json()["restant_aujourdhui"] == 9                                  # rien consommé par les échecs
+
+
+@pytest.mark.parametrize("audio", ["data:image/png;base64,AAAA" + "A" * 200, "pas-audio" + "x" * 200, "data:audio/webm;base64,@@@" + "!" * 200])
+def test_voix_audio_invalide(env, audio):
+    faux_stt()
+    abonne_voix(env)
+    assert voix(env, audio=audio).status_code == 422
+
+
+def test_voix_signature_obligatoire(env):
+    faux_stt()
+    assert env.post("/api/formules-plateformes/transcrire", json={"utilisateur": U(), "audio": AUDIO, "duree_s": 5}).status_code == 401

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "226", "date": "2026-10-17",
+        "titre": "📣 Régie publicitaire : annonces et carrousel dans Paiement Mobile",
+        "description": "Nouvel emplacement « Paiement Mobile » dans la régie : les annonces actives s'affichent en carrousel en haut de l'écran Payer de Paiement Mobile ; impressions et clics sont comptés et facturés comme pour les autres bannières (budget, dates, pause automatique).",
+        "rubrique": "📣 Régie publicitaire — carrousels WhatsApp sponsorisés",
+    },
+    {
         "lot": "225", "date": "2026-10-17",
         "titre": "🗄️ Audit des collections MongoDB : lesquelles ne servent plus ?",
         "description": "Nouvelle rubrique des Paramètres : un bouton analyse toutes les collections du cluster (lecture seule) et indique pour chacune sa dernière utilisation, son statut (vide, active, inactive) et un conseil, avec tableau, graphiques et export CSV. Utile pour libérer de la place avant de payer un palier MongoDB supérieur.",

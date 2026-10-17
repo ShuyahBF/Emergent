@@ -81,7 +81,7 @@ from pydantic import BaseModel, Field
 
 from routes.whatsapp_helpers import _normalize_wa_phone
 from routes import carrousel_regie as regie     # lot 111 : présentation par campagne et régie publicitaire
-from routes.plages_envoi import DEFAUT as PLAGES_DEFAUT, instant_programme   # lot 114 : envois programmés
+from routes.plages_envoi import DEFAUT as PLAGES_DEFAUT, config_carrousel, instant_programme, prochaine_ouverture   # lot 114 : envois programmés
 
 logger = logging.getLogger("sawali.carrousel")
 
@@ -1154,7 +1154,15 @@ def attach_carrousel_whatsapp_routes(
         Sans réglage des plages (tests, ancien branchement) : jamais d'attente."""
         if plages is None:
             return None
-        return await plages["attente"]()
+        attente = await plages["attente"]()
+        if attente is None:
+            return None
+        # Lot 240 : l'Admin peut lever l'exclusion du samedi et du dimanche pour les carrousels (réglage « carrousels_weekend ») :
+        # on recalcule alors l'attente avec le samedi et le dimanche ajoutés aux jours autorisés (mêmes heures)
+        cfg = await plages["config"]()
+        if cfg.get("carrousels_weekend"):
+            return prochaine_ouverture(config_carrousel(cfg), datetime.now(timezone.utc))
+        return attente
 
     async def _programme(texte: Optional[str]) -> Optional[datetime]:
         """Date programmée saisie → instant UTC (None si vide). Refus (400) si illisible ou déjà passée.

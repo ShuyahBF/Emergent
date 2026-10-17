@@ -229,7 +229,7 @@ class DirectoryContactUpdate(BaseModel):
 
 
 @api.get("/me/wa-lignes", tags=["Portail Client"])
-async def me_wa_lignes(user: dict = Depends(get_current_user)):
+async def me_wa_lignes(toutes: bool = False, user: dict = Depends(get_current_user)):
     """Lot 59 — lignes WhatsApp de la plateforme (Liluvine Standard / VIP / Publicités…).
 
     Renvoie pour l'utilisateur : les lignes qu'il voit, et s'il peut affecter un
@@ -238,9 +238,15 @@ async def me_wa_lignes(user: dict = Depends(get_current_user)):
     from routes.numeros_wa import lignes_configurees, lignes_autorisees, seuil_vip
     s = await db.settings.find_one({"_id": "global"}) or {}
     autorisees = lignes_autorisees(user, s)
+    # Lot 224 — écran d'accord explicite : un administrateur peut demander TOUTES les lignes, privées comprises
+    # (pour cocher la ligne privée d'un utilisateur) ; les autres comptes ne voient jamais une ligne privée.
+    admin_complet = bool(toutes) and (user.get("role") in ("super_admin", "admin", "superviseur")
+                                      or user.get("email") == "admin@sawalismartsystems.com")
+    if admin_complet:
+        autorisees = None
     lignes = [
-        {k: l[k] for k in ("cle", "libelle", "telephone", "vip", "prospects", "principale",
-                           "couleur_fond", "couleur_texte")}
+        {**{k: l[k] for k in ("cle", "libelle", "telephone", "vip", "prospects", "principale",
+                              "couleur_fond", "couleur_texte")}, "privee": bool(l.get("privee"))}
         for l in lignes_configurees(s) if autorisees is None or l["cle"] in autorisees
     ]
     return {"lignes": lignes, "restreint": autorisees is not None,

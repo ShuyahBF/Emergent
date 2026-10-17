@@ -1442,11 +1442,18 @@ async def autoreply_to_inbound(
     tokens = max(int((len(sys_text) + len(text) + len(final_text)) / 4), 1)
     try:
         from routes.ai_quotas import track_ai_usage
-        await track_ai_usage(
+        # Lot 224 — la consommation est rattachée à la LIGNE qui a reçu le message (suivi par ligne et par période)
+        from routes.numeros_wa import numero_recu_courant
+        _numero_ligne = numero_recu_courant()
+        _suivi_ia = await track_ai_usage(
             db, user=user_doc, resource="chat", units=tokens,
             model="claude-haiku-4-5-20251001",
-            metadata={"source": "whatsapp_native", "phone_digits": phone_digits},
+            metadata={"source": "whatsapp_native", "phone_digits": phone_digits, "wa_numero_id": _numero_ligne},
         )
+        if _numero_ligne:
+            from routes.wa_usage_lignes import noter as _noter_usage
+            await _noter_usage(db, phone_number_id=_numero_ligne, sens="out", type_msg="ia", destinataire=phone_digits,
+                               ia={"tokens": tokens, "cout_xof": float((_suivi_ia or {}).get("cost_xof") or 0)})
     except Exception:
         pass
 

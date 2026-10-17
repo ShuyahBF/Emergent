@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "224", "date": "2026-10-17",
+        "titre": "📊 Suivi des lignes WhatsApp : consommations par ligne et par période",
+        "description": "Nouvelle rubrique des Paramètres : pour chaque ligne (ex. ALBARKA) et chaque mois ou période, les messages envoyés et reçus, les modèles Meta par nom et catégorie, la consommation d'IA de Liluvine, le détail date/heure et un export CSV. Une ligne privée se coche aussi, pour un utilisateur précis, dans la fiche de l'utilisateur suivi.",
+        "rubrique": "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période",
+    },
+    {
         "lot": "223", "date": "2026-10-17",
         "titre": "📱 Une ligne WhatsApp à part pour ALBARKA : plateforme dédiée et conversations privées",
         "description": "Chaque plateforme émettrice peut avoir sa ligne de SAWALI (colonne « Ligne WhatsApp » de la Transmission WA Universelle) : ses messages partent de ce numéro, avec la fenêtre de 24 h de ce numéro. Une ligne cochée « privée » n'apparaît dans le Centre de messagerie de personne, administrateurs compris.",

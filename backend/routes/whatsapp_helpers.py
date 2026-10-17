@@ -18,6 +18,8 @@ Helpers exposed :
 """
 from __future__ import annotations
 
+import contextvars
+import functools
 import json
 import logging
 import mimetypes
@@ -26,6 +28,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+# Lot 224 — numéro (Phone Number ID) réellement utilisé par le dernier envoi de la tâche en cours : sert au suivi par ligne
+# (routes/wa_usage_lignes.py). (source, phone_number_id) ; source « global » = ligne de SAWALI, « tenant » = compte d'un client.
+_dernier_numero: contextvars.ContextVar = contextvars.ContextVar("wa_dernier_numero", default=None)
 
 logger = logging.getLogger("sawali.whatsapp_helpers")
 
@@ -455,6 +461,7 @@ def attach_whatsapp_helpers(
             token = (smart.get("wa_access_token") or "").strip()
             phone_id = (smart.get("wa_phone_number_id") or "").strip()
             if token and phone_id:
+                _dernier_numero.set(("tenant", phone_id))
                 return {
                     "access_token": token,
                     "phone_number_id": phone_id,
@@ -472,6 +479,7 @@ def attach_whatsapp_helpers(
             numero = (await numero_envoi(db, to_e164, g)) or numero
         except Exception:  # noqa: BLE001 — en cas d'erreur, le numéro principal
             logger.debug("[numeros_wa] choix du numéro d'envoi impossible", exc_info=True)
+        _dernier_numero.set(("global", numero))
         return {
             "access_token": (g.get("wa_access_token") or "").strip(),
             "phone_number_id": numero,
@@ -499,7 +507,7 @@ def attach_whatsapp_helpers(
             async with httpx.AsyncClient(timeout=8) as http:
                 r = await http.get(
                     f"https://graph.facebook.com/{wa_graph_version}/{waba_id}/message_templates",
-                    params={"name": name, "fields": "name,language,status,components", "limit": 50},
+                    params={"name": name, "fields": "name,language,status,category,components", "limit": 50},
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
             if r.status_code < 300:
@@ -839,6 +847,7 @@ def attach_whatsapp_helpers(
             phone_number_id = (await numero_envoi(db, to_e164, s)) or phone_number_id
         except Exception:  # noqa: BLE001
             logger.debug("[numeros_wa] choix du numéro d'envoi impossible (média)", exc_info=True)
+        _dernier_numero.set(("global", phone_number_id))      # lot 224 : suivi par ligne
         if not access_token or not phone_number_id:
             return {"ok": False, "error": "WhatsApp non configuré", "status": None, "message_id": None, "raw": None}
         to_clean = _normalize_wa_phone(to_e164)
@@ -1088,11 +1097,43 @@ def attach_whatsapp_helpers(
         return doc.get("received_at") or doc.get("created_at")
 
     logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe + fix24az-v auto-split + 2026-02 tenant smart-comm)")
+    # Lot 224 — suivi par ligne : chaque envoi (texte, modèle Meta, média, bouton) est compté sur le numéro réellement utilisé
+    # (routes/wa_usage_lignes.py). Seules les lignes de SAWALI sont comptées (« global »), pas les comptes propres des clients.
+    def _categorie_modele(nom: str, langue: str) -> Optional[str]:
+        """Catégorie Meta (MARKETING / UTILITY / AUTHENTICATION) lue dans la mémoire des définitions de modèles, sans appel réseau."""
+        lang = (langue or "").lower()
+        trouvees = [v[1] for (_waba, n, l), v in list(_tpl_def_cache.items()) if n == nom and v and v[1]]
+        pref = [v[1] for (_waba, n, l), v in list(_tpl_def_cache.items()) if n == nom and v and v[1] and l == lang]
+        d = (pref or trouvees or [None])[0]
+        return (d or {}).get("category")
+
+    def _suivi(type_msg: str, f):
+        @functools.wraps(f)
+        async def enveloppe(*a, **k):
+            _dernier_numero.set(None)        # pas de résidu d'un envoi précédent de la même tâche
+            res = await f(*a, **k)
+            try:
+                numero = _dernier_numero.get()
+                if numero and numero[0] == "global":
+                    destinataire = a[0] if a else k.get("to_e164")
+                    modele = categorie = None
+                    if type_msg == "modele":
+                        modele = a[1] if len(a) > 1 else k.get("template_name")
+                        langue = a[2] if len(a) > 2 else k.get("language_code", "fr")
+                        categorie = _categorie_modele(modele, langue)
+                    from routes.wa_usage_lignes import noter
+                    await noter(db, phone_number_id=numero[1], sens="out", type_msg=type_msg, modele=modele,
+                                categorie=categorie, destinataire=destinataire, ok=bool((res or {}).get("ok")))
+            except Exception:  # noqa: BLE001 — le suivi ne bloque jamais un envoi
+                logger.debug("[wa_usage] suivi de l'envoi impossible", exc_info=True)
+            return res
+        return enveloppe
+
     return {
-        "_wa_send_template": _wa_send_template,
-        "_wa_send_text": _wa_send_text,
-        "_wa_send_interactive_button": _wa_send_interactive_button,
-        "_wa_send_media": _wa_send_media,
+        "_wa_send_template": _suivi("modele", _wa_send_template),
+        "_wa_send_text": _suivi("texte", _wa_send_text),
+        "_wa_send_interactive_button": _suivi("interactif", _wa_send_interactive_button),
+        "_wa_send_media": _suivi("media", _wa_send_media),
         "_wa_download_inbound_media": _wa_download_inbound_media,
         "_wa_transcribe_audio_file": _wa_transcribe_audio_file,
         "_wa_compute_reply_window": _wa_compute_reply_window,

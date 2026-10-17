@@ -134,6 +134,7 @@ def lignes_configurees(settings_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         "telephone": (s.get("wa_principal_telephone") or "").strip(),
         "vip": False,
         "prospects": False,
+        "privee": False,          # lot 223 : la ligne principale n'est jamais privée
         "complement_prompt": "",
         "principale": True,
         # Lot 59.1 — couleurs de la pastille (par défaut : texte noir sur fond blanc)
@@ -157,6 +158,9 @@ def lignes_configurees(settings_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
             # Ligne « prospects » (ex. numéro des publicités Meta) : Liluvine y répond
             # avec le prompt prospects, quel que soit l'expéditeur.
             "prospects": bool(brut.get("prospects")),
+            # Lot 223 — ligne PRIVÉE (ex. celle d'une plateforme cliente comme ALBARKA) : ses conversations n'apparaissent dans
+            # le Centre de messagerie de personne, administrateurs compris, sauf accord explicite (wa_lignes_autorisees).
+            "privee": bool(brut.get("privee")),
             "complement_prompt": str(brut.get("complement_prompt") or "").strip(),
             "principale": False,
             # Lot 59.1 — couleurs de la pastille de cette ligne
@@ -208,24 +212,31 @@ def seuil_vip(settings_doc: Dict[str, Any]) -> Optional[float]:
 def lignes_autorisees(utilisateur: Optional[Dict[str, Any]], settings_doc: Dict[str, Any]) -> Optional[Set[str]]:
     """Lignes que l'utilisateur peut voir dans le Centre de messagerie.
 
-    None = toutes (pas de restriction : champ absent ou liste vide).
-    Le super-administrateur de la plateforme voit toujours tout.
+    None = toutes (pas de restriction : champ absent ou liste vide, ou administrateur).
+    Lot 223 — LIGNES PRIVÉES : une ligne marquée « privée » n'est vue de personne, administrateurs et super-administrateur
+    compris, sauf si elle figure EXPLICITEMENT dans la liste wa_lignes_autorisees de l'utilisateur. Dès qu'une ligne privée
+    existe, le résultat est donc toujours un ensemble (jamais None).
     """
     u = utilisateur or {}
-    # Administrateurs et superviseurs voient toujours toutes les boîtes (toutes les lignes)
+    lignes = lignes_configurees(settings_doc)
+    existantes = {l["cle"] for l in lignes}
+    privees = {l["cle"] for l in lignes if l.get("privee")}
+    brut = u.get("wa_lignes_autorisees") or []
+    explicites = {str(x).strip() for x in brut if str(x).strip() in privees}   # accord explicite sur une ligne privée
+    # Administrateurs et superviseurs voient toujours toutes les boîtes (sauf lignes privées non accordées)
     if (u.get("role") in ("super_admin", "admin", "superviseur")
             or u.get("tracked_role") in ("Superviseur", "Administrateur")
             or u.get("email") == "admin@sawalismartsystems.com"):
-        return None
-    brut = u.get("wa_lignes_autorisees")
-    if not brut:
-        return None
-    existantes = {l["cle"] for l in lignes_configurees(settings_doc)}
-    autorisees = {str(x).strip() for x in brut if str(x).strip() in existantes}
-    # Toutes les lignes cochées = aucune restriction réelle
-    if not autorisees or autorisees >= existantes:
-        return None
-    return autorisees
+        base = set(existantes)
+    elif not brut:
+        base = set(existantes)
+    else:
+        choisies = {str(x).strip() for x in brut if str(x).strip() in existantes}
+        # Aucune ligne reconnue, ou toutes cochées = aucune restriction réelle
+        base = set(existantes) if (not choisies or choisies >= existantes) else choisies
+    if not privees:
+        return None if base == existantes else base
+    return (base - privees) | explicites
 
 
 async def _contact_du_telephone(db, chiffres: str) -> Optional[Dict[str, Any]]:

@@ -90,7 +90,7 @@ def env():
     # u1 est abonné (abonnement actif) ; u2 ne l'est pas
     futur = (date.today() + timedelta(days=10)).isoformat() + "T00:00:00+00:00"
     c.portal.call(db.membres_plateformes.insert_one, {"id": "m1", "plateforme": "paiementmobile", "utilisateur_id": "u1", "nom": "Nom u1", "telephone": "70 11 22 33",
-                                                      "code_parrainage": "PM111111", "abonnements": {"f1": {"nom": "OCR", "fonctions": [], "expire_le": futur}}})
+                                                      "code_parrainage": "PM111111", "abonnements": {"f1": {"nom": "Annonceur", "fonctions": ["annonceur_pm"], "expire_le": futur}}})
     c.db, c.hooks = db, hooks
     yield c
     ap._transport = ap._ecrire = ap._lire = None
@@ -121,6 +121,18 @@ def test_non_abonne_refuse(env):
     assert r.status_code == 402 and r.json()["detail"]["code"] == "abonnement_requis"
     r = appel(env, "devis", {"utilisateur": U("u2", libre=True), "format": "banniere_image", "debut": demain(1), "fin": demain(2), "options": []})
     assert r.status_code == 200
+
+
+def test_autre_abonnement_ne_suffit_pas_et_offre_proposee(env):
+    futur = (date.today() + timedelta(days=10)).isoformat() + "T00:00:00+00:00"
+    env.portal.call(env.db.membres_plateformes.insert_one, {"id": "m3", "plateforme": "paiementmobile", "utilisateur_id": "u3", "nom": "N", "telephone": "70 11 22 33",
+                    "code_parrainage": "PM333333", "abonnements": {"f9": {"nom": "OCR", "fonctions": ["ocr_ordonnances"], "expire_le": futur}}})
+    env.portal.call(env.db.formules_plateformes.insert_one, {"id": "fa", "plateforme": "paiementmobile", "nom": "Annonceur", "prix": 5000, "duree_jours": 30,
+                    "fonctions": ["annonceur_pm"], "actif": True, "ordre": 0})
+    r = appel(env, "devis", {"utilisateur": U("u3"), "format": "banniere_image", "debut": demain(1), "fin": demain(2), "options": []})
+    assert r.status_code == 402 and "5 000" in r.json()["detail"]["message"] and r.json()["detail"]["formule"]["nom"] == "Annonceur"
+    t = appel(env, "tarifs", {"utilisateur": U("u3")}).json()
+    assert t["est_abonne"] is False and t["formules"][0]["prix"] == 5000
 
 
 def test_devis_en_direct_et_creation(env):

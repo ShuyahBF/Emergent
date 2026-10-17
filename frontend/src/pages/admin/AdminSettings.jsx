@@ -418,16 +418,38 @@ const ancreDemandee = (anchorId) => {
   try { return !!anchorId && window.location.hash.replace("#", "") === anchorId; } catch { return false; }
 };
 
-// Lot 108 — aller à une rubrique : on la charge d'abord (événement), on s'y place, puis on se recale deux fois,
-// car les rubriques voisines qui se chargent entre-temps changent la hauteur de la page.
+// Lot 108 — aller à une rubrique : on la charge d'abord (événement), puis on s'y place.
+// Lot 238 — la page se recompose PENDANT le défilement (les rubriques voisines, d'abord de simples cadres de 96 px, se chargent
+// et grandissent), si bien que 3 recalages à heure fixe (30 / 600 / 1400 ms) laissaient la rubrique trop haut, trop bas, ou
+// la remplaçaient par sa voisine. Désormais on se recale toutes les 100 ms JUSQU'À CE QUE LA RUBRIQUE NE BOUGE PLUS
+// (6 passages de suite à sa place, 8 s au plus) ; si l'utilisateur touche la page (molette, doigt, clavier, souris), on le laisse faire.
 const EVENEMENT_MONTER = "sawali:monter-rubrique";
 function allerARubrique(anchorId, apres) {
   if (!anchorId) return null;
   window.dispatchEvent(new CustomEvent(EVENEMENT_MONTER, { detail: anchorId }));
-  const placer = () => document.getElementById(anchorId)?.scrollIntoView({ block: "start" });
-  setTimeout(placer, 30);
-  setTimeout(placer, 600);
-  setTimeout(() => { placer(); if (apres) apres(document.getElementById(anchorId)); }, 1400);
+  let interrompu = false;
+  const reprise = () => { interrompu = true; };
+  const evenements = ["wheel", "touchstart", "keydown", "mousedown"];
+  evenements.forEach((e) => window.addEventListener(e, reprise, { capture: true, passive: true, once: true }));
+  const debut = Date.now();
+  let stables = 0;
+  const terminer = () => {
+    evenements.forEach((e) => window.removeEventListener(e, reprise, { capture: true }));
+    if (apres && !interrompu) apres(document.getElementById(anchorId));
+  };
+  const tour = () => {
+    if (interrompu || Date.now() - debut > 8000) { terminer(); return; }
+    const el = document.getElementById(anchorId);
+    if (el) {
+      // Position voulue : en haut de la zone visible, sous l'en-tête (marge de défilement de la rubrique)
+      const voulu = parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0;
+      if (Math.abs(el.getBoundingClientRect().top - voulu) <= 3) stables += 1;
+      else { stables = 0; el.scrollIntoView({ block: "start" }); }
+      if (stables >= 6) { terminer(); return; }
+    }
+    setTimeout(tour, 100);
+  };
+  setTimeout(tour, 30);
   return document.getElementById(anchorId);
 }
 

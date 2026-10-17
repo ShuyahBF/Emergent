@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "237"
-LOT_LIBELLE = "Résumés de la presse pour les plateformes : l'IA résume les articles collectés chaque matin par Paiement Mobile (limite quotidienne, résumés fidèles aux liens envoyés)"
+LOT = "238"
+LOT_LIBELLE = "Paramètres : les cartes Nouveautés (et la liste Aller à) se placent exactement sur la bonne rubrique, même quand la page se recompose pendant le défilement"

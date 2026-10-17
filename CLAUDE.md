@@ -77,6 +77,19 @@ Le propriétaire vient de WinDev : il ne maîtrise ni Python ni PowerShell et pr
   ce qu'il affiche, que faire en cas d'erreur). Secrets saisis à l'écran, jamais écrits dans un fichier ni dans le chat.
 - Un outil à usage unique (script Python, suite de commandes à enchaîner) n'est PAS une réponse acceptable.
 
+## Listes finies = listes déroulantes (règle 10, 17/10/2026)
+- Dès que l'ensemble des valeurs possibles est fini et connu (opérateurs, pays, rôles, statuts, catégories, devises, modes de
+  paiement…), le champ est une LISTE DÉROULANTE, jamais une saisie libre ni une grille de grosses cartes.
+- Si un nouveau choix doit rester possible, ajouter en fin de liste « Autre… » qui ouvre une saisie libre, seulement dans ce cas.
+- Une valeur déjà enregistrée mais absente de la liste reste sélectionnable (jamais de perte de donnée à l'édition).
+- Même principe sur toute plateforme, existante ou à venir.
+
+## Fenêtres modales dimensionnées (règle 11, 17/10/2026 : « comme pour beAuthentik et adLyn »)
+- Sur PC comme sur mobile, une fenêtre modale n'est jamais exagérément grande : largeur 28 rem au plus (`max-w-md`), 36 rem pour un
+  formulaire à plusieurs colonnes (`max-w-xl`), hauteur 85 % de l'écran au plus (`max-h-[85dvh]`) avec défilement DANS la fenêtre.
+- Sur mobile : feuille collée en bas ou fenêtre centrée avec marge, jamais plein écran sauf besoin réel (scanner, aperçu).
+- Un seul composant de modale par plateforme (ex. `components/Modal.jsx`) porte ces dimensions ; les écrans ne les redéfinissent pas.
+
 ## Attentes et chargements
 - Toute attente longue (connexion, recherche…) affiche un toast « Patientez… »
   et une jauge circulaire transparente (arc qui tourne), comme sur SAWALI.

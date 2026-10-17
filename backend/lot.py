@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "229"
-LOT_LIBELLE = "Transcription vocale réservée aux abonnés des plateformes : notes de 30 secondes au plus, limite par jour, refus avec le prix de la formule ; une formule peut débloquer plusieurs fonctions"
+LOT = "230"
+LOT_LIBELLE = "Super-administrateur d'une plateforme dispensé d'abonnement pour l'OCR et la transcription vocale (désactivable en mode démo par la plateforme)"

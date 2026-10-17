@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "230", "date": "2026-10-17",
+        "titre": "🛡️ Super-administrateur dispensé d'abonnement (OCR, transcription vocale)",
+        "description": "Sur Paiement Mobile, le super-administrateur utilise l'OCR et la transcription vocale sans avoir payé de formule ; il peut désactiver cette dispense (mode démo) pour voir ce que voit un utilisateur. Les limites par jour restent appliquées.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "229", "date": "2026-10-17",
         "titre": "🎙️ Transcription vocale réservée aux abonnés : on parle, c'est écrit",
         "description": "Les utilisateurs de Paiement Mobile enregistrent une note vocale de 30 secondes au plus : le texte est transcrit (Whisper) puis copiable dans WhatsApp. Réservé aux abonnés d'une formule qui débloque la transcription ; sans abonnement, refus avec le nom et le prix de la formule. Nombre de notes par jour réglable. Une formule peut maintenant débloquer plusieurs fonctions (OCR, voix).",

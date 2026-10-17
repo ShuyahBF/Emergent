@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "240", "date": "2026-10-17",
+        "titre": "📆 Carrousels : lever l'exclusion du samedi et du dimanche",
+        "description": "Nouvelle case dans les plages d'envoi : les carrousels WhatsApp peuvent partir aussi le samedi et le dimanche (mêmes heures), même si ces jours sont exclus pour les sondages et les formulaires.",
+        "rubrique": "🕗 Plages horaires d'envoi — Sondages et formulaires (WhatsApp / SMS)",
+    },
+    {
         "lot": "239", "date": "2026-10-17",
         "titre": "🗞️ Actualités : plafond d'appels IA relevé à 150 par jour",
         "description": "Paiement Mobile résume maintenant 4 catégories (Presse locale, Tech, Mode, Coaching personnel) : le plafond quotidien passe de 40 à 150 résumés.",

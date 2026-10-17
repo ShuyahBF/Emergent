@@ -31,6 +31,8 @@ DEFAUT: Dict[str, Any] = {
     "actif": False, "fuseau": "Africa/Ouagadougou", "jours": [0, 1, 2, 3, 4, 5],
     # lot 216 : une seule plage continue (heure de début → heure de fin), sans pause déjeuner imposée
     "plages": [{"de": "08:00", "a": "19:00"}],
+    # lot 240 : l'Admin peut lever, pour les seuls CARROUSELS WhatsApp, l'exclusion du samedi et du dimanche
+    "carrousels_weekend": False,
 }
 RE_HEURE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -45,6 +47,7 @@ class PlagesIn(BaseModel):
     fuseau: str = "Africa/Ouagadougou"
     jours: List[int] = Field(default_factory=list)
     plages: List[PlageIn] = Field(default_factory=list)
+    carrousels_weekend: bool = False          # lot 240 : carrousels autorisés aussi le samedi et le dimanche
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +82,16 @@ def normaliser(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             raise ValueError(f"Les plages {p1['de']} – {p1['a']} et {p2['de']} – {p2['a']} se chevauchent")
     if cfg.get("actif") and (not jours or not plages):
         raise ValueError("Choisissez au moins un jour et une plage horaire (ou désactivez les plages)")
-    return {"actif": bool(cfg.get("actif")), "fuseau": cfg["fuseau"], "jours": jours, "plages": plages}
+    return {"actif": bool(cfg.get("actif")), "fuseau": cfg["fuseau"], "jours": jours, "plages": plages,
+            "carrousels_weekend": bool(cfg.get("carrousels_weekend"))}
+
+
+def config_carrousel(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Réglage appliqué aux CARROUSELS : si l'Admin a levé l'exclusion du week-end, le samedi (5) et le dimanche (6)
+    s'ajoutent aux jours autorisés (mêmes heures). Sinon : le réglage commun, inchangé."""
+    if cfg.get("carrousels_weekend"):
+        return {**cfg, "jours": sorted(set(cfg["jours"]) | {5, 6})}
+    return cfg
 
 
 def dans_plage(cfg: Dict[str, Any], instant: datetime) -> bool:

@@ -42,7 +42,7 @@ export default function PlagesEnvoiSection() {
   const enregistrer = async () => {
     setEnreg(true);
     try {
-      const r = await apiClient.put("/admin/plages-envoi", { actif: cfg.actif, fuseau: cfg.fuseau, jours: cfg.jours, plages: cfg.plages });
+      const r = await apiClient.put("/admin/plages-envoi", { actif: cfg.actif, fuseau: cfg.fuseau, jours: cfg.jours, plages: cfg.plages, carrousels_weekend: !!cfg.carrousels_weekend });
       setCfg(r.data);
       toast.success("Plages horaires enregistrées");
     } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); }
@@ -69,6 +69,12 @@ export default function PlagesEnvoiSection() {
           </button>
         ))}
       </div>
+      {/* Lot 240 — carrousels : lever l'exclusion du samedi et du dimanche (mêmes heures), sans toucher aux sondages ni aux formulaires */}
+      <label className="flex items-start gap-2 rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2 text-xs text-slate-700" data-testid="plages-carrousels-weekend-label">
+        <input type="checkbox" className="mt-0.5" checked={!!cfg.carrousels_weekend} onChange={(e) => setCfg({ ...cfg, carrousels_weekend: e.target.checked })} data-testid="plages-carrousels-weekend" />
+        <span><b>Carrousels WhatsApp : autoriser aussi le samedi et le dimanche</b> (mêmes heures), même si ces jours sont exclus ci-dessus.
+          Les sondages et les liens de formulaires gardent les jours choisis.</span>
+      </label>
       <div className="space-y-1.5">
         {cfg.plages.map((p, i) => (
           <div key={i} className="flex items-center gap-2">

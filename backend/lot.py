@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "239"
-LOT_LIBELLE = "Résumés de la presse : plafond quotidien d'appels IA relevé à 150 pour les catégories Actualités de Paiement Mobile"
+LOT = "240"
+LOT_LIBELLE = "Plages d'envoi : l'Admin peut autoriser les carrousels WhatsApp aussi le samedi et le dimanche, sans toucher aux sondages ni aux formulaires"

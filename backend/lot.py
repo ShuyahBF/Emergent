@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "231"
-LOT_LIBELLE = "Abonnements actifs des comptes d'une plateforme (formule, fonctions, date d'expiration), pour la liste des comptes de l'administrateur"
+LOT = "232"
+LOT_LIBELLE = "Paiement PI-SPI des abonnements des plateformes (version manuelle) : QR de la banque, référence bancaire déclarée par l'utilisateur, confirmation par l'administrateur ; prêt pour une banque automatique"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,9 @@ import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Le module routes.pispi (lot 232, paiement PI-SPI) importe la base globale : adresse factice, aucune connexion réelle n'est ouverte
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:1")
+os.environ.setdefault("DB_NAME", "sawali_test_lot227")
 mongomock_motor = pytest.importorskip("mongomock_motor")
 
 from fastapi import APIRouter, FastAPI  # noqa: E402
@@ -454,3 +458,80 @@ def test_abonnes_liste_les_abonnements_actifs(env):
 
 def test_abonnes_limite_de_200_comptes(env):
     assert appel(env, "formules-plateformes/abonnes", {"utilisateurs": ["x"] * 201}).status_code == 422
+
+
+# ── Lot 232 : paiement PI-SPI manuel des abonnements ─────────────────────────────────────────
+@pytest.fixture()
+def pispi_actif(env, monkeypatch):
+    """Encaissement PI-SPI réglé (banque, QR, adresse) dans la base de test."""
+    import routes.pispi as pispi
+    monkeypatch.setattr(pispi, "db", env.db)
+    env.portal.call(env.db.settings.insert_one, {"_id": pispi.ID_PARAMETRES, "actif": True, "banque": "ecobank", "titulaire": "SAWALI SMART SYSTEMS",
+                                                 "adresse_paiement": "sawali@ecobank", "qr_contenu": "00020101PISPI-TEST"})
+    return pispi
+
+
+def demander(env, f, u=None):
+    return appel(env, "formules-plateformes/pispi/demander", {"utilisateur": u or U(), "formule_id": f["id"]})
+
+
+def test_pispi_indisponible_tant_que_non_regle(env, monkeypatch):
+    import routes.pispi as pispi
+    monkeypatch.setattr(pispi, "db", env.db)
+    f = formule(env)
+    assert demander(env, f).status_code == 503
+
+
+def test_pispi_demande_bloc_de_paiement_et_reprise(env, pispi_actif):
+    f = formule(env, prix=2500)
+    r = demander(env, f)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["reference"].startswith("ABO-") and d["statut"] == "pispi_attente" and d["automatique"] is False
+    b = d["bloc"]
+    assert b["montant_texte"] == "2 500 FCFA" and b["reference"] == d["reference"] and b["banque"] == "Ecobank"
+    assert b["qr_data_url"].startswith("data:image/png;base64,") and "_qr_octets" not in b
+    assert demander(env, f).json()["reference"] == d["reference"]                  # même demande reprise : pas de doublon
+    assert env.portal.call(env.db.payments.count_documents, {"methode": "pispi"}) == 1
+
+
+def test_pispi_declaration_puis_confirmation_active_la_formule(env, pispi_actif):
+    f = formule(env, prix=1500)
+    u = U()
+    ref = demander(env, f, u).json()["reference"]
+    assert appel(env, "formules-plateformes/achat", {"utilisateur": u, "deposit_id": ref}).json()["statut"] == "pispi_attente"
+    # L'utilisateur a payé : il déclare la référence bancaire
+    assert appel(env, "formules-plateformes/pispi/declarer", {"utilisateur": u, "reference": ref, "reference_bancaire": "TX-998877"}).json() == {"statut": "pispi_verification"}
+    assert appel(env, "formules-plateformes/achat", {"utilisateur": u, "deposit_id": ref}).json()["statut"] == "pispi_verification"
+    assert not acces(env, u)["actif"]                                              # pas d'activation avant la confirmation
+    # L'administrateur voit la demande « à vérifier » et confirme
+    liste = env.get("/api/admin/formules-plateformes/pispi").json()["demandes"]
+    assert liste[0]["reference"] == ref and liste[0]["reference_bancaire"] == "TX-998877" and liste[0]["statut"] == "pispi_verification"
+    assert env.post(f"/api/admin/formules-plateformes/pispi/{ref}/confirmer", json={}).json() == {"ok": True, "statut": "completed"}
+    assert acces(env, u)["actif"]                                                  # formule activée, durée de la formule
+    assert appel(env, "formules-plateformes/achat", {"utilisateur": u, "deposit_id": ref}).json()["statut"] == "paye"
+    tx = env.portal.call(env.db.pispi_transactions.find_one, {"reference": ref}, {"_id": 0})
+    assert tx["statut"] == "rapproche" and tx["reference_bancaire"] == "TX-998877" and tx["montant"] == 1500.0
+    # Confirmer deux fois n'ajoute pas de jours
+    expire = acces(env, u)["expire_le"]
+    assert env.post(f"/api/admin/formules-plateformes/pispi/{ref}/confirmer", json={}).status_code == 200
+    assert acces(env, u)["expire_le"] == expire
+    assert env.get("/api/admin/formules-plateformes/pispi").json()["demandes"] == []
+
+
+def test_pispi_refus_de_l_administrateur(env, pispi_actif):
+    f = formule(env)
+    u = U()
+    ref = demander(env, f, u).json()["reference"]
+    assert env.post(f"/api/admin/formules-plateformes/pispi/{ref}/refuser").status_code == 200
+    assert appel(env, "formules-plateformes/achat", {"utilisateur": u, "deposit_id": ref}).json()["statut"] == "echec"
+    assert not acces(env, u)["actif"]
+    assert env.post(f"/api/admin/formules-plateformes/pispi/{ref}/confirmer", json={}).status_code == 409   # clôturée : plus confirmable
+    assert appel(env, "formules-plateformes/pispi/declarer", {"utilisateur": u, "reference": ref, "reference_bancaire": "TX-1234"}).status_code == 409
+
+
+def test_pispi_un_utilisateur_ne_declare_pas_la_demande_d_un_autre(env, pispi_actif):
+    f = formule(env)
+    ref = demander(env, f, U("u1")).json()["reference"]
+    r = appel(env, "formules-plateformes/pispi/declarer", {"utilisateur": U("u2", "70 99 99 99"), "reference": ref, "reference_bancaire": "TX-1234"})
+    assert r.status_code == 404

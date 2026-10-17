@@ -122,6 +122,8 @@ class Utilisateur(BaseModel):
     id: str = Field(..., min_length=1, max_length=80)
     nom: str = Field("", max_length=120)
     telephone: str = Field("", max_length=30)
+    # Super-administrateur de la plateforme dispensé d'abonnement (la plateforme, signée, l'affirme ; elle l'éteint en mode démo)
+    acces_libre: bool = False
 
 
 class CatalogueIn(BaseModel):
@@ -220,9 +222,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         s = await db.settings.find_one({"_id": "global"}, {"transcription_plateformes_par_jour": 1}) or {}
         return int(s.get("transcription_plateformes_par_jour") or VOIX_PAR_JOUR_DEFAUT)
 
-    async def exiger_abonnement(plateforme: str, m: dict, fonction: str, nom_service: str) -> None:
-        """Refus 402 sans abonnement actif qui débloque `fonction` : le message donne le NOM et le PRIX de la formule la moins chère."""
-        if acces_fonction(m, fonction):
+    async def exiger_abonnement(plateforme: str, m: dict, fonction: str, nom_service: str, libre: bool = False) -> None:
+        """Refus 402 sans abonnement actif qui débloque `fonction` : le message donne le NOM et le PRIX de la formule la moins chère.
+        `libre` = super-administrateur dispensé d'abonnement (les limites par jour restent appliquées)."""
+        if libre or acces_fonction(m, fonction):
             return
         formules = await db.formules_plateformes.find({"plateforme": plateforme, "actif": True, "fonctions": fonction}, {"_id": 0}).sort("prix", 1).to_list(20)
         if formules:
@@ -452,7 +455,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         d = lire(OcrIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
         # 1. Abonnement actif ? Sinon refus (402) avec le nom et le PRIX de la formule à prendre
-        await exiger_abonnement(emetteur["code"], m, FONCTION_OCR, "Lecture OCR")
+        await exiger_abonnement(emetteur["code"], m, FONCTION_OCR, "Lecture OCR", d.utilisateur.acces_libre)
         # 2. Limite par jour et par utilisateur (protège le coût de l'IA)
         jour, limite = _maintenant().date().isoformat(), await reglage_ocr_par_jour()
         if int((m.get("ocr_jours") or {}).get(jour, 0)) >= limite:
@@ -490,7 +493,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         emetteur, corps = await plateforme_signee(request)
         d = lire(VoixIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
-        await exiger_abonnement(emetteur["code"], m, FONCTION_VOIX, "Transcription vocale")
+        await exiger_abonnement(emetteur["code"], m, FONCTION_VOIX, "Transcription vocale", d.utilisateur.acces_libre)
         jour, limite = _maintenant().date().isoformat(), await reglage_voix_par_jour()
         if int((m.get("voix_jours") or {}).get(jour, 0)) >= limite:
             raise HTTPException(status_code=429, detail=f"Limite atteinte : {limite} notes vocales par jour. Réessayez demain.")

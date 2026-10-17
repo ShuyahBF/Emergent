@@ -414,3 +414,26 @@ def test_voix_audio_invalide(env, audio):
 def test_voix_signature_obligatoire(env):
     faux_stt()
     assert env.post("/api/formules-plateformes/transcrire", json={"utilisateur": U(), "audio": AUDIO, "duree_s": 5}).status_code == 401
+
+
+# ── Lot 230 : super-administrateur dispensé d'abonnement ─────────────────────────────────────
+def test_acces_libre_dispense_d_abonnement_ocr_et_voix(env):
+    formule(env, prix=2500, nom="OCR Ordonnances")
+    formule(env, nom="Voix", prix=1500, fonctions=["transcription_vocale"])
+    faux_ocr()
+    faux_stt()
+    libre = {**U(), "acces_libre": True}
+    assert lire_ocr(env, libre).status_code == 200                                 # sans avoir payé
+    assert voix(env, libre).status_code == 200
+    assert lire_ocr(env).status_code == 402 and voix(env).status_code == 402        # les autres restent soumis à l'abonnement
+
+
+def test_acces_libre_garde_la_limite_par_jour(env):
+    faux_ocr()
+    libre = {**U(), "acces_libre": True}
+    r = None
+    for _ in range(60):
+        r = lire_ocr(env, libre)
+        if r.status_code != 200:
+            break
+    assert r.status_code == 429                                                    # la dispense ne lève pas le plafond de coût

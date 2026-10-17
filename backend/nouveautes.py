@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "227", "date": "2026-10-17",
+        "titre": "🎟️ Formules et parrainage des plateformes : abonnements encaissés par PawaPay",
+        "description": "Nouvelle rubrique des Paramètres : vous créez les formules vendues aux utilisateurs d'une plateforme (ex. « OCR Ordonnances » pour Paiement Mobile) avec prix et durée (30 jours par défaut). Le paiement passe par la page PawaPay et active la formule tout seul ; payer avant l'échéance ajoute la durée au temps restant. Parrainage : des jours offerts au parrain et au filleul au premier paiement du filleul.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "226", "date": "2026-10-17",
         "titre": "📣 Régie publicitaire : annonces et carrousel dans Paiement Mobile",
         "description": "Nouvel emplacement « Paiement Mobile » dans la régie : les annonces actives s'affichent en carrousel en haut de l'écran Payer de Paiement Mobile ; impressions et clics sont comptés et facturés comme pour les autres bannières (budget, dates, pause automatique).",

@@ -1237,6 +1237,11 @@ api.include_router(_make_wa_usage_router(db=db, get_current_admin=get_current_ad
 from auth import get_super_admin as _get_super_admin_audit  # noqa: E402
 from routes.audit_collections_mongo import make_audit_mongo_router as _make_audit_mongo_router  # noqa: E402
 api.include_router(_make_audit_mongo_router(db=db, get_super_admin=_get_super_admin_audit))
+# Lot 227 — formules (abonnements) et parrainage des utilisateurs des plateformes (Paiement Mobile…) : encaissement PawaPay
+from routes.formules_plateformes import make_formules_plateformes as _make_formules_plateformes  # noqa: E402
+api.include_router(_make_formules_plateformes(
+    db=db, get_super_admin=_get_super_admin_audit, hooks_apres_paiement=_HOOKS_APRES_PAIEMENT,
+    pawapay={"jeton": _pawapay_active_token, "hotes": PAWAPAY_HOSTS, "devise": _pawapay_currency_for_country}))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

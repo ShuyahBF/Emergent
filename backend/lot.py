@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "226"
-LOT_LIBELLE = "Régie publicitaire : nouvel emplacement « Paiement Mobile » (carrousel d'annonces de l'écran Payer, impressions et clics facturés)"
+LOT = "227"
+LOT_LIBELLE = "Formules et parrainage des plateformes : abonnements vendus aux utilisateurs de Paiement Mobile (OCR Ordonnances…), paiement PawaPay qui active la formule, durée cumulée, jours offerts au parrain et au filleul"

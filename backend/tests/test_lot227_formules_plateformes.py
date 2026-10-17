@@ -63,6 +63,7 @@ def env():
     c.db, c.hooks = db, hooks
     yield c
     fp._transport = None
+    fp._analyser = None
     c.__exit__(None, None, None)
 
 
@@ -225,3 +226,102 @@ def test_admin_crud_stats_et_suppression(env):
     g = formule(env, nom="Jamais vendue")
     assert env.delete(f"/api/admin/formules-plateformes/{g['id']}").json() == {"ok": True, "desactivee": False}
     assert [x["id"] for x in appel(env, "formules-plateformes/catalogue", {"utilisateur": U()}).json()["formules"]] == []   # la vendue est désactivée
+
+
+# ---------------------------------------------------------------- lot 228 : OCR réservé aux abonnés
+IMAGE = "data:image/jpeg;base64," + __import__("base64").b64encode(b"\xff\xd8\xff" + b"0" * 200).decode()
+
+
+def faux_ocr(champs=None, erreur=None):
+    appels = []
+
+    async def analyser(octets, mime, nom, modele, *, system_prompt, default_model):
+        appels.append({"mime": mime, "taille": len(octets), "systeme": system_prompt})
+        if erreur:
+            return {"error": erreur, "extracted_fields": {}}
+        return {"extracted_fields": champs or {"operateur": "Orange", "code_marchand": "3366444", "nom_marchand": "Pharmacie"},
+                "summary": "Plaque Orange Money", "confidence": 0.9, "uncertain_fields": ["nom_marchand"], "flags": []}
+
+    fp._analyser = analyser
+    return appels
+
+
+def lire_ocr(env, u=None, type="plaque_marchand", image=IMAGE):
+    return appel(env, "formules-plateformes/ocr", {"utilisateur": u or U(), "type": type, "image": image})
+
+
+def test_ocr_refuse_sans_abonnement_avec_le_prix_de_la_formule(env):
+    appels = faux_ocr()
+    formule(env, prix=2500, nom="OCR Ordonnances")
+    formule(env, prix=9000, nom="OCR Pro")
+    r = lire_ocr(env)
+    assert r.status_code == 402 and not appels                                    # aucune lecture, aucun coût
+    d = r.json()["detail"]
+    assert d["code"] == "abonnement_requis" and d["formule"]["nom"] == "OCR Ordonnances" and d["formule"]["prix"] == 2500
+    assert "OCR Ordonnances" in d["message"] and "2 500 FCFA" in d["message"] and "30 jours" in d["message"]   # la moins chère
+
+
+def test_ocr_refuse_sans_aucune_formule(env):
+    faux_ocr()
+    d = lire_ocr(env).json()["detail"]
+    assert d["formule"] is None and "aucune formule" in d["message"]
+
+
+def test_ocr_refuse_si_la_formule_ne_debloque_pas_l_ocr(env):
+    faux_ocr()
+    env.post("/api/admin/formules-plateformes", json={"plateforme": "paiementmobile", "nom": "Sans OCR", "prix": 500, "fonctions": []})
+    assert lire_ocr(env).status_code == 402
+
+
+def test_ocr_abonne_plaque_et_ordonnance(env):
+    appels = faux_ocr()
+    f = formule(env)
+    payer(env, U(), f)
+    r = lire_ocr(env)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["champs"]["code_marchand"] == "3366444" and j["incertains"] == ["nom_marchand"] and j["restant_aujourdhui"] == 29
+    assert appels[0]["mime"] == "image/jpeg" and "PLAQUE" in appels[0]["systeme"]
+    assert lire_ocr(env, type="ordonnance").status_code == 200 and "ORDONNANCE" in appels[1]["systeme"]
+    assert lire_ocr(env, U("autre")).status_code == 402                           # un autre utilisateur n'a pas payé
+
+
+def test_ocr_expire_apres_l_echeance(env):
+    faux_ocr()
+    f = formule(env)
+    payer(env, U(), f)
+    passe = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    env.portal.call(env.db.membres_plateformes.update_one, {"utilisateur_id": "u1"}, {"$set": {f"abonnements.{f['id']}.expire_le": passe}})
+    assert lire_ocr(env).status_code == 402
+
+
+def test_ocr_limite_par_jour(env):
+    faux_ocr()
+    f = formule(env)
+    payer(env, U(), f)
+    assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "ocr_par_jour": 2}).json()["ocr_par_jour"] == 2
+    assert lire_ocr(env).status_code == 200 and lire_ocr(env).status_code == 200
+    r = lire_ocr(env)
+    assert r.status_code == 429 and "2 lectures" in r.json()["detail"]
+
+
+def test_ocr_echec_du_moteur_ne_compte_pas(env):
+    faux_ocr(erreur="Erreur d'analyse : réseau")
+    f = formule(env)
+    payer(env, U(), f)
+    assert lire_ocr(env).status_code == 502
+    faux_ocr()
+    assert lire_ocr(env).json()["restant_aujourdhui"] == 29                       # la lecture ratée n'a rien consommé
+
+
+@pytest.mark.parametrize("image", ["data:application/pdf;base64,AAAA" + "A" * 200, "pas-une-image" + "x" * 200, "data:image/jpeg;base64,@@@" + "!" * 200])
+def test_ocr_image_invalide(env, image):
+    faux_ocr()
+    f = formule(env)
+    payer(env, U(), f)
+    assert lire_ocr(env, image=image).status_code == 422
+
+
+def test_ocr_signature_obligatoire(env):
+    faux_ocr()
+    assert env.post("/api/formules-plateformes/ocr", json={"utilisateur": U(), "type": "plaque_marchand", "image": IMAGE}).status_code == 401

@@ -19,11 +19,16 @@ Pour un développeur WinDev (c'est l'équivalent de deux fichiers HFSQL + des pr
         POST /api/formules-plateformes/achat       {utilisateur, deposit_id}      → état du paiement (active la formule si payé)
         POST /api/formules-plateformes/acces       {utilisateur, fonction}        → {actif, expire_le, jours_restants}
         POST /api/formules-plateformes/parrainage  {utilisateur, code?}           → mon code, filleuls, jours gagnés ; lie un parrain
+  - Lot 228 — OCR réservé aux abonnés (plaques de marchands, ordonnances) :
+        POST /api/formules-plateformes/ocr         {utilisateur, type, image (data URL)} → champs lus ; refusé (402) sans abonnement
+                                                   actif, avec le NOM et le PRIX de la formule à prendre ; limite par jour (429)
   - Administration (administrateur principal) : rubrique des Paramètres « Formules des plateformes » :
         GET/POST /api/admin/formules-plateformes · PUT/DELETE …/{id} · PUT /api/admin/formules-plateformes-reglages (jours de parrainage)
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import secrets
@@ -39,9 +44,29 @@ logger = logging.getLogger("sawali.formules_plateformes")
 
 # Transport HTTP de remplacement (tests) : None en production
 _transport: Optional[httpx.AsyncBaseTransport] = None
+# Lecture OCR de remplacement (tests) : async (octets, type_mime, nom, consigne) → dict ; None = vrai moteur ocr_core
+_analyser: Optional[Callable] = None
 
+# Consignes OCR propres à Paiement Mobile (ajoutées au format de réponse commun d'ocr_core)
+CONSIGNE_PLAQUE = (
+    "La photo montre la PLAQUE d'un marchand acceptant un paiement mobile (Orange Money, Moov Money, Telecel Cash…) : texte "
+    "imprimé, souvent un numéro marchand ÉCRIT À LA MAIN dans une case, et un QR code. Dans extracted_fields, mets exactement ces clés : "
+    '"operateur" (Orange, Moov ou Telecel d\'après le logo ou le texte, sinon null), "code_marchand" (uniquement les chiffres écrits dans '
+    'la case du numéro marchand ; null si illisible), "nom_marchand" (nom de la boutique imprimé ou écrit, sinon null), '
+    '"numero_sous_qr" (le numéro imprimé sous le QR code, sinon null), "texte_complet" (tout le texte lisible, ligne par ligne). '
+    "Ne devine jamais un chiffre : mets null et cite la clé dans uncertain_fields.")
+CONSIGNE_ORDONNANCE = (
+    "La photo montre une ORDONNANCE médicale (imprimée ou manuscrite). Dans extracted_fields, mets exactement ces clés : "
+    '"prescripteur" (nom du médecin, sinon null), "date" (AAAA-MM-JJ, sinon null), "patient" (sinon null), '
+    '"medicaments" (liste d\'objets {"nom", "dose", "posologie", "duree"} dans l\'ordre de l\'ordonnance ; chaque valeur en texte, null si absente), '
+    '"texte_complet" (tout le texte lisible). Ne devine jamais un nom de médicament ou une dose illisible : mets null et cite-le dans uncertain_fields. '
+    "Tu ne donnes AUCUN conseil médical : tu retranscris seulement.")
 # Fonctions qu'une formule peut débloquer (liste fermée : alimente la liste déroulante d'administration)
-FONCTIONS = {"ocr_ordonnances": "OCR sur ordonnances"}
+FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)"}
+FONCTION_OCR = "ocr_ordonnances"          # une seule fonction débloque toutes les lectures OCR
+OCR_PAR_JOUR_DEFAUT = 30                  # lectures par jour et par utilisateur (réglable par l'administrateur)
+OCR_TYPES = ("plaque_marchand", "ordonnance")
+OCR_TAILLE_MAX = 8_000_000                # octets de l'image décodée
 DUREE_DEFAUT = 30
 PARRAINAGE_JOURS_DEFAUT = 7
 ALPHABET_CODE = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   # sans 0/O/1/I
@@ -110,6 +135,12 @@ class AccesIn(BaseModel):
     fonction: str = Field(..., min_length=1, max_length=40)
 
 
+class OcrIn(BaseModel):
+    utilisateur: Utilisateur
+    type: str = Field(..., pattern="^(plaque_marchand|ordonnance)$")
+    image: str = Field(..., min_length=100, max_length=11_500_000)   # data URL base64 (image/jpeg, image/png, image/webp)
+
+
 class ParrainageIn(BaseModel):
     utilisateur: Utilisateur
     code: str = Field("", max_length=20)
@@ -128,6 +159,7 @@ class FormuleIn(BaseModel):
 
 class ReglagesIn(BaseModel):
     parrainage_jours: int = Field(..., ge=0, le=90)           # jours offerts à CHACUN (0 = parrainage sans récompense)
+    ocr_par_jour: Optional[int] = Field(None, ge=1, le=500)   # lectures OCR par jour et par utilisateur
 
 
 def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[str, Any], hooks_apres_paiement: List[Any]):
@@ -141,6 +173,19 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         s = await db.settings.find_one({"_id": "global"}, {"parrainage_jours": 1}) or {}
         v = s.get("parrainage_jours")
         return PARRAINAGE_JOURS_DEFAUT if v is None else int(v)
+
+    async def reglage_ocr_par_jour() -> int:
+        s = await db.settings.find_one({"_id": "global"}, {"ocr_plateformes_par_jour": 1}) or {}
+        return int(s.get("ocr_plateformes_par_jour") or OCR_PAR_JOUR_DEFAUT)
+
+    def acces_fonction(m: dict, fonction: str) -> Optional[str]:
+        """Meilleure expiration (ISO) d'un abonnement actif qui débloque `fonction`, sinon None."""
+        maintenant, meilleur = _maintenant(), None
+        for a in (m.get("abonnements") or {}).values():
+            if fonction in (a.get("fonctions") or []) and jours_restants(a.get("expire_le"), maintenant) > 0:
+                if meilleur is None or a["expire_le"] > meilleur:
+                    meilleur = a["expire_le"]
+        return meilleur
 
     async def plateforme_signee(request: Request) -> tuple:
         """Émetteur actif + signature valable → (émetteur, corps JSON brut décodé)."""
@@ -341,12 +386,56 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         emetteur, corps = await plateforme_signee(request)
         d = lire(AccesIn, corps)
         m = await db.membres_plateformes.find_one({"plateforme": emetteur["code"], "utilisateur_id": d.utilisateur.id}, {"_id": 0}) or {}
-        maintenant, meilleur = _maintenant(), None
-        for a in (m.get("abonnements") or {}).values():
-            if d.fonction in (a.get("fonctions") or []) and jours_restants(a.get("expire_le"), maintenant) > 0:
-                if meilleur is None or a["expire_le"] > meilleur:
-                    meilleur = a["expire_le"]
+        maintenant, meilleur = _maintenant(), acces_fonction(m, d.fonction)
         return {"actif": meilleur is not None, "expire_le": meilleur, "jours_restants": jours_restants(meilleur, maintenant)}
+
+    @router.post("/formules-plateformes/ocr")
+    async def ocr(request: Request):
+        """Lecture OCR d'une photo (plaque de marchand, ordonnance), réservée aux abonnés d'une formule qui débloque l'OCR."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(OcrIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        # 1. Abonnement actif ? Sinon refus (402) avec le nom et le PRIX de la formule à prendre
+        if not acces_fonction(m, FONCTION_OCR):
+            formules = await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": True, "fonctions": FONCTION_OCR}, {"_id": 0}).sort("prix", 1).to_list(20)
+            if formules:
+                f = formules[0]
+                prix = f"{int(f['prix']):,}".replace(",", " ")
+                message = f"Lecture OCR réservée aux abonnés. Formule « {f['nom']} » : {prix} FCFA pour {f.get('duree_jours') or DUREE_DEFAUT} jours."
+                formule = {"id": f["id"], "nom": f["nom"], "prix": f["prix"], "duree_jours": f.get("duree_jours") or DUREE_DEFAUT}
+            else:
+                message, formule = "Lecture OCR réservée aux abonnés : aucune formule n'est proposée pour le moment.", None
+            raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": message, "formule": formule})
+        # 2. Limite par jour et par utilisateur (protège le coût de l'IA)
+        jour, limite = _maintenant().date().isoformat(), await reglage_ocr_par_jour()
+        if int((m.get("ocr_jours") or {}).get(jour, 0)) >= limite:
+            raise HTTPException(status_code=429, detail=f"Limite atteinte : {limite} lectures OCR par jour. Réessayez demain.")
+        # 3. Image
+        entete, _, b64 = d.image.partition(",")
+        type_mime = entete[5:].split(";")[0] if entete.startswith("data:") else ""
+        if type_mime not in ("image/jpeg", "image/png", "image/webp"):
+            raise HTTPException(status_code=422, detail="Photo attendue (JPEG, PNG ou WebP)")
+        try:
+            octets = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="Photo illisible")
+        if len(octets) > OCR_TAILLE_MAX:
+            raise HTTPException(status_code=413, detail="Photo trop lourde (8 Mo au plus)")
+        # 4. Lecture (le moteur ne lève jamais : erreur dans le résultat)
+        import ocr_core
+        analyser = _analyser or ocr_core.analyze_document
+        consigne = CONSIGNE_PLAQUE if d.type == "plaque_marchand" else CONSIGNE_ORDONNANCE
+        systeme = ocr_core.build_system_prompt(
+            organisation="Paiement Mobile (application de paiements mobiles et de rappels du quotidien, Burkina Faso)",
+            documents="photo d'une plaque de marchand ou d'une ordonnance médicale") + "\n\n" + consigne
+        res = await analyser(octets, type_mime, "photo.jpg", None, system_prompt=systeme, default_model="claude-sonnet-5")
+        if res.get("error") or not isinstance(res.get("extracted_fields"), dict) or not res["extracted_fields"]:
+            raise HTTPException(status_code=502, detail="Lecture impossible : refaites la photo, bien nette et de face.")
+        # Lecture réussie seulement : compte dans la limite du jour
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$inc": {f"ocr_jours.{jour}": 1, "ocr_total": 1}})
+        restant = max(0, limite - int((m.get("ocr_jours") or {}).get(jour, 0)) - 1)
+        return {"type": d.type, "champs": res["extracted_fields"], "resume": res.get("summary", ""), "confiance": res.get("confidence"),
+                "incertains": res.get("uncertain_fields") or [], "avertissements": res.get("flags") or [], "restant_aujourdhui": restant}
 
     @router.post("/formules-plateformes/parrainage")
     async def parrainage(request: Request):
@@ -399,6 +488,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             f.update(ventes.get(f["id"], {"ventes": 0, "chiffre": 0}))
         return {"formules": formules, "plateformes": await plateformes_connues(), "fonctions": FONCTIONS,
                 "membres": await db.membres_plateformes.count_documents({}), "parrainage_jours": await reglages_parrainage(),
+                "ocr_par_jour": await reglage_ocr_par_jour(),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
 
     def verifier(f: FormuleIn) -> dict:
@@ -435,7 +525,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
 
     @router.put("/admin/formules-plateformes-reglages")
     async def admin_reglages(r: ReglagesIn, _: dict = Depends(get_super_admin)):
-        await db.settings.update_one({"_id": "global"}, {"$set": {"parrainage_jours": r.parrainage_jours}}, upsert=True)
-        return {"ok": True, "parrainage_jours": r.parrainage_jours}
+        maj = {"parrainage_jours": r.parrainage_jours}
+        if r.ocr_par_jour is not None:
+            maj["ocr_plateformes_par_jour"] = r.ocr_par_jour
+        await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
+        return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour()}
 
     return router

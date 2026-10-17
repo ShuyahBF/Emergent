@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "228", "date": "2026-10-17",
+        "titre": "📷 OCR réservé aux abonnés : plaques de marchands et ordonnances par photo",
+        "description": "Les utilisateurs de Paiement Mobile photographient une plaque de marchand (code écrit à la main, nom, opérateur) ou une ordonnance : l'IA lit le texte. Réservé aux abonnés d'une formule qui débloque l'OCR ; sans abonnement actif, la lecture est refusée avec le nom et le prix de la formule. Nombre de lectures par jour et par utilisateur réglable.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "227.1", "date": "2026-10-17",
         "titre": "🎟️ Formules des plateformes : retour de paiement vérifié",
         "description": "Après un paiement PawaPay d'une formule, l'utilisateur revient sur la plateforme avec le numéro de son paiement : la plateforme vérifie aussitôt l'achat et confirme l'activation, sans attendre le webhook.",

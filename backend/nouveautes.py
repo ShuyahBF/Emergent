@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "227.1", "date": "2026-10-17",
+        "titre": "🎟️ Formules des plateformes : retour de paiement vérifié",
+        "description": "Après un paiement PawaPay d'une formule, l'utilisateur revient sur la plateforme avec le numéro de son paiement : la plateforme vérifie aussitôt l'achat et confirme l'activation, sans attendre le webhook.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "227", "date": "2026-10-17",
         "titre": "🎟️ Formules et parrainage des plateformes : abonnements encaissés par PawaPay",
         "description": "Nouvelle rubrique des Paramètres : vous créez les formules vendues aux utilisateurs d'une plateforme (ex. « OCR Ordonnances » pour Paiement Mobile) avec prix et durée (30 jours par défaut). Le paiement passe par la page PawaPay et active la formule tout seul ; payer avant l'échéance ajoute la durée au temps restant. Parrainage : des jours offerts au parrain et au filleul au premier paiement du filleul.",

@@ -140,6 +140,24 @@ def test_formule_expiree_et_duree_propre(env):
     assert acces(env, U())["jours_restants"] == 10
 
 
+def test_adresse_de_retour_porte_le_numero_du_paiement(env):
+    corps_recus = []
+    ancien = fp._transport
+
+    def espion(requete: httpx.Request) -> httpx.Response:
+        if requete.url.path.endswith("/paymentpage"):
+            corps_recus.append(json.loads(requete.content))
+        return ancien.handle_request(requete)
+
+    fp._transport = httpx.MockTransport(espion)
+    f = formule(env)
+    dep = appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_id": f["id"], "retour": "https://site.test/abonnement"}).json()["deposit_id"]
+    assert corps_recus[0]["returnUrl"] == f"https://site.test/abonnement?depositId={dep}"
+    assert corps_recus[0]["amountDetails"] == {"amount": "1000", "currency": "XOF"} and corps_recus[0]["phoneNumber"] == "70112233"
+    dep2 = appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_id": f["id"], "retour": "https://site.test/a?x=1"}).json()["deposit_id"]
+    assert corps_recus[1]["returnUrl"] == f"https://site.test/a?x=1&depositId={dep2}"
+
+
 def test_achat_lit_paypay_si_webhook_en_retard(env):
     f = formule(env)
     dep = appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_id": f["id"]}).json()["deposit_id"]

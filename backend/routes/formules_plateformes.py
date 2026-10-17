@@ -273,7 +273,8 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         corps_pp: Dict[str, Any] = {"depositId": deposit_id, "country": country, "reason": f"Abonnement {f['nom']}"[:50],
                                     "amountDetails": {"amount": str(int(f["prix"])), "currency": pawapay["devise"](country)}}
         if d.retour.startswith("https://"):
-            corps_pp["returnUrl"] = d.retour
+            # PawaPay n'ajoute rien à l'adresse de retour : on y joint le numéro du paiement pour que la plateforme vérifie l'achat
+            corps_pp["returnUrl"] = f"{d.retour}{'&' if '?' in d.retour else '?'}depositId={deposit_id}"
         if len(msisdn) >= 8:
             corps_pp["phoneNumber"] = msisdn
         # On inscrit le paiement AVANT d'appeler PawaPay (jamais de depositId perdu)

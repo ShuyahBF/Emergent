@@ -131,6 +131,21 @@ class AbonnesIn(BaseModel):
     utilisateurs: List[str] = Field(..., max_length=200)
 
 
+class PispiDemandeIn(BaseModel):
+    utilisateur: Utilisateur
+    formule_id: str = Field(..., min_length=1, max_length=80)
+
+
+class PispiDeclareIn(BaseModel):
+    utilisateur: Utilisateur
+    reference: str = Field(..., min_length=4, max_length=40)
+    reference_bancaire: str = Field(..., min_length=4, max_length=120)
+
+
+class PispiConfirmationIn(BaseModel):
+    reference_bancaire: Optional[str] = Field(None, max_length=120)
+
+
 class CatalogueIn(BaseModel):
     utilisateur: Utilisateur
 
@@ -431,6 +446,111 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                 await apres_paiement(p)
         return p
 
+    # ------------------------------------------------------------------ paiement PI-SPI (virement instantané BCEAO), version MANUELLE
+    # Les réglages (banque, titulaire, QR de la banque, consigne) sont ceux de l'encaissement PI-SPI (routes/pispi.py).
+    # Manuel : l'utilisateur paie avec le QR de la banque, déclare la référence bancaire, l'administrateur CONFIRME ici.
+    # Prêt pour l'automatique : quand une banque fournira son API (routes/pispi_connecteur.py), sa notification de paiement
+    # n'aura qu'à appeler `confirmer_pispi(...)` — la même fonction que le bouton « Confirmer » de l'administrateur.
+    STATUTS_PISPI_OUVERTS = ("pispi_attente", "pispi_verification")
+
+    async def confirmer_pispi(reference: str, reference_bancaire: Optional[str], par: str, source: str = "manuel") -> dict:
+        """Paiement PI-SPI reçu : la formule est activée (une seule fois) et l'encaissement est inscrit au registre PI-SPI."""
+        from routes.pispi import enregistrer_transaction
+        p = await db.payments.find_one({"deposit_id": reference, "flow": "formule_plateforme", "methode": "pispi"}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Demande PI-SPI introuvable")
+        if p.get("status") == "completed":
+            return p                                                        # déjà confirmée : rien à refaire
+        if p.get("status") not in STATUTS_PISPI_OUVERTS:
+            raise HTTPException(status_code=409, detail="Demande déjà refusée ou clôturée")
+        ref_banque = (reference_bancaire or p.get("reference_bancaire") or "").strip() or None
+        await db.payments.update_one({"deposit_id": reference}, {"$set": {"status": "completed", "api_status": "PISPI", "reference_bancaire": ref_banque,
+                                                                          "confirme_par": par, "updated_at": _iso(_maintenant())}})
+        p = await db.payments.find_one({"deposit_id": reference}, {"_id": 0})
+        await apres_paiement(p)
+        await enregistrer_transaction(reference=reference, montant=float(p["amount"]), statut="rapproche", source=source,
+                                      reference_bancaire=ref_banque, document={"type": "abonnement_plateforme", "id": p.get("membre_id"), "numero": reference},
+                                      saisi_par=par)
+        return p
+
+    @router.post("/formules-plateformes/pispi/demander")
+    async def pispi_demander(request: Request):
+        """L'utilisateur choisit de payer par PI-SPI : référence de la demande + bloc de paiement (banque, titulaire, QR, montant, consigne)."""
+        from routes.pispi import bloc, lire_parametres, sans_octets
+        from routes.pispi_connecteur import ConnecteurIndisponible, connecteur_actif
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(PispiDemandeIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        f = await db.formules_plateformes.find_one({"id": d.formule_id, "plateforme": emetteur["code"], "actif": True}, {"_id": 0})
+        if not f:
+            raise HTTPException(status_code=404, detail="Formule introuvable")
+        param = await lire_parametres()
+        b = bloc(param, reference="", reste_du=float(f["prix"]))
+        if not b.get("afficher"):
+            raise HTTPException(status_code=503, detail="Paiement PI-SPI indisponible pour le moment")
+        # Une demande encore ouverte pour la même formule est reprise (pas de doublon à confirmer)
+        ouverte = await db.payments.find_one({"flow": "formule_plateforme", "methode": "pispi", "membre_id": m["id"], "formule_id": f["id"],
+                                              "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}, {"_id": 0})
+        if ouverte:
+            reference = ouverte["deposit_id"]
+        else:
+            reference = "ABO-" + secrets.token_hex(4).upper()
+            await db.payments.insert_one({"id": str(uuid.uuid4()), "deposit_id": reference, "client_id": None, "user_id": None,
+                                          "user_label": m.get("nom") or m["utilisateur_id"], "amount": float(f["prix"]), "currency": "XOF",
+                                          "description": f"Abonnement {f['nom']} — {emetteur['code']} (PI-SPI)", "flow": "formule_plateforme",
+                                          "methode": "pispi", "plateforme": emetteur["code"], "membre_id": m["id"], "formule_id": f["id"],
+                                          "status": "pispi_attente", "created_at": _iso(_maintenant()), "updated_at": _iso(_maintenant())})
+        c = connecteur_actif()
+        try:
+            await c.demander_paiement(reference=reference, montant=float(f["prix"]))      # manuel : simple rappel ; banque branchée : demande réelle
+        except ConnecteurIndisponible:
+            pass
+        b = bloc(param, reference=reference, reste_du=float(f["prix"]))
+        statut = ouverte["status"] if ouverte else "pispi_attente"       # « pispi_verification » : référence déjà déclarée
+        return {"reference": reference, "bloc": sans_octets(b), "automatique": bool(c.automatique), "statut": statut}
+
+    @router.post("/formules-plateformes/pispi/declarer")
+    async def pispi_declarer(request: Request):
+        """L'utilisateur a payé : il indique la référence bancaire de son virement ; l'administrateur la vérifie puis confirme."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(PispiDeclareIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        p = await db.payments.find_one({"deposit_id": d.reference, "flow": "formule_plateforme", "methode": "pispi", "membre_id": m["id"]}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Demande PI-SPI introuvable")
+        if p["status"] == "completed":
+            return {"statut": "paye"}
+        if p["status"] not in STATUTS_PISPI_OUVERTS:
+            raise HTTPException(status_code=409, detail="Cette demande est clôturée : faites-en une nouvelle")
+        await db.payments.update_one({"deposit_id": d.reference}, {"$set": {"status": "pispi_verification", "reference_bancaire": d.reference_bancaire.strip(),
+                                                                            "declare_le": _iso(_maintenant()), "updated_at": _iso(_maintenant())}})
+        return {"statut": "pispi_verification"}
+
+    @router.get("/admin/formules-plateformes/pispi")
+    async def admin_pispi_liste(_: dict = Depends(get_super_admin)):
+        """Demandes PI-SPI à traiter : « à vérifier » (référence déclarée) d'abord, puis « en attente » de virement."""
+        lignes = await db.payments.find({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}},
+                                        {"_id": 0}).sort("created_at", -1).to_list(100)
+        formules = {f["id"]: f for f in await db.formules_plateformes.find({}, {"_id": 0, "id": 1, "nom": 1}).to_list(200)}
+        out = [{"reference": p["deposit_id"], "plateforme": p.get("plateforme"), "utilisateur": p.get("user_label"), "formule": (formules.get(p.get("formule_id")) or {}).get("nom"),
+                "montant": p.get("amount"), "statut": p["status"], "reference_bancaire": p.get("reference_bancaire"), "cree_le": p.get("created_at"),
+                "declare_le": p.get("declare_le")} for p in lignes]
+        out.sort(key=lambda x: 0 if x["statut"] == "pispi_verification" else 1)
+        return {"demandes": out}
+
+    @router.post("/admin/formules-plateformes/pispi/{reference}/confirmer")
+    async def admin_pispi_confirmer(reference: str, corps: PispiConfirmationIn, adm: dict = Depends(get_super_admin)):
+        p = await confirmer_pispi(reference, corps.reference_bancaire, adm.get("email") or "admin")
+        return {"ok": True, "statut": p["status"]}
+
+    @router.post("/admin/formules-plateformes/pispi/{reference}/refuser")
+    async def admin_pispi_refuser(reference: str, _: dict = Depends(get_super_admin)):
+        r = await db.payments.update_one({"deposit_id": reference, "flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}},
+                                         {"$set": {"status": "failed", "api_status": "PISPI_REFUSE", "updated_at": _iso(_maintenant())}})
+        if not r.matched_count:
+            raise HTTPException(status_code=404, detail="Demande PI-SPI introuvable ou déjà clôturée")
+        return {"ok": True}
+
     @router.post("/formules-plateformes/achat")
     async def achat(request: Request):
         emetteur, corps = await plateforme_signee(request)
@@ -441,7 +561,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             raise HTTPException(status_code=404, detail="Paiement introuvable")
         if p.get("status") in ("initiated", "pending"):
             p = await rafraichir(d.deposit_id, p)
-        statut = {"completed": "paye", "failed": "echec"}.get(p.get("status"), "attente")
+        # PI-SPI : « pispi_attente » = le QR est affiché, rien n'est encore déclaré ; « pispi_verification » = référence bancaire
+        # déclarée, en attente de confirmation de l'administrateur
+        statut = {"completed": "paye", "failed": "echec", "pispi_attente": "pispi_attente",
+                  "pispi_verification": "pispi_verification"}.get(p.get("status"), "attente")
         return {"statut": statut, "formule_id": p.get("formule_id")}
 
     @router.post("/formules-plateformes/acces")
@@ -594,6 +717,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         return {"formules": formules, "plateformes": await plateformes_connues(), "fonctions": FONCTIONS,
                 "membres": await db.membres_plateformes.count_documents({}), "parrainage_jours": await reglages_parrainage(),
                 "ocr_par_jour": await reglage_ocr_par_jour(), "voix_par_jour": await reglage_voix_par_jour(),
+                "pispi_demandes": await db.payments.count_documents({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
 
     def verifier(f: FormuleIn) -> dict:

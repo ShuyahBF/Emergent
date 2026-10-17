@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "232", "date": "2026-10-17",
+        "titre": "🏦 Paiement PI-SPI des abonnements (version manuelle)",
+        "description": "Les utilisateurs de Paiement Mobile peuvent payer leur abonnement avec le QR PI-SPI de la banque, puis déclarer la référence bancaire. Les demandes à vérifier apparaissent en haut de la rubrique : vous confirmez après contrôle du relevé et la formule s'active. Prêt pour l'automatique dès qu'une banque fournira son API.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "231", "date": "2026-10-17",
         "titre": "👥 Abonnements actifs des comptes de Paiement Mobile (liste de l'administrateur)",
         "description": "La plateforme demande à SAWALI, pour une liste de comptes, les abonnements actifs avec leur formule, leurs fonctions et leur date d'expiration : l'administrateur de Paiement Mobile les voit dans sa liste des comptes.",

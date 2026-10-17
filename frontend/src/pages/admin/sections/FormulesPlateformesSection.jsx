@@ -7,7 +7,9 @@
   Lot 228 : la fonction « OCR » de la formule débloque les lectures de plaques de marchands et d'ordonnances ; refusées sans abonnement actif
   (message avec le nom et le prix de la formule) ; limite de lectures par jour réglable ici.
   Lot 229 : fonction « Transcription vocale » (notes de 30 s au plus, limite par jour réglable), cumulable avec l'OCR sur une même formule.
-  API : GET/POST/PUT/DELETE /admin/formules-plateformes, PUT /admin/formules-plateformes-reglages (backend/routes/formules_plateformes.py).
+  Lot 232 : paiement PI-SPI manuel des abonnements — l'utilisateur paie avec le QR de la banque (réglages « Encaissement PI-SPI »),
+  déclare la référence bancaire, et l'administrateur CONFIRME ici (la formule s'active alors, l'encaissement entre au registre PI-SPI).
+  API : GET/POST/PUT/DELETE /admin/formules-plateformes, GET /admin/formules-plateformes/pispi, POST …/pispi/{reference}/confirmer|refuser, PUT /admin/formules-plateformes-reglages (backend/routes/formules_plateformes.py).
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -15,6 +17,49 @@ import { apiClient } from "@/lib/api";
 
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
 const VIDE = { plateforme: "", nom: "", description: "", prix: "", duree_jours: 30, fonctions: ["ocr_ordonnances"], actif: true, ordre: 0 };
+
+// Demandes de paiement PI-SPI à traiter (en haut de la rubrique : ce sont des actions à faire). « À vérifier » = référence bancaire déclarée.
+function DemandesPispi({ rafraichir }) {
+  const [demandes, setDemandes] = useState(null);
+  const charger = useCallback(() => apiClient.get("/admin/formules-plateformes/pispi").then((r) => setDemandes(r.data.demandes)).catch(() => setDemandes([])), []);
+  useEffect(() => { charger(); }, [charger]);
+  const traiter = async (x, action) => {
+    const verbe = action === "confirmer" ? "Confirmer la réception du paiement" : "Refuser la demande";
+    if (!window.confirm(`${verbe} de ${x.utilisateur || "l'utilisateur"} (${fcfa(x.montant)}, formule « ${x.formule || "?"} ») ?`)) return;
+    try {
+      await apiClient.post(`/admin/formules-plateformes/pispi/${x.reference}/${action}`, action === "confirmer" ? {} : undefined);
+      toast.success(action === "confirmer" ? "Paiement confirmé : formule activée" : "Demande refusée");
+      charger();
+      rafraichir();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Action impossible"); }
+  };
+  if (!demandes?.length) return null;
+  return (
+    <div className="rounded-lg bg-sky-50 p-3 ring-1 ring-sky-200" data-testid="pispi-demandes">
+      <p className="text-sm font-semibold text-sky-900">🏦 Paiements PI-SPI à traiter ({demandes.length})</p>
+      <p className="mb-2 text-xs text-sky-900">Vérifiez la référence bancaire dans le relevé de la banque avant de confirmer.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr className="text-left text-slate-500"><th className="p-1">Utilisateur</th><th>Formule</th><th>Montant</th><th>Référence</th><th>Réf. bancaire déclarée</th><th>État</th><th /></tr></thead>
+          <tbody>
+            {demandes.map((x) => (
+              <tr key={x.reference} className="border-t border-sky-100">
+                <td className="p-1">{x.utilisateur}<span className="block text-slate-500">{x.plateforme}</span></td>
+                <td>{x.formule}</td><td>{fcfa(x.montant)}</td><td className="font-mono">{x.reference}</td>
+                <td className="font-mono">{x.reference_bancaire || "—"}</td>
+                <td>{x.statut === "pispi_verification" ? <b className="text-emerald-700">À vérifier</b> : <span className="text-slate-500">Virement attendu</span>}</td>
+                <td className="boutons-distincts flex gap-1 p-1">
+                  <button type="button" onClick={() => traiter(x, "confirmer")} className="rounded bg-emerald-600 px-2 py-1 text-white">Confirmer</button>
+                  <button type="button" onClick={() => traiter(x, "refuser")} className="rounded border border-slate-300 px-2 py-1">Refuser</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 export default function FormulesPlateformesSection() {
   const [d, setD] = useState(null);
@@ -65,9 +110,11 @@ export default function FormulesPlateformesSection() {
   const champ = (cle) => (e) => setEdition({ ...edition, [cle]: e.target.value });
   return (
     <div className="space-y-4" data-testid="formules-plateformes">
+      <DemandesPispi rafraichir={charger} />
       <p className="text-xs text-slate-600">
         Formules vendues aux utilisateurs des plateformes (ex. « OCR Ordonnances » dans Paiement Mobile). Le paiement passe par la page PawaPay
-        hébergée et active la formule tout seul ; payer avant l'échéance <b>ajoute</b> la durée au temps restant.
+        hébergée et active la formule tout seul ; le paiement PI-SPI (QR de la banque, réglé dans « Encaissement PI-SPI ») se confirme à la main
+        ci-dessus. Payer avant l'échéance <b>ajoute</b> la durée au temps restant.
       </p>
       {!d.pawapay_actif && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900 ring-1 ring-amber-200">PawaPay n'est pas activé : les achats sont refusés tant qu'il ne l'est pas (rubrique PawaPay).</p>}
 

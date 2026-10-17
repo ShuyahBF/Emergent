@@ -640,3 +640,17 @@ def test_archives_reglage_admin_de_l_espace(env):
     assert env.get("/api/admin/formules-plateformes").json()["archives_mo"] == 200
     assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_mo": 500}).json()["archives_mo"] == 500
     assert env.get("/api/admin/formules-plateformes").json()["archives_mo"] == 500
+
+
+def test_archives_modifier_les_informations_chiffrees(env, archives_stock):
+    u = U()
+    abonne_archives(env, u)
+    arch(env, "cle", u, sel=SEL, verif=VERIF)
+    aid = arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"d" * 100).decode()).json()["id"]
+    nouvelle = "N" * 48
+    assert arch(env, "modifier", u, id=aid, meta=nouvelle).status_code == 200
+    assert arch(env, "liste", u).json()["archives"][0]["meta"] == nouvelle
+    assert list(archives_stock.values()) == [b"d" * 100]                                  # le document lui-même n'a pas bougé
+    env.portal.call(env.db.membres_plateformes.update_many, {}, {"$set": {"abonnements": {}}})
+    assert arch(env, "modifier", u, id=aid, meta="P" * 48).status_code == 200              # permis sans abonnement
+    assert arch(env, "modifier", U("u2", "70 99 99 99"), id=aid, meta=nouvelle).status_code == 404    # jamais le document d'un autre

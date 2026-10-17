@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "234", "date": "2026-10-17",
+        "titre": "🏷️ Archives en ligne : modifier titre, catégorie et étiquettes",
+        "description": "Un utilisateur de Paiement Mobile peut corriger les informations d'un document archivé en ligne sans le renvoyer ; elles restent chiffrées par son site. Permis même après la fin de l'abonnement.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "233", "date": "2026-10-17",
         "titre": "🗄️ Archives en ligne chiffrées (reçus, pièces d'identité, cartes grises…)",
         "description": "Les utilisateurs de Paiement Mobile archivent leurs documents importants ; le site les chiffre avant l'envoi (phrase secrète connue d'eux seuls) et SAWALI ne garde que des octets illisibles dans R2. Nouvelle fonction « Archives en ligne chiffrées » à cocher dans une formule ; espace par utilisateur réglable (200 Mo au départ). Sans abonnement, les documents restent sur l'appareil.",

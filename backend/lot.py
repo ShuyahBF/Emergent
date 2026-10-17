@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "233"
-LOT_LIBELLE = "Archives en ligne chiffrées des plateformes (documents importants) : le site chiffre, SAWALI garde des octets illisibles dans R2 ; abonnement pour ajouter, espace par utilisateur réglable"
+LOT = "234"
+LOT_LIBELLE = "Archives en ligne : modification des informations chiffrées d'un document (titre, catégorie, étiquettes) sans renvoyer le document"

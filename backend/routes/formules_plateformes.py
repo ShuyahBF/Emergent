@@ -126,6 +126,11 @@ class Utilisateur(BaseModel):
     acces_libre: bool = False
 
 
+class AbonnesIn(BaseModel):
+    """Liste des comptes dont la plateforme veut connaître les abonnements actifs (200 au plus par appel)."""
+    utilisateurs: List[str] = Field(..., max_length=200)
+
+
 class CatalogueIn(BaseModel):
     utilisateur: Utilisateur
 
@@ -447,6 +452,21 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         m = await db.membres_plateformes.find_one({"plateforme": emetteur["code"], "utilisateur_id": d.utilisateur.id}, {"_id": 0}) or {}
         maintenant, meilleur = _maintenant(), acces_fonction(m, d.fonction)
         return {"actif": meilleur is not None, "expire_le": meilleur, "jours_restants": jours_restants(meilleur, maintenant)}
+
+    @router.post("/formules-plateformes/abonnes")
+    async def abonnes(request: Request):
+        """La plateforme (administrateur) demande les abonnements ACTIFS de ses comptes : formule, fonctions, date d'expiration."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(AbonnesIn, corps)
+        maintenant, resultat = _maintenant(), {}
+        # Une seule lecture pour tous les comptes demandés (jamais une lecture par compte)
+        async for m in db.membres_plateformes.find({"plateforme": emetteur["code"], "utilisateur_id": {"$in": d.utilisateurs}}, {"_id": 0, "utilisateur_id": 1, "abonnements": 1}):
+            actifs = [{"formule": a.get("nom"), "fonctions": a.get("fonctions") or [], "expire_le": a.get("expire_le"),
+                       "jours_restants": jours_restants(a.get("expire_le"), maintenant)}
+                      for a in (m.get("abonnements") or {}).values() if jours_restants(a.get("expire_le"), maintenant) > 0]
+            if actifs:
+                resultat[m["utilisateur_id"]] = sorted(actifs, key=lambda x: x["expire_le"] or "", reverse=True)
+        return {"abonnes": resultat}
 
     @router.post("/formules-plateformes/ocr")
     async def ocr(request: Request):

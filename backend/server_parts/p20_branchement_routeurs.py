@@ -1248,6 +1248,9 @@ from routes.annonceurs_plateformes import make_annonceurs_plateformes as _make_a
 api.include_router(_make_annonceurs_plateformes(
     db=db, get_super_admin=_get_super_admin_audit, hooks_apres_paiement=_HOOKS_APRES_PAIEMENT, pawapay=_PAWAPAY_PLATEFORMES,
     outils=_routeur_formules.outils))
+# Lot 237 — résumés de la presse demandés par les plateformes (collecte faite par la plateforme, résumé par l'IA de SAWALI)
+from routes.presse_plateformes import make_presse_plateformes as _make_presse_plateformes  # noqa: E402
+api.include_router(_make_presse_plateformes(db=db, outils=_routeur_formules.outils))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

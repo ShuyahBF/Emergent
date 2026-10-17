@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "237", "date": "2026-10-17",
+        "titre": "🗞️ Résumés de la presse pour Paiement Mobile",
+        "description": "Paiement Mobile collecte chaque matin les médias choisis par son administrateur ; SAWALI résume les articles par l'IA (40 appels par jour au plus). Rien n'est gardé chez SAWALI.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "236", "date": "2026-10-17",
         "titre": "📣 « Devenir annonceur » : formule Annonceur payante",
         "description": "Créez une formule avec la fonction « Annonceur » : seuls ses abonnés peuvent passer des annonces ; le menu de Paiement Mobile affiche son prix et mène au paiement.",

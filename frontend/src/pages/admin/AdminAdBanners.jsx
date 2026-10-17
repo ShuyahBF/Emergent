@@ -414,7 +414,7 @@ export default function AdminAdBanners() {
                               {(it.carrousel_campagne_ids || []).length} envoi(s) · {(it.carrousel_clics_bruts || 0).toLocaleString("fr-FR")} clic(s) bruts
                             </span>
                           </span>
-                        ) : it.placement === "both" ? "Public + Portail" : it.placement === "public_modal" ? "Modale publique" : it.placement}
+                        ) : it.placement === "both" ? "Public + Portail" : it.placement === "public_modal" ? "Modale publique" : it.placement === "paiementmobile" ? "Paiement Mobile" : it.placement}
                       </td>
                       <td className="text-center">
                         {it.is_currently_active
@@ -651,6 +651,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
             <option value="both">Public + Espace Loois</option>
             <option value="public_modal">Modale aléatoire (page publique)</option>
             <option value={PLACEMENT_CARROUSEL}>Carrousel WhatsApp sponsorisé (clics facturés)</option>
+            <option value="paiementmobile">Paiement Mobile — carrousel de l'écran Payer</option>
           </select>
         </Field>
         {draft.placement === "public_modal" && (

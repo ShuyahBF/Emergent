@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "225"
-LOT_LIBELLE = "Audit des collections MongoDB en un clic : date de dernière utilisation, statut et conseil par collection, avec tableau, graphiques et export CSV"
+LOT = "226"
+LOT_LIBELLE = "Régie publicitaire : nouvel emplacement « Paiement Mobile » (carrousel d'annonces de l'écran Payer, impressions et clics facturés)"

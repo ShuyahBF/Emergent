@@ -76,6 +76,10 @@ def _now_iso() -> str:
 # les routes impression / click des bannières : leurs clics passent par le lien court du carrousel.
 PLACEMENT_CARROUSEL = "carrousel_wa"
 
+# Lot 226 — emplacement « Paiement Mobile » : annonces vendues pour la plateforme Paiement Mobile (carrousel de l'écran Payer).
+# Elles ne sont JAMAIS servies par la rotation des bannières du site SAWALI (placements public / portal / both).
+PLACEMENT_PAIEMENT_MOBILE = "paiementmobile"
+
 # Lot 111 — diffusion vers le panneau « temps réel » de la régie, utilisable hors de ce module
 # (clics et envois des carrousels sponsorisés, routes/carrousel_regie.py). Renseignée au branchement des routes.
 _DIFFUSEUR = None
@@ -395,7 +399,7 @@ class AdBannerPayload(BaseModel):
     media_kind: str = Field("image", pattern="^(image|video)$")
     target_url: str = Field("", max_length=600)
     # Lot 111 — « carrousel_wa » : campagne de régie qui pilote un carrousel WhatsApp sponsorisé
-    placement: str = Field("both", pattern="^(public|portal|both|public_modal|carrousel_wa)$")
+    placement: str = Field("both", pattern="^(public|portal|both|public_modal|carrousel_wa|paiementmobile)$")
     animated: bool = False
     active: bool = True
     budget_amount: float = Field(0, ge=0)
@@ -630,6 +634,16 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             weights = [1.0] * len(ready)
         chosen = random.choices(ready, weights=weights, k=1)[0]
         return {"banner": _public_view(chosen)}
+
+    # Lot 226 — liste des annonces actives d'une plateforme partenaire (carrousel de Paiement Mobile).
+    # Même filtre que la rotation (actives, commencées, non expirées, budget restant) ; la plateforme relaie
+    # elle-même les impressions et les clics vers les routes /impression et /click ci-dessous (comptés et facturés).
+    @api.get("/public/ad-banners/liste", tags=["Public — Ad Banners"])
+    async def public_liste_banners(placement: str = Query(PLACEMENT_PAIEMENT_MOBILE, pattern="^paiementmobile$"),
+                                   limite: int = Query(8, ge=1, le=20)):
+        candidats = await db.ad_banners.find({"active": True, "placement": placement}, {"_id": 0}).to_list(200)
+        pretes = [b for b in candidats if not _is_expired(b) and not _budget_exhausted(b) and _is_started(b)]
+        return {"banners": [_public_view(b) for b in pretes[:limite]]}
 
     # Iter40-modal — Public config endpoint exposed to anonymous visitors.
     # Returns the global daily cap so PublicAdModal can enforce a maximum

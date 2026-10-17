@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "240"
-LOT_LIBELLE = "Plages d'envoi : l'Admin peut autoriser les carrousels WhatsApp aussi le samedi et le dimanche, sans toucher aux sondages ni aux formulaires"
+LOT = "241"
+LOT_LIBELLE = "WhatsApp : les adresses web des messages ne reçoivent plus de caractère invisible après un « _ » (liens de panier partagé ZandGo invalides)"

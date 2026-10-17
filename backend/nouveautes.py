@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "229", "date": "2026-10-17",
+        "titre": "🎙️ Transcription vocale réservée aux abonnés : on parle, c'est écrit",
+        "description": "Les utilisateurs de Paiement Mobile enregistrent une note vocale de 30 secondes au plus : le texte est transcrit (Whisper) puis copiable dans WhatsApp. Réservé aux abonnés d'une formule qui débloque la transcription ; sans abonnement, refus avec le nom et le prix de la formule. Nombre de notes par jour réglable. Une formule peut maintenant débloquer plusieurs fonctions (OCR, voix).",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "228", "date": "2026-10-17",
         "titre": "📷 OCR réservé aux abonnés : plaques de marchands et ordonnances par photo",
         "description": "Les utilisateurs de Paiement Mobile photographient une plaque de marchand (code écrit à la main, nom, opérateur) ou une ordonnance : l'IA lit le texte. Réservé aux abonnés d'une formule qui débloque l'OCR ; sans abonnement actif, la lecture est refusée avec le nom et le prix de la formule. Nombre de lectures par jour et par utilisateur réglable.",

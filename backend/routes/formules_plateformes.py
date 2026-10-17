@@ -22,6 +22,8 @@ Pour un développeur WinDev (c'est l'équivalent de deux fichiers HFSQL + des pr
   - Lot 228 — OCR réservé aux abonnés (plaques de marchands, ordonnances) :
         POST /api/formules-plateformes/ocr         {utilisateur, type, image (data URL)} → champs lus ; refusé (402) sans abonnement
                                                    actif, avec le NOM et le PRIX de la formule à prendre ; limite par jour (429)
+  - Lot 229 — transcription vocale réservée aux abonnés (30 s au plus par note, limite par jour) :
+        POST /api/formules-plateformes/transcrire  {utilisateur, audio (data URL), duree_s} → {texte}
   - Administration (administrateur principal) : rubrique des Paramètres « Formules des plateformes » :
         GET/POST /api/admin/formules-plateformes · PUT/DELETE …/{id} · PUT /api/admin/formules-plateformes-reglages (jours de parrainage)
 """
@@ -44,6 +46,8 @@ logger = logging.getLogger("sawali.formules_plateformes")
 
 # Transport HTTP de remplacement (tests) : None en production
 _transport: Optional[httpx.AsyncBaseTransport] = None
+# Transcription de remplacement (tests) : async (octets, extension, langue) → texte ; None = Whisper (ia_client)
+_transcrire: Optional[Callable] = None
 # Lecture OCR de remplacement (tests) : async (octets, type_mime, nom, consigne) → dict ; None = vrai moteur ocr_core
 _analyser: Optional[Callable] = None
 
@@ -62,8 +66,13 @@ CONSIGNE_ORDONNANCE = (
     '"texte_complet" (tout le texte lisible). Ne devine jamais un nom de médicament ou une dose illisible : mets null et cite-le dans uncertain_fields. '
     "Tu ne donnes AUCUN conseil médical : tu retranscris seulement.")
 # Fonctions qu'une formule peut débloquer (liste fermée : alimente la liste déroulante d'administration)
-FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)"}
+FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
+             "transcription_vocale": "Transcription vocale (notes de 30 secondes)"}
 FONCTION_OCR = "ocr_ordonnances"          # une seule fonction débloque toutes les lectures OCR
+FONCTION_VOIX = "transcription_vocale"    # lot 229 : transcription des notes vocales
+VOIX_PAR_JOUR_DEFAUT = 10                 # notes par jour et par utilisateur (réglable)
+VOIX_DUREE_MAX_S = 31                     # 30 s + marge d'arrêt de l'enregistreur
+VOIX_TAILLE_MAX = 900_000                 # octets de l'audio décodé (≈ 30 s en webm/opus ou m4a ; au-delà : refusé)
 OCR_PAR_JOUR_DEFAUT = 30                  # lectures par jour et par utilisateur (réglable par l'administrateur)
 OCR_TYPES = ("plaque_marchand", "ordonnance")
 OCR_TAILLE_MAX = 8_000_000                # octets de l'image décodée
@@ -141,6 +150,12 @@ class OcrIn(BaseModel):
     image: str = Field(..., min_length=100, max_length=11_500_000)   # data URL base64 (image/jpeg, image/png, image/webp)
 
 
+class VoixIn(BaseModel):
+    utilisateur: Utilisateur
+    audio: str = Field(..., min_length=100, max_length=1_400_000)    # data URL base64 (audio/webm, audio/mp4, audio/ogg…)
+    duree_s: float = Field(..., gt=0, le=VOIX_DUREE_MAX_S)           # durée annoncée par l'enregistreur du navigateur
+
+
 class ParrainageIn(BaseModel):
     utilisateur: Utilisateur
     code: str = Field("", max_length=20)
@@ -160,6 +175,29 @@ class FormuleIn(BaseModel):
 class ReglagesIn(BaseModel):
     parrainage_jours: int = Field(..., ge=0, le=90)           # jours offerts à CHACUN (0 = parrainage sans récompense)
     ocr_par_jour: Optional[int] = Field(None, ge=1, le=500)   # lectures OCR par jour et par utilisateur
+    voix_par_jour: Optional[int] = Field(None, ge=1, le=200)  # notes vocales transcrites par jour et par utilisateur
+
+
+async def _whisper(octets: bytes, extension: str, langue: str) -> str:
+    """Transcription par Whisper (client IA local, même que le support) ; fichier temporaire supprimé aussitôt."""
+    import os
+    import tempfile
+    from ia_client import OpenAISpeechToText, cle_ia
+    chemin = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as f:
+            f.write(octets)
+            chemin = f.name
+        stt = OpenAISpeechToText(api_key=cle_ia("openai"))
+        with open(chemin, "rb") as fh:
+            resp = await stt.transcribe(file=fh, model="whisper-1", response_format="json", language=langue)
+        return getattr(resp, "text", None) or ""
+    finally:
+        if chemin and os.path.exists(chemin):
+            try:
+                os.unlink(chemin)
+            except OSError:
+                pass
 
 
 def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[str, Any], hooks_apres_paiement: List[Any]):
@@ -177,6 +215,24 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     async def reglage_ocr_par_jour() -> int:
         s = await db.settings.find_one({"_id": "global"}, {"ocr_plateformes_par_jour": 1}) or {}
         return int(s.get("ocr_plateformes_par_jour") or OCR_PAR_JOUR_DEFAUT)
+
+    async def reglage_voix_par_jour() -> int:
+        s = await db.settings.find_one({"_id": "global"}, {"transcription_plateformes_par_jour": 1}) or {}
+        return int(s.get("transcription_plateformes_par_jour") or VOIX_PAR_JOUR_DEFAUT)
+
+    async def exiger_abonnement(plateforme: str, m: dict, fonction: str, nom_service: str) -> None:
+        """Refus 402 sans abonnement actif qui débloque `fonction` : le message donne le NOM et le PRIX de la formule la moins chère."""
+        if acces_fonction(m, fonction):
+            return
+        formules = await db.formules_plateformes.find({"plateforme": plateforme, "actif": True, "fonctions": fonction}, {"_id": 0}).sort("prix", 1).to_list(20)
+        if formules:
+            f = formules[0]
+            prix = f"{int(f['prix']):,}".replace(",", " ")
+            message = f"{nom_service} réservée aux abonnés. Formule « {f['nom']} » : {prix} FCFA pour {f.get('duree_jours') or DUREE_DEFAUT} jours."
+            formule = {"id": f["id"], "nom": f["nom"], "prix": f["prix"], "duree_jours": f.get("duree_jours") or DUREE_DEFAUT}
+        else:
+            message, formule = f"{nom_service} réservée aux abonnés : aucune formule n'est proposée pour le moment.", None
+        raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": message, "formule": formule})
 
     def acces_fonction(m: dict, fonction: str) -> Optional[str]:
         """Meilleure expiration (ISO) d'un abonnement actif qui débloque `fonction`, sinon None."""
@@ -396,16 +452,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         d = lire(OcrIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
         # 1. Abonnement actif ? Sinon refus (402) avec le nom et le PRIX de la formule à prendre
-        if not acces_fonction(m, FONCTION_OCR):
-            formules = await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": True, "fonctions": FONCTION_OCR}, {"_id": 0}).sort("prix", 1).to_list(20)
-            if formules:
-                f = formules[0]
-                prix = f"{int(f['prix']):,}".replace(",", " ")
-                message = f"Lecture OCR réservée aux abonnés. Formule « {f['nom']} » : {prix} FCFA pour {f.get('duree_jours') or DUREE_DEFAUT} jours."
-                formule = {"id": f["id"], "nom": f["nom"], "prix": f["prix"], "duree_jours": f.get("duree_jours") or DUREE_DEFAUT}
-            else:
-                message, formule = "Lecture OCR réservée aux abonnés : aucune formule n'est proposée pour le moment.", None
-            raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": message, "formule": formule})
+        await exiger_abonnement(emetteur["code"], m, FONCTION_OCR, "Lecture OCR")
         # 2. Limite par jour et par utilisateur (protège le coût de l'IA)
         jour, limite = _maintenant().date().isoformat(), await reglage_ocr_par_jour()
         if int((m.get("ocr_jours") or {}).get(jour, 0)) >= limite:
@@ -436,6 +483,41 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         restant = max(0, limite - int((m.get("ocr_jours") or {}).get(jour, 0)) - 1)
         return {"type": d.type, "champs": res["extracted_fields"], "resume": res.get("summary", ""), "confiance": res.get("confidence"),
                 "incertains": res.get("uncertain_fields") or [], "avertissements": res.get("flags") or [], "restant_aujourdhui": restant}
+
+    @router.post("/formules-plateformes/transcrire")
+    async def transcrire(request: Request):
+        """Note vocale (30 s au plus) → texte, réservée aux abonnés d'une formule qui débloque la transcription."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(VoixIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        await exiger_abonnement(emetteur["code"], m, FONCTION_VOIX, "Transcription vocale")
+        jour, limite = _maintenant().date().isoformat(), await reglage_voix_par_jour()
+        if int((m.get("voix_jours") or {}).get(jour, 0)) >= limite:
+            raise HTTPException(status_code=429, detail=f"Limite atteinte : {limite} notes vocales par jour. Réessayez demain.")
+        entete, _, b64 = d.audio.partition(",")
+        type_mime = entete[5:].split(";")[0] if entete.startswith("data:") else ""
+        if not type_mime.startswith("audio/") and type_mime != "video/webm":
+            raise HTTPException(status_code=422, detail="Note vocale attendue")
+        try:
+            octets = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="Note vocale illisible")
+        if not octets:
+            raise HTTPException(status_code=422, detail="Note vocale vide")
+        if len(octets) > VOIX_TAILLE_MAX:
+            raise HTTPException(status_code=413, detail="Note vocale trop longue : 30 secondes au plus.")
+        ext = {"audio/webm": ".webm", "video/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/x-m4a": ".m4a"}.get(type_mime, ".webm")
+        try:
+            texte = await (_transcrire or _whisper)(octets, ext, "fr")
+        except Exception:  # noqa: BLE001
+            logger.exception("[formules] transcription impossible")
+            raise HTTPException(status_code=502, detail="Transcription impossible pour le moment, réessayez.")
+        texte = (texte or "").strip()
+        if not texte:
+            raise HTTPException(status_code=422, detail="Aucune parole reconnue : parlez plus près du micro et réessayez.")
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$inc": {f"voix_jours.{jour}": 1, "voix_total": 1}})
+        restant = max(0, limite - int((m.get("voix_jours") or {}).get(jour, 0)) - 1)
+        return {"ok": True, "texte": texte[:4000], "duree_s": d.duree_s, "restant_aujourdhui": restant}
 
     @router.post("/formules-plateformes/parrainage")
     async def parrainage(request: Request):
@@ -488,7 +570,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             f.update(ventes.get(f["id"], {"ventes": 0, "chiffre": 0}))
         return {"formules": formules, "plateformes": await plateformes_connues(), "fonctions": FONCTIONS,
                 "membres": await db.membres_plateformes.count_documents({}), "parrainage_jours": await reglages_parrainage(),
-                "ocr_par_jour": await reglage_ocr_par_jour(),
+                "ocr_par_jour": await reglage_ocr_par_jour(), "voix_par_jour": await reglage_voix_par_jour(),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
 
     def verifier(f: FormuleIn) -> dict:
@@ -528,7 +610,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         maj = {"parrainage_jours": r.parrainage_jours}
         if r.ocr_par_jour is not None:
             maj["ocr_plateformes_par_jour"] = r.ocr_par_jour
+        if r.voix_par_jour is not None:
+            maj["transcription_plateformes_par_jour"] = r.voix_par_jour
         await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
-        return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour()}
+        return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour(),
+                "voix_par_jour": await reglage_voix_par_jour()}
 
     return router

@@ -6,6 +6,7 @@
     - Suivi : abonnés actifs, ventes et chiffre d'affaires par formule ; une formule déjà vendue n'est jamais supprimée, elle est désactivée.
   Lot 228 : la fonction « OCR » de la formule débloque les lectures de plaques de marchands et d'ordonnances ; refusées sans abonnement actif
   (message avec le nom et le prix de la formule) ; limite de lectures par jour réglable ici.
+  Lot 229 : fonction « Transcription vocale » (notes de 30 s au plus, limite par jour réglable), cumulable avec l'OCR sur une même formule.
   API : GET/POST/PUT/DELETE /admin/formules-plateformes, PUT /admin/formules-plateformes-reglages (backend/routes/formules_plateformes.py).
 */
 import React, { useCallback, useEffect, useState } from "react";
@@ -19,7 +20,8 @@ export default function FormulesPlateformesSection() {
   const [d, setD] = useState(null);
   const [edition, setEdition] = useState(null);       // formule en cours de saisie (id absent = nouvelle)
   const [jours, setJours] = useState(7);
-  const [ocrJour, setOcrJour] = useState(30);        // lots 228 : lectures OCR par jour et par utilisateur
+  const [ocrJour, setOcrJour] = useState(30);        // lot 228 : lectures OCR par jour et par utilisateur
+  const [voixJour, setVoixJour] = useState(10);      // lot 229 : notes vocales transcrites par jour et par utilisateur
   const [envoi, setEnvoi] = useState(false);
 
   const charger = useCallback(async () => {
@@ -28,6 +30,7 @@ export default function FormulesPlateformesSection() {
       setD(r.data);
       setJours(r.data.parrainage_jours);
       setOcrJour(r.data.ocr_par_jour);
+      setVoixJour(r.data.voix_par_jour);
     } catch (e) { toast.error(e?.response?.data?.detail || "Formules indisponibles (réservé à l'administrateur principal)"); }
   }, []);
   useEffect(() => { charger(); }, [charger]);
@@ -54,7 +57,7 @@ export default function FormulesPlateformesSection() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Suppression impossible"); }
   };
   const enregistrerParrainage = async () => {
-    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour) }); toast.success("Réglages enregistrés"); charger(); }
+    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour), voix_par_jour: Number(voixJour) }); toast.success("Réglages enregistrés"); charger(); }
     catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
   };
 
@@ -81,8 +84,11 @@ export default function FormulesPlateformesSection() {
         <label className="flex flex-col gap-1">OCR : lectures par jour et par utilisateur
           <input type="number" min={1} max={500} value={ocrJour} onChange={(e) => setOcrJour(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="ocr-par-jour" />
         </label>
+        <label className="flex flex-col gap-1">Voix : notes transcrites par jour et par utilisateur
+          <input type="number" min={1} max={200} value={voixJour} onChange={(e) => setVoixJour(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="voix-par-jour" />
+        </label>
         <button type="button" onClick={enregistrerParrainage} className="rounded bg-slate-800 px-3 py-1.5 text-white">Enregistrer</button>
-        <span className="text-slate-500">Parrainage : 0 = pas de récompense (donnés à la première formule payée du filleul). OCR : protège le coût de l'IA ; refusé sans abonnement.</span>
+        <span className="text-slate-500">Parrainage : 0 = pas de récompense (donnés à la première formule payée du filleul). OCR et voix : protègent le coût de l'IA ; refusés sans abonnement.</span>
       </div>
 
       <div className="flex items-center justify-between">
@@ -125,10 +131,15 @@ export default function FormulesPlateformesSection() {
               <input required type="number" min={100} value={edition.prix} onChange={champ("prix")} className="rounded border border-slate-300 px-2 py-1.5" /></label>
             <label className="flex flex-col gap-1">Durée (jours)
               <input required type="number" min={1} max={366} value={edition.duree_jours} onChange={champ("duree_jours")} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-            <label className="flex flex-col gap-1">Fonction débloquée
-              <select value={edition.fonctions[0] || ""} onChange={(e) => setEdition({ ...edition, fonctions: e.target.value ? [e.target.value] : [] })} className="rounded border border-slate-300 px-2 py-1.5">
-                {Object.entries(d.fonctions).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-              </select></label>
+            <fieldset className="flex flex-col gap-1">
+              <legend>Fonctions débloquées (une ou plusieurs)</legend>
+              {Object.entries(d.fonctions).map(([k, n]) => (
+                <label key={k} className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1.5">
+                  <input type="checkbox" checked={edition.fonctions.includes(k)}
+                    onChange={(e) => setEdition({ ...edition, fonctions: e.target.checked ? [...edition.fonctions, k] : edition.fonctions.filter((x) => x !== k) })} />{n}
+                </label>
+              ))}
+            </fieldset>
             <label className="flex flex-col gap-1">Ordre d'affichage
               <input type="number" min={0} max={999} value={edition.ordre} onChange={champ("ordre")} className="rounded border border-slate-300 px-2 py-1.5" /></label>
           </div>

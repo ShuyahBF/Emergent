@@ -2282,6 +2282,13 @@ async def whatsapp_webhook_incoming(request: Request):
                         continue
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
+                    # Lot 224 — message reçu compté sur la ligne qui l'a reçu (suivi par ligne et par période)
+                    try:
+                        from routes.wa_usage_lignes import noter as _noter_usage
+                        await _noter_usage(db, phone_number_id=numero_recu, sens="in", type_msg=mtype or "texte",
+                                           destinataire=digits_only)
+                    except Exception:  # noqa: BLE001 — le suivi ne bloque jamais la réception
+                        pass
                     # Lot 64.11 — trace du rattachement (fiche contact + périmètre) pour diagnostiquer
                     # un message « invisible » dans la conversation d'un contact
                     logger.info("[wa_inbound] …%s rattaché : contact=%s (%s) périmètre=%s", digits_only[-4:],

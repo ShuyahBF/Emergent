@@ -114,7 +114,7 @@ export default function AdminTrackedUsers() {
     load().catch(() => {});
     apiClient.get("/admin/clients").then((r) => setClients(r.data));
     // Lot 59 — liste des lignes WhatsApp pour les cases « Lignes visibles »
-    apiClient.get("/me/wa-lignes").then((r) => setLignesWa(r.data?.lignes || [])).catch(() => setLignesWa([]));
+    apiClient.get("/me/wa-lignes", { params: { toutes: 1 } }).then((r) => setLignesWa(r.data?.lignes || [])).catch(() => setLignesWa([]));
   }, []);
   const open = (it = null) => { setEditing(it); setForm(it ? { ...empty, ...it } : empty); setIsOpen(true); };
   const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
@@ -669,7 +669,9 @@ export default function AdminTrackedUsers() {
                 <fieldset className="rounded-lg ring-1 ring-emerald-300 bg-emerald-50/50 p-3" data-testid="tu-wa-lignes">
                   <legend className="text-xs font-semibold px-1 text-emerald-800">Lignes WhatsApp visibles (Centre de messagerie)</legend>
                   <p className="text-[10px] text-slate-600 mb-2">
-                    Aucune case cochée = toutes les lignes. Les rôles Superviseur et Administrateur voient toujours tout.
+                    Aucune case cochée = toutes les lignes, <b>sauf les lignes privées</b>. Les rôles Superviseur et Administrateur voient
+                    toutes les lignes sauf les privées. Une <b>ligne privée</b> (ex. ALBARKA) n'est visible que des utilisateurs pour
+                    lesquels elle est cochée ici : c'est l'accord explicite.
                   </p>
                   {lignesWa.map((l) => {
                     // Lignes cochées pour cet utilisateur (tableau de clés)
@@ -690,6 +692,7 @@ export default function AdminTrackedUsers() {
                         {l.telephone && <span className="text-slate-500">{l.telephone}</span>}
                         {l.vip && <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800">VIP</span>}
                         {l.prospects && <span className="rounded bg-sky-100 px-1 text-[10px] text-sky-800">Prospects</span>}
+                        {l.privee && <span className="rounded bg-slate-200 px-1 text-[10px] text-slate-800" data-testid={`tu-wa-ligne-privee-${l.cle}`}>Privée</span>}
                       </label>
                     );
                   })}

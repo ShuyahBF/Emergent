@@ -1230,6 +1230,9 @@ _attach_liluvine_fichiers(api=api, db=db)
 # (une clé HMAC par plateforme) et journal des transmissions (administrateur).
 from routes.liluvine_emetteurs import make_liluvine_emetteurs_router as _make_liluvine_emetteurs_router  # noqa: E402
 api.include_router(_make_liluvine_emetteurs_router(db=db, get_current_admin=get_current_admin))
+# Lot 224 — suivi des consommations WhatsApp par ligne et par période (facturation éventuelle d'une plateforme comme ALBARKA)
+from routes.wa_usage_lignes import make_wa_usage_router as _make_wa_usage_router  # noqa: E402
+api.include_router(_make_wa_usage_router(db=db, get_current_admin=get_current_admin))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

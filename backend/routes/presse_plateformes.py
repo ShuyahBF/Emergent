@@ -28,7 +28,7 @@ logger = logging.getLogger("sawali.presse_plateformes")
 
 # Résumeur de remplacement (tests) : async (media, articles) → texte brut JSON ; None = vrai client IA
 _resumer: Optional[Callable] = None
-APPELS_PAR_JOUR = 40
+APPELS_PAR_JOUR = 150
 MAX_ARTICLES = 8
 MAX_TEXTE = 2500
 

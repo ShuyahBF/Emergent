@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "223", "date": "2026-10-17",
+        "titre": "📱 Une ligne WhatsApp à part pour ALBARKA : plateforme dédiée et conversations privées",
+        "description": "Chaque plateforme émettrice peut avoir sa ligne de SAWALI (colonne « Ligne WhatsApp » de la Transmission WA Universelle) : ses messages partent de ce numéro, avec la fenêtre de 24 h de ce numéro. Une ligne cochée « privée » n'apparaît dans le Centre de messagerie de personne, administrateurs compris.",
+        "rubrique": "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels",
+    },
+    {
         "lot": "222", "date": "2026-10-17",
         "titre": "📄 Documents : même fond clair pour tous les comptes",
         "description": "Les vignettes de la page Documentation avaient un fond noir pour les utilisateurs et un fond clair pour le superviseur. Le fond est maintenant clair pour tous les comptes.",

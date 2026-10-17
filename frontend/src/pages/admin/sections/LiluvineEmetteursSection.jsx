@@ -32,6 +32,7 @@ const erreur = (e) => e?.response?.data?.detail || e?.message || "Erreur";
 
 export default function LiluvineEmetteursSection() {
   const [emetteurs, setEmetteurs] = useState([]);
+  const [lignesWa, setLignesWa] = useState([]);              // lot 223 : lignes WhatsApp de SAWALI (privées comprises)
   const [journal, setJournal] = useState([]);
   const [reponses, setReponses] = useState([]);           // réponses de clients relayées
   const [desinscriptions, setDesinscriptions] = useState([]); // numéros STOP
@@ -104,6 +105,7 @@ export default function LiluvineEmetteursSection() {
         apiClient.get("/admin/liluvine-desinscriptions"),
       ]);
       setEmetteurs(a.data.emetteurs || []);
+      setLignesWa(a.data.lignes || []);
       setJournal(b.data.transmissions || []);
       setReponses(c.data.reponses || []);
       setDesinscriptions(d.data.desinscriptions || []);
@@ -302,6 +304,7 @@ export default function LiluvineEmetteursSection() {
               <th className="pr-2">Dernier envoi</th><th className="pr-2">Clé générée le</th>
               <th className="pr-2">Réponses des clients</th>
               <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th>
+              <th className="pr-2" title="Lot 223 — numéro WhatsApp de SAWALI par lequel partent les messages de cette plateforme (ex. la ligne d'ALBARKA). Vide = règles habituelles de choix du numéro.">Ligne WhatsApp</th>
               <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…). Lot 103 : la commande « !code » (ex. « !zandgo où est ma commande ? », casse indifférente) la joint à tout moment ; conversation de 30 min, « FIN » rend la main à Liluvine.">Adresse de l'assistant</th><th></th>
             </tr>
           </thead>
@@ -356,6 +359,15 @@ export default function LiluvineEmetteursSection() {
                   {e.derniere_stats_echec && (!e.derniere_stats_ok || e.derniere_stats_echec > e.derniere_stats_ok) && (
                     <div className="text-[10px] text-red-700">Dernier échec : {fmt(e.derniere_stats_echec)}</div>
                   )}
+                </td>
+                <td className="pr-2">
+                  {/* Lot 223 — ligne WhatsApp dédiée à cette plateforme ; une ligne « privée » n'apparaît dans le Centre de messagerie de personne */}
+                  <select value={e.ligne || ""} onClick={(ev) => ev.stopPropagation()} data-testid={`emetteur-ligne-${e.code}`}
+                          onChange={(ev) => modifier(e.code, { ligne: ev.target.value })}
+                          className="w-44 rounded border border-slate-300 px-1 py-0.5">
+                    <option value="">Règle habituelle</option>
+                    {lignesWa.map((l) => <option key={l.cle} value={l.cle}>{l.libelle}{l.privee ? " (privée)" : ""}</option>)}
+                  </select>
                 </td>
                 <td className="pr-2">
                   {/* Lot 102 — adresse de l'assistant de la plateforme (ex. ZandGo : https://…/api/liluvine/question).

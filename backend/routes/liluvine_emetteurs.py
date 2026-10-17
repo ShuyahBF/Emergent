@@ -46,6 +46,9 @@ class ModifEmetteur(BaseModel):
     # Lot 102 : adresse de l'assistant de la plateforme (ex. ZandGo : https://…/api/liluvine/question) ;
     # vide = Liluvine ne l'interroge pas
     url_assistant: Optional[str] = None
+    # Lot 223 : ligne WhatsApp de SAWALI par laquelle partent les messages de cette plateforme
+    # (clé de ligne : « principal » ou Phone Number ID) ; vide = règles habituelles de choix du numéro
+    ligne: Optional[str] = None
 
 
 def _url_retour_valide(url: Optional[str]) -> str:
@@ -140,7 +143,12 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             e["envois_du_jour"] = await db.liluvine_transmissions.count_documents(
                 {"emetteur": e["code"], "ok": True, "date": {"$gte": debut_jour}})
             sortie.append(e)
-        return {"emetteurs": sortie}
+        # Lot 223 — lignes WhatsApp proposées pour « ligne par plateforme » (privées comprises : écran d'administration)
+        from routes.numeros_wa import lignes_configurees
+        reglages_wa = await db.settings.find_one({"_id": "global"}) or {}
+        lignes = [{k: l.get(k) for k in ("cle", "libelle", "telephone", "privee", "principale")}
+                  for l in lignes_configurees(reglages_wa)]
+        return {"emetteurs": sortie, "lignes": lignes}
 
     @router.post("/liluvine-emetteurs")
     async def creer(donnees: NouvelEmetteur = Body(...), admin: dict = Depends(get_current_admin)):
@@ -191,6 +199,15 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["reponses_transmises"] = bool(donnees.reponses_transmises)
         if donnees.url_assistant is not None:   # lot 102 — assistant de la plateforme
             changements["url_assistant"] = _url_retour_valide(donnees.url_assistant)
+        if donnees.ligne is not None:   # lot 223 — ligne WhatsApp de SAWALI dédiée à cette plateforme
+            cle_ligne = donnees.ligne.strip()
+            if cle_ligne:
+                from routes.numeros_wa import ligne_par_cle
+                reglages_wa = await db.settings.find_one({"_id": "global"}) or {}
+                if not ligne_par_cle(reglages_wa, cle_ligne):
+                    raise HTTPException(status_code=422, detail="Ligne WhatsApp inconnue : ajoutez-la d'abord dans "
+                                                                 "Paramètres → WhatsApp Business API (lignes)")
+            changements["ligne"] = cle_ligne
         if not changements:
             return {"ok": True}
         maj: Dict[str, Any] = {"$set": changements}

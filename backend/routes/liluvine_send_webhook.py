@@ -109,17 +109,21 @@ def date_heure_affichee(maintenant: datetime) -> str:
     return maintenant.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M")
 
 
-async def fenetre_ouverte(db, destinataire: str, maintenant: datetime) -> bool:
+async def fenetre_ouverte(db, destinataire: str, maintenant: datetime, numero_id: Optional[str] = None) -> bool:
     """Lot 112.1 — le destinataire a-t-il écrit à SAWALI (WhatsApp) depuis moins de 24 h ?
-    Comparaison sur les 8 derniers chiffres du numéro (comme le reste de SAWALI). Jamais d'exception."""
+    Comparaison sur les 8 derniers chiffres du numéro (comme le reste de SAWALI). Jamais d'exception.
+    Lot 223 : la fenêtre de 24 h de Meta est propre à CHAQUE numéro ; `numero_id` (Phone Number ID de la ligne utilisée)
+    ne retient que les messages reçus sur ce numéro."""
     try:
         chiffres = re.sub(r"\D", "", destinataire or "")
         if len(chiffres) < 8:
             return False
         depuis = (maintenant - timedelta(hours=24)).isoformat()
-        return bool(await db.whatsapp_messages.find_one(
-            {"direction": "inbound", "created_at": {"$gte": depuis},
-             "phone_digits": {"$regex": re.escape(chiffres[-8:]) + "$"}}, {"_id": 1}))
+        filtre = {"direction": "inbound", "created_at": {"$gte": depuis},
+                  "phone_digits": {"$regex": re.escape(chiffres[-8:]) + "$"}}
+        if numero_id:
+            filtre["wa_numero_id"] = numero_id
+        return bool(await db.whatsapp_messages.find_one(filtre, {"_id": 1}))
     except Exception:  # noqa: BLE001 — en cas de doute : modèle (comportement d'avant)
         return False
 
@@ -209,7 +213,14 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
         # plutôt que le modèle. Constat du 12/10/2026 : un modèle classé « Marketing » par Meta peut être bloqué
         # pour un numéro (limite de messages marketing, promotions refusées…) alors qu'un texte libre passe toujours
         # dans la fenêtre ; il est aussi gratuit.
-        if mode == "modele" and await fenetre_ouverte(db, destinataire, maintenant):
+        # Lot 223 : plateforme à ligne dédiée → fenêtre de 24 h de CE numéro (et non d'un autre numéro de SAWALI)
+        numero_ligne = None
+        ligne_dediee = str((emetteur or {}).get("ligne") or "").strip()
+        if ligne_dediee:
+            from routes.numeros_wa import ligne_par_cle
+            reglages_lignes = await db.settings.find_one({"_id": "global"}) or {}
+            numero_ligne = ((ligne_par_cle(reglages_lignes, ligne_dediee) or {}).get("phone_number_id") or None)
+        if mode == "modele" and await fenetre_ouverte(db, destinataire, maintenant, numero_ligne):
             mode = "texte"
         # Lot 104 : code de connexion + modèle d'authentification paramétré → mode « otp » (prioritaire)
         code_otp = re.sub(r"\D", "", payload.code_otp or "")
@@ -238,59 +249,71 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             raise HTTPException(status_code=409, detail="Destinataire désinscrit")
 
         # 7) Envoi WhatsApp (avec média éventuel)
-        quand = date_heure_affichee(maintenant)
-        media_mode = None
-        result = None
-        if payload.media:
-            octets, mime, nom_fichier = await recuperer_media(payload.media)
-            lien = await lien_fichier(db, await stocker_fichier(db, octets, mime, nom_fichier, code or "liluvine"))
-            if not lien.startswith("https://"):
-                raise HTTPException(status_code=503, detail="Adresse publique de SAWALI non configurée (public_base_url)")
-            type_media = payload.media.get("type")
-            legende = (payload.media.get("legende") or message)[:1024]
-            # a) média direct (dans la fenêtre de 24 h)
-            if wa_send_media:
-                result = await wa_send_media(destinataire, type_media, public_url=lien,
-                                             caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises)}" if code else legende,
-                                             filename=nom_fichier if type_media == "document" else None)
-                if result.get("ok"):
-                    media_mode = "direct"
-            # b) modèle média (en-tête document/image/vidéo + 3 variables), valable hors fenêtre
-            modele_media = (reglages.get("liluvine_transmission_modele_media") or "").strip()
-            if media_mode is None and modele_media and wa_send_template and type_media in ("document", "image", "video"):
-                objet = {"link": lien, **({"filename": nom_fichier} if type_media == "document" else {})}
-                composants = [
-                    {"type": "header", "parameters": [{"type": type_media, type_media: objet}]},
-                    {"type": "body", "parameters": [{"type": "text", "text": quand}, {"type": "text", "text": texte_variable(source)},
-                                                    {"type": "text", "text": texte_variable(message)[:LONGUEUR_MAX_MODELE]}]},
-                ]
-                result = await wa_send_template(destinataire, modele_media, langue, composants)
-                if result.get("ok"):
-                    media_mode = "modele"
-            # c) sinon : message avec lien de téléchargement temporaire (7 jours)
-            if media_mode is None:
-                media_mode = "lien"
-                suffixe = f"\n📎 {nom_fichier} : {lien}"
-                place = (LONGUEUR_MAX_MODELE if mode == "modele" else LONGUEUR_MAX_TEXTE) - len(suffixe)
-                # Le texte est raccourci si besoin pour que le lien tienne toujours en entier
-                message = (message if len(message) <= place else message[:max(0, place - 1)] + "…") + suffixe
-                result = None
-        if result is not None and media_mode in ("direct", "modele"):
-            pass  # déjà envoyé avec le média
-        elif mode == "otp":
-            # Modèle d'authentification Meta : {{1}} = code dans le corps, même code pour le bouton « Copier le code »
-            langue_otp = (reglages.get("liluvine_modele_otp_langue") or "fr").strip() or "fr"
-            result = await wa_send_template(destinataire, modele_otp, langue_otp, composants_otp(code_otp))
-        elif mode == "modele":
-            composants = [{"type": "body", "parameters": [
-                {"type": "text", "text": quand},
-                {"type": "text", "text": texte_variable(source)},          # lot 104.2 : sans retour à la ligne
-                {"type": "text", "text": texte_variable(message)},
-            ]}]
-            result = await wa_send_template(destinataire, modele, langue, composants)
-        else:
-            result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises)}"
-                                        if code else message)
+        # Lot 223 — ligne WhatsApp dédiée à cette plateforme (ex. ALBARKA) : tous les envois de la requête partent de ce numéro.
+        # Ligne vide ou inconnue : règles habituelles de choix du numéro (numero_envoi).
+        ligne_emetteur = str((emetteur or {}).get("ligne") or "").strip()
+        jeton_ligne = None
+        if ligne_emetteur:
+            from routes.numeros_wa import definir_ligne_forcee
+            jeton_ligne = definir_ligne_forcee(ligne_emetteur)
+        try:
+            quand = date_heure_affichee(maintenant)
+            media_mode = None
+            result = None
+            if payload.media:
+                octets, mime, nom_fichier = await recuperer_media(payload.media)
+                lien = await lien_fichier(db, await stocker_fichier(db, octets, mime, nom_fichier, code or "liluvine"))
+                if not lien.startswith("https://"):
+                    raise HTTPException(status_code=503, detail="Adresse publique de SAWALI non configurée (public_base_url)")
+                type_media = payload.media.get("type")
+                legende = (payload.media.get("legende") or message)[:1024]
+                # a) média direct (dans la fenêtre de 24 h)
+                if wa_send_media:
+                    result = await wa_send_media(destinataire, type_media, public_url=lien,
+                                                 caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises)}" if code else legende,
+                                                 filename=nom_fichier if type_media == "document" else None)
+                    if result.get("ok"):
+                        media_mode = "direct"
+                # b) modèle média (en-tête document/image/vidéo + 3 variables), valable hors fenêtre
+                modele_media = (reglages.get("liluvine_transmission_modele_media") or "").strip()
+                if media_mode is None and modele_media and wa_send_template and type_media in ("document", "image", "video"):
+                    objet = {"link": lien, **({"filename": nom_fichier} if type_media == "document" else {})}
+                    composants = [
+                        {"type": "header", "parameters": [{"type": type_media, type_media: objet}]},
+                        {"type": "body", "parameters": [{"type": "text", "text": quand}, {"type": "text", "text": texte_variable(source)},
+                                                        {"type": "text", "text": texte_variable(message)[:LONGUEUR_MAX_MODELE]}]},
+                    ]
+                    result = await wa_send_template(destinataire, modele_media, langue, composants)
+                    if result.get("ok"):
+                        media_mode = "modele"
+                # c) sinon : message avec lien de téléchargement temporaire (7 jours)
+                if media_mode is None:
+                    media_mode = "lien"
+                    suffixe = f"\n📎 {nom_fichier} : {lien}"
+                    place = (LONGUEUR_MAX_MODELE if mode == "modele" else LONGUEUR_MAX_TEXTE) - len(suffixe)
+                    # Le texte est raccourci si besoin pour que le lien tienne toujours en entier
+                    message = (message if len(message) <= place else message[:max(0, place - 1)] + "…") + suffixe
+                    result = None
+            if result is not None and media_mode in ("direct", "modele"):
+                pass  # déjà envoyé avec le média
+            elif mode == "otp":
+                # Modèle d'authentification Meta : {{1}} = code dans le corps, même code pour le bouton « Copier le code »
+                langue_otp = (reglages.get("liluvine_modele_otp_langue") or "fr").strip() or "fr"
+                result = await wa_send_template(destinataire, modele_otp, langue_otp, composants_otp(code_otp))
+            elif mode == "modele":
+                composants = [{"type": "body", "parameters": [
+                    {"type": "text", "text": quand},
+                    {"type": "text", "text": texte_variable(source)},          # lot 104.2 : sans retour à la ligne
+                    {"type": "text", "text": texte_variable(message)},
+                ]}]
+                result = await wa_send_template(destinataire, modele, langue, composants)
+            else:
+                result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises)}"
+                                            if code else message)
+        finally:
+            if jeton_ligne is not None:
+                from routes.numeros_wa import retablir_ligne_forcee
+                retablir_ligne_forcee(jeton_ligne)
 
         # 8) Journal (sans le texte du message)
         try:
@@ -300,6 +323,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 "ok": bool(result.get("ok")), "message_id": result.get("message_id"),
                 "erreur": None if result.get("ok") else str(result.get("error") or "inconnu")[:300],
                 "longueur": len(message), "media_mode": media_mode,
+                "ligne": ligne_emetteur or None,        # lot 223
             })
             if code:
                 await db.liluvine_emetteurs.update_one({"code": code}, {"$set": {"dernier_envoi": maintenant.isoformat()}})

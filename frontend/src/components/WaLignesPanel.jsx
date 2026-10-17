@@ -158,6 +158,11 @@ export default function WaLignesPanel({ s, upd }) {
               <input type="checkbox" checked={!!l.prospects} onChange={(e) => majChamp(i, "prospects", e.target.checked)} />
               Ligne prospects (publicités : prompt prospects)
             </label>
+            {/* Lot 223 — ligne privée : ses conversations n'apparaissent dans le Centre de messagerie de personne */}
+            <label className="inline-flex items-center gap-1.5" title="Les conversations de cette ligne sont invisibles dans le Centre de messagerie, administrateurs compris. Idéal pour la ligne d'une plateforme cliente (ex. ALBARKA).">
+              <input type="checkbox" checked={!!l.privee} onChange={(e) => majChamp(i, "privee", e.target.checked)} data-testid={`wa-ligne-privee-${i}`} />
+              Ligne privée (invisible dans le Centre de messagerie)
+            </label>
             <button
               type="button"
               onClick={() => supprimer(i)}

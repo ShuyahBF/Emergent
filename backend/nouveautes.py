@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "246.1", "date": "2026-10-18",
+        "titre": "📨 Cartes et documents WhatsApp : fin des envois « acceptés » mais jamais reçus",
+        "description": "Hors de la fenêtre de 24 h, l'image ou le document n'est plus tenté en direct (Meta l'acceptait sans le livrer) : il part par le modèle média, sinon par un lien de téléchargement. Renseignez le « Modèle WhatsApp média » pour que la carte arrive en image.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "246", "date": "2026-10-18",
         "titre": "🎨 Cartes virtuelles : forme artistique, moteur IA et coût par génération",
         "description": "L'utilisateur choisit la forme (photo réaliste, peinture à l'huile, aquarelle, pastel, 3D…) et le moteur IA de sa carte ; vous voyez le coût estimé de chaque génération, avec export CSV.",

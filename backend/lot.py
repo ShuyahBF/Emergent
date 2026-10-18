@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "246"
-LOT_LIBELLE = "Cartes virtuelles : choix de la forme artistique (photo, huile, aquarelle…) et du moteur IA, et coût de chaque génération visible par l'administrateur"
+LOT = "246.1"
+LOT_LIBELLE = "Transmission WhatsApp : un média (carte, document) n'est plus envoyé en direct hors de la fenêtre de 24 h, où Meta l'acceptait sans jamais le livrer"

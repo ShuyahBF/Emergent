@@ -11,6 +11,7 @@
   espace par utilisateur réglable ici (200 Mo au départ).
   Lot 232 : paiement PI-SPI manuel des abonnements — l'utilisateur paie avec le QR de la banque (réglages « Encaissement PI-SPI »),
   déclare la référence bancaire, et l'administrateur CONFIRME ici (la formule s'active alors, l'encaissement entre au registre PI-SPI).
+  Lot 246 : tableau « Cartes virtuelles — coût de chaque génération » (GET /admin/cartes-plateformes/generations, export CSV).
   API : GET/POST/PUT/DELETE /admin/formules-plateformes, GET /admin/formules-plateformes/pispi, POST …/pispi/{reference}/confirmer|refuser, PUT /admin/formules-plateformes-reglages (backend/routes/formules_plateformes.py).
 */
 import React, { useCallback, useEffect, useState } from "react";
@@ -59,6 +60,57 @@ function DemandesPispi({ rafraichir }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Lot 246 — Coût de chaque génération de carte virtuelle (lu dans le journal de l'IA) : tableau sur 7/30/90 jours + export CSV.
+function CoutCartes() {
+  const [jours, setJours] = useState(30);
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    setD(null);
+    apiClient.get(`/admin/cartes-plateformes/generations?jours=${jours}`).then((r) => setD(r.data)).catch(() => setD({ generations: [], total: { generations: 0, cout_usd: 0 } }));
+  }, [jours]);
+  // Export CSV : téléchargement par le navigateur (le fichier est construit par le serveur)
+  const exporter = async () => {
+    try {
+      const r = await apiClient.get(`/admin/cartes-plateformes/generations?jours=${jours}&format=csv`, { responseType: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(r.data); a.download = "cartes-generations.csv"; a.click();
+    } catch { toast.error("Export impossible"); }
+  };
+  return (
+    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200" data-testid="cout-cartes">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold">🎨 Cartes virtuelles — coût de chaque génération</p>
+        <select value={jours} onChange={(e) => setJours(Number(e.target.value))} className="rounded border border-slate-300 px-2 py-1 text-xs" data-testid="cout-cartes-jours">
+          <option value={7}>7 jours</option><option value={30}>30 jours</option><option value={90}>90 jours</option>
+        </select>
+        <button type="button" onClick={exporter} className="rounded border border-slate-300 px-2 py-1 text-xs">Exporter en CSV</button>
+      </div>
+      {!d ? <p className="mt-2 text-xs text-slate-500">Chargement…</p> : (
+        <>
+          <p className="mt-2 text-xs text-slate-700" data-testid="cout-cartes-total">
+            {d.total.generations} génération(s) · coût estimé total : <b>{Number(d.total.cout_usd).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</b>
+            {" "}(tarifs publics d'OpenAI ; la facture réelle est sur platform.openai.com)
+          </p>
+          <div className="mt-2 max-h-72 overflow-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-slate-500"><th className="p-1">Date (UTC)</th><th>Plateforme</th><th>Utilisateur</th><th>Thème</th><th>Forme</th><th>Moteur</th><th className="text-right">Coût</th></tr></thead>
+              <tbody>
+                {d.generations.map((g, i) => (
+                  <tr key={i} className="border-t border-slate-100">
+                    <td className="p-1 whitespace-nowrap">{(g.date || "").replace("T", " ").replace("Z", "")}</td><td>{g.plateforme}</td><td>{g.utilisateur}</td>
+                    <td>{g.theme}</td><td>{g.style}</td><td>{g.moteur}</td><td className="text-right">{Number(g.cout_usd).toFixed(3)} $</td>
+                  </tr>
+                ))}
+                {!d.generations.length && <tr><td colSpan={7} className="p-2 text-slate-500">Aucune carte générée sur cette période.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -117,6 +169,7 @@ export default function FormulesPlateformesSection() {
   return (
     <div className="space-y-4" data-testid="formules-plateformes">
       <DemandesPispi rafraichir={charger} />
+      <CoutCartes />
       <p className="text-xs text-slate-600">
         Formules vendues aux utilisateurs des plateformes (ex. « OCR Ordonnances » dans Paiement Mobile). Le paiement passe par la page PawaPay
         hébergée et active la formule tout seul ; le paiement PI-SPI (QR de la banque, réglé dans « Encaissement PI-SPI ») se confirme à la main

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "246", "date": "2026-10-18",
+        "titre": "🎨 Cartes virtuelles : forme artistique, moteur IA et coût par génération",
+        "description": "L'utilisateur choisit la forme (photo réaliste, peinture à l'huile, aquarelle, pastel, 3D…) et le moteur IA de sa carte ; vous voyez le coût estimé de chaque génération, avec export CSV.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "245", "date": "2026-10-18",
         "titre": "💬 Chat Support : questions et réponses de chaque côté",
         "description": "Dans le fil d'un utilisateur d'une plateforme (auRor, Ster, adLyn…), sa question est à gauche et toutes les réponses de l'équipe, y compris celles des assistants IA de Liluvine, sont à droite (avant, elles s'affichaient du même côté).",

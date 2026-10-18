@@ -654,3 +654,75 @@ def test_archives_modifier_les_informations_chiffrees(env, archives_stock):
     env.portal.call(env.db.membres_plateformes.update_many, {}, {"$set": {"abonnements": {}}})
     assert arch(env, "modifier", u, id=aid, meta="P" * 48).status_code == 200              # permis sans abonnement
     assert arch(env, "modifier", U("u2", "70 99 99 99"), id=aid, meta=nouvelle).status_code == 404    # jamais le document d'un autre
+
+
+# ----------------------------------------------------------------------------------------------- lot 244 : achat groupé
+def deux_formules(env):
+    a = formule(env, nom="OCR", prix=1000, fonctions=["ocr_ordonnances"])
+    b = formule(env, nom="Voix", prix=1500, duree_jours=15, fonctions=["transcription_vocale"])
+    return a, b
+
+
+def test_devis_total_de_plusieurs_formules(env):
+    a, b = deux_formules(env)
+    r = appel(env, "formules-plateformes/devis", {"utilisateur": U(), "formule_ids": [a["id"], b["id"]]})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["total"] == 2500 and d["nombre"] == 2 and [x["nom"] for x in d["lignes"]] == ["OCR", "Voix"]
+    assert appel(env, "formules-plateformes/devis", {"utilisateur": U(), "formule_ids": [a["id"], "inconnue"]}).status_code == 404
+    assert appel(env, "formules-plateformes/devis", {"utilisateur": U(), "formule_ids": []}).status_code == 422
+
+
+def test_achat_groupe_un_seul_paiement_du_total_active_tout(env):
+    a, b = deux_formules(env)
+    envoyes = []
+
+    def espion(requete: httpx.Request) -> httpx.Response:
+        envoyes.append(json.loads(requete.content))
+        return httpx.Response(200, json={"redirectUrl": "https://pay.pawapay.test/x"})
+
+    fp._transport = httpx.MockTransport(espion)
+    # Le doublon est ignoré ; le montant envoyé à PawaPay est la SOMME des prix lus en base (jamais un montant venu de la plateforme)
+    r = appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_ids": [a["id"], b["id"], a["id"]], "retour": "https://site.test/abonnement"})
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 2500 and len(r.json()["lignes"]) == 2
+    assert envoyes[0]["amountDetails"]["amount"] == "2500" and len(envoyes) == 1
+    dep = r.json()["deposit_id"]
+    env.portal.call(env.db.payments.update_one, {"deposit_id": dep}, {"$set": {"status": "completed"}})
+    p = env.portal.call(env.db.payments.find_one, {"deposit_id": dep}, {"_id": 0})
+    env.portal.call(env.hooks[0], p)
+    env.portal.call(env.hooks[0], p)                                       # rejeu du webhook : activation unique
+    ab = {x["formule_id"]: x for x in appel(env, "formules-plateformes/catalogue", {"utilisateur": U()}).json()["abonnements"]}
+    assert ab[a["id"]]["actif"] and ab[b["id"]]["actif"] and ab[b["id"]]["jours_restants"] == 15
+    # État de l'achat et statistiques : une vente et le prix de chaque ligne pour chaque formule
+    assert appel(env, "formules-plateformes/achat", {"utilisateur": U(), "deposit_id": dep}).json()["formule_ids"] == [a["id"], b["id"]]
+    stats = {f["id"]: f for f in env.get("/api/admin/formules-plateformes").json()["formules"]}
+    assert stats[a["id"]]["chiffre"] == 1000 and stats[b["id"]]["chiffre"] == 1500 and stats[b["id"]]["ventes"] == 1
+
+
+def test_achat_une_seule_formule_ancien_mode_inchange(env):
+    a, _ = deux_formules(env)
+    r = appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_id": a["id"]})
+    assert r.status_code == 200 and r.json()["total"] == 1000
+
+
+def test_achat_groupe_formule_inconnue_ou_vide(env):
+    a, _ = deux_formules(env)
+    assert appel(env, "formules-plateformes/acheter", {"utilisateur": U(), "formule_ids": [a["id"], "inconnue"]}).status_code == 404
+    assert appel(env, "formules-plateformes/acheter", {"utilisateur": U()}).status_code == 422
+
+
+def test_pispi_groupe_montant_total_reprise_et_confirmation(env, pispi_actif):
+    a, b = deux_formules(env)
+    r = appel(env, "formules-plateformes/pispi/demander", {"utilisateur": U(), "formule_ids": [a["id"], b["id"]]})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["total"] == 2500 and d["bloc"]["montant_texte"] == "2 500 FCFA"
+    # Même sélection (dans un autre ordre) : demande reprise ; autre sélection : nouvelle demande
+    assert appel(env, "formules-plateformes/pispi/demander", {"utilisateur": U(), "formule_ids": [b["id"], a["id"]]}).json()["reference"] == d["reference"]
+    assert appel(env, "formules-plateformes/pispi/demander", {"utilisateur": U(), "formule_ids": [a["id"]]}).json()["reference"] != d["reference"]
+    # Confirmation par l'administrateur : les deux formules s'activent
+    appel(env, "formules-plateformes/pispi/declarer", {"utilisateur": U(), "reference": d["reference"], "reference_bancaire": "VIR-0001"})
+    assert env.post(f"/api/admin/formules-plateformes/pispi/{d['reference']}/confirmer", json={}).status_code == 200
+    ab = {x["formule_id"]: x for x in appel(env, "formules-plateformes/catalogue", {"utilisateur": U()}).json()["abonnements"]}
+    assert ab[a["id"]]["actif"] and ab[b["id"]]["actif"]

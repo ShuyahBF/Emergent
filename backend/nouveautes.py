@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "244", "date": "2026-10-18",
+        "titre": "🛡️ Cartes virtuelles modérées · 🧾 abonnements en achat groupé",
+        "description": "Les cartes au contenu sexuel, insultant, discriminant, sexiste, homophobe ou visant des mineurs sont refusées même payées et vous êtes prévenu par e-mail ; plusieurs formules peuvent maintenant se payer en une fois, avec le total calculé par SAWALI.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "243", "date": "2026-10-18",
         "titre": "📲 Administration en application Android",
         "description": "L'espace d'administration s'installe comme une application « SAWALI Admin » et peut devenir un APK avec PWABuilder ; bouton d'installation et état dans les Paramètres.",

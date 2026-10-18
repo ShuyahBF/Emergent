@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import routes.cartes_plateformes as cp  # noqa: E402
 import routes.formules_plateformes as fp  # noqa: E402
+import routes.moderation_cartes as mc  # noqa: E402
 
 CLE = "cle-de-test"
 UTIL = {"id": "u1", "nom": "Awa Traoré", "telephone": "+22670000000"}
@@ -50,6 +51,10 @@ def env():
         Image.new("RGB", (1024, 1536), (240, 120, 40)).save(tampon, format="PNG")
         return tampon.getvalue()
 
+    async def moderation_ok(textes):
+        return {"signale": False, "categories": []}
+
+    mc._moderer_ia = moderation_ok
     cp._generer_decor = faux_decor
     api = APIRouter(prefix="/api")
     formules = fp.make_formules_plateformes(db=db, get_super_admin=lambda: {}, hooks_apres_paiement=[],
@@ -64,6 +69,8 @@ def env():
     c.db, c.prompts = db, prompts
     yield c
     cp._generer_decor = None
+    mc._moderer_ia = None
+    cp._envoyer_alerte = None
 
 
 def abonner(c):
@@ -125,3 +132,65 @@ def test_message_long_tient_dans_le_bandeau():
     Image.new("RGB", (cp.LARGEUR, cp.HAUTEUR), (30, 30, 30)).save(tampon, format="PNG")
     jpeg = cp.composer_carte(tampon.getvalue(), "Bonne fête " * 25, "Fatou", "Awa")
     assert Image.open(io.BytesIO(jpeg)).size == (cp.LARGEUR, cp.HAUTEUR)
+
+
+# ----------------------------------------------------------------------------------------------- lot 244 : modération
+def test_contenu_refuse_meme_avec_abonnement_et_admin_prevenu(env):
+    abonner(env)
+    courriels = []
+
+    async def faux_courriel(dest, sujet, html, texte):
+        courriels.append((dest, sujet, html))
+
+    cp._envoyer_alerte = faux_courriel
+    env.portal.call(env.db.settings.update_one, {"_id": "global"}, {"$set": {"admin_email": "admin@test.bf"}}, True)
+    r = appel(env, {**CORPS, "message": "Joyeux anniversaire sale p u t e"})
+    assert r.status_code == 422 and "administrateur a été informé" in r.json()["detail"]
+    assert not env.prompts                                           # l'IA de dessin n'est jamais appelée
+    m = env.portal.call(env.db.membres_plateformes.find_one, {"id": "m1"})
+    assert not m.get("cartes_jours") and m["cartes_refus_total"] == 1  # rien décompté, refus compté
+    inc = env.portal.call(env.db.liluvine_incidents.find_one, {"utilisateur_id": "u1"})
+    assert inc and inc["motif"].startswith("carte_refusee:insultant")
+    assert len(courriels) == 1 and courriels[0][0] == "admin@test.bf" and "p u t e" in courriels[0][2]
+    # Un deuxième refus tout de suite : tracé, mais pas de second e-mail
+    assert appel(env, {**CORPS, "message": "va te faire foutre"}).status_code == 422
+    assert len(courriels) == 1 and env.portal.call(env.db.membres_plateformes.find_one, {"id": "m1"})["cartes_refus_total"] == 2
+
+
+def test_decor_refuse(env):
+    abonner(env)
+    assert appel(env, {**CORPS, "theme": "Anniversaire — femme nue sur la plage"}).status_code == 422
+    assert appel(env, {**CORPS, "theme": "Anniversaire — pedophile"}).status_code == 422
+
+
+def test_moderation_ia_signale_une_allusion(env):
+    abonner(env)
+
+    async def ia_signale(textes):
+        return {"signale": True, "categories": ["hate"]}
+
+    mc._moderer_ia = ia_signale
+    r = appel(env, CORPS)
+    assert r.status_code == 422 and not env.prompts
+
+
+def test_moderation_ia_indisponible_refuse_sans_rien_creer(env):
+    abonner(env)
+
+    async def en_panne(textes):
+        raise RuntimeError("panne")
+
+    mc._moderer_ia = en_panne
+    r = appel(env, CORPS)
+    assert r.status_code == 503 and "réessayez" in r.json()["detail"] and not env.prompts
+
+
+def test_textes_innocents_acceptes():
+    for t in ["Joyeux anniversaire Fatou ! Que cette année t'apporte santé et bonheur", "Désolé pour mon retard, bon concert", "Nazira, bonne fête",
+              "Bisous xxx", "Mariage de Lolita et Ali", "Les femmes sont merveilleuses", "Cocktail au canal"]:
+        assert mc.verifier_liste(t) is None, t
+
+
+def test_contournements_courants_detectes():
+    for t in ["espèce de connard", "p.u.t.e", "PUUUUUTE", "c0nnard", "sale arabe", "vive les pd", "tu es nulle", "gros porc", "va te faire foutre"]:
+        assert mc.verifier_liste(t), t

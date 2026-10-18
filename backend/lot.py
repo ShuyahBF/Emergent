@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "242"
-LOT_LIBELLE = "Cartes virtuelles des plateformes : décor dessiné par l'IA, message écrit dessus, fonction de formule et plafond par jour"
+LOT = "243"
+LOT_LIBELLE = "Administration installable comme application Android (SAWALI Admin) : manifeste, page hors connexion, bouton d'installation, mode d'emploi PWABuilder"

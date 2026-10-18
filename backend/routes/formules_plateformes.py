@@ -75,6 +75,7 @@ FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
              "transcription_vocale": "Transcription vocale (notes de 30 secondes)",
              "archives_cloud": "Archives en ligne chiffrées (documents importants)"}
 FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiques)"   # lot 236
+FONCTIONS["cartes_virtuelles"] = "Cartes virtuelles (voeux illustrés par l'IA, envoyés par WhatsApp)"   # lot 242
 FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
 ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
 ARCHIVE_FICHIER_MAX = 8_000_000           # octets d'un document chiffré (le site réduit les photos avant de chiffrer)
@@ -234,6 +235,7 @@ class ReglagesIn(BaseModel):
     ocr_par_jour: Optional[int] = Field(None, ge=1, le=500)   # lectures OCR par jour et par utilisateur
     voix_par_jour: Optional[int] = Field(None, ge=1, le=200)  # notes vocales transcrites par jour et par utilisateur
     archives_mo: Optional[int] = Field(None, ge=10, le=5000)  # espace d'archives en ligne par utilisateur, en Mo
+    cartes_par_jour: Optional[int] = Field(None, ge=1, le=100)  # lot 242 : images de cartes générées par jour et par utilisateur
 
 
 async def _whisper(octets: bytes, extension: str, langue: str) -> str:
@@ -273,6 +275,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     async def reglage_ocr_par_jour() -> int:
         s = await db.settings.find_one({"_id": "global"}, {"ocr_plateformes_par_jour": 1}) or {}
         return int(s.get("ocr_plateformes_par_jour") or OCR_PAR_JOUR_DEFAUT)
+
+    async def reglage_cartes_par_jour() -> int:
+        s = await db.settings.find_one({"_id": "global"}, {"cartes_plateformes_par_jour": 1}) or {}
+        return int(s.get("cartes_plateformes_par_jour") or 9)
 
     async def reglage_voix_par_jour() -> int:
         s = await db.settings.find_one({"_id": "global"}, {"transcription_plateformes_par_jour": 1}) or {}
@@ -882,6 +888,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         return {"formules": formules, "plateformes": await plateformes_connues(), "fonctions": FONCTIONS,
                 "membres": await db.membres_plateformes.count_documents({}), "parrainage_jours": await reglages_parrainage(),
                 "ocr_par_jour": await reglage_ocr_par_jour(), "voix_par_jour": await reglage_voix_par_jour(),
+                "cartes_par_jour": await reglage_cartes_par_jour(),
                 "archives_mo": (await reglage_archives_octets()) // 1_000_000,
                 "pispi_demandes": await db.payments.count_documents({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
@@ -927,9 +934,12 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             maj["transcription_plateformes_par_jour"] = r.voix_par_jour
         if r.archives_mo is not None:
             maj["archives_plateformes_mo"] = r.archives_mo
+        if r.cartes_par_jour is not None:
+            maj["cartes_plateformes_par_jour"] = r.cartes_par_jour
         await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour(),
-                "voix_par_jour": await reglage_voix_par_jour(), "archives_mo": (await reglage_archives_octets()) // 1_000_000}
+                "voix_par_jour": await reglage_voix_par_jour(), "cartes_par_jour": await reglage_cartes_par_jour(),
+                "archives_mo": (await reglage_archives_octets()) // 1_000_000}
 
     # Outils partagés avec le module des annonceurs (lot 235) : signature des plateformes, fiche membre, lecture des corps
     from types import SimpleNamespace

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "242", "date": "2026-10-18",
+        "titre": "💌 Cartes virtuelles pour les plateformes",
+        "description": "Nouvelle fonction de formule « Cartes virtuelles » : l'IA dessine le décor, le message est écrit dessus ; plafond d'images par jour réglable.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "241", "date": "2026-10-17",
         "titre": "🔗 WhatsApp : les liens contenant un « _ » ne sont plus abîmés",
         "description": "SAWALI ajoutait un caractère invisible après chaque « _ » des messages WhatsApp (pour éviter l'italique), y compris dans les adresses web : un lien comme le panier partagé de ZandGo s'affichait « invalide » une fois cliqué. Les adresses web sont maintenant laissées intactes ; le reste du texte est protégé comme avant.",

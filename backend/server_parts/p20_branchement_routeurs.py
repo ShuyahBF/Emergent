@@ -1251,6 +1251,9 @@ api.include_router(_make_annonceurs_plateformes(
 # Lot 237 — résumés de la presse demandés par les plateformes (collecte faite par la plateforme, résumé par l'IA de SAWALI)
 from routes.presse_plateformes import make_presse_plateformes as _make_presse_plateformes  # noqa: E402
 api.include_router(_make_presse_plateformes(db=db, outils=_routeur_formules.outils))
+# Lot 242 — cartes virtuelles des plateformes : décor dessiné par l'IA + message, réservé aux abonnés (l'envoi passe par Liluvine)
+from routes.cartes_plateformes import make_cartes_plateformes as _make_cartes_plateformes  # noqa: E402
+api.include_router(_make_cartes_plateformes(db=db, outils=_routeur_formules.outils))
 
 # Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
 # suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"

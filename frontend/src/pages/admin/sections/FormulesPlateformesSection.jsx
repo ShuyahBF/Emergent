@@ -69,6 +69,7 @@ export default function FormulesPlateformesSection() {
   const [jours, setJours] = useState(7);
   const [ocrJour, setOcrJour] = useState(30);        // lot 228 : lectures OCR par jour et par utilisateur
   const [voixJour, setVoixJour] = useState(10);      // lot 229 : notes vocales transcrites par jour et par utilisateur
+  const [cartesJour, setCartesJour] = useState(9);  // lot 242 : images de cartes virtuelles générées par jour et par utilisateur
   const [archivesMo, setArchivesMo] = useState(200); // lot 233 : espace d'archives en ligne (chiffrées) par utilisateur, en Mo
   const [envoi, setEnvoi] = useState(false);
 
@@ -79,6 +80,7 @@ export default function FormulesPlateformesSection() {
       setJours(r.data.parrainage_jours);
       setOcrJour(r.data.ocr_par_jour);
       setVoixJour(r.data.voix_par_jour);
+      setCartesJour(r.data.cartes_par_jour);
       setArchivesMo(r.data.archives_mo);
     } catch (e) { toast.error(e?.response?.data?.detail || "Formules indisponibles (réservé à l'administrateur principal)"); }
   }, []);
@@ -106,7 +108,7 @@ export default function FormulesPlateformesSection() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Suppression impossible"); }
   };
   const enregistrerParrainage = async () => {
-    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour), voix_par_jour: Number(voixJour), archives_mo: Number(archivesMo) }); toast.success("Réglages enregistrés"); charger(); }
+    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour), voix_par_jour: Number(voixJour), cartes_par_jour: Number(cartesJour), archives_mo: Number(archivesMo) }); toast.success("Réglages enregistrés"); charger(); }
     catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
   };
 
@@ -137,6 +139,9 @@ export default function FormulesPlateformesSection() {
         </label>
         <label className="flex flex-col gap-1">Voix : notes transcrites par jour et par utilisateur
           <input type="number" min={1} max={200} value={voixJour} onChange={(e) => setVoixJour(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="voix-par-jour" />
+        </label>
+        <label className="flex flex-col gap-1">Cartes virtuelles : images générées par jour et par utilisateur
+          <input type="number" min={1} max={100} value={cartesJour} onChange={(e) => setCartesJour(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="cartes-par-jour" />
         </label>
         <label className="flex flex-col gap-1">Archives en ligne : espace par utilisateur (Mo)
           <input type="number" min={10} max={5000} value={archivesMo} onChange={(e) => setArchivesMo(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="archives-mo" />

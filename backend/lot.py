@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "245"
-LOT_LIBELLE = "Chat Support : dans le fil d'un utilisateur de plateforme, sa question est à gauche et les réponses de l'équipe et des assistants IA à droite"
+LOT = "246"
+LOT_LIBELLE = "Cartes virtuelles : choix de la forme artistique (photo, huile, aquarelle…) et du moteur IA, et coût de chaque génération visible par l'administrateur"

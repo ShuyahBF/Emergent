@@ -63,6 +63,7 @@ CATALOGUE: Dict[str, Tuple[str, str, str]] = {
     "i18n": ("Traductions", "Traduction des textes du site.", "Langues"),
     "content-translate": ("Traductions — contenu", "Traduction des pages de contenu.", "Langues"),
     "ad-plan": ("Bandeaux publicitaires", "Plan de diffusion des bandeaux.", "Bandeaux publicitaires"),
+    "cartes-plateformes": ("Cartes virtuelles des plateformes", "Décor des cartes de vœux (image facturée à l'image).", "Formules des plateformes"),
     "ai-media": ("Médias IA", "Génération d'images et de médias.", "Médias IA"),
     "health-probe": ("Contrôle de l'IA", "Vérification que la clé IA fonctionne.", "Santé applicative"),
 }
@@ -107,7 +108,9 @@ async def synthese(db, jours: int = 30) -> Dict[str, Any]:
     pipeline = [
         {"$match": {"le": {"$gte": depuis}}},
         {"$group": {"_id": {"fonction": "$fonction", "modele": "$modele"}, "appels": {"$sum": 1},
-                    "entree": {"$sum": "$entree"}, "sortie": {"$sum": "$sortie"}, "dernier": {"$max": "$le"}}},
+                    "entree": {"$sum": "$entree"}, "sortie": {"$sum": "$sortie"}, "dernier": {"$max": "$le"},
+                    # Lot 246 : coût en dollars déjà calculé à l'écriture (images : facturées à l'image, pas au jeton)
+                    "cout_direct": {"$sum": {"$ifNull": ["$cout_usd", 0]}}}},
     ]
     lignes: Dict[str, Dict[str, Any]] = {}
     async for g in db.journal_ia.aggregate(pipeline):
@@ -117,6 +120,8 @@ async def synthese(db, jours: int = 30) -> Dict[str, Any]:
                                   "entree": 0, "sortie": 0, "cout": 0.0, "cout_partiel": False, "modeles": [],
                                   "dernier": ""})
         cout = cout_estime(g["_id"]["modele"], g["entree"], g["sortie"])
+        if g.get("cout_direct"):
+            cout = round((cout or 0) + g["cout_direct"], 4)
         l["appels"] += g["appels"]
         l["entree"] += g["entree"]
         l["sortie"] += g["sortie"]

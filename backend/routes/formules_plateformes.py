@@ -15,7 +15,8 @@ Pour un développeur WinDev (c'est l'équivalent de deux fichiers HFSQL + des pr
   - Routes SIGNÉES des plateformes (en-têtes X-Emetteur, X-Timestamp, X-Signature = HMAC-SHA256 de « <ts>.<corps> », comme
     le support et la transmission WA) : le navigateur de l'utilisateur ne parle jamais à SAWALI.
         POST /api/formules-plateformes/catalogue   {utilisateur, code_parrain?}  → formules, abonnements, code de parrainage
-        POST /api/formules-plateformes/acheter     {utilisateur, formule_id, retour?} → lien de la page de paiement PawaPay
+        POST /api/formules-plateformes/acheter     {utilisateur, formule_id | formule_ids, retour?} → lien de la page de paiement PawaPay
+        POST /api/formules-plateformes/devis       {utilisateur, formule_ids}     → {lignes, total} (lot 244 : achat groupé, un seul paiement)
         POST /api/formules-plateformes/achat       {utilisateur, deposit_id}      → état du paiement (active la formule si payé)
         POST /api/formules-plateformes/acces       {utilisateur, fonction}        → {actif, expire_le, jours_restants}
         POST /api/formules-plateformes/parrainage  {utilisateur, code?}           → mon code, filleuls, jours gagnés ; lie un parrain
@@ -89,6 +90,7 @@ OCR_PAR_JOUR_DEFAUT = 30                  # lectures par jour et par utilisateur
 OCR_TYPES = ("plaque_marchand", "ordonnance")
 OCR_TAILLE_MAX = 8_000_000                # octets de l'image décodée
 DUREE_DEFAUT = 30
+ACHAT_FORMULES_MAX = 8                    # lot 244 : formules au plus dans un même paiement
 PARRAINAGE_JOURS_DEFAUT = 7
 ALPHABET_CODE = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   # sans 0/O/1/I
 
@@ -145,7 +147,8 @@ class AbonnesIn(BaseModel):
 
 class PispiDemandeIn(BaseModel):
     utilisateur: Utilisateur
-    formule_id: str = Field(..., min_length=1, max_length=80)
+    formule_id: Optional[str] = Field(None, min_length=1, max_length=80)             # une seule formule (ancien mode)
+    formule_ids: List[str] = Field(default_factory=list, max_length=ACHAT_FORMULES_MAX)   # lot 244 : plusieurs formules, un seul paiement
 
 
 class PispiDeclareIn(BaseModel):
@@ -188,8 +191,15 @@ class CatalogueIn(BaseModel):
 
 class AcheterIn(BaseModel):
     utilisateur: Utilisateur
-    formule_id: str = Field(..., min_length=1, max_length=80)
+    formule_id: Optional[str] = Field(None, min_length=1, max_length=80)             # une seule formule (ancien mode)
+    formule_ids: List[str] = Field(default_factory=list, max_length=ACHAT_FORMULES_MAX)   # lot 244 : plusieurs formules, un seul paiement
     retour: str = Field("", max_length=400)   # page où PawaPay renvoie l'utilisateur après le paiement
+
+
+class DevisIn(BaseModel):
+    """Lot 244 : devis d'un achat groupé (la plateforme l'affiche avant le paiement)."""
+    utilisateur: Utilisateur
+    formule_ids: List[str] = Field(..., min_length=1, max_length=ACHAT_FORMULES_MAX)
 
 
 class AchatIn(BaseModel):
@@ -366,6 +376,24 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                         "actif": jours_restants(a.get("expire_le"), maintenant) > 0})
         return sorted(out, key=lambda a: a["expire_le"] or "", reverse=True)
 
+    async def formules_demandees(plateforme: str, formule_id: Optional[str], formule_ids: List[str]) -> List[dict]:
+        """Lot 244 : formules ACTIVES de la plateforme, dans l'ordre demandé, sans doublon. 422 si aucune ; 404 si l'une est introuvable.
+        Le montant à payer est TOUJOURS recalculé ici, jamais lu depuis la plateforme."""
+        ids = list(dict.fromkeys([*formule_ids, *([formule_id] if formule_id else [])]))
+        if not ids:
+            raise HTTPException(status_code=422, detail="Choisissez au moins une formule")
+        trouvees = {f["id"]: f async for f in db.formules_plateformes.find({"id": {"$in": ids}, "plateforme": plateforme, "actif": True}, {"_id": 0})}
+        if len(trouvees) != len(ids):
+            raise HTTPException(status_code=404, detail="Formule introuvable")
+        return [trouvees[i] for i in ids]
+
+    def lignes_achat(formules: List[dict]) -> List[dict]:
+        return [{"id": f["id"], "nom": f["nom"], "prix": int(f["prix"]), "duree_jours": int(f.get("duree_jours") or DUREE_DEFAUT),
+                 "fonctions": f.get("fonctions") or []} for f in formules]
+
+    def libelle_achat(formules: List[dict]) -> str:
+        return formules[0]["nom"] if len(formules) == 1 else f"{len(formules)} formules : " + ", ".join(f["nom"] for f in formules)
+
     async def activer(m: dict, formule: dict, jours: int, source: str) -> str:
         """Ajoute `jours` à l'abonnement du membre pour cette formule (cumul) et renvoie la nouvelle expiration."""
         courante = ((m.get("abonnements") or {}).get(formule["id"]) or {}).get("expire_le")
@@ -386,11 +414,16 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         if not r.modified_count:
             return
         m = await db.membres_plateformes.find_one({"id": payment.get("membre_id")}, {"_id": 0})
-        f = await db.formules_plateformes.find_one({"id": payment.get("formule_id")}, {"_id": 0})
-        if not m or not f:
+        # Lot 244 : un paiement peut couvrir plusieurs formules (champ « formule_ids ») ; les anciens paiements n'en ont qu'une (« formule_id »)
+        ids = payment.get("formule_ids") or [payment.get("formule_id")]
+        trouvees = {x["id"]: x async for x in db.formules_plateformes.find({"id": {"$in": ids}}, {"_id": 0})}
+        formules = [trouvees[i] for i in ids if i in trouvees]
+        if not m or not formules:
             logger.warning("[formules] paiement %s : membre ou formule introuvable", payment["deposit_id"])
             return
-        await activer(m, f, int(f.get("duree_jours") or DUREE_DEFAUT), "achat")
+        for formule in formules:
+            await activer(m, formule, int(formule.get("duree_jours") or DUREE_DEFAUT), "achat")
+        f = formules[0]       # parrainage : les jours offerts portent sur la première formule du paiement
         # Parrainage : à la PREMIÈRE formule payée du filleul, jours offerts au filleul et au parrain (même formule)
         jours = await reglages_parrainage()
         if m.get("parrain_id") and not m.get("recompense_donnee") and jours > 0:
@@ -417,14 +450,24 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                 "abonnements": vue_abonnements(m, formules + await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": False}, {"_id": 0}).to_list(50)),
                 "code_parrainage": m["code_parrainage"], "a_un_parrain": bool(m.get("parrain_id")), "parrainage_jours": await reglages_parrainage()}
 
+    @router.post("/formules-plateformes/devis")
+    async def devis(request: Request):
+        """Lot 244 : récapitulatif d'un achat groupé (lignes et total) affiché avant le paiement ; rien n'est enregistré."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(DevisIn, corps)
+        formules = await formules_demandees(emetteur["code"], None, d.formule_ids)
+        lignes = lignes_achat(formules)
+        return {"lignes": lignes, "nombre": len(lignes), "total": sum(x["prix"] for x in lignes), "devise": "XOF"}
+
     @router.post("/formules-plateformes/acheter")
     async def acheter(request: Request):
         emetteur, corps = await plateforme_signee(request)
         d = lire(AcheterIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
-        f = await db.formules_plateformes.find_one({"id": d.formule_id, "plateforme": emetteur["code"], "actif": True}, {"_id": 0})
-        if not f:
-            raise HTTPException(status_code=404, detail="Formule introuvable")
+        formules = await formules_demandees(emetteur["code"], d.formule_id, d.formule_ids)     # lot 244 : une ou plusieurs formules
+        lignes = lignes_achat(formules)
+        total = sum(x["prix"] for x in lignes)
+        f = {"id": formules[0]["id"], "nom": libelle_achat(formules), "prix": total}
         s = await db.settings.find_one({"_id": "global"}) or {}
         if not s.get("pawapay_enabled"):
             raise HTTPException(status_code=503, detail="Paiement indisponible pour le moment")
@@ -437,7 +480,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         deposit_id = str(uuid.uuid4())
         msisdn = "".join(c for c in (m.get("telephone") or "") if c.isdigit())
         corps_pp: Dict[str, Any] = {"depositId": deposit_id, "country": country, "reason": f"Abonnement {f['nom']}"[:50],
-                                    "amountDetails": {"amount": str(int(f["prix"])), "currency": pawapay["devise"](country)}}
+                                    "amountDetails": {"amount": str(total), "currency": pawapay["devise"](country)}}
         if d.retour.startswith("https://"):
             # PawaPay n'ajoute rien à l'adresse de retour : on y joint le numéro du paiement pour que la plateforme vérifie l'achat
             corps_pp["returnUrl"] = f"{d.retour}{'&' if '?' in d.retour else '?'}depositId={deposit_id}"
@@ -445,9 +488,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             corps_pp["phoneNumber"] = msisdn
         # On inscrit le paiement AVANT d'appeler PawaPay (jamais de depositId perdu)
         paiement = {"id": str(uuid.uuid4()), "deposit_id": deposit_id, "client_id": None, "user_id": None, "user_label": m.get("nom") or m["utilisateur_id"],
-                    "amount": float(f["prix"]), "currency": "XOF", "country": country, "msisdn": msisdn or None,
+                    "amount": float(total), "currency": "XOF", "country": country, "msisdn": msisdn or None,
                     "description": f"Abonnement {f['nom']} — {emetteur['code']}", "environment": env, "flow": "formule_plateforme",
-                    "plateforme": emetteur["code"], "membre_id": m["id"], "formule_id": f["id"], "status": "initiated",
+                    "plateforme": emetteur["code"], "membre_id": m["id"], "formule_id": f["id"], "formule_ids": [x["id"] for x in lignes],
+                    "lignes": [{"formule_id": x["id"], "prix": x["prix"]} for x in lignes], "status": "initiated",
                     "created_at": _iso(_maintenant()), "updated_at": _iso(_maintenant())}
         await db.payments.insert_one(paiement.copy())
         try:
@@ -462,7 +506,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {"status": "failed", "api_status": "PAGE_REFUSEE", "raw_response": rep}})
             raise HTTPException(status_code=502, detail="Page de paiement refusée, réessayez dans un instant")
         await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {"redirect_url": url}})
-        return {"ok": True, "deposit_id": deposit_id, "redirect_url": url}
+        return {"ok": True, "deposit_id": deposit_id, "redirect_url": url, "total": total, "lignes": lignes}
 
     async def rafraichir(deposit_id: str, p: dict) -> dict:
         """Interroge PawaPay si le webhook n'est pas encore arrivé ; paiement confirmé → active la formule."""
@@ -523,16 +567,21 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         emetteur, corps = await plateforme_signee(request)
         d = lire(PispiDemandeIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
-        f = await db.formules_plateformes.find_one({"id": d.formule_id, "plateforme": emetteur["code"], "actif": True}, {"_id": 0})
-        if not f:
-            raise HTTPException(status_code=404, detail="Formule introuvable")
+        formules = await formules_demandees(emetteur["code"], d.formule_id, d.formule_ids)     # lot 244 : une ou plusieurs formules
+        lignes = lignes_achat(formules)
+        total = sum(x["prix"] for x in lignes)
+        ids = sorted(x["id"] for x in lignes)
+        f = {"id": formules[0]["id"], "nom": libelle_achat(formules), "prix": total}
         param = await lire_parametres()
         b = bloc(param, reference="", reste_du=float(f["prix"]))
         if not b.get("afficher"):
             raise HTTPException(status_code=503, detail="Paiement PI-SPI indisponible pour le moment")
         # Une demande encore ouverte pour la même formule est reprise (pas de doublon à confirmer)
-        ouverte = await db.payments.find_one({"flow": "formule_plateforme", "methode": "pispi", "membre_id": m["id"], "formule_id": f["id"],
+        ouverte = await db.payments.find_one({"flow": "formule_plateforme", "methode": "pispi", "membre_id": m["id"], "formule_ids_tri": ids,
                                               "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}, {"_id": 0})
+        if not ouverte and len(ids) == 1:       # anciennes demandes (avant le lot 244) : une seule formule, sans liste
+            ouverte = await db.payments.find_one({"flow": "formule_plateforme", "methode": "pispi", "membre_id": m["id"], "formule_id": ids[0],
+                                                  "formule_ids_tri": {"$exists": False}, "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}, {"_id": 0})
         if ouverte:
             reference = ouverte["deposit_id"]
         else:
@@ -541,7 +590,8 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                                           "user_label": m.get("nom") or m["utilisateur_id"], "amount": float(f["prix"]), "currency": "XOF",
                                           "description": f"Abonnement {f['nom']} — {emetteur['code']} (PI-SPI)", "flow": "formule_plateforme",
                                           "methode": "pispi", "plateforme": emetteur["code"], "membre_id": m["id"], "formule_id": f["id"],
-                                          "status": "pispi_attente", "created_at": _iso(_maintenant()), "updated_at": _iso(_maintenant())})
+                                          "formule_ids": [x["id"] for x in lignes], "formule_ids_tri": ids,
+                                          "lignes": [{"formule_id": x["id"], "prix": x["prix"]} for x in lignes], "status": "pispi_attente", "created_at": _iso(_maintenant()), "updated_at": _iso(_maintenant())})
         c = connecteur_actif()
         try:
             await c.demander_paiement(reference=reference, montant=float(f["prix"]))      # manuel : simple rappel ; banque branchée : demande réelle
@@ -549,7 +599,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             pass
         b = bloc(param, reference=reference, reste_du=float(f["prix"]))
         statut = ouverte["status"] if ouverte else "pispi_attente"       # « pispi_verification » : référence déjà déclarée
-        return {"reference": reference, "bloc": sans_octets(b), "automatique": bool(c.automatique), "statut": statut}
+        return {"reference": reference, "bloc": sans_octets(b), "automatique": bool(c.automatique), "statut": statut, "total": total, "lignes": lignes}
 
     @router.post("/formules-plateformes/pispi/declarer")
     async def pispi_declarer(request: Request):
@@ -574,7 +624,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         lignes = await db.payments.find({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}},
                                         {"_id": 0}).sort("created_at", -1).to_list(100)
         formules = {f["id"]: f for f in await db.formules_plateformes.find({}, {"_id": 0, "id": 1, "nom": 1}).to_list(200)}
-        out = [{"reference": p["deposit_id"], "plateforme": p.get("plateforme"), "utilisateur": p.get("user_label"), "formule": (formules.get(p.get("formule_id")) or {}).get("nom"),
+        out = [{"reference": p["deposit_id"], "plateforme": p.get("plateforme"), "utilisateur": p.get("user_label"), "formule": " + ".join((formules.get(i) or {}).get("nom") or "?" for i in (p.get("formule_ids") or [p.get("formule_id")])),
                 "montant": p.get("amount"), "statut": p["status"], "reference_bancaire": p.get("reference_bancaire"), "cree_le": p.get("created_at"),
                 "declare_le": p.get("declare_le")} for p in lignes]
         out.sort(key=lambda x: 0 if x["statut"] == "pispi_verification" else 1)
@@ -607,7 +657,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         # déclarée, en attente de confirmation de l'administrateur
         statut = {"completed": "paye", "failed": "echec", "pispi_attente": "pispi_attente",
                   "pispi_verification": "pispi_verification"}.get(p.get("status"), "attente")
-        return {"statut": statut, "formule_id": p.get("formule_id")}
+        return {"statut": statut, "formule_id": p.get("formule_id"), "formule_ids": p.get("formule_ids") or [p.get("formule_id")]}
 
     @router.post("/formules-plateformes/acces")
     async def acces(request: Request):
@@ -878,10 +928,12 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                 if jours_restants(a.get("expire_le"), maintenant) > 0:
                     s["abonnes_actifs"] += 1
         ventes: Dict[str, Dict[str, int]] = {}
-        async for p in db.payments.find({"flow": "formule_plateforme", "status": "completed"}, {"_id": 0, "formule_id": 1, "amount": 1}):
-            v = ventes.setdefault(p.get("formule_id"), {"ventes": 0, "chiffre": 0})
-            v["ventes"] += 1
-            v["chiffre"] += int(p.get("amount") or 0)
+        async for p in db.payments.find({"flow": "formule_plateforme", "status": "completed"}, {"_id": 0, "formule_id": 1, "amount": 1, "lignes": 1}):
+            # Lot 244 : un paiement groupé compte une vente et son prix pour CHAQUE formule achetée
+            for ligne in p.get("lignes") or [{"formule_id": p.get("formule_id"), "prix": p.get("amount")}]:
+                v = ventes.setdefault(ligne["formule_id"], {"ventes": 0, "chiffre": 0})
+                v["ventes"] += 1
+                v["chiffre"] += int(ligne.get("prix") or 0)
         for f in formules:
             f.update(stats.get(f["id"], {"abonnes_actifs": 0}))
             f.update(ventes.get(f["id"], {"ventes": 0, "chiffre": 0}))

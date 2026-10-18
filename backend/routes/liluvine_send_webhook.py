@@ -267,8 +267,10 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                     raise HTTPException(status_code=503, detail="Adresse publique de SAWALI non configurée (public_base_url)")
                 type_media = payload.media.get("type")
                 legende = (payload.media.get("legende") or message)[:1024]
-                # a) média direct (dans la fenêtre de 24 h)
-                if wa_send_media:
+                # a) média direct, SEULEMENT si la fenêtre de 24 h est ouverte. Lot 246.1 (constat du 18/10/2026) : hors fenêtre,
+                #    Meta accepte la requête (réponse « ok » avec un identifiant) puis refuse la livraison plus tard : l'envoi
+                #    paraissait réussi alors que la carte n'arrivait jamais. Fenêtre fermée → modèle média, sinon lien.
+                if wa_send_media and await fenetre_ouverte(db, destinataire, maintenant, numero_ligne):
                     result = await wa_send_media(destinataire, type_media, public_url=lien,
                                                  caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises)}" if code else legende,
                                                  filename=nom_fichier if type_media == "document" else None)

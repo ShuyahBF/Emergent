@@ -74,6 +74,10 @@ def _media():
 
 def test_document_direct_et_lien_public():
     client, db, envois, cle = _app(direct_ok=True)
+    # Lot 246.1 : le média direct n'est tenté que si le destinataire a écrit à SAWALI depuis moins de 24 h
+    from datetime import datetime, timezone
+    _run(db.whatsapp_messages.insert_one({"direction": "inbound", "phone_digits": "22670000001",
+                                          "created_at": datetime.now(timezone.utc).isoformat()}))
     r = _envoyer(client, cle, {"id": "d1", "to": "+22670000001", "message": "Votre facture", "media": _media()})
     assert r.status_code == 200, r.text
     assert r.json()["media_mode"] == "direct"
@@ -82,6 +86,13 @@ def test_document_direct_et_lien_public():
     # Le lien public sert bien le fichier
     fichier = client.get(lien.replace("https://sawali.test", ""))
     assert fichier.status_code == 200 and fichier.content == PDF
+
+
+def test_fenetre_fermee_pas_de_media_direct():
+    # Lot 246.1 : fenêtre fermée → aucune tentative directe (Meta l'accepterait puis ne la livrerait jamais) ; ici : lien
+    client, db, envois, cle = _app(direct_ok=True)
+    r = _envoyer(client, cle, {"id": "d9", "to": "+22670000009", "message": "Votre carte", "media": _media()})
+    assert r.status_code == 200 and r.json()["media_mode"] == "lien"
 
 
 def test_document_hors_fenetre_modele_media_puis_lien():

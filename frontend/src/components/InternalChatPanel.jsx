@@ -155,6 +155,13 @@ export default function InternalChatPanel() {
   const [threads, setThreads] = useState([]);
   const [members, setMembers] = useState([]);
   const [activeThreadKey, setActiveThreadKey] = useState(null);  // "general" or user_id
+  // Lot 245 — côté d'un message. Dans le fil d'un DEMANDEUR du support (utilisateur d'une plateforme web, poste Loois), le demandeur est à
+  // GAUCHE (message reçu) et TOUTE l'équipe est à DROITE (message envoyé) : agents SAWALI, mais aussi assistants IA de Liluvine, dont
+  // l'identifiant n'est pas celui de la personne connectée. Avant, seuls les messages de la personne connectée passaient à droite :
+  // la question de l'utilisateur et la réponse de l'IA s'affichaient du même côté. Ailleurs, la règle ne change pas.
+  const filDeSupport = (activeClientId === "support-loois" || String(activeClientId || "").startsWith("support-plat-"))
+    && !!activeThreadKey && activeThreadKey !== "general";
+  const estCoteEquipe = (m) => (filDeSupport ? m.sender_id !== activeThreadKey : m.sender_id === user?.id);
   // Lot 90 — fil à ouvrir après le changement d'espace (clic sur une requête en attente d'un autre espace)
   const allerVersRef = useRef(null);
   // Lot 90 — équipe du support : voit au moins un espace « Support Loois » ou « <plateforme> - Support »
@@ -365,7 +372,7 @@ export default function InternalChatPanel() {
       text: (m.text || "").slice(0, 140) + ((m.text || "").length > 140 ? "…" : ""),
       sender_name: m.sender_name,
       media_kind: m.media_kind || null,
-      is_mine: m.sender_id === user?.id,
+      is_mine: estCoteEquipe(m),
     });
     // Focus the composer
     setTimeout(() => {
@@ -1197,7 +1204,7 @@ export default function InternalChatPanel() {
                 </p>
               ) : (
                 messages.map((m) => {
-                  const mine = m.sender_id === user?.id;
+                  const mine = estCoteEquipe(m);
                   const hasMedia = m.media_kind === "image" && m.media_url;
                   const isHighlighted = highlightMsgId === m.id;
                   return (

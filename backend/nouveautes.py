@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "243", "date": "2026-10-18",
+        "titre": "📲 Administration en application Android",
+        "description": "L'espace d'administration s'installe comme une application « SAWALI Admin » et peut devenir un APK avec PWABuilder ; bouton d'installation et état dans les Paramètres.",
+        "rubrique": "📲 Application Android d'administration",
+    },
+    {
         "lot": "242", "date": "2026-10-18",
         "titre": "💌 Cartes virtuelles pour les plateformes",
         "description": "Nouvelle fonction de formule « Cartes virtuelles » : l'IA dessine le décor, le message est écrit dessus ; plafond d'images par jour réglable.",

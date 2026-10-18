@@ -24,6 +24,7 @@ import ConversationsWaSection from "@/pages/admin/sections/ConversationsWaSectio
 import RetrouverNumeroSection from "@/pages/admin/sections/RetrouverNumeroSection";   // Lot 104.3
 import LooisSection from "@/pages/admin/sections/LooisSection";   // Lot 71.3
 import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection";   // Lot 71.3
+import ApplicationAndroidSection from "@/pages/admin/sections/ApplicationAndroidSection";   // Lot 243
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
 import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
@@ -116,6 +117,7 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
   "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
   "🖥️ Contrôle à distance Loois": "135.1",   // lot 131 : voir / contrôler un poste Loois ; lot 135 : écran verrouillé, fichiers, onglets, vidéo, actions système ; lot 135.1 : purge des vidéos, menu Plateformes
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "130",   // lot 130 : Ctrl + Espace / double-clic recopie le texte gris (placeholder) dans le champ
@@ -177,6 +179,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "📲 Application Android d'administration": "2026-10-18",   // lot 243
   "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
   "🖥️ Contrôle à distance Loois": "2026-10-13",   // lot 131 ; lot 135 ; lot 135.1
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "2026-10-12",   // lot 130
@@ -282,6 +285,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",
   "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
   "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1) ; écran verrouillé et session fermée par le service Windows, fichiers, image DXGI, onglets, vidéo, clavier virtuel, blocage clavier/souris, actions système, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat (lot 135) ; purge automatique des vidéos après la durée de conservation et écran Plateformes → Contrôle à distance (lot 135.1).",
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
@@ -1641,6 +1645,11 @@ export default function AdminSettings() {
       {/* Lot 80 — Équipements : découverte du réseau des clients par Loois (réglages, état, lien vers l'écran) */}
       <Filterable title="🛰️ Équipements — découverte du réseau" anchorId="s-decouverte-reseau" category="modules">
         <DecouverteReseauSection />
+      </Filterable>
+
+      {/* Lot 243 — application Android d'administration (PWA / PWABuilder) : état et bouton d'installation */}
+      <Filterable title="📲 Application Android d'administration" anchorId="s-application-android" category="modules">
+        <ApplicationAndroidSection />
       </Filterable>
 
       {/* Lot 71.3 — signal de présence des postes et serveurs (lots 65 et 66) */}

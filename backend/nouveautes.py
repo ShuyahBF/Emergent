@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "245", "date": "2026-10-18",
+        "titre": "💬 Chat Support : questions et réponses de chaque côté",
+        "description": "Dans le fil d'un utilisateur d'une plateforme (auRor, Ster, adLyn…), sa question est à gauche et toutes les réponses de l'équipe, y compris celles des assistants IA de Liluvine, sont à droite (avant, elles s'affichaient du même côté).",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "244", "date": "2026-10-18",
         "titre": "🛡️ Cartes virtuelles modérées · 🧾 abonnements en achat groupé",
         "description": "Les cartes au contenu sexuel, insultant, discriminant, sexiste, homophobe ou visant des mineurs sont refusées même payées et vous êtes prévenu par e-mail ; plusieurs formules peuvent maintenant se payer en une fois, avec le total calculé par SAWALI.",

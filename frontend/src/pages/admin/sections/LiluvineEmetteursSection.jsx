@@ -59,6 +59,32 @@ export default function LiluvineEmetteursSection() {
       toast.error(erreur(e), { id: attente });
     } finally { setCreationTrans(false); }
   };
+  // Lot 253 : modèles du cabinet (ligne dédiée) — sans / avec document ; soumission à Meta et avis actualisable
+  const [modelesCab, setModelesCab] = useState(null);
+  const [occupeCab, setOccupeCab] = useState("");        // clé du modèle en cours de soumission, ou « actualiser »
+  const chargerCab = useCallback(async () => {
+    try { setModelesCab((await apiClient.get("/admin/liluvine-modeles-cabinet")).data.modeles); } catch { setModelesCab([]); }
+  }, []);
+  useEffect(() => { chargerCab(); }, [chargerCab]);
+  const soumettreCab = async (cle) => {
+    setOccupeCab(cle);
+    const attente = toast.loading("Patientez… envoi du modèle à Meta");
+    try {
+      const { data } = await apiClient.post(`/admin/liluvine-modeles-cabinet/${cle}/soumettre`, {});
+      setModelesCab(data.modeles);
+      toast.success("Modèle soumis à Meta. Cliquez sur « Actualiser l'avis » pour suivre la décision.", { id: attente });
+    } catch (e) { toast.error(erreur(e), { id: attente }); } finally { setOccupeCab(""); }
+  };
+  const actualiserCab = async () => {
+    setOccupeCab("actualiser");
+    const attente = toast.loading("Patientez… lecture de l'avis de Meta");
+    try {
+      const { data } = await apiClient.post("/admin/liluvine-modeles-cabinet/actualiser", {});
+      setModelesCab(data.modeles);
+      toast.success("Avis de Meta actualisé", { id: attente });
+      window.dispatchEvent(new Event("sawali-reglages-modifies"));   // un modèle approuvé est activé : la page relit ses paramètres
+    } catch (e) { toast.error(erreur(e), { id: attente }); } finally { setOccupeCab(""); }
+  };
   const [synthese, setSynthese] = useState([]);         // lot 104.1 : envois par plateforme (7 jours)
   const [filtre, setFiltre] = useState("");             // lot 104.1 : plateforme affichée dans le journal
 
@@ -240,6 +266,50 @@ export default function LiluvineEmetteursSection() {
                 {{ APPROVED: "✅ approuvé", PENDING: "⏳ en attente d'approbation", REJECTED: "❌ refusé", INTROUVABLE: "❌ introuvable chez Meta" }[modeleTrans.statut_meta] || modeleTrans.statut_meta || "inconnu"}
               </b></>
           ) : <>⚠️ Aucun modèle : les messages partent en texte libre et n'arrivent qu'aux personnes ayant écrit dans les 24 h.</>}
+        </div>
+      </div>
+
+      {/* Lot 253 : modèles du cabinet (ligne dédiée, hors fenêtre de 24 h) — soumission à Meta et avis */}
+      <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3 text-xs" data-testid="liluvine-modeles-cabinet">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-800">Modèles du cabinet (ligne dédiée, hors fenêtre de 24 h)</div>
+            <p className="mt-0.5 text-slate-600">
+              Deux modèles <b>utilitaires</b> pour écrire à un contact qui n'a pas écrit depuis 24 h. Chaque envoi par modèle est facturé par Meta.
+              Un modèle approuvé est activé automatiquement.
+            </p>
+          </div>
+          <button type="button" onClick={actualiserCab} disabled={!!occupeCab || !(modelesCab || []).some((m) => m.nom)}
+                  className="inline-flex items-center gap-1 rounded bg-slate-900 px-3 py-1.5 text-white disabled:opacity-50"
+                  data-testid="modeles-cabinet-actualiser">
+            <RefreshCw className="h-3.5 w-3.5" /> Actualiser l'avis
+          </button>
+        </div>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {modelesCab === null ? "Lecture…" : modelesCab.map((m) => (
+            <div key={m.cle} className="rounded border border-violet-200 bg-white/80 p-2" data-testid={`modele-cabinet-${m.cle}`}>
+              <div className="font-semibold text-slate-800">{m.titre}</div>
+              <p className="mt-1 whitespace-pre-line rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{m.corps}</p>
+              <div className="mt-1 text-slate-600">Nom : <b className="font-mono">{m.nom || m.nom_propose}</b> (fr)</div>
+              <div className="mt-1">
+                <span className="text-slate-600">Avis META : </span>
+                <b className={m.statut_meta === "APPROVED" ? "text-emerald-700" : m.statut_meta === "REJECTED" ? "text-red-700" : "text-amber-700"}
+                   data-testid={`avis-meta-${m.cle}`}>
+                  {!m.nom ? "— pas encore soumis" : ({ APPROVED: "✅ approuvé", PENDING: "⏳ en attente d'approbation", REJECTED: "❌ refusé", PAUSED: "⏸ en pause", INTROUVABLE: "❌ introuvable chez Meta", EXISTANT: "déjà chez Meta" }[m.statut_meta] || m.statut_meta || "inconnu")}
+                </b>
+                {m.motif && <span className="text-red-700"> ({m.motif})</span>}
+                {m.active && <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800">activé</span>}
+              </div>
+              {m.verifie_le && <div className="text-[11px] text-slate-500">Vérifié le {new Date(m.verifie_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>}
+              <div className="mt-2 boutons-distincts flex flex-wrap gap-2">
+                <button type="button" onClick={() => soumettreCab(m.cle)} disabled={!!occupeCab}
+                        className="inline-flex items-center gap-1 rounded bg-violet-600 px-3 py-1.5 text-white disabled:opacity-50"
+                        data-testid={`modele-cabinet-soumettre-${m.cle}`}>
+                  <KeyRound className="h-3.5 w-3.5" /> {m.nom ? "Soumettre à nouveau" : "Soumettre"}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

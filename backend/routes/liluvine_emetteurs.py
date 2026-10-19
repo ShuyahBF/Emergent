@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -129,6 +129,80 @@ async def statut_modele_meta(reg: dict, nom: str) -> Optional[str]:
         return donnees[0].get("status") if donnees else "INTROUVABLE"
     except (httpx.HTTPError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------- lot 253 : modèles du cabinet (ligne dédiée)
+# Deux modèles Meta UTILITAIRES pour écrire à un contact HORS de la fenêtre de 24 h depuis une ligne dédiée (ex. ALBARKA) :
+#   « texte »    : 1 variable (le message), sans pièce jointe ;
+#   « document » : en-tête DOCUMENT (PDF : bulletin, facture…) + 3 variables (date/heure, émetteur, message).
+# Le nom n'est activé dans les Paramètres qu'une fois le modèle APPROUVÉ par Meta (Actualiser l'avis).
+MODELES_CABINET: Dict[str, Dict[str, Any]] = {
+    "texte": {
+        "titre": "Sans document joint", "nom_propose": "message_cabinet",
+        "cle_nom": "liluvine_transmission_modele_ligne", "cle_langue": "liluvine_transmission_modele_ligne_langue",
+        "corps": "Bonjour, vous avez un nouveau message de votre cabinet : {{1}} Répondez à ce message pour poursuivre la conversation.",
+        "exemple": [["Votre bulletin de paie de septembre est disponible."]],
+    },
+    "document": {
+        "titre": "Avec document joint (PDF)", "nom_propose": "document_cabinet",
+        "cle_nom": "liluvine_transmission_modele_media", "cle_langue": "liluvine_transmission_modele_media_langue",
+        "corps": "Bonjour, message de votre cabinet reçu le {{1}} de la part de {{2}} : {{3}} Le document est joint à ce message.",
+        "exemple": [["19/10/2026 23:15", "Cabinet ALBARKA", "Votre bulletin de paie de septembre est joint."]],
+    },
+}
+
+# PDF d'une page blanche : échantillon d'en-tête exigé par Meta pour un modèle à document
+PDF_EXEMPLE = (b"%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+               b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+def corps_modele_cabinet(cle: str, nom: str, langue: str, handle: Optional[str] = None) -> dict:
+    """Corps POST /{waba}/message_templates d'un modèle du cabinet (cle « texte » ou « document »).
+    Le corps ne commence ni ne finit par une variable (règle Meta) ; exemples fournis pour l'approbation."""
+    m = MODELES_CABINET[cle]
+    composants: List[Dict[str, Any]] = []
+    if cle == "document":
+        composants.append({"type": "HEADER", "format": "DOCUMENT", "example": {"header_handle": [handle or ""]}})
+    composants.append({"type": "BODY", "text": m["corps"], "example": {"body_text": m["exemple"]}})
+    return {"name": nom, "language": langue, "category": "UTILITY", "components": composants}
+
+
+async def avis_modele_meta(reg: dict, nom: str) -> Dict[str, Any]:
+    """Avis de Meta sur un modèle : {statut: APPROVED | PENDING | REJECTED | PAUSED… | INTROUVABLE, motif} ;
+    statut None si Meta ne répond pas."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{reg['wa_business_account_id']}/message_templates",
+                               params={"name": nom, "fields": "name,status,language,rejected_reason"},
+                               headers={"Authorization": f"Bearer {reg['wa_access_token']}"})
+        donnees = (r.json() or {}).get("data") or [] if r.status_code < 300 else []
+        if not donnees:
+            return {"statut": "INTROUVABLE", "motif": None}
+        motif = donnees[0].get("rejected_reason")
+        return {"statut": donnees[0].get("status"), "motif": None if motif in (None, "NONE") else motif}
+    except (httpx.HTTPError, ValueError):
+        return {"statut": None, "motif": None}
+
+
+async def deposer_exemple_pdf(http: httpx.AsyncClient, reg: dict) -> str:
+    """Dépôt du PDF d'exemple chez Meta (Resumable Upload) → « handle » de l'en-tête. L'App ID est lu dans les
+    Paramètres (meta_app_id / wa_app_id) ou déduit du jeton."""
+    from routes.carrousel_modeles_meta import app_id_du_jeton
+    jeton = reg["wa_access_token"]
+    app_id = (reg.get("meta_app_id") or reg.get("wa_app_id") or "").strip() or await app_id_du_jeton(http, version=WA_GRAPH_VERSION, jeton=jeton)
+    if not app_id:
+        raise HTTPException(status_code=400, detail="App ID Meta introuvable : saisissez-le dans Paramètres → « Intégration Meta ».")
+    r = await http.post(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{app_id}/uploads",
+                        params={"file_name": "exemple.pdf", "file_length": len(PDF_EXEMPLE), "file_type": "application/pdf"},
+                        headers={"Authorization": f"OAuth {jeton}"})
+    if r.status_code >= 300:
+        raise HTTPException(status_code=502, detail=f"Meta {r.status_code} : dépôt de l'exemple refusé")
+    session = (r.json() or {}).get("id")
+    r2 = await http.post(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{session}", content=PDF_EXEMPLE,
+                         headers={"Authorization": f"OAuth {jeton}", "file_offset": "0"})
+    if r2.status_code >= 300 or not (r2.json() or {}).get("h"):
+        raise HTTPException(status_code=502, detail=f"Meta {r2.status_code} : dépôt de l'exemple refusé")
+    return r2.json()["h"]
 
 
 def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
@@ -288,6 +362,82 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
         langue = str(donnees.get("langue") or "fr")[:10]
         return await creer_modele_meta(db, corps_modele_transmission(nom, langue),
                                        "liluvine_transmission_modele", "liluvine_transmission_langue")
+
+
+    # ------------------------------------------------------------------ lot 253 : modèles du cabinet (ligne dédiée)
+    async def _etat_modeles_cabinet(reg: dict) -> List[Dict[str, Any]]:
+        """Les deux modèles avec leur dernier avis de Meta (enregistré à la soumission / à l'actualisation)."""
+        avis_enregistres = reg.get("liluvine_modeles_cabinet_avis") or {}
+        sortie = []
+        for cle, m in MODELES_CABINET.items():
+            a = avis_enregistres.get(cle) or {}
+            nom = (a.get("nom") or "").strip()
+            sortie.append({"cle": cle, "titre": m["titre"], "corps": m["corps"], "nom_propose": m["nom_propose"],
+                           "nom": nom, "langue": a.get("langue") or "fr", "statut_meta": a.get("statut"),
+                           "motif": a.get("motif"), "soumis_le": a.get("soumis_le"), "verifie_le": a.get("verifie_le"),
+                           "active": bool(nom) and (reg.get(m["cle_nom"]) or "").strip() == nom})
+        return sortie
+
+    @router.get("/liluvine-modeles-cabinet")
+    async def modeles_cabinet(admin: dict = Depends(get_current_admin)):
+        """Les 2 modèles du cabinet (sans / avec document) et le dernier avis de Meta enregistré."""
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {"modeles": await _etat_modeles_cabinet(reg)}
+
+    @router.post("/liluvine-modeles-cabinet/{cle}/soumettre")
+    async def soumettre_modele_cabinet(cle: str, donnees: dict = Body(default={}), admin: dict = Depends(get_current_admin)):
+        """Soumet le modèle à Meta pour approbation. Un modèle déjà présent chez Meta est simplement suivi."""
+        if cle not in MODELES_CABINET:
+            raise HTTPException(status_code=404, detail="Modèle inconnu")
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        if not reg.get("wa_access_token") or not reg.get("wa_business_account_id"):
+            raise HTTPException(status_code=400, detail="WhatsApp non configuré (WABA ID et Access Token dans Paramètres)")
+        nom = re.sub(r"[^a-z0-9_]", "", str(donnees.get("nom") or MODELES_CABINET[cle]["nom_propose"]).lower())[:60] or MODELES_CABINET[cle]["nom_propose"]
+        langue = str(donnees.get("langue") or "fr")[:10]
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                handle = await deposer_exemple_pdf(http, reg) if cle == "document" else None
+                r = await http.post(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{reg['wa_business_account_id']}/message_templates",
+                                    json=corps_modele_cabinet(cle, nom, langue, handle),
+                                    headers={"Authorization": f"Bearer {reg['wa_access_token']}"})
+            brut = r.json() if r.content else {}
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=504, detail=f"Meta injoignable ({type(exc).__name__})")
+        deja = "already exists" in str(brut).lower() or "existe" in str(brut).lower()
+        if r.status_code >= 300 and not deja:
+            msg = ((brut.get("error") or {}).get("error_user_msg") or (brut.get("error") or {}).get("message")) if isinstance(brut, dict) else None
+            raise HTTPException(status_code=502, detail=f"Meta {r.status_code} : {msg or 'refus'}")   # jamais 401/403 tels quels
+        maintenant = datetime.now(timezone.utc).isoformat()
+        await db.settings.update_one({"_id": "global"}, {"$set": {f"liluvine_modeles_cabinet_avis.{cle}": {
+            "nom": nom, "langue": langue, "statut": brut.get("status") or ("EXISTANT" if deja else "PENDING"),
+            "motif": None, "soumis_le": maintenant, "verifie_le": maintenant}}}, upsert=True)
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {"ok": True, "modeles": await _etat_modeles_cabinet(reg)}
+
+    @router.post("/liluvine-modeles-cabinet/actualiser")
+    async def actualiser_modeles_cabinet(admin: dict = Depends(get_current_admin)):
+        """Relit l'avis de Meta de chaque modèle soumis. Un modèle APPROUVÉ est activé automatiquement dans les
+        Paramètres (nom + langue) ; REJETÉ ou en pause, il n'est pas activé et le motif est affiché."""
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        if not reg.get("wa_access_token") or not reg.get("wa_business_account_id"):
+            raise HTTPException(status_code=400, detail="WhatsApp non configuré (WABA ID et Access Token dans Paramètres)")
+        maintenant = datetime.now(timezone.utc).isoformat()
+        for cle, m in MODELES_CABINET.items():
+            a = (reg.get("liluvine_modeles_cabinet_avis") or {}).get(cle) or {}
+            if not a.get("nom"):
+                continue
+            avis = await avis_modele_meta(reg, a["nom"])
+            if avis["statut"] is None:
+                continue      # Meta ne répond pas : on garde le dernier avis connu
+            maj = {f"liluvine_modeles_cabinet_avis.{cle}.statut": avis["statut"],
+                   f"liluvine_modeles_cabinet_avis.{cle}.motif": avis["motif"],
+                   f"liluvine_modeles_cabinet_avis.{cle}.verifie_le": maintenant}
+            if avis["statut"] == "APPROVED":
+                maj[m["cle_nom"]] = a["nom"]
+                maj[m["cle_langue"]] = a.get("langue") or "fr"
+            await db.settings.update_one({"_id": "global"}, {"$set": maj})
+        reg = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {"ok": True, "modeles": await _etat_modeles_cabinet(reg)}
 
     @router.get("/liluvine-transmissions")
     async def journal(limite: int = 100, emetteur: Optional[str] = None, admin: dict = Depends(get_current_admin)):

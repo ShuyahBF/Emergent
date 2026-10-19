@@ -16,6 +16,8 @@
 # Choix du numéro qui ENVOIE un message (fonction numero_envoi), par priorité :
 #   1. réponse à un message reçu : le numéro qui a reçu ce message (variable de
 #      contexte posée par le webhook) — le client reçoit la réponse du même numéro ;
+#   (lot 247 : les étapes 2 à 5 n'utilisent JAMAIS une ligne « privée » ; seule une ligne choisie explicitement — plateforme
+#    cliente comme ALBARKA, ou agent dans la conversation — ou la réponse à un message reçu sur elle peut en partir)
 #   2. dernier message reçu de ce correspondant depuis moins de 24 h (fenêtre de
 #      conversation Meta, liée au numéro) ;
 #   3. ligne affectée à la main sur la fiche du contact (wa_ligne) ;
@@ -250,12 +252,19 @@ async def _contact_du_telephone(db, chiffres: str) -> Optional[Dict[str, Any]]:
     )
 
 
+def _ids_lignes_privees(settings_doc: Dict[str, Any]) -> List[str]:
+    """Phone Number ID des lignes marquées « privées » (ex. celle d'une plateforme cliente comme ALBARKA)."""
+    return [l["phone_number_id"] for l in lignes_configurees(settings_doc) if l.get("privee") and l.get("phone_number_id")]
+
+
 async def _cle_du_dernier_message_recu(db, chiffres: str, settings_doc: Dict[str, Any],
-                                       depuis_heures: Optional[int] = 24) -> Optional[str]:
-    """Ligne sur laquelle ce correspondant a écrit en dernier (dans la fenêtre donnée)."""
+                                       depuis_heures: Optional[int] = 24, exclure_privees: bool = False) -> Optional[str]:
+    """Ligne sur laquelle ce correspondant a écrit en dernier (dans la fenêtre donnée).
+    `exclure_privees` : ignore les messages reçus sur une ligne privée (choix d'une ligne d'ENVOI, lot 247)."""
     if not chiffres:
         return None
-    filtre: Dict[str, Any] = {"direction": "inbound", "phone_digits": chiffres, "wa_numero_id": {"$nin": [None, ""]}}
+    exclus = [None, ""] + (_ids_lignes_privees(settings_doc) if exclure_privees else [])
+    filtre: Dict[str, Any] = {"direction": "inbound", "phone_digits": chiffres, "wa_numero_id": {"$nin": exclus}}
     if depuis_heures:
         limite = (datetime.now(timezone.utc) - timedelta(hours=depuis_heures)).isoformat()
         filtre["created_at"] = {"$gte": limite}
@@ -279,22 +288,27 @@ async def cle_par_regle_vip(db, contact: Optional[Dict[str, Any]], settings_doc:
 
 
 async def cle_ligne_conversation(db, telephone: Any, settings_doc: Dict[str, Any],
-                                 contact: Optional[Dict[str, Any]] = None) -> str:
+                                 contact: Optional[Dict[str, Any]] = None, exclure_privees: bool = False) -> str:
     """Ligne à laquelle appartient la conversation avec ce numéro (étapes 2 à 5).
 
     Sert à la fois au choix du numéro d'envoi et à la visibilité dans le
-    Centre de messagerie.
+    Centre de messagerie. Lot 247 : avec `exclure_privees` (choix du numéro d'ENVOI seulement), une ligne privée n'est
+    jamais retenue — ni par le dernier message reçu, ni par l'affectation manuelle, ni par la règle VIP : on retombe sur
+    une ligne SAWALI (rapports, synthèses, comptes rendus, analyses…).
     """
     chiffres = _chiffres(telephone)
-    cle = await _cle_du_dernier_message_recu(db, chiffres, settings_doc, 24)
+    cle = await _cle_du_dernier_message_recu(db, chiffres, settings_doc, 24, exclure_privees)
     if cle:
         return cle
     if contact is None:
         contact = await _contact_du_telephone(db, chiffres)
     manuelle = ligne_par_cle(settings_doc, (contact or {}).get("wa_ligne"))
-    if manuelle:
+    if manuelle and not (exclure_privees and manuelle.get("privee")):
         return manuelle["cle"]
-    return (await cle_par_regle_vip(db, contact, settings_doc)) or LIGNE_PRINCIPALE
+    vip = await cle_par_regle_vip(db, contact, settings_doc)
+    if vip and exclure_privees and (ligne_par_cle(settings_doc, vip) or {}).get("privee"):
+        vip = None
+    return vip or LIGNE_PRINCIPALE
 
 
 def numero_reponse(settings_doc: Dict[str, Any]) -> str:
@@ -320,7 +334,7 @@ async def numero_envoi(db, telephone: Any, settings_doc: Dict[str, Any]) -> str:
     if len(lignes_configurees(settings_doc)) < 2:
         return principal
     try:
-        cle = await cle_ligne_conversation(db, telephone, settings_doc)
+        cle = await cle_ligne_conversation(db, telephone, settings_doc, exclure_privees=True)   # lot 247 : jamais une ligne privée
     except Exception:  # noqa: BLE001 — en cas de doute, la ligne principale
         return principal
     ligne = ligne_par_cle(settings_doc, cle)

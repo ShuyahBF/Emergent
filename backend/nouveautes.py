@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "247", "date": "2026-10-19",
+        "titre": "🔒 Ligne WhatsApp privée : plus jamais utilisée pour les rapports de SAWALI",
+        "description": "Une ligne marquée « privée » (celle d'ALBARKA) ne sert plus aux rapports quotidiens, synthèses, comptes rendus ni analyses de Liluvine, même si le destinataire lui a écrit : ils partent des lignes SAWALI. Elle reste utilisée pour les messages de sa plateforme.",
+        "rubrique": "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels",
+    },
+    {
         "lot": "246.1", "date": "2026-10-18",
         "titre": "📨 Cartes et documents WhatsApp : fin des envois « acceptés » mais jamais reçus",
         "description": "Hors de la fenêtre de 24 h, l'image ou le document n'est plus tenté en direct (Meta l'acceptait sans le livrer) : il part par le modèle média, sinon par un lien de téléchargement. Renseignez le « Modèle WhatsApp média » pour que la carte arrive en image.",

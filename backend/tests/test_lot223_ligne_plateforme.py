@@ -130,3 +130,42 @@ def test_conversation_de_la_ligne_privee_masquee_dans_le_centre_de_messagerie():
     accord = boucle.run_until_complete(numeros_wa.VisibiliteLignes.charger(
         db, {"role": "admin", "wa_lignes_autorisees": [LIGNE_ALBARKA]}, dict(REGLAGES)))
     assert accord.telephone_visible("+22670111111") is True
+
+
+# ---- Lot 247 : une ligne privée n'est jamais choisie pour les envois de SAWALI (rapports, synthèses, comptes rendus…) ----
+
+def _db_inbound(numero_id):
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot247"]
+    from datetime import datetime, timezone
+    _boucle().run_until_complete(db.whatsapp_messages.insert_one({
+        "direction": "inbound", "phone_digits": "22670000001", "wa_numero_id": numero_id,
+        "created_at": datetime.now(timezone.utc).isoformat()}))
+    return db
+
+
+def test_envoi_sawali_jamais_par_la_ligne_privee_meme_si_le_correspondant_y_a_ecrit():
+    db = _db_inbound(LIGNE_ALBARKA)                  # le correspondant vient d'écrire à la ligne privée (ALBARKA)
+    pid = _boucle().run_until_complete(numeros_wa.numero_envoi(db, "+22670000001", REGLAGES))
+    assert pid == "100200300"                        # → ligne principale de SAWALI, pas la ligne ALBARKA
+
+
+def test_envoi_sawali_suit_toujours_la_ligne_non_privee_ou_le_correspondant_a_ecrit():
+    db = _db_inbound("999888777")                    # ligne VIP (non privée) : inchangé
+    pid = _boucle().run_until_complete(numeros_wa.numero_envoi(db, "+22670000001", REGLAGES))
+    assert pid == "999888777"
+
+
+def test_ligne_privee_reste_utilisable_quand_elle_est_imposee():
+    db = _db_inbound(LIGNE_ALBARKA)
+    jeton = numeros_wa.definir_ligne_forcee(LIGNE_ALBARKA)           # plateforme ALBARKA ou choix explicite de l'agent
+    try:
+        pid = _boucle().run_until_complete(numeros_wa.numero_envoi(db, "+22670000001", REGLAGES))
+    finally:
+        numeros_wa.retablir_ligne_forcee(jeton)
+    assert pid == LIGNE_ALBARKA
+
+
+def test_visibilite_des_conversations_inchangee_par_le_lot_247():
+    db = _db_inbound(LIGNE_ALBARKA)
+    cle = _boucle().run_until_complete(numeros_wa.cle_ligne_conversation(db, "+22670000001", REGLAGES))
+    assert cle == LIGNE_ALBARKA                      # la conversation appartient toujours à la ligne privée (masquée)

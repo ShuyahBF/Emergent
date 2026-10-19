@@ -25,6 +25,7 @@ REGLAGES = {"_id": "global", "wa_phone_number_id": "100200300",
                            {"id": "999888777", "libelle": "Liluvine VIP", "vip": True}]}
 
 
+CITATIONS = []                                                   # identifiants cités (lot 250)
 TEXTES = []                                                      # textes envoyés par le faux WhatsApp
 
 
@@ -36,8 +37,9 @@ def _app():
     db = mongomock_motor.AsyncMongoMockClient()["test_lot223"]
     vues = []                                                    # ligne imposée vue pendant l'envoi
 
-    async def faux_texte(numero, texte):
+    async def faux_texte(numero, texte, **kw):
         TEXTES.append(texte)                                     # lot 248 : textes réellement envoyés
+        CITATIONS.append(kw.get("reply_to_message_id"))          # lot 250 : message cité (None = pas de citation)
         vues.append(numeros_wa._ligne_forcee.get())
         return {"ok": True, "message_id": f"wamid.{len(vues)}"}
 
@@ -247,3 +249,39 @@ def test_ligne_dediee_message_sans_entete_ni_consigne():
     cle2 = client.post("/api/admin/liluvine-emetteurs", json={"code": "ster", "nom": "Ster"}).json()["cle"]
     assert _envoyer(client, "ster", cle2, {"to": "+22670000002", "message": "Bonjour", "id": "m10"}).status_code == 200
     assert TEXTES[0].startswith("📨") and "Répondre" in TEXTES[0]
+
+
+def test_reponse_citee_du_cabinet_transmise_a_whatsapp_lot250():
+    """Lot 250 : « reply_to » (wamid du message du destinataire) est passé à WhatsApp pour un texte libre ; sans lui, rien ne change."""
+    TEXTES.clear(); CITATIONS.clear()
+    client, db, vues = _app()
+    cle = client.post("/api/admin/liluvine-emetteurs", json={"code": "albarka", "nom": "ALBARKA"}).json()["cle"]
+    client.patch("/api/admin/liluvine-emetteurs/albarka", json={"ligne": LIGNE_ALBARKA})
+    assert _envoyer(client, "albarka", cle, {"to": "+22670000001", "message": "Réponse", "id": "r1", "reply_to": "wamid.ABC123"}).status_code == 200
+    assert _envoyer(client, "albarka", cle, {"to": "+22670000001", "message": "Sans citation", "id": "r2"}).status_code == 200
+    assert CITATIONS == ["wamid.ABC123", None]
+
+
+def test_reponse_relayee_porte_l_identifiant_whatsapp_du_message_recu_lot250(monkeypatch):
+    from routes import liluvine_relais as relais
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot250"]
+    retours = []
+
+    async def faux_retour(db_, emetteur, corps):
+        retours.append(corps)
+        return True
+    monkeypatch.setattr(relais, "_poster_retour", faux_retour)
+
+    async def scenario():
+        await db.settings.insert_one(dict(REGLAGES))
+        await db.liluvine_emetteurs.insert_one({"code": "albarka", "nom": "ALBARKA", "actif": True,
+                                                "ligne": LIGNE_ALBARKA, "url_retour": "https://albarka.test/retour"})
+        jeton = numeros_wa.definir_numero_recu(LIGNE_ALBARKA)
+        try:
+            await relais.traiter_message_entrant(db, de="22670000007", type_message="text", texte="Bonjour", send_text=None,
+                                                 wa_message_id="wamid.RECU1")
+        finally:
+            numeros_wa.retablir_numero_recu(jeton)
+        await asyncio.sleep(0)
+    _boucle().run_until_complete(scenario())
+    assert retours and retours[0]["message_id"] == "wamid.RECU1"

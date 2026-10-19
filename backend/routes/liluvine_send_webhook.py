@@ -79,6 +79,9 @@ class LiluvineSendPayload(BaseModel):
     # d'AUTHENTIFICATION est paramétré, le code part par ce modèle (bouton « Copier le code ») :
     # il arrive même si la personne n'a jamais écrit (hors fenêtre de 24 h).
     code_otp: Optional[str] = None
+    # Lot 250 : identifiant WhatsApp (wamid) du message auquel on RÉPOND (citation « Répondre »). Pris en compte seulement
+    # pour un texte libre (fenêtre de 24 h ouverte) ; ignoré pour un modèle, un média ou un code de connexion.
+    reply_to: Optional[str] = None
 
 
 def texte_variable(texte: str) -> str:
@@ -314,8 +317,12 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 result = await wa_send_template(destinataire, modele, langue, composants)
             else:
                 # Lot 248 : sur la ligne dédiée d'une plateforme, le message part tel quel (le fil de discussion suffit, pas d'en-tête)
-                result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises, bool(ligne_emetteur))}"
-                                            if code and not ligne_emetteur else message)
+                texte_a_envoyer = (f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises, bool(ligne_emetteur))}"
+                                   if code and not ligne_emetteur else message)
+                if (payload.reply_to or "").strip():          # lot 250 : réponse citée (« Répondre » sur un message du destinataire)
+                    result = await wa_send_text(destinataire, texte_a_envoyer, reply_to_message_id=payload.reply_to.strip()[:200])
+                else:
+                    result = await wa_send_text(destinataire, texte_a_envoyer)
         finally:
             if jeton_ligne is not None:
                 from routes.numeros_wa import retablir_ligne_forcee

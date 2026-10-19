@@ -372,7 +372,7 @@ async def _emetteur_de_la_ligne_recue(db) -> Optional[Dict[str, Any]]:
 async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Optional[str],
                                   fichier_local: Optional[str] = None, mime: Optional[str] = None,
                                   nom_fichier: Optional[str] = None, cite_message_id: Optional[str] = None,
-                                  send_text=None) -> Dict[str, Any]:
+                                  send_text=None, wa_message_id: Optional[str] = None) -> Dict[str, Any]:
     """Appelée pour chaque message WhatsApp reçu par SAWALI.
 
     Renvoie {"traite": True, ...} quand le message concerne une plateforme émettrice
@@ -472,7 +472,8 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
         except Exception:  # noqa: BLE001
             logger.warning("[liluvine_relais] média de la réponse non relayé", exc_info=True)
     corps = {"type": "reponse", "id_origine": trans.get("id_externe"), "de": "+" + chiffres,
-             "texte": texte or "", "media": media, "date": _maintenant().isoformat()}
+             "texte": texte or "", "media": media, "date": _maintenant().isoformat(),
+             "message_id": wa_message_id}        # lot 250 : identifiant WhatsApp du message reçu (pour pouvoir le citer en réponse)
     await db.liluvine_reponses.insert_one({**corps, "emetteur": code, "relaye_le": _maintenant().isoformat()})
     envoyer_retour(db, emetteur, corps)
     return {"traite": True, "action": "reponse_relayee", "emetteur": code, "nom": nom}

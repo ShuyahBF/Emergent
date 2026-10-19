@@ -148,6 +148,7 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             {"_id": 0, "liluvine_send_webhook_hmac_secret": 1, "liluvine_send_webhook_target_number": 1,
              "liluvine_transmission_modele": 1, "liluvine_transmission_langue": 1,
              "liluvine_transmission_modele_media": 1,
+             "liluvine_transmission_modele_ligne": 1, "liluvine_transmission_modele_ligne_langue": 1,
              "liluvine_modele_otp": 1, "liluvine_modele_otp_langue": 1},
         ) or {}
 
@@ -225,6 +226,14 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
             from routes.numeros_wa import ligne_par_cle
             reglages_lignes = await db.settings.find_one({"_id": "global"}) or {}
             numero_ligne = ((ligne_par_cle(reglages_lignes, ligne_dediee) or {}).get("phone_number_id") or None)
+        # Lot 251 : MODÈLE DES LIGNES DÉDIÉES (ex. ALBARKA) à UNE seule variable (le message) : sans en-tête ni date, il remplace
+        # le modèle à 3 variables pour cette ligne quand la fenêtre de 24 h est fermée.
+        modele_une_variable = False
+        modele_ligne = (reglages.get("liluvine_transmission_modele_ligne") or "").strip()
+        if ligne_dediee and modele_ligne and wa_send_template:
+            modele = modele_ligne
+            langue = (reglages.get("liluvine_transmission_modele_ligne_langue") or "fr").strip() or "fr"
+            mode, modele_une_variable = "modele", True
         if mode == "modele" and await fenetre_ouverte(db, destinataire, maintenant, numero_ligne):
             mode = "texte"
         # Lot 104 : code de connexion + modèle d'authentification paramétré → mode « otp » (prioritaire)
@@ -309,11 +318,12 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 langue_otp = (reglages.get("liluvine_modele_otp_langue") or "fr").strip() or "fr"
                 result = await wa_send_template(destinataire, modele_otp, langue_otp, composants_otp(code_otp))
             elif mode == "modele":
-                composants = [{"type": "body", "parameters": [
-                    {"type": "text", "text": quand},
-                    {"type": "text", "text": texte_variable(source)},          # lot 104.2 : sans retour à la ligne
-                    {"type": "text", "text": texte_variable(message)},
-                ]}]
+                composants = [{"type": "body", "parameters": (
+                    [{"type": "text", "text": texte_variable(message)}] if modele_une_variable else [   # lot 251 : ligne dédiée
+                        {"type": "text", "text": quand},
+                        {"type": "text", "text": texte_variable(source)},          # lot 104.2 : sans retour à la ligne
+                        {"type": "text", "text": texte_variable(message)},
+                    ])}]
                 result = await wa_send_template(destinataire, modele, langue, composants)
             else:
                 # Lot 248 : sur la ligne dédiée d'une plateforme, le message part tel quel (le fil de discussion suffit, pas d'en-tête)

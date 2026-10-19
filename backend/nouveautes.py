@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "251", "date": "2026-10-19",
+        "titre": "📨 Modèle Meta des lignes dédiées (1 variable)",
+        "description": "Pour la ligne propre à une plateforme (ALBARKA), hors fenêtre de 24 h, le message part par un modèle Meta à une seule variable (le message), sans en-tête ni date. Saisissez son nom dans « Modèle WhatsApp des lignes dédiées ».",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "250", "date": "2026-10-19",
         "titre": "↩️ Répondre en citant un message du destinataire",
         "description": "Une plateforme (ALBARKA) peut répondre en citant un message précis du destinataire : le champ reply_to de la transmission universelle est passé à WhatsApp, et les réponses relayées portent l'identifiant du message reçu pour pouvoir être citées.",

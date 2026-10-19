@@ -285,3 +285,51 @@ def test_reponse_relayee_porte_l_identifiant_whatsapp_du_message_recu_lot250(mon
         await asyncio.sleep(0)
     _boucle().run_until_complete(scenario())
     assert retours and retours[0]["message_id"] == "wamid.RECU1"
+
+
+# ---- Lot 251 : modèle à UNE variable pour la ligne dédiée, fenêtre de 24 h fermée -------------------------------------------
+
+def _app_modele_ligne():
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot251"]
+    envois = []
+
+    async def faux_texte(numero, texte, *a, **k):
+        envois.append(("texte", texte))
+        return {"ok": True, "message_id": f"wamid.t{len(envois)}"}
+
+    async def faux_modele(numero, nom, langue, composants):
+        envois.append(("modele", nom, langue, composants))
+        return {"ok": True, "message_id": f"wamid.m{len(envois)}"}
+
+    async def admin():
+        return {"email": "admin@sawali.test"}
+    api = APIRouter(prefix="/api")
+    attach_liluvine_send_webhook_routes(api=api, db=db, wa_send_text=faux_texte, wa_send_template=faux_modele)
+    api.include_router(make_liluvine_emetteurs_router(db=db, get_current_admin=admin))
+    app = FastAPI()
+    app.include_router(api)
+    reglages = {**REGLAGES, "liluvine_transmission_modele": "transmission_plateformes",
+                "liluvine_transmission_modele_ligne": "message_cabinet", "liluvine_transmission_modele_ligne_langue": "fr"}
+    _boucle().run_until_complete(db.settings.insert_one(reglages))
+    return TestClient(app), db, envois
+
+
+def test_ligne_dediee_hors_fenetre_modele_a_une_variable_sans_entete():
+    client, db, envois = _app_modele_ligne()
+    cle = client.post("/api/admin/liluvine-emetteurs", json={"code": "albarka", "nom": "ALBARKA"}).json()["cle"]
+    client.patch("/api/admin/liluvine-emetteurs/albarka", json={"ligne": LIGNE_ALBARKA})
+    # fenêtre fermée (aucun message reçu) : modèle des lignes dédiées, UNE variable = le message
+    assert _envoyer(client, "albarka", cle, {"to": "+22670000001", "message": "Bonjour\nvotre facture", "id": "z1"}).status_code == 200
+    assert envois[-1][0] == "modele" and envois[-1][1] == "message_cabinet" and envois[-1][2] == "fr"
+    assert envois[-1][3] == [{"type": "body", "parameters": [{"type": "text", "text": "Bonjour · votre facture"}]}]
+    # fenêtre ouverte (le destinataire a écrit à cette ligne) : texte libre, aucun modèle
+    from datetime import datetime, timezone
+    _boucle().run_until_complete(db.whatsapp_messages.insert_one({
+        "direction": "inbound", "phone_digits": "22670000001", "wa_numero_id": LIGNE_ALBARKA,
+        "created_at": datetime.now(timezone.utc).isoformat()}))
+    assert _envoyer(client, "albarka", cle, {"to": "+22670000001", "message": "Suite", "id": "z2"}).status_code == 200
+    assert envois[-1] == ("texte", "Suite")
+    # plateforme SANS ligne dédiée : modèle à 3 variables inchangé
+    cle2 = client.post("/api/admin/liluvine-emetteurs", json={"code": "ster", "nom": "Ster"}).json()["cle"]
+    assert _envoyer(client, "ster", cle2, {"to": "+22670000002", "message": "Bonjour", "id": "z3"}).status_code == 200
+    assert envois[-1][1] == "transmission_plateformes" and len(envois[-1][3][0]["parameters"]) == 3

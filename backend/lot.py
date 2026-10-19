@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "250"
-LOT_LIBELLE = "Transmission WhatsApp : la plateforme peut répondre en citant un message du destinataire (reply_to), et les réponses relayées portent l'identifiant du message reçu"
+LOT = "251"
+LOT_LIBELLE = "Ligne dédiée à une plateforme : modèle Meta à une seule variable (le message) pour les envois hors fenêtre de 24 h, sans en-tête ni date"

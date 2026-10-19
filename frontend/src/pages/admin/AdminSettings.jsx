@@ -1889,6 +1889,21 @@ export default function AdminSettings() {
               placeholder="facultatif : sinon lien de téléchargement (7 jours) dans le message"
               testid="liluvine-transmission-modele-media"
             />
+            {/* Lot 251 — modèle des LIGNES DÉDIÉES (ex. ALBARKA) : une seule variable {{1}} = le message, sans en-tête */}
+            <Input
+              label="Modèle WhatsApp des lignes dédiées (1 variable : le message)"
+              value={s.liluvine_transmission_modele_ligne || ""}
+              onChange={(v) => upd("liluvine_transmission_modele_ligne", v)}
+              placeholder="ex. message_cabinet — utilisé hors fenêtre de 24 h pour la ligne propre à une plateforme"
+              testid="liluvine-transmission-modele-ligne"
+            />
+            <Input
+              label="Langue du modèle des lignes dédiées"
+              value={s.liluvine_transmission_modele_ligne_langue || ""}
+              onChange={(v) => upd("liluvine_transmission_modele_ligne_langue", v)}
+              placeholder="fr"
+              testid="liluvine-transmission-modele-ligne-langue"
+            />
             <Input
               label="E-mail d'alerte (série d'échecs ou de signatures refusées)"
               value={s.liluvine_transmission_email_alerte || ""}

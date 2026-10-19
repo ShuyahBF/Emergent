@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "249", "date": "2026-10-19",
+        "titre": "✉️ Ligne dédiée : message reçu tel quel, sans en-tête",
+        "description": "Sur la ligne WhatsApp propre à une plateforme (ALBARKA), le destinataire reçoit le message sans l'en-tête « plateforme — date » : le fil de discussion suffit. Hors fenêtre de 24 h, le modèle Meta garde sa structure.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "248", "date": "2026-10-19",
         "titre": "💬 Ligne dédiée : une simple réponse suffit, sans « Répondre »",
         "description": "Sur la ligne WhatsApp propre à une plateforme (ALBARKA), tout message reçu est relayé à la plateforme, y compris une réponse libre : les clients n'ont plus à citer un message. Sur les lignes SAWALI, la règle des réponses citées ne change pas.",

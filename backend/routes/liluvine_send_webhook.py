@@ -274,7 +274,8 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 #    paraissait réussi alors que la carte n'arrivait jamais. Fenêtre fermée → modèle média, sinon lien.
                 if wa_send_media and await fenetre_ouverte(db, destinataire, maintenant, numero_ligne):
                     result = await wa_send_media(destinataire, type_media, public_url=lien,
-                                                 caption=f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises, bool(ligne_emetteur))}" if code else legende,
+                                                 caption=(f"📨 {source} — {quand}\n{legende}{_aide_reponse(source, transmises, bool(ligne_emetteur))}"
+                                          if code and not ligne_emetteur else legende),   # lot 248 : ligne dédiée = légende seule
                                                  filename=nom_fichier if type_media == "document" else None)
                     if result.get("ok"):
                         media_mode = "direct"
@@ -312,8 +313,9 @@ def attach_liluvine_send_webhook_routes(*, api, db, wa_send_text, wa_send_templa
                 ]}]
                 result = await wa_send_template(destinataire, modele, langue, composants)
             else:
+                # Lot 248 : sur la ligne dédiée d'une plateforme, le message part tel quel (le fil de discussion suffit, pas d'en-tête)
                 result = await wa_send_text(destinataire, f"📨 {source} — {quand}\n\n{message}{_aide_reponse(source, transmises, bool(ligne_emetteur))}"
-                                            if code else message)
+                                            if code and not ligne_emetteur else message)
         finally:
             if jeton_ligne is not None:
                 from routes.numeros_wa import retablir_ligne_forcee

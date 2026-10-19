@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "252"
-LOT_LIBELLE = "Ligne dédiée à une plateforme : plus aucune copie « Relais NOUVEAU message WhatsApp » ni alerte propriétaire renvoyée dans le fil de la plateforme"
+LOT = "253"
+LOT_LIBELLE = "Transmission universelle : bloc « Modèles du cabinet » (sans / avec document) avec Soumettre, Actualiser l'avis et avis META"

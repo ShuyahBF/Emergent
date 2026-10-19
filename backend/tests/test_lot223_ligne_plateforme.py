@@ -344,3 +344,62 @@ def test_lot252_aucun_relais_admin_sur_ligne_dediee():
     i_auto = src.index("if _sur_ligne_dediee:\n                            raise LookupError(\"ligne dédiée : pas de relais")
     i_alerte = src.index("if _sur_ligne_dediee:\n                            raise LookupError(\"ligne dédiée\")")
     assert i_ligne < i_auto < i_alerte
+
+
+# ---- Lot 253 : modèles du cabinet — soumission à Meta, avis actualisable, activation à l'approbation ---------------------------
+
+def test_modeles_cabinet_soumettre_actualiser_et_activer(monkeypatch):
+    import httpx
+    import routes.liluvine_emetteurs as em
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot253"]
+    _boucle().run_until_complete(db.settings.insert_one(
+        {"_id": "global", "wa_access_token": "jeton-test", "wa_business_account_id": "waba1", "meta_app_id": "app1"}))
+    etat = {"statut": "PENDING", "corps_poste": []}
+
+    class FauxHttp:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, content=None, params=None, headers=None):
+            if url.endswith("/uploads"):
+                return httpx.Response(200, json={"id": "upload:1"})
+            if "upload:1" in url:
+                return httpx.Response(200, json={"h": "handle-pdf"})
+            etat["corps_poste"].append(json)
+            return httpx.Response(200, json={"id": "t1", "status": "PENDING"})
+        async def get(self, url, params=None, headers=None):
+            return httpx.Response(200, json={"data": [{"name": params["name"], "status": etat["statut"],
+                                                       "rejected_reason": "INVALID_FORMAT" if etat["statut"] == "REJECTED" else "NONE"}]})
+    monkeypatch.setattr(em.httpx, "AsyncClient", FauxHttp)
+
+    async def admin():
+        return {"email": "admin@sawali.test"}
+    app = FastAPI()
+    app.include_router(em.make_liluvine_emetteurs_router(db=db, get_current_admin=admin), prefix="/api")
+    c = TestClient(app)
+    # Avant toute soumission : deux modèles, « pas encore soumis »
+    modeles = {m["cle"]: m for m in c.get("/api/admin/liluvine-modeles-cabinet").json()["modeles"]}
+    assert set(modeles) == {"texte", "document"} and not modeles["texte"]["nom"]
+    # Soumission : le document porte un en-tête DOCUMENT avec l'exemple déposé, le texte non
+    assert c.post("/api/admin/liluvine-modeles-cabinet/texte/soumettre", json={}).status_code == 200
+    assert c.post("/api/admin/liluvine-modeles-cabinet/document/soumettre", json={}).status_code == 200
+    texte, document = etat["corps_poste"]
+    assert texte["name"] == "message_cabinet" and texte["category"] == "UTILITY" and len(texte["components"]) == 1
+    assert document["name"] == "document_cabinet" and document["components"][0] == {
+        "type": "HEADER", "format": "DOCUMENT", "example": {"header_handle": ["handle-pdf"]}}
+    # Actualiser : en attente → rien d'activé
+    r = c.post("/api/admin/liluvine-modeles-cabinet/actualiser").json()["modeles"]
+    assert all(m["statut_meta"] == "PENDING" and not m["active"] for m in r)
+    reg = _boucle().run_until_complete(db.settings.find_one({"_id": "global"}))
+    assert not reg.get("liluvine_transmission_modele_ligne") and not reg.get("liluvine_transmission_modele_media")
+    # Refusé : le motif est affiché, rien d'activé
+    etat["statut"] = "REJECTED"
+    r = c.post("/api/admin/liluvine-modeles-cabinet/actualiser").json()["modeles"]
+    assert r[0]["statut_meta"] == "REJECTED" and r[0]["motif"] == "INVALID_FORMAT" and not r[0]["active"]
+    # Approuvé : activé automatiquement dans les Paramètres (nom + langue)
+    etat["statut"] = "APPROVED"
+    r = c.post("/api/admin/liluvine-modeles-cabinet/actualiser").json()["modeles"]
+    assert all(m["active"] and m["statut_meta"] == "APPROVED" for m in r)
+    reg = _boucle().run_until_complete(db.settings.find_one({"_id": "global"}))
+    assert reg["liluvine_transmission_modele_ligne"] == "message_cabinet" and reg["liluvine_transmission_modele_media"] == "document_cabinet"
+    assert c.post("/api/admin/liluvine-modeles-cabinet/inconnu/soumettre", json={}).status_code == 404

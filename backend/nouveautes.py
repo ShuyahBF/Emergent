@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "253", "date": "2026-10-19",
+        "titre": "📄 Modèles Meta du cabinet : Soumettre et Avis META",
+        "description": "Dans la Transmission universelle, deux modèles (sans / avec document joint) se soumettent à Meta en un clic ; « Actualiser l'avis » affiche la décision de Meta et active le modèle dès son approbation.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "252", "date": "2026-10-19",
         "titre": "🔕 Plus de copie « Relais » dans le fil d'une ligne dédiée",
         "description": "Quand un message arrive sur la ligne propre à une plateforme (ALBARKA), il est relayé à la plateforme seulement : la copie « Relais NOUVEAU message WhatsApp » et l'alerte propriétaire ne reviennent plus sur votre téléphone dans ce fil.",

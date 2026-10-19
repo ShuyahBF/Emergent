@@ -221,3 +221,10 @@ def test_ligne_dediee_sans_url_de_retour_liluvine_ne_repond_pas():
             numeros_wa.retablir_numero_recu(jeton)
     r = _boucle().run_until_complete(scenario())
     assert r["traite"] is True and r["action"] == "ligne_dediee_sans_retour"
+
+
+def test_ligne_dediee_pas_de_consigne_repondre_sous_le_message():
+    from routes.liluvine_send_webhook import _aide_reponse
+    assert _aide_reponse("ALBARKA", True, True) == ""                       # ligne propre : une simple réponse suffit
+    assert "Répondre" in _aide_reponse("Ster", True, False)                 # ligne SAWALI : consigne inchangée
+    assert "ne pas y répondre" in _aide_reponse("ALBARKA", False, True)     # « réponses non transmises » : inchangé

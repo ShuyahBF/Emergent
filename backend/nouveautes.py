@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "250", "date": "2026-10-19",
+        "titre": "↩️ Répondre en citant un message du destinataire",
+        "description": "Une plateforme (ALBARKA) peut répondre en citant un message précis du destinataire : le champ reply_to de la transmission universelle est passé à WhatsApp, et les réponses relayées portent l'identifiant du message reçu pour pouvoir être citées.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "249", "date": "2026-10-19",
         "titre": "✉️ Ligne dédiée : message reçu tel quel, sans en-tête",
         "description": "Sur la ligne WhatsApp propre à une plateforme (ALBARKA), le destinataire reçoit le message sans l'en-tête « plateforme — date » : le fil de discussion suffit. Hors fenêtre de 24 h, le modèle Meta garde sa structure.",

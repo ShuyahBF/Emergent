@@ -2683,7 +2683,7 @@ async def whatsapp_webhook_incoming(request: Request):
                                 db, de=from_num, type_message=mtype, texte=text_body or media_caption,
                                 fichier_local=str(UPLOAD_DIR / media_info["stored_name"]) if (media_info or {}).get("stored_name") else None,
                                 mime=(media_info or {}).get("mime_type"), nom_fichier=(media_info or {}).get("filename"),
-                                cite_message_id=_ctx.get("id"), send_text=_wa_send_text)
+                                cite_message_id=_ctx.get("id"), send_text=_wa_send_text, wa_message_id=msg.get("id"))
                             relais_plateforme = bool(_rel.get("traite"))
                             # Lot 83 : la réponse relayée reste visible dans SAWALI, étiquetée « Relayé à … »
                             if _rel.get("action") == "reponse_relayee" and doc.get("id"):

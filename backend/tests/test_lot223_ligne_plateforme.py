@@ -25,6 +25,9 @@ REGLAGES = {"_id": "global", "wa_phone_number_id": "100200300",
                            {"id": "999888777", "libelle": "Liluvine VIP", "vip": True}]}
 
 
+TEXTES = []                                                      # textes envoyés par le faux WhatsApp
+
+
 def _boucle():
     return asyncio.get_event_loop()
 
@@ -34,6 +37,7 @@ def _app():
     vues = []                                                    # ligne imposée vue pendant l'envoi
 
     async def faux_texte(numero, texte):
+        TEXTES.append(texte)                                     # lot 248 : textes réellement envoyés
         vues.append(numeros_wa._ligne_forcee.get())
         return {"ok": True, "message_id": f"wamid.{len(vues)}"}
 
@@ -228,3 +232,18 @@ def test_ligne_dediee_pas_de_consigne_repondre_sous_le_message():
     assert _aide_reponse("ALBARKA", True, True) == ""                       # ligne propre : une simple réponse suffit
     assert "Répondre" in _aide_reponse("Ster", True, False)                 # ligne SAWALI : consigne inchangée
     assert "ne pas y répondre" in _aide_reponse("ALBARKA", False, True)     # « réponses non transmises » : inchangé
+
+
+def test_ligne_dediee_message_sans_entete_ni_consigne():
+    """Lot 248 : sur la ligne propre à la plateforme, le destinataire reçoit le message tel quel (pas d'en-tête « 📨 Plateforme — date »)."""
+    TEXTES.clear()
+    client, db, vues = _app()
+    cle = client.post("/api/admin/liluvine-emetteurs", json={"code": "albarka", "nom": "ALBARKA"}).json()["cle"]
+    client.patch("/api/admin/liluvine-emetteurs/albarka", json={"ligne": LIGNE_ALBARKA})
+    assert _envoyer(client, "albarka", cle, {"to": "+22670000001", "message": "Votre facture est prête", "id": "m9"}).status_code == 200
+    assert TEXTES == ["Votre facture est prête"]
+    # Sans ligne dédiée (plateforme sur les lignes SAWALI) : l'en-tête et la consigne restent
+    TEXTES.clear()
+    cle2 = client.post("/api/admin/liluvine-emetteurs", json={"code": "ster", "nom": "Ster"}).json()["cle"]
+    assert _envoyer(client, "ster", cle2, {"to": "+22670000002", "message": "Bonjour", "id": "m10"}).status_code == 200
+    assert TEXTES[0].startswith("📨") and "Répondre" in TEXTES[0]

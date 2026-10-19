@@ -333,3 +333,14 @@ def test_ligne_dediee_hors_fenetre_modele_a_une_variable_sans_entete():
     cle2 = client.post("/api/admin/liluvine-emetteurs", json={"code": "ster", "nom": "Ster"}).json()["cle"]
     assert _envoyer(client, "ster", cle2, {"to": "+22670000002", "message": "Bonjour", "id": "z3"}).status_code == 200
     assert envois[-1][1] == "transmission_plateformes" and len(envois[-1][3][0]["parameters"]) == 3
+
+
+def test_lot252_aucun_relais_admin_sur_ligne_dediee():
+    """Lot 252 : sur la ligne dédiée d'une plateforme, le webhook n'émet ni « whatsapp.received » (copie « Relais NOUVEAU
+    message WhatsApp ») ni alerte propriétaire ; la détection de la ligne dédiée précède les deux."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "server_parts" / "p12_sms.py").read_text(encoding="utf-8")
+    i_ligne = src.index("_sur_ligne_dediee = bool(await _ligne_dediee_recue(db))")
+    i_auto = src.index("if _sur_ligne_dediee:\n                            raise LookupError(\"ligne dédiée : pas de relais")
+    i_alerte = src.index("if _sur_ligne_dediee:\n                            raise LookupError(\"ligne dédiée\")")
+    assert i_ligne < i_auto < i_alerte

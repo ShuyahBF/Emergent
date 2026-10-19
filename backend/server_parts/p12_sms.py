@@ -2321,11 +2321,21 @@ async def whatsapp_webhook_incoming(request: Request):
                                 })
                         except Exception:  # noqa: BLE001
                             logger.warning("[barriere_wa] réponse automatique impossible", exc_info=True)
+                    # Lot 252 — LIGNE DÉDIÉE d'une plateforme (ex. ALBARKA) : la conversation appartient à la plateforme.
+                    # Aucune copie « Relais NOUVEAU message WhatsApp » ni alerte propriétaire ne repart vers l'administrateur
+                    # (elle revenait dans le fil de la plateforme, sur le téléphone de l'administrateur).
+                    try:
+                        from routes.liluvine_relais import _emetteur_de_la_ligne_recue as _ligne_dediee_recue
+                        _sur_ligne_dediee = bool(await _ligne_dediee_recue(db))
+                    except Exception:  # noqa: BLE001 — en cas de doute, comportement habituel
+                        _sur_ligne_dediee = False
                     # 2026-02 fork (P3b) — Emit `whatsapp.received` automation
                     # event. Create a short-lived reply-router token so an admin
                     # can respond via WhatsApp using `#R<code> <reply>` and
                     # Liluvine relays without exposing their number.
                     try:
+                        if _sur_ligne_dediee:
+                            raise LookupError("ligne dédiée : pas de relais à l'administrateur")
                         reply_code = await _generate_reply_code()
                         await db.wa_reply_tokens.insert_one({
                             "id": _uuid(),
@@ -2355,6 +2365,8 @@ async def whatsapp_webhook_incoming(request: Request):
                             "client_id": scope_for_msg,
                             "extra_ctx": wa_extra_ctx,
                         }))
+                    except LookupError:
+                        pass   # ligne dédiée : volontairement aucun relais (lot 252)
                     except Exception as _exc:  # noqa: BLE001
                         logger.warning("[whatsapp.received automation] emit failed: %s", _exc)
                     # Lot 67 — Liluvine prévient le propriétaire : message relayé sur son WhatsApp puis
@@ -2362,11 +2374,15 @@ async def whatsapp_webhook_incoming(request: Request):
                     # la réponse à Meta n'attend jamais ; toutes les exclusions (personnel, liste noire,
                     # fiche client « ne pas appeler », commandes…) sont vérifiées dans le module.
                     try:
+                        if _sur_ligne_dediee:
+                            raise LookupError("ligne dédiée")
                         from routes.appel_proprietaire import planifier as _alerte_proprietaire
                         _alerte_proprietaire(
                             db, chiffres=digits_only, mtype=mtype,
                             texte=text_body if mtype == "text" else (media_caption or text_body),
                             contact=contact, profil=profile_name, recu_le=ts_iso, client_id=scope_for_msg)
+                    except LookupError:
+                        pass   # ligne dédiée : aucune alerte propriétaire (lot 252)
                     except Exception:  # noqa: BLE001 — l'alerte ne bloque jamais la réception
                         logger.warning("[appel_proprietaire] alerte non lancée", exc_info=True)
                     # Lot 27 : réponse d'un formulaire WhatsApp (Flow) -> enregistrée et

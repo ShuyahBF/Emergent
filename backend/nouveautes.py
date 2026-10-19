@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "252", "date": "2026-10-19",
+        "titre": "🔕 Plus de copie « Relais » dans le fil d'une ligne dédiée",
+        "description": "Quand un message arrive sur la ligne propre à une plateforme (ALBARKA), il est relayé à la plateforme seulement : la copie « Relais NOUVEAU message WhatsApp » et l'alerte propriétaire ne reviennent plus sur votre téléphone dans ce fil.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "251", "date": "2026-10-19",
         "titre": "📨 Modèle Meta des lignes dédiées (1 variable)",
         "description": "Pour la ligne propre à une plateforme (ALBARKA), hors fenêtre de 24 h, le message part par un modèle Meta à une seule variable (le message), sans en-tête ni date. Saisissez son nom dans « Modèle WhatsApp des lignes dédiées ».",

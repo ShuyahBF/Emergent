@@ -355,6 +355,20 @@ async def _session_assistant(db, de: str, chiffres: str, texte: str, send_text) 
     return resultat
 
 
+async def _emetteur_de_la_ligne_recue(db) -> Optional[Dict[str, Any]]:
+    """Plateforme (émetteur actif) dont la ligne dédiée est celle qui vient de recevoir le message en cours, sinon None.
+    Ne lève jamais d'exception : en cas de doute, on se comporte comme avant (réponses citées seulement)."""
+    try:
+        from routes.numeros_wa import cle_de_numero, numero_recu_courant, LIGNE_PRINCIPALE
+        reglages = await db.settings.find_one({"_id": "global"}) or {}
+        cle = cle_de_numero(reglages, numero_recu_courant())
+        if not cle or cle == LIGNE_PRINCIPALE:
+            return None
+        return await db.liluvine_emetteurs.find_one({"ligne": cle, "actif": {"$ne": False}}, {"_id": 0})
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Optional[str],
                                   fichier_local: Optional[str] = None, mime: Optional[str] = None,
                                   nom_fichier: Optional[str] = None, cite_message_id: Optional[str] = None,
@@ -367,8 +381,11 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
     chiffres = _chiffres(de)
     if not chiffres:
         return {"traite": False}
+    # Lot 248 — LIGNE DÉDIÉE : le message a été reçu sur la ligne WhatsApp propre à une plateforme (ex. ALBARKA). Cette
+    # ligne est la sienne : TOUT ce qui y arrive lui appartient (réponse libre comme réponse citée) ; plus besoin de « Répondre ».
+    emetteur_ligne = await _emetteur_de_la_ligne_recue(db)
     # Lot 103 : mot-clé d'une plateforme (« ZandGo … ») ou session ouverte avec son assistant
-    if type_message == "text" and (texte or "").strip() and send_text \
+    if not emetteur_ligne and type_message == "text" and (texte or "").strip() and send_text \
             and (texte or "").strip().lower().rstrip(".!") not in (MOTS_STOP | MOTS_REPRENDRE):
         par_mot_cle = await _session_assistant(db, de, chiffres, texte, send_text)
         if par_mot_cle:
@@ -383,7 +400,8 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
             {"to": {"$regex": chiffres + "$"}, "ok": True, "emetteur": {"$ne": "liluvine"}, "date": {"$gte": limite}},
             {"_id": 0}, sort=[("date", -1)])
         # Un message plus récent de SAWALI elle-même vers ce numéro : la conversation lui appartient
-        if trans and not cite_message_id:
+        # (sauf sur la ligne dédiée d'une plateforme : la conversation y est toujours à la plateforme)
+        if trans and not cite_message_id and not emetteur_ligne:
             plus_recent = await db.whatsapp_messages.find_one(
                 {"direction": "outbound", "created_at": {"$gt": trans["date"]},
                  "assistant_plateforme": {"$exists": False},          # lot 102 : réponses de l'assistant exclues
@@ -391,9 +409,11 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
                 {"_id": 1})
             if plus_recent:
                 return {"traite": False}
+    if not trans and emetteur_ligne:
+        trans = {"emetteur": emetteur_ligne["code"], "id_externe": None, "message_id": None}   # pas de message d'origine connu
     if not trans:
         return {"traite": False}
-    code = trans.get("emetteur")
+    code = emetteur_ligne["code"] if emetteur_ligne else trans.get("emetteur")
     emetteur = await db.liluvine_emetteurs.find_one({"code": code}, {"_id": 0}) or {}
     nom = emetteur.get("nom") or code
     mot = (texte or "").strip().lower().rstrip(".!")
@@ -428,7 +448,7 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
     # Lot 83 (08/10/2026) — « tous mes autres messages à ce numéro sont lus aussi par ALBARKA » :
     # seule une RÉPONSE CITÉE (« Répondre » sur le message de la plateforme) est relayée. Un message
     # libre reste à SAWALI, même peu après une transmission (STOP / REPRENDRE restent reconnus ci-dessus).
-    if not cite_message_id or trans.get("message_id") != cite_message_id:
+    if not emetteur_ligne and (not cite_message_id or trans.get("message_id") != cite_message_id):
         return {"traite": False}
     # Lot 84 — réglage « Réponses des clients : non transmises » : la réponse reste à SAWALI (étiquetée),
     # rien n'est envoyé à la plateforme, et Liluvine ne répond pas à sa place.
@@ -436,7 +456,9 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
         return {"traite": True, "action": "reponse_non_transmise", "emetteur": code, "nom": nom}
     # Réponse du client : relayée à la plateforme (si elle a une URL de retour)
     if not emetteur.get("url_retour"):
-        return {"traite": False}
+        # Ligne dédiée sans adresse de retour : Liluvine ne répond pas à la place de la plateforme sur SA ligne
+        return {"traite": bool(emetteur_ligne), "action": "ligne_dediee_sans_retour", "emetteur": code, "nom": nom} \
+            if emetteur_ligne else {"traite": False}
     media = None
     if fichier_local and os.path.exists(fichier_local):
         try:

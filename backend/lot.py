@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "247"
-LOT_LIBELLE = "WhatsApp : une ligne marquée privée (ex. ALBARKA) n'est plus jamais choisie pour les envois de SAWALI (rapports, synthèses, comptes rendus, analyses) ; elle ne sert qu'à sa plateforme"
+LOT = "248"
+LOT_LIBELLE = "Ligne WhatsApp dédiée à une plateforme (ex. ALBARKA) : tout message reçu sur cette ligne lui est relayé, réponse libre comprise, sans devoir citer un message"

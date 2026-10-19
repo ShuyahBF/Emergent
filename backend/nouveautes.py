@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "248", "date": "2026-10-19",
+        "titre": "💬 Ligne dédiée : une simple réponse suffit, sans « Répondre »",
+        "description": "Sur la ligne WhatsApp propre à une plateforme (ALBARKA), tout message reçu est relayé à la plateforme, y compris une réponse libre : les clients n'ont plus à citer un message. Sur les lignes SAWALI, la règle des réponses citées ne change pas.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "247", "date": "2026-10-19",
         "titre": "🔒 Ligne WhatsApp privée : plus jamais utilisée pour les rapports de SAWALI",
         "description": "Une ligne marquée « privée » (celle d'ALBARKA) ne sert plus aux rapports quotidiens, synthèses, comptes rendus ni analyses de Liluvine, même si le destinataire lui a écrit : ils partent des lignes SAWALI. Elle reste utilisée pour les messages de sa plateforme.",

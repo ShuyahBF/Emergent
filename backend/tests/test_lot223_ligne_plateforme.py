@@ -169,3 +169,55 @@ def test_visibilite_des_conversations_inchangee_par_le_lot_247():
     db = _db_inbound(LIGNE_ALBARKA)
     cle = _boucle().run_until_complete(numeros_wa.cle_ligne_conversation(db, "+22670000001", REGLAGES))
     assert cle == LIGNE_ALBARKA                      # la conversation appartient toujours à la ligne privée (masquée)
+
+
+# ---- Lot 248 : sur la ligne DÉDIÉE d'une plateforme, tout message reçu lui est relayé (sans « Répondre ») -----------------
+
+def test_ligne_dediee_relaie_toute_reponse_sans_citation(monkeypatch):
+    from routes import liluvine_relais as relais
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot248"]
+    retours = []
+
+    async def faux_retour(db_, emetteur, corps):
+        retours.append((emetteur["code"], corps))
+        return True
+    monkeypatch.setattr(relais, "_poster_retour", faux_retour)
+
+    async def scenario():
+        await db.settings.insert_one(dict(REGLAGES))
+        await db.liluvine_emetteurs.insert_one({"code": "albarka", "nom": "ALBARKA", "actif": True,
+                                                "ligne": LIGNE_ALBARKA, "url_retour": "https://albarka.test/retour"})
+        # 1. message LIBRE reçu sur la ligne ALBARKA : relayé à ALBARKA, Liluvine ne répond pas
+        jeton = numeros_wa.definir_numero_recu(LIGNE_ALBARKA)
+        try:
+            libre = await relais.traiter_message_entrant(db, de="22670000007", type_message="text", texte="Bonjour, voici ma réponse", send_text=None)
+        finally:
+            numeros_wa.retablir_numero_recu(jeton)
+        await asyncio.sleep(0)
+        # 2. même message reçu sur la ligne PRINCIPALE de SAWALI : inchangé (reste à SAWALI)
+        jeton = numeros_wa.definir_numero_recu("100200300")
+        try:
+            principal = await relais.traiter_message_entrant(db, de="22670000007", type_message="text", texte="Bonjour", send_text=None)
+        finally:
+            numeros_wa.retablir_numero_recu(jeton)
+        return libre, principal
+    libre, principal = _boucle().run_until_complete(scenario())
+    assert libre["traite"] is True and libre["action"] == "reponse_relayee"
+    assert [(c, r["type"], r["texte"]) for c, r in retours] == [("albarka", "reponse", "Bonjour, voici ma réponse")]
+    assert principal == {"traite": False}
+
+
+def test_ligne_dediee_sans_url_de_retour_liluvine_ne_repond_pas():
+    from routes import liluvine_relais as relais
+    db = mongomock_motor.AsyncMongoMockClient()["test_lot248b"]
+
+    async def scenario():
+        await db.settings.insert_one(dict(REGLAGES))
+        await db.liluvine_emetteurs.insert_one({"code": "albarka", "nom": "ALBARKA", "actif": True, "ligne": LIGNE_ALBARKA})
+        jeton = numeros_wa.definir_numero_recu(LIGNE_ALBARKA)
+        try:
+            return await relais.traiter_message_entrant(db, de="22670000008", type_message="text", texte="Bonjour", send_text=None)
+        finally:
+            numeros_wa.retablir_numero_recu(jeton)
+    r = _boucle().run_until_complete(scenario())
+    assert r["traite"] is True and r["action"] == "ligne_dediee_sans_retour"

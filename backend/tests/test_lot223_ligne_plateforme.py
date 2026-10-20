@@ -403,3 +403,10 @@ def test_modeles_cabinet_soumettre_actualiser_et_activer(monkeypatch):
     reg = _boucle().run_until_complete(db.settings.find_one({"_id": "global"}))
     assert reg["liluvine_transmission_modele_ligne"] == "message_cabinet" and reg["liluvine_transmission_modele_media"] == "document_cabinet"
     assert c.post("/api/admin/liluvine-modeles-cabinet/inconnu/soumettre", json={}).status_code == 404
+
+
+def test_lot254_le_retour_reponse_contient_le_message_cite():
+    """Lot 254 : le corps « reponse » relayé à la plateforme transporte cite_message_id (citation du client)."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "routes" / "liluvine_relais.py").read_text(encoding="utf-8")
+    assert '"cite_message_id": cite_message_id' in src

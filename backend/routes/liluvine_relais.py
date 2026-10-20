@@ -473,6 +473,7 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
             logger.warning("[liluvine_relais] média de la réponse non relayé", exc_info=True)
     corps = {"type": "reponse", "id_origine": trans.get("id_externe"), "de": "+" + chiffres,
              "texte": texte or "", "media": media, "date": _maintenant().isoformat(),
+             "cite_message_id": cite_message_id,   # lot 254 : message cité par le client (réponse à une citation)
              "message_id": wa_message_id}        # lot 250 : identifiant WhatsApp du message reçu (pour pouvoir le citer en réponse)
     await db.liluvine_reponses.insert_one({**corps, "emetteur": code, "relaye_le": _maintenant().isoformat()})
     envoyer_retour(db, emetteur, corps)

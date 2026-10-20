@@ -55,6 +55,7 @@ async def version():
 # ====================================================================
 from routes.auth import attach_auth_routes  # noqa: E402
 import maintenance_plateforme as _maintenance_plateforme  # noqa: E402  (lot 50)
+from bandeau_fenetre import bandeau_visible as _bandeau_visible  # noqa: E402  (lot 255)
 import cycle_vie_abonnements as _cycle_vie_abonnements  # noqa: E402  (lot 51)
 from auth import create_session_token  # noqa: E402  (lot 50)
 
@@ -649,7 +650,11 @@ async def company_info():
             "show_suivis_button": bool(s.get("show_suivis_button", True)),
         },
         "incident_banner": {
-            "enabled": bool(s.get("incident_banner_enabled", False)),
+            # Lot 255 : affiché seulement dans la fenêtre programmée (début / fin d'affichage)
+            "enabled": _bandeau_visible(bool(s.get("incident_banner_enabled", False)),
+                                        s.get("incident_banner_start_at"), s.get("incident_banner_end_at")),
+            "start_at": s.get("incident_banner_start_at") or None,
+            "end_at": s.get("incident_banner_end_at") or None,
             "severity": s.get("incident_banner_severity") or "warning",
             "message": s.get("incident_banner_message") or "",
             "link_url": s.get("incident_banner_link_url") or "",

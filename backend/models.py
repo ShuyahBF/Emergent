@@ -989,6 +989,8 @@ class SettingsUpdate(BaseModel):
     incident_banner_message: Optional[str] = None
     incident_banner_link_url: Optional[str] = None
     incident_banner_link_label: Optional[str] = None
+    incident_banner_start_at: Optional[str] = None   # lot 255 : début d'affichage (date-heure ISO) ; "" = tout de suite
+    incident_banner_end_at: Optional[str] = None     # lot 255 : fin d'affichage (date-heure ISO) ; "" = jusqu'à la désactivation
     # WhatsApp Business (Meta Cloud API) — global credentials
     wa_business_account_id: Optional[str] = None    # WABA ID
     wa_phone_number_id: Optional[str] = None         # Phone Number ID (not the number itself)

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "259"
-LOT_LIBELLE = "Mémoire : le serveur ne précharge plus Qdrant ni les outils d'IA au démarrage (environ 175 Mo économisés sur les 512 Mo du service)"
+LOT = "260"
+LOT_LIBELLE = "Centre de messagerie : un carrousel WhatsApp enregistré se choisit dans une liste et s'envoie à un contact depuis sa conversation"

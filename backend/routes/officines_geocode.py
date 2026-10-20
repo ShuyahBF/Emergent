@@ -206,7 +206,7 @@ def attach_officines_geocode_routes(*, api, db, get_current_admin):
                 {"longitude": ""},
             ]
         })
-        total = await db.officines.count_documents({})
+        total = await db.officines.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         return {
             "provider": "google_places" if google_key else "osm_nominatim",
             "has_google_key": bool(google_key),

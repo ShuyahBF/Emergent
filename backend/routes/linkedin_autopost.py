@@ -117,13 +117,13 @@ async def _generate_draft(db, topic_prompt: str, session_id: str) -> str:
     # Pull a little business context (best-effort)
     context_lines: List[str] = []
     try:
-        offc_count = await db.officines.count_documents({})
+        offc_count = await db.officines.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         if offc_count:
             context_lines.append(f"- {offc_count} officines partenaires dans la base SAWALI")
     except Exception:  # noqa: BLE001
         pass
     try:
-        wa_msg_count = await db.whatsapp_messages.count_documents({})
+        wa_msg_count = await db.whatsapp_messages.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         if wa_msg_count:
             context_lines.append(f"- {wa_msg_count} messages WhatsApp traités jusqu'à présent")
     except Exception:  # noqa: BLE001

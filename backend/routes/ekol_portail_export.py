@@ -173,7 +173,9 @@ def setup_ekol_portail_export_routes(*, db, api, get_current_user=None) -> None:
         cat = await db.loois_synchro_tables.find_one({"application": APPLICATION, "site": code, "collection": nom},
                                                      {"_id": 0, "derniere_synchro": 1, "nb_documents": 1})
         collection = db[nom]
-        total = await collection.count_documents({})
+        # Lot 258 : estimation instantanée (métadonnées) — count_documents({}) parcourait toute la table (420 000 lignes)
+        # à CHAQUE page d'export (alerte MongoDB « Query Targeting »)
+        total = await collection.estimated_document_count()
         if not cat and total == 0:
             return {"site": code, "table": ref["nom"], "disponible": False, "lignes": [], "curseur_suivant": depuis,
                     "termine": True, "nb_documents": 0,

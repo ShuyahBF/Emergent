@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "257"
-LOT_LIBELLE = "Performance MongoDB : fin des parcours complets de tables après chaque lot de synchro Loois, index pour l'export e-Kol et les accusés WhatsApp (alerte Query Targeting)"
+LOT = "258"
+LOT_LIBELLE = "Performance MongoDB : l'export e-Kol et plusieurs tableaux de bord ne recomptent plus toute une collection à chaque affichage (estimation instantanée)"

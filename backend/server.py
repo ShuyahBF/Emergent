@@ -1205,23 +1205,19 @@ async def _sentinelle_arret():
 
 @app.on_event("startup")
 async def _sentinelle_et_prechauffage():
-    """Lot 71.1 — (1) sentinelle : écrit dans les journaux la ligne de code qui fige le serveur si la
-    boucle principale ne répond plus pendant 1,5 s ; (2) préchauffage : importe qdrant_client dans un
-    fil séparé, pour que la première ouverture des Paramètres ne fige plus le serveur. Jamais bloquant."""
+    """Lot 71.1 — sentinelle : écrit dans les journaux la ligne de code qui fige le serveur si la
+    boucle principale ne répond plus pendant 1,5 s. (Le préchauffage des modules lourds est retiré au lot 259.)
+    Jamais bloquant."""
     try:
         import sentinelle_boucle
         sentinelle_boucle.demarrer()
     except Exception as exc:  # noqa: BLE001
         logger.warning("[sentinelle] non démarrée : %s", exc)
-    try:
-        from routes.qdrant_rag import prechauffer_modules
-        asyncio.get_running_loop().run_in_executor(None, prechauffer_modules)  # en arrière-plan, sans attendre
-        # Lot 71.2 — SDK d'IA (anthropic, openai, google.genai) préchargés aussi : le premier message
-        # WhatsApp après un redémarrage figeait le serveur ~3 s (import d'anthropic dans la boucle)
-        from ia_client import prechauffer_sdk
-        asyncio.get_running_loop().run_in_executor(None, prechauffer_sdk)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[prechauffage] non lancé : %s", exc)
+    # Lot 259 — MÉMOIRE : le préchauffage de qdrant_client (+119 Mo) et des SDK d'IA anthropic / openai / google.genai
+    # (+48 / +18 / +60 Mo) était lancé à CHAQUE démarrage, même quand ces modules ne servent pas : le serveur
+    # démarrait à ~365 Mo sur les 512 Mo disponibles (mesuré : 180 Mo sans préchauffage). Ces imports se font déjà
+    # dans un fil séparé à la première utilisation (ia_client._sdk_pret, qdrant_rag._client_pret) : le serveur ne
+    # se fige donc pas ; seule la toute première utilisation après un démarrage prend ~3 s de plus.
 
 
 @app.on_event("startup")

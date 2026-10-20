@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "254", "date": "2026-10-20",
+        "titre": "↩️ Citation relayée à la plateforme",
+        "description": "Quand un client répond à une citation depuis son téléphone sur la ligne d'une plateforme (ALBARKA), l'identifiant du message cité est transmis : la plateforme peut afficher la citation au-dessus de la réponse.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "253", "date": "2026-10-19",
         "titre": "📄 Modèles Meta du cabinet : Soumettre et Avis META",
         "description": "Dans la Transmission universelle, deux modèles (sans / avec document joint) se soumettent à Meta en un clic ; « Actualiser l'avis » affiche la décision de Meta et active le modèle dès son approbation.",

@@ -224,7 +224,7 @@ async def admin_visits_stats(_: dict = Depends(get_current_admin)):
         {"$sort": {"count": -1}},
         {"$limit": 10},
     ]
-    total_doc = await db.visits.estimated_document_count()
+    total_doc = await db.visits.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
     countries = await db.visits.aggregate(pipeline_country).to_list(20)
     pages = await db.visits.aggregate(pipeline_pages).to_list(20)
     unique_countries = await db.visits.distinct("country", {"country": {"$nin": [None, ""]}})
@@ -242,7 +242,7 @@ async def public_visit_count():
     s = await db.settings.find_one({"_id": "global"}) or {}
     if s.get("visits_counter_enabled") is False:
         return {"enabled": False, "count": 0}
-    real = await db.visits.count_documents({})
+    real = await db.visits.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
     offset = int(s.get("visits_counter_offset") or 0)
     return {"enabled": True, "count": max(0, real + offset)}
 
@@ -282,10 +282,10 @@ async def admin_reset_visit_counter(payload: Dict[str, Any] = Body(default={}), 
     setting `usage_reset_at` is recorded so the UI can show "Compteur réinitialisé
     le …" rather than confusing the admin with stale histograms."""
     purge = bool(payload.get("purge_access_logs"))
-    real = await db.visits.count_documents({})
+    real = await db.visits.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
     access_log_count = 0
     if purge:
-        access_log_count = await db.access_logs.count_documents({})
+        access_log_count = await db.access_logs.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         await db.access_logs.delete_many({})
         await db.visits.delete_many({})
         await db.settings.update_one(

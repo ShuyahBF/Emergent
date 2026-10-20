@@ -87,7 +87,7 @@ def attach_vidal_dashboard_routes(*, api, db, get_current_admin):
         total_unique_users = len({u["user_id"] for u in top}) if top else 0
 
         # 6. Cache hit rate (from cache collection size — heuristic)
-        cache_size = await db.vidal_cache.count_documents({})
+        cache_size = await db.vidal_cache.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
 
         return {
             "period_days": days,
@@ -134,7 +134,7 @@ def attach_vidal_dashboard_routes(*, api, db, get_current_admin):
         wa_total = sum(d["total"] for d in wa_daily)
 
         # Registered officines (HMAC-signed inscriptions)
-        registered = await db.officines_inventory.count_documents({})
+        registered = await db.officines_inventory.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
 
         return {
             "period_days": days,

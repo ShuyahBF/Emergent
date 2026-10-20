@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "258", "date": "2026-10-20",
+        "titre": "⚡ Comptages instantanés (export e-Kol et tableaux de bord)",
+        "description": "L'export e-Kol et plusieurs compteurs (visites, officines, suivi des vérifications) n'analysent plus toute la collection à chaque affichage : moins de lectures sur Atlas et moins de trafic.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "257", "date": "2026-10-20",
         "titre": "⚡ Alerte MongoDB « Query Targeting » corrigée",
         "description": "La synchro Loois ne recompte plus toute la table après chaque lot, et des index accélèrent l'export e-Kol et les accusés de réception WhatsApp : moins de lectures inutiles sur Atlas.",

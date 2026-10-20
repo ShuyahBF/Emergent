@@ -293,7 +293,7 @@ async def _run_auth_check(triggered_by: str = "manual") -> dict:
     try:
         await db.auth_checks.insert_one(result.copy())
         # Trim collection to keep it small
-        count = await db.auth_checks.count_documents({})
+        count = await db.auth_checks.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         if count > 200:
             old = await db.auth_checks.find({}, {"_id": 0, "id": 1}).sort("created_at", 1).limit(count - 200).to_list(50)
             if old:
@@ -425,7 +425,7 @@ async def _run_uptime_probes(triggered_by: str = "manual") -> dict:
     try:
         await db.uptime_checks.insert_one(doc.copy())
         # Trim — keep last 30 days × 24 = 720 max
-        count = await db.uptime_checks.count_documents({})
+        count = await db.uptime_checks.estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         if count > 800:
             old = await db.uptime_checks.find({}, {"_id": 0, "id": 1}).sort("created_at", 1).limit(count - 720).to_list(200)
             if old:
@@ -592,7 +592,7 @@ async def admin_list_collections(user: dict = Depends(get_current_user)):
     out = []
     for c in sorted(ALLOWED_COLLECTIONS):
         try:
-            count = await getattr(db, c).estimated_document_count()
+            count = await getattr(db, c).estimated_document_count()  # Lot 258 : estimation rapide (évite un parcours complet)
         except Exception:
             count = None
         out.append({"name": c, "count": count})

@@ -886,8 +886,18 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     # Iter35x — Snapshot previous values BEFORE the update for audit comparison
     _prev_settings_for_audit = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     update["updated_at"] = _now()
+    # Lot 255 : fenêtre d'affichage du bandeau (début / fin) — dates lisibles, fin après début
+    if "incident_banner_start_at" in update or "incident_banner_end_at" in update:
+        from bandeau_fenetre import valider_fenetre
+        _prev_fen = await db.settings.find_one({"_id": "global"}, {"incident_banner_start_at": 1, "incident_banner_end_at": 1}) or {}
+        try:
+            valider_fenetre(update.get("incident_banner_start_at", _prev_fen.get("incident_banner_start_at")),
+                            update.get("incident_banner_end_at", _prev_fen.get("incident_banner_end_at")))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
     # Stamp incident_banner_updated_at whenever any banner field changes
-    BANNER_FIELDS = ("incident_banner_enabled", "incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label")
+    BANNER_FIELDS = ("incident_banner_enabled", "incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label",
+                     "incident_banner_start_at", "incident_banner_end_at")
     banner_touched = any(f in update for f in BANNER_FIELDS)
     if banner_touched:
         update["incident_banner_updated_at"] = _now()
@@ -900,7 +910,9 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         # il n'ouvre ni ne complète aucun incident de l'historique public (/uptime). Seuls « warning » et
         # « critical » restent des incidents.
         next_severity = update.get("incident_banner_severity") or prev.get("incident_banner_severity") or "warning"
-        annonce = next_severity == "info"
+        # Lot 255 — un bandeau dont le début d'affichage est dans le futur n'est pas encore un incident : aucun incident n'est ouvert
+        from bandeau_fenetre import debut_a_venir
+        annonce = next_severity == "info" or debut_a_venir(update.get("incident_banner_start_at", prev.get("incident_banner_start_at")))
         # off → on : open a new incident
         if not prev_enabled and next_enabled and annonce:
             pass                                    # Lot 115 — annonce : aucun incident ouvert

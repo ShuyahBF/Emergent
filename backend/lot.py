@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "254"
-LOT_LIBELLE = "Transmission WA : la réponse du client à une citation transmet aussi l'identifiant du message cité à la plateforme"
+LOT = "255"
+LOT_LIBELLE = "Bandeau d'incident programmable : date et heure de début et de fin d'affichage (un bandeau à venir n'ouvre pas d'incident public)"

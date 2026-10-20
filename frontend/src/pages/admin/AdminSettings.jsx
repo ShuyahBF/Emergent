@@ -886,6 +886,15 @@ function BgEditor({ scope, label, s, upd }) {
 }
 
 
+// Lot 255 : ISO (serveur) -> valeur d'un champ « datetime-local » (heure locale du navigateur) ; vide si absent ou illisible
+const bandeauVersChamp = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 export default function AdminSettings() {
   const [s, setS] = useState({});
   const [loading, setLoading] = useState(false);
@@ -3101,6 +3110,27 @@ export default function AdminSettings() {
           </div>
           <Input label="Libellé du lien (optionnel)" value={s.incident_banner_link_label || ""} onChange={(v) => upd("incident_banner_link_label", v)} placeholder="Plus de détails" testid="incident-banner-link-label" />
           <Input label="URL du lien (optionnel)" value={s.incident_banner_link_url || ""} onChange={(v) => upd("incident_banner_link_url", v)} placeholder="/uptime ou https://..." testid="incident-banner-link-url" />
+        </div>
+        {/* Lot 255 — programmation : jour et heure de début et de fin d'affichage (vide = tout de suite / jusqu'à la désactivation) */}
+        <div className="grid sm:grid-cols-2 gap-3" data-testid="incident-banner-programmation">
+          {[["incident_banner_start_at", "Afficher à partir du (optionnel)", "incident-banner-start"], ["incident_banner_end_at", "Jusqu'au (optionnel)", "incident-banner-end"]].map(([cle, libelle, testid]) => (
+            <div key={cle}>
+              <label className="block text-xs font-semibold mb-1">{libelle}</label>
+              <input
+                type="datetime-local"
+                value={bandeauVersChamp(s[cle])}
+                onChange={(e) => upd(cle, e.target.value ? new Date(e.target.value).toISOString() : "")}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid={testid}
+              />
+            </div>
+          ))}
+          {s.incident_banner_enabled && s.incident_banner_start_at && new Date(s.incident_banner_start_at) > new Date() && (
+            <p className="sm:col-span-2 text-xs text-amber-700" data-testid="incident-banner-programme">
+              ⏳ Programmé : le bandeau s'affichera le {new Date(s.incident_banner_start_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+              et n'ouvre aucun incident dans l'historique public avant cette heure.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-semibold mb-1">Message <span className="text-slate-400">(visible par tous les visiteurs)</span></label>

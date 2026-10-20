@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "255", "date": "2026-10-20",
+        "titre": "🗓️ Bandeau d'incident programmable",
+        "description": "Le bandeau d'incident peut s'afficher à une date et une heure choisies, et disparaître à une heure de fin. Un bandeau programmé pour plus tard n'ouvre aucun incident dans l'historique public avant son heure.",
+        "rubrique": "🚨 Bandeau d'incident et historique (/uptime)",
+    },
+    {
         "lot": "254", "date": "2026-10-20",
         "titre": "↩️ Citation relayée à la plateforme",
         "description": "Quand un client répond à une citation depuis son téléphone sur la ligne d'une plateforme (ALBARKA), l'identifiant du message cité est transmis : la plateforme peut afficher la citation au-dessus de la réponse.",

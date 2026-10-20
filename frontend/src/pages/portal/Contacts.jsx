@@ -506,20 +506,21 @@ export default function Contacts() {
             </button>
           );
         })}
-        {/* Bascule unique « avec / sans prospects » */}
+        {/* Bascule unique « avec / sans prospects » — même format que les pastilles Tous / Privés / Non-lus */}
         <button
           type="button"
           role="switch"
           aria-checked={avecProspects}
           onClick={() => setAvecProspects((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${avecProspects ? "bg-violet-100 text-violet-700 ring-violet-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-violet-50"}`}
           data-testid="contacts-toggle-prospects"
           title={avecProspects ? "Cliquer pour masquer les prospects" : "Cliquer pour afficher aussi les prospects"}
         >
-          <span className={`relative inline-block h-4 w-7 rounded-full transition-colors ${avecProspects ? "bg-violet-500" : "bg-slate-300"}`}>
-            <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${avecProspects ? "left-3.5" : "left-0.5"}`} />
-          </span>
+          <UserPlus className="h-3 w-3" />
           {avecProspects ? "Avec prospects" : "Sans prospects"}
+          <span className={`relative inline-block h-3.5 w-6 rounded-full transition-colors ${avecProspects ? "bg-violet-500" : "bg-slate-300"}`}>
+            <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${avecProspects ? "left-3" : "left-0.5"}`} />
+          </span>
         </button>
         {/* Lot 24 — tout marquer comme lu (non-lus récents + historique de plus de 30 jours) */}
         {(unread.total > 0 || unread.older > 0) && (

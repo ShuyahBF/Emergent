@@ -1646,6 +1646,13 @@ export default function CarrouselWhatsApp({ admin = false }) {
               </button>
               <span className="text-slate-600">{c.cartes.length} cartes · {c.modele}</span>
               <span className="text-emerald-700">{c.compte.envoyes} envoyé(s)</span>
+              {/* Lot 267 — compléments : personnes ajoutées plus tard à cet envoi (accords acceptés envoyés depuis le tableau) */}
+              {c.complement_le && (
+                <span className="text-xs text-violet-700" data-testid={`carrousel-complement-${c.id}`}>
+                  complété le {dateFr(c.complement_le)}
+                  {(c.complements || []).length > 0 ? ` (+${c.complements[c.complements.length - 1].nb} destinataire(s))` : ""}
+                </span>
+              )}
               {c.compte.echecs > 0 && <span className="text-red-700">{c.compte.echecs} échec(s)</span>}
               {/* Lot 114 — statut en pastille, date programmée, reprise prévue, motif d'arrêt */}
               <PastilleStatut statut={c.statut} libelle={c.statut_libelle} />

@@ -203,6 +203,14 @@ def test_lot206_routes_valider_et_envoyer(env):
     # Alix, sans fiche, est maintenant proposé dans « accords sans fiche » (choisir son client)
     d2 = client.get("/api/admin/whatsapp/carrousel/accords-orphelins", headers=h("admin")).json()
     assert [o["telephone"] for o in d2["orphelins"]] == ["22677001214"] and d2["clics"] == []
+    # Lot 267 : le complément est tracé (date + nombre) et visible dans la liste des envois, au rang de la dernière activité
+    camp = client.portal.call(db.carrousel_campagnes.find_one, {"id": "camp1"})
+    assert camp["complements"][-1]["nb"] == 1 and camp["complement_le"]
+    client.portal.call(db.carrousel_campagnes.insert_one, {
+        "id": "camp2", "perimetre": "admin", "tenant_id": None, "cree_le": "2026-10-16T07:00:00+00:00", "cartes": [],
+        "statut": "TERMINEE", "destinataires": [], "compte": {"total": 0, "envoyes": 0, "echecs": 0}})
+    liste = client.get("/api/admin/whatsapp/carrousel/campagnes", headers=h("admin")).json()["campagnes"]
+    assert liste[0]["id"] == "camp1" and liste[0]["complements"][-1]["nb"] == 1   # complété après camp2 → en tête
 
 
 def test_lot206_demande_recente_reconnait_le_clic_d_une_ancienne_demande():

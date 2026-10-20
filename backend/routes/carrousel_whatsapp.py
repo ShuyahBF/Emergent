@@ -1485,6 +1485,15 @@ def attach_carrousel_whatsapp_routes(
     async def _campagnes(filtre: dict) -> List[dict]:
         lignes = await db.carrousel_campagnes.find(filtre, {"_id": 0, "destinataires": 0}).sort(
             "cree_le", -1).limit(50).to_list(50)
+        # Lot 267 — un envoi « complété » (accords acceptés envoyés à une campagne déjà terminée) garde sa date de création :
+        # on ajoute aussi les campagnes complétées récemment, puis on trie par DERNIÈRE ACTIVITÉ (création ou complément).
+        deja = {c["id"] for c in lignes}
+        async for c in db.carrousel_campagnes.find({**filtre, "complement_le": {"$ne": None}}, {"_id": 0, "destinataires": 0}).sort(
+                "complement_le", -1).limit(20):
+            if c["id"] not in deja:
+                lignes.append(c)
+        lignes.sort(key=lambda c: max(c.get("cree_le") or "", c.get("complement_le") or ""), reverse=True)
+        lignes = lignes[:50]
         noms_regie = {b["id"]: b.get("name") or "" async for b in db.ad_banners.find(
             {"id": {"$in": [c.get("regie_id") for c in lignes if c.get("regie_id")]}}, {"_id": 0, "id": 1, "name": 1})}
         base = (base_publique() or "").rstrip("/")
@@ -2070,7 +2079,10 @@ def attach_carrousel_whatsapp_routes(
             return {"campagne_id": campagne_id, "destinataires": 0, "deja": len(personnes)}
         r = await db.carrousel_campagnes.update_one(
             {"id": campagne_id, "perimetre": "admin", "statut": "TERMINEE"},
-            {"$push": {"destinataires": {"$each": nouveaux}}, "$inc": {"compte.total": len(nouveaux)},
+            {"$push": {"destinataires": {"$each": nouveaux},
+                       # Lot 267 : trace de chaque complément (date + nombre) pour l'afficher dans la liste des envois
+                       "complements": {"$each": [{"le": _maintenant(), "nb": len(nouveaux)}], "$slice": -50}},
+             "$inc": {"compte.total": len(nouveaux)},
              "$set": {"statut": "EN_COURS", "termine_le": None, "complement_le": _maintenant(), "reprenable": True}})
         if not r.modified_count:
             return {"campagne_id": campagne_id, "destinataires": 0,

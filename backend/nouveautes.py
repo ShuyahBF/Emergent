@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "263", "date": "2026-10-20",
+        "titre": "⚡ Centre de messagerie : seule la ligne se rafraîchit",
+        "description": "Cliquer sur « Prospect » (ou corriger un numéro WhatsApp) ne met à jour que la ligne du contact : la liste n'est plus rechargée et ne clignote plus.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "262", "date": "2026-10-20",
         "titre": "💬 Demande d'accord tracée dans la conversation",
         "description": "Quand vous envoyez une demande d'accord depuis la fenêtre du carrousel, un message de confirmation apparaît dans la conversation du contact (vert si envoyée, orange si impossible). Il n'est visible que dans le portail et n'est jamais envoyé au contact.",

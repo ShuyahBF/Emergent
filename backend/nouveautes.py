@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "265", "date": "2026-10-20",
+        "titre": "🎚️ Contacts : bascule « Avec / Sans prospects »",
+        "description": "Un interrupteur au-dessus de la liste des contacts masque d'un clic les prospects (étiquette « prospect ») ; les compteurs suivent. Affichage uniquement, rien n'est modifié.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "264", "date": "2026-10-20",
         "titre": "🔔 Nouvelle version : SAWALI vous prévient",
         "description": "Après chaque mise en ligne, un bandeau « Une nouvelle version est disponible — Actualiser » apparaît en bas de l'écran des utilisateurs déjà connectés (vérification toutes les 5 minutes). Désactivable dans cette rubrique.",

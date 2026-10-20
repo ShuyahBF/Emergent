@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "265"
-LOT_LIBELLE = "Centre de messagerie : bascule unique « Avec / Sans prospects » pour masquer les prospects de la liste des contacts"
+LOT = "266"
+LOT_LIBELLE = "Contacts : la bascule « Avec / Sans prospects » reprend le format des pastilles Tous / Privés / Non-lus"

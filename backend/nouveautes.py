@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "266", "date": "2026-10-20",
+        "titre": "🎚️ Contacts : « Avec / Sans prospects » dans la rangée des pastilles",
+        "description": "La bascule prend le même format que les pastilles Tous, Partagés équipe, Privés et Non-lus, juste à leur droite.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "265", "date": "2026-10-20",
         "titre": "🎚️ Contacts : bascule « Avec / Sans prospects »",
         "description": "Un interrupteur au-dessus de la liste des contacts masque d'un clic les prospects (étiquette « prospect ») ; les compteurs suivent. Affichage uniquement, rien n'est modifié.",

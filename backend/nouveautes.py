@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "261", "date": "2026-10-20",
+        "titre": "✅ Carrousel : demande d'accord envoyée depuis la conversation",
+        "description": "Si le contact n'a pas encore accepté de recevoir vos messages, la fenêtre du carrousel explique pourquoi et envoie la demande d'accord (Oui / Non). Fenêtre de 24 h fermée : son lien d'accord personnel est proposé. Dès sa réponse, « Envoyer » se débloque.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "260", "date": "2026-10-20",
         "titre": "🎠 Envoyer un carrousel depuis le Centre de messagerie",
         "description": "Dans la conversation d'un contact, le bouton 🎠 ouvre la liste des carrousels enregistrés : on en choisit un et on l'envoie à ce contact (accord du contact, plages horaires et modèles Meta respectés).",

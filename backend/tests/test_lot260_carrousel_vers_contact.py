@@ -146,3 +146,36 @@ def test_choix_invalides_refuses(env):
                                "nom": "Court", "message": "x", "cartes": CARTES[:1]})
     assert client.post(url, headers=h("cli_a"), json={"contact_id": "c1", "carrousel_id": "court"}).status_code == 400
     assert envois == []
+
+
+def test_etat_de_l_accord_d_un_contact(env):
+    client, db, envois = env
+    url = "/api/me/whatsapp/carrousel/contacts/c1/accord"
+    etat = client.get(url, headers=h("cli_a")).json()
+    assert etat["accepte"] is False and etat["demande_le"] is None and etat["nom"] == "Awa" and etat["numero_valide"] is True
+    # Un contact d'un autre client reste introuvable
+    assert client.get("/api/me/whatsapp/carrousel/contacts/c4/accord", headers=h("cli_a")).status_code == 404
+    client.put("/api/me/whatsapp/carrousel/consentements", headers=h("cli_a"), json={"ids": ["c1"], "accepte": True})
+    assert client.get(url, headers=h("cli_a")).json()["accepte"] is True
+
+
+def test_demande_d_accord_au_contact(env, monkeypatch):
+    from routes import accord_whatsapp as aw
+    client, db, envois = env
+    url = "/api/me/whatsapp/carrousel/contacts/c1/demander-accord"
+    # Fenêtre de 24 h fermée (le contact n'a jamais écrit) : rien n'est envoyé, on renvoie son nom pour lui donner le lien
+    r = client.post(url, headers=h("cli_a")).json()
+    assert r["envoyees"] == 0 and r["fenetre_fermee"] == ["Awa"] and r["accepte"] is False
+    assert client.get("/api/me/whatsapp/carrousel/contacts/c1/accord", headers=h("cli_a")).json()["demande_le"] is None
+
+    # Fenêtre ouverte : la demande part et sa date est notée sur la fiche
+    async def faux_envoi(db_, personnes, creds, version="v22.0", http=None):
+        return {"envoyees": len(personnes), "fenetre_fermee": [], "erreurs": []}
+    monkeypatch.setattr(aw, "envoyer_demandes", faux_envoi)
+    r = client.post(url, headers=h("cli_a")).json()
+    assert r["envoyees"] == 1
+    assert client.get("/api/me/whatsapp/carrousel/contacts/c1/accord", headers=h("cli_a")).json()["demande_le"]
+    # Contact d'un autre client : introuvable ; contact déjà consentant : rien à demander
+    assert client.post("/api/me/whatsapp/carrousel/contacts/c4/demander-accord", headers=h("cli_a")).status_code == 404
+    client.put("/api/me/whatsapp/carrousel/consentements", headers=h("cli_a"), json={"ids": ["c1"], "accepte": True})
+    assert client.post(url, headers=h("cli_a")).json()["accepte"] is True

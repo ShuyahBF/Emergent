@@ -37,7 +37,7 @@ const messageErreur = (err, defaut) => {
   return typeof d === "string" ? d : defaut;
 };
 
-export default function EnvoiCarrouselContact({ contact, desactive }) {
+export default function EnvoiCarrouselContact({ contact, desactive, onConversationMaj }) {
   const [disponible, setDisponible] = useState(false);   // fonction activée pour ce compte ?
   const [ouvert, setOuvert] = useState(false);
   const [chargement, setChargement] = useState(false);
@@ -80,6 +80,8 @@ export default function EnvoiCarrouselContact({ contact, desactive }) {
       setDemande({ envoyees: d.envoyees || 0, fenetre_fermee: (d.fenetre_fermee || []).length > 0,
                    lien: (d.liens || [])[0]?.lien || "", erreur: (d.erreurs || [])[0] || "" });
       await lireAccord();
+      // Lot 262 — la conversation se relit tout de suite : la note « Demande d'accord envoyée » y apparaît
+      if (onConversationMaj) onConversationMaj();
     } catch (err) {
       toast.error(messageErreur(err, "Demande impossible"), { id: attente });
     } finally {

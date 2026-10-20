@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "261"
-LOT_LIBELLE = "Centre de messagerie : si le contact n'a pas accepté, la fenêtre du carrousel explique pourquoi et envoie directement la demande d'accord ; l'envoi se débloque dès sa réponse"
+LOT = "262"
+LOT_LIBELLE = "Centre de messagerie : un message de confirmation « Demande d'accord envoyée » apparaît dans la conversation, visible côté utilisateur seulement"

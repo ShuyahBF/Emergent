@@ -1855,6 +1855,18 @@ def attach_carrousel_whatsapp_routes(
         return await _creer_campagne(perimetre="client", user=user, tenant_id=tid, envoi=envoi,
                                      personnes=[contact], expediteur=expediteur, bg=bg)
 
+    async def _note_conversation(contact_id: str, ton: str, texte: str, user: dict) -> None:
+        """Lot 262 — message « système » dans la conversation d'un contact, visible seulement dans le portail (il n'est
+        JAMAIS envoyé au contact). Rangé sur la fiche du contact (`notes_systeme`, les 20 plus récentes) : aucune nouvelle
+        collection ; le Centre de messagerie les remet à leur place chronologique dans le fil."""
+        note = {"id": secrets.token_hex(6), "at": _maintenant(), "ton": ton, "texte": texte[:400],
+                "par": user.get("full_name") or user.get("email") or ""}
+        try:
+            await db.directory_contacts.update_one({"id": contact_id},
+                                                   {"$push": {"notes_systeme": {"$each": [note], "$slice": -20}}})
+        except Exception:  # noqa: BLE001 — la trace est un confort : jamais bloquante
+            logger.warning("[carrousel] note de conversation impossible (%s)", contact_id, exc_info=True)
+
     async def _contact_visible(user: dict, contact_id: str) -> Optional[dict]:
         """Lot 261 — la ligne « destinataire » d'UN contact visible par l'utilisateur (même forme que l'annuaire), sinon None."""
         ids = await visible_client_ids(user)
@@ -1891,6 +1903,17 @@ def attach_carrousel_whatsapp_routes(
         res = await _demander_accord([c], _tenant_id(user))
         if res.get("envoyees"):
             await db.directory_contacts.update_one({"id": contact_id}, {"$set": {"accord_demande_le": _maintenant()}})
+        # Lot 262 — trace dans la conversation, visible côté utilisateur seulement (jamais envoyée au contact)
+        nom = c["nom"] or "ce contact"
+        if res.get("envoyees"):
+            await _note_conversation(contact_id, "ok", f"Demande d'accord envoyée à {nom}. Il reçoit deux boutons « Oui, j'accepte » "
+                                     f"et « Non merci ». Dès sa réponse, vous pourrez lui envoyer le carrousel.", user)
+        elif res.get("fenetre_fermee"):
+            await _note_conversation(contact_id, "attention", f"Demande d'accord NON envoyée : {nom} ne vous a pas écrit depuis plus de 24 h "
+                                     f"(règle WhatsApp). Transmettez-lui son lien d'accord personnel (SMS, appel).", user)
+        else:
+            motif = (res.get("erreurs") or ["erreur inconnue"])[0]
+            await _note_conversation(contact_id, "erreur", f"La demande d'accord n'a pas pu partir : {motif}", user)
         return {**res, "accepte": False}
 
     @api.get("/me/whatsapp/carrousel/campagnes", tags=["Portail Client — Carrousel WhatsApp"])

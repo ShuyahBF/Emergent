@@ -373,7 +373,7 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     """
     client_ids = await _resolve_visible_client_ids(user)
     items = await db.directory_contacts.find(
-        {"client_id": {"$in": client_ids}}, {"_id": 0},
+        {"client_id": {"$in": client_ids}}, {"_id": 0, "notes_systeme": 0},   # lot 262 : les notes de conversation ne servent qu'au fil d'un contact
     ).sort("name", 1).to_list(2000)
     # Lot 59 — lignes WhatsApp (Liluvine Standard / VIP…) : l'utilisateur ne voit
     # que les contacts des lignes qui lui sont autorisées ; chaque contact porte

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "262", "date": "2026-10-20",
+        "titre": "💬 Demande d'accord tracée dans la conversation",
+        "description": "Quand vous envoyez une demande d'accord depuis la fenêtre du carrousel, un message de confirmation apparaît dans la conversation du contact (vert si envoyée, orange si impossible). Il n'est visible que dans le portail et n'est jamais envoyé au contact.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "261", "date": "2026-10-20",
         "titre": "✅ Carrousel : demande d'accord envoyée depuis la conversation",
         "description": "Si le contact n'a pas encore accepté de recevoir vos messages, la fenêtre du carrousel explique pourquoi et envoie la demande d'accord (Oui / Non). Fenêtre de 24 h fermée : son lien d'accord personnel est proposé. Dès sa réponse, « Envoyer » se débloque.",

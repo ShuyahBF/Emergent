@@ -167,6 +167,9 @@ def test_demande_d_accord_au_contact(env, monkeypatch):
     r = client.post(url, headers=h("cli_a")).json()
     assert r["envoyees"] == 0 and r["fenetre_fermee"] == ["Awa"] and r["accepte"] is False
     assert client.get("/api/me/whatsapp/carrousel/contacts/c1/accord", headers=h("cli_a")).json()["demande_le"] is None
+    # Lot 262 — le fil de la conversation garde une trace « NON envoyée » (sur la fiche, jamais envoyée au contact)
+    notes = client.portal.call(db.directory_contacts.find_one, {"id": "c1"})["notes_systeme"]
+    assert len(notes) == 1 and notes[0]["ton"] == "attention" and "NON envoyée" in notes[0]["texte"] and envois == []
 
     # Fenêtre ouverte : la demande part et sa date est notée sur la fiche
     async def faux_envoi(db_, personnes, creds, version="v22.0", http=None):
@@ -175,6 +178,10 @@ def test_demande_d_accord_au_contact(env, monkeypatch):
     r = client.post(url, headers=h("cli_a")).json()
     assert r["envoyees"] == 1
     assert client.get("/api/me/whatsapp/carrousel/contacts/c1/accord", headers=h("cli_a")).json()["demande_le"]
+    # Lot 262 — message de confirmation dans la conversation, visible côté utilisateur seulement
+    notes = client.portal.call(db.directory_contacts.find_one, {"id": "c1"})["notes_systeme"]
+    assert [n["ton"] for n in notes] == ["attention", "ok"] and "Demande d'accord envoyée à Awa" in notes[1]["texte"]
+    assert notes[1]["par"] == "" or isinstance(notes[1]["par"], str)
     # Contact d'un autre client : introuvable ; contact déjà consentant : rien à demander
     assert client.post("/api/me/whatsapp/carrousel/contacts/c4/demander-accord", headers=h("cli_a")).status_code == 404
     client.put("/api/me/whatsapp/carrousel/consentements", headers=h("cli_a"), json={"ids": ["c1"], "accepte": True})

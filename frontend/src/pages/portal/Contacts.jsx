@@ -27,6 +27,7 @@ import { ContactGroupChips } from "@/components/ContactGroupChips";
 import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
 import TransfertMessagesWa from "@/components/TransfertMessagesWa";               // Lot 71 : transfert de messages
+import { fusionnerNotes, BulleNoteSysteme } from "@/components/NoteSystemeConversation";   // Lot 262 : messages système (visibles côté utilisateur seulement)
 import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";           // Lot 260 : envoi d'un carrousel enregistré à ce contact
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -2173,7 +2174,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // et retirés du fil tant qu'on ne les a pas insérés dans la conversation
   const retenus = React.useMemo(() => messages.filter((m) => m.barriere_retenu), [messages]);
   const messagesFil = React.useMemo(() => messages.filter((m) => !m.barriere_retenu), [messages]);
-  const filAvecAppels = React.useMemo(() => fusionnerAppels(messagesFil, appelsWa), [messagesFil, appelsWa]);
+  // Lot 262 — les notes système (ex. « Demande d'accord envoyée ») rejoignent le fil à leur place chronologique
+  const filAvecAppels = React.useMemo(
+    () => fusionnerNotes(fusionnerAppels(messagesFil, appelsWa), data.contact?.notes_systeme),
+    [messagesFil, appelsWa, data.contact?.notes_systeme]);
   const [insertionRetenus, setInsertionRetenus] = useState(false);
   // Lot 64.15 — rattachement des messages rangés chez un autre compte
   const [rattachementEnCours, setRattachementEnCours] = useState(false);
@@ -2946,7 +2950,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           ) : filAvecAppels.length === 0 ? (
             <p className="text-center text-slate-400 italic text-sm py-8">Aucun message échangé pour l'instant.</p>
           ) : (
-            filAvecAppels.map((m) => (m.__appel
+            filAvecAppels.map((m) => (m.__note
+              ? <BulleNoteSysteme key={m.id} n={m} />
+              : m.__appel
               ? <BulleAppelWa key={m.id} a={m} />
               : <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo}
                   onForward={(x) => setATransferer([x])}
@@ -3121,7 +3127,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   <Share2 className="h-4 w-4" />
                 </button>
                 {/* Lot 260 — envoyer un carrousel enregistré (liste déroulante) à ce contact */}
-                <EnvoiCarrouselContact contact={contact} desactive={sending || !!pendingFile || recState !== "idle"} />
+                <EnvoiCarrouselContact contact={contact} desactive={sending || !!pendingFile || recState !== "idle"} onConversationMaj={() => load(true)} />
                 {/* Iter37h — Voice note button: start recording */}
                 <button
                   onClick={startRecording}

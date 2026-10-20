@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "268"
-LOT_LIBELLE = "Authenticité des documents : page publique de vérification (QR code chiffré, déchiffré uniquement par SAWALI) et génération de la clé dans les Paramètres"
+LOT = "269"
+LOT_LIBELLE = "WhatsApp : un message reçu d'un numéro inconnu sans nom de profil est désormais proposé dans « contacts à importer » du Centre de messagerie (il restait invisible)"

@@ -2456,28 +2456,24 @@ async def whatsapp_webhook_incoming(request: Request):
                                 {"id": contact["id"]},
                                 {"$set": patch},
                             )
+                    # Lot 269 — EXPÉDITEUR INCONNU : la trace « à importer » est gardée MÊME SANS nom de profil WhatsApp
+                    # (avant, sans nom de profil, le message restait invisible dans le Centre de messagerie : ni fiche,
+                    # ni encadré « à importer », ni compteur de non-lus).
+                    if not contact and digits_only:
+                        # Un expéditeur inconnu : on crée / met à jour la fiche « à importer » pour que l'administrateur décide
+                        # (créer le contact ou ignorer). Le nom de profil n'est écrit que s'il est connu.
+                        _maj_inconnu = {"last_seen_at": _now(), "last_message": (text_body or "")[:200]}
+                        _a_la_creation = {"id": _uuid(), "phone_digits": digits_only, "from": from_num,
+                                          "client_id": client_scope, "first_seen_at": _now()}
+                        if profile_name:
+                            _maj_inconnu["wa_profile_name"] = profile_name
                         else:
-                            # Unknown sender — upsert a `wa_pending_imports` record
-                            # so the admin can decide to create a contact or ignore.
-                            await db.wa_pending_imports.update_one(
-                                {"phone_digits": digits_only, "client_id": client_scope},
-                                {
-                                    "$setOnInsert": {
-                                        "id": _uuid(),
-                                        "phone_digits": digits_only,
-                                        "from": from_num,
-                                        "client_id": client_scope,
-                                        "first_seen_at": _now(),
-                                    },
-                                    "$set": {
-                                        "wa_profile_name": profile_name,
-                                        "last_seen_at": _now(),
-                                        "last_message": (text_body or "")[:200],
-                                    },
-                                    "$inc": {"messages_count": 1},
-                                },
-                                upsert=True,
-                            )
+                            _a_la_creation["wa_profile_name"] = ""
+                        await db.wa_pending_imports.update_one(
+                            {"phone_digits": digits_only, "client_id": client_scope},
+                            {"$setOnInsert": _a_la_creation, "$set": _maj_inconnu, "$inc": {"messages_count": 1}},
+                            upsert=True,
+                        )
                     # Lot 61 — numéro en liste noire des commandes « ! » : la commande n'est pas
                     # traitée et Liluvine répond le message de refus (le message reste enregistré).
                     try:

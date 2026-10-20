@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "269", "date": "2026-10-20",
+        "titre": "📥 Numéro inconnu sans nom de profil : plus de message invisible",
+        "description": "Un message WhatsApp reçu d'un numéro absent du carnet est toujours proposé dans l'encadré « à importer » du Centre de messagerie, même si WhatsApp ne donne pas son nom de profil (avant, il restait invisible alors qu'Alexa l'annonçait).",
+        "rubrique": "💬 Conversations WhatsApp — transfert et en-tête",
+    },
+    {
         "lot": "268", "date": "2026-10-20",
         "titre": "🔏 Authenticité des documents : QR code chiffré",
         "description": "Générez la clé dans cette rubrique : les QR codes imprimés sur vos documents (ex. guide ALBARKA) ouvrent sawalismartsystems.com/verifier-document, qui déchiffre et affiche titre, version, copyright et exemplaire.",

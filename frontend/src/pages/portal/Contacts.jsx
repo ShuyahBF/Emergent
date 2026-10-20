@@ -28,6 +28,7 @@ import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsD
 import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
 import TransfertMessagesWa from "@/components/TransfertMessagesWa";               // Lot 71 : transfert de messages
 import { fusionnerNotes, BulleNoteSysteme } from "@/components/NoteSystemeConversation";   // Lot 262 : messages système (visibles côté utilisateur seulement)
+import { majFiche } from "@/lib/majContact";                                         // lot 263 : mise à jour d'une seule fiche
 import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";           // Lot 260 : envoi d'un carrousel enregistré à ce contact
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -208,6 +209,9 @@ export default function Contacts() {
       if (!silent) setLoading(false);
     }
   };
+
+  // Lot 263 — met à jour UNE fiche dans la liste (sans relire le serveur) : seule la ligne concernée est redessinée
+  const patchContact = (id, champs) => setItems((liste) => majFiche(liste, id, champs));
 
   // Lot 23 — quand un nouveau message arrive (total des non-lus en hausse),
   // la liste est relue pour que ce contact remonte en tête avec sa date.
@@ -546,7 +550,8 @@ export default function Contacts() {
                 <ContactRow
                   key={c.id}
                   c={c}
-                  onReload={load}
+                  onReload={() => load(true)}
+                  onPatch={patchContact}
                   onEdit={() => setModal({ type: "edit", contact: c })}
                   onWa={() => setModal({ type: "wa", contact: c })}
                   onSms={() => setModal({ type: "sms", contact: c })}
@@ -717,7 +722,7 @@ function formatLastInteraction(iso) {
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0, contrat = null }) => {
+const ContactRow = ({ c, onReload, onPatch, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0, contrat = null }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -735,7 +740,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
     try {
       await apiClient.put(`/me/contacts/${c.id}`, { tags });
       toast.success(isProspect ? `${c.name} n'est plus marqué comme prospect` : `${c.name} est marqué comme prospect`);
-      await onReload();
+      // Lot 263 — seule CETTE ligne est mise à jour (étiquette + bouton) : plus de relecture ni de « Chargement… » de toute la liste
+      onPatch(c.id, { tags });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
@@ -751,7 +757,10 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
       await apiClient.put(`/me/contacts/${c.id}`, { whatsapp: trimmed });
       toast.success("Numéro WhatsApp mis à jour");
       setEditingWa(false);
-      await onReload();
+      // Lot 263 — la ligne montre tout de suite le nouveau numéro ; la liste est relue en silence (sans « Chargement… »)
+      // pour reprendre le numéro tel que le serveur l'a normalisé
+      onPatch(c.id, { whatsapp: trimmed });
+      onReload();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "262"
-LOT_LIBELLE = "Centre de messagerie : un message de confirmation « Demande d'accord envoyée » apparaît dans la conversation, visible côté utilisateur seulement"
+LOT = "263"
+LOT_LIBELLE = "Centre de messagerie : le bouton « Prospect » (et la correction d'un numéro WhatsApp) ne met à jour que la ligne concernée, sans recharger toute la liste"

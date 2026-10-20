@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "259", "date": "2026-10-20",
+        "titre": "🧠 Serveur plus léger en mémoire",
+        "description": "Qdrant et les outils d'IA ne sont plus chargés au démarrage mais à la première utilisation : le serveur démarre à environ 190 Mo au lieu de 365 Mo, loin de la limite de 512 Mo. La toute première réponse IA après un redémarrage peut prendre quelques secondes de plus.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "258", "date": "2026-10-20",
         "titre": "⚡ Comptages instantanés (export e-Kol et tableaux de bord)",
         "description": "L'export e-Kol et plusieurs compteurs (visites, officines, suivi des vérifications) n'analysent plus toute la collection à chaque affichage : moins de lectures sur Atlas et moins de trafic.",

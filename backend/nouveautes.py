@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "264", "date": "2026-10-20",
+        "titre": "🔔 Nouvelle version : SAWALI vous prévient",
+        "description": "Après chaque mise en ligne, un bandeau « Une nouvelle version est disponible — Actualiser » apparaît en bas de l'écran des utilisateurs déjà connectés (vérification toutes les 5 minutes). Désactivable dans cette rubrique.",
+        "rubrique": "🏷️ Version affichée (pied de page)",
+    },
+    {
         "lot": "263", "date": "2026-10-20",
         "titre": "⚡ Centre de messagerie : seule la ligne se rafraîchit",
         "description": "Cliquer sur « Prospect » (ou corriger un numéro WhatsApp) ne met à jour que la ligne du contact : la liste n'est plus rechargée et ne clignote plus.",

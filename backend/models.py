@@ -1255,6 +1255,7 @@ class SettingsUpdate(BaseModel):
     version_stamp_size: Optional[str] = None   # xs | sm | md | lg
     version_stamp_opacity: Optional[int] = None  # 0..100
     version_stamp_style: Optional[str] = None  # normal | bold | italic | bold_italic
+    nouvelle_version_avertir: Optional[bool] = None  # lot 264 : bandeau « nouvelle version disponible » (défaut : actif)
 
     # Iter36y — Auto-relance cron settings (cashier module)
     auto_relance_enabled: Optional[bool] = None  # master toggle

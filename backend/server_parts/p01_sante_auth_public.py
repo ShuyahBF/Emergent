@@ -666,6 +666,8 @@ async def company_info():
             "size": s.get("version_stamp_size") or "xs",
             "opacity": int(s.get("version_stamp_opacity") or 70),
             "style": s.get("version_stamp_style") or "normal",
+            # Lot 264 : bandeau « nouvelle version disponible » actif sauf désactivation explicite.
+            "avertir_maj": s.get("nouvelle_version_avertir") is not False,
         },
         "policy": {
             "contacts_require_tag": bool(s.get("contacts_require_tag", False)),

@@ -4080,6 +4080,13 @@ export default function AdminSettings() {
             </select>
           </div>
         </div>
+        {/* Lot 264 : bandeau « nouvelle version disponible » */}
+        <Toggle
+          label="Avertir les utilisateurs quand une nouvelle version est en ligne (bandeau « Actualiser »)"
+          value={s.nouvelle_version_avertir !== false}
+          onChange={(v) => upd("nouvelle_version_avertir", v)}
+          testid="toggle-nouvelle-version"
+        />
         {/* Preview */}
         <div className="mt-2 rounded ring-1 ring-slate-200 bg-slate-100 p-3">
           <p className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Aperçu</p>

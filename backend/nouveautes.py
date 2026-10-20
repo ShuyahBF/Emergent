@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "260", "date": "2026-10-20",
+        "titre": "🎠 Envoyer un carrousel depuis le Centre de messagerie",
+        "description": "Dans la conversation d'un contact, le bouton 🎠 ouvre la liste des carrousels enregistrés : on en choisit un et on l'envoie à ce contact (accord du contact, plages horaires et modèles Meta respectés).",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "259", "date": "2026-10-20",
         "titre": "🧠 Serveur plus léger en mémoire",
         "description": "Qdrant et les outils d'IA ne sont plus chargés au démarrage mais à la première utilisation : le serveur démarre à environ 190 Mo au lieu de 365 Mo, loin de la limite de 512 Mo. La toute première réponse IA après un redémarrage peut prendre quelques secondes de plus.",

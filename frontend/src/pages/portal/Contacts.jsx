@@ -27,6 +27,7 @@ import { ContactGroupChips } from "@/components/ContactGroupChips";
 import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
 import TransfertMessagesWa from "@/components/TransfertMessagesWa";               // Lot 71 : transfert de messages
+import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";           // Lot 260 : envoi d'un carrousel enregistré à ce contact
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -3119,6 +3120,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 >
                   <Share2 className="h-4 w-4" />
                 </button>
+                {/* Lot 260 — envoyer un carrousel enregistré (liste déroulante) à ce contact */}
+                <EnvoiCarrouselContact contact={contact} desactive={sending || !!pendingFile || recState !== "idle"} />
                 {/* Iter37h — Voice note button: start recording */}
                 <button
                   onClick={startRecording}

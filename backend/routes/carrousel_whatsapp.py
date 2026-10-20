@@ -319,6 +319,14 @@ class EnvoiIn(BaseModel):
     societe_id: Optional[str] = Field(None, max_length=80)
 
 
+class EnvoiContactIn(BaseModel):
+    """Lot 260 — « envoyer un carrousel enregistré à CE contact » depuis le Centre de messagerie."""
+    contact_id: str = Field(..., min_length=1, max_length=80)
+    carrousel_id: str = Field(..., min_length=1, max_length=80)
+    # date et heure programmées (heure de Ouagadougou), comme un envoi normal ; vide = maintenant
+    programme_le: Optional[str] = Field(None, max_length=40)
+
+
 class LienRegieIn(BaseModel):
     """Lot 111 — rattacher un envoi de carrousel à une campagne de régie (vide = détacher)."""
     regie_id: Optional[str] = Field(None, max_length=80)
@@ -1810,6 +1818,42 @@ def attach_carrousel_whatsapp_routes(
         expediteur = client.get("company") or client.get("full_name") or user.get("company") or "SAWALI"
         return await _creer_campagne(perimetre="client", user=user, tenant_id=tid, envoi=envoi,
                                      personnes=personnes, expediteur=expediteur, bg=bg)
+
+    @api.post("/me/whatsapp/carrousel/envoyer-a-contact", status_code=202, tags=["Portail Client — Carrousel WhatsApp"])
+    async def envoyer_a_contact_portail(data: EnvoiContactIn, bg: BackgroundTasks, user: dict = Depends(utilisateur)):
+        """Lot 260 — Centre de messagerie : envoie un carrousel ENREGISTRÉ (« Mes carrousels », y compris ceux qu'on a
+        partagés avec le compte) à UN contact. Même circuit que l'envoi en série : consentement du contact exigé, plages
+        horaires, modèles Meta, suivi dans « Campagnes » ; seul le choix du destinataire change."""
+        tid = _tenant_id(user)
+        # Carrousel choisi : le sien, sinon un carrousel partagé avec ce compte (jamais le brouillon automatique)
+        brouillon = await db.carrousel_brouillons.find_one(
+            {**_filtre_brouillons("client", tid), "id": data.carrousel_id, "auto": {"$ne": True}}, {"_id": 0})
+        if not brouillon:
+            brouillon = await db.carrousel_brouillons.find_one(
+                {**_filtre_partages("client", tid), "id": data.carrousel_id, "auto": {"$ne": True}}, {"_id": 0, "partages": 0})
+            if brouillon:
+                brouillon["cartes"] = await _figer_cartes(brouillon.get("cartes") or [], brouillon.get("tenant_id"))
+        if not brouillon:
+            raise HTTPException(status_code=404, detail="Carrousel introuvable : choisissez-en un dans la liste")
+        cartes = brouillon.get("cartes") or []
+        if len(cartes) < CARTES_MIN:
+            raise HTTPException(status_code=400, detail=f"Ce carrousel n'a que {len(cartes)} carte(s) : il en faut au "
+                                                        f"moins {CARTES_MIN}. Complétez-le dans « Carrousel WhatsApp ».")
+        # Contact choisi : seulement un contact visible par cet utilisateur, qui a ACCEPTÉ de recevoir vos messages
+        annuaire = await _contacts_portail(user)
+        contact = next((c for c in annuaire["contacts"] if c["id"] == data.contact_id), None)
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact introuvable")
+        if not contact.get("accepte"):
+            raise HTTPException(status_code=400, detail="Ce contact n'a pas encore accepté de recevoir vos messages "
+                                                        "WhatsApp : demandez-lui son accord (page « Carrousel WhatsApp », "
+                                                        "bouton de demande d'accord) avant l'envoi.")
+        envoi = EnvoiIn(message=(brouillon.get("message") or "").strip() or "Découvrez notre sélection",
+                        cartes=[CarteIn(**c) for c in cartes], ids=[data.contact_id], programme_le=data.programme_le)
+        client = await db.users.find_one({"id": tid}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+        expediteur = client.get("company") or client.get("full_name") or user.get("company") or "SAWALI"
+        return await _creer_campagne(perimetre="client", user=user, tenant_id=tid, envoi=envoi,
+                                     personnes=[contact], expediteur=expediteur, bg=bg)
 
     @api.get("/me/whatsapp/carrousel/campagnes", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagnes_portail(user: dict = Depends(utilisateur)):

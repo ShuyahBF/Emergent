@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "263"
-LOT_LIBELLE = "Centre de messagerie : le bouton « Prospect » (et la correction d'un numéro WhatsApp) ne met à jour que la ligne concernée, sans recharger toute la liste"
+LOT = "264"
+LOT_LIBELLE = "Bandeau « Une nouvelle version de SAWALI est disponible — Actualiser » affiché automatiquement après chaque mise en ligne"

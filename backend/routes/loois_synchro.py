@@ -39,6 +39,7 @@
 # Routes d'administration (rôle admin) : /api/admin/loois-synchro/… (vue, catalogue, config, resynchroniser, données, CSV)
 from __future__ import annotations
 
+import asyncio
 import csv
 import gzip
 import hashlib
@@ -58,6 +59,16 @@ from pymongo.errors import OperationFailure
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
 
 from routes import loois_cles_clients as cles   # lot 68.1 : clés clients (une par client)
+
+
+async def _creer_index_export(collection) -> None:
+    """Crée en arrière-plan l'index (_hf_maj, _hf_cle) des tables synchronisées (export paginé e-Kol).
+    Jamais bloquant ni fatal : en cas d'échec (base simulée, quota Atlas), l'export fonctionne, moins vite."""
+    try:
+        await collection.create_index([("_hf_maj", 1), ("_hf_cle", 1)])
+    except Exception:  # noqa: BLE001
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -633,6 +644,10 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
             except Exception:  # noqa: BLE001 — index déjà présent ou base simulée
                 pass
             index_crees.add(collection_nom)
+            # Lot 257 : index (_hf_maj, _hf_cle) utilisé par l'export paginé du portail e-Kol ; sur une table de
+            # plusieurs centaines de milliers de lignes sa construction est longue → EN ARRIÈRE-PLAN (règle 7),
+            # la requête de synchro ne l'attend pas. Sans lui, chaque page d'export parcourait toute la table.
+            asyncio.create_task(_creer_index_export(collection))
         if lot["upserts"] and await collection.estimated_document_count() + len(lot["upserts"]) > MAX_DOCUMENTS_TABLE:
             raise HTTPException(status_code=413, detail=f"plus de {MAX_DOCUMENTS_TABLE} lignes pour cette table")
 
@@ -666,7 +681,13 @@ def setup_loois_synchro_routes(*, db, api, get_current_user) -> None:
         if lot["complet"] and lot["fin"]:
             # Fin d'un envoi complet : les lignes qui n'ont pas été renvoyées n'existent plus dans HFSQL
             retirees = (await collection.delete_many({"_hf_complet": {"$ne": lot["lot"]}})).deleted_count
-        nb_documents = await collection.count_documents({})
+        # Lot 257 : un comptage exact (count_documents) parcourt TOUTE la table à chaque lot (420 000 lignes sur
+        # les notes e-Kol → alerte MongoDB « Query Targeting »). Estimation rapide (métadonnées) pendant l'envoi,
+        # comptage exact seulement au dernier lot d'un envoi.
+        if lot["fin"]:
+            nb_documents = await collection.count_documents({})
+        else:
+            nb_documents = await collection.estimated_document_count()
         resultat = {"ok": True, "upserts": len(lot["upserts"]), "suppressions": supprimees, "retirees": retirees,
                     "nb_documents": nb_documents, "anomalies": anomalies}
         cle_cat = {"application": app, "site": site, "table": table}

@@ -104,6 +104,10 @@ async def on_startup():
     await db.whatsapp_messages.create_index([("timestamp", -1)])
     await db.whatsapp_messages.create_index("from")
     await db.whatsapp_messages.create_index("to")
+    # Lot 257 : la mise à jour des statuts WhatsApp cherche par message_id OU wa_message_id ($or) → sans index,
+    # chaque accusé de réception parcourait toute la collection (alerte MongoDB « Query Targeting »).
+    await db.whatsapp_messages.create_index("message_id")
+    await db.whatsapp_messages.create_index("wa_message_id")
     # Iter43-fix24az-l retest — Speed up wa_message_id dedup lookup on inbound webhook.
     # Sparse=True because outbound rows only get a wa_message_id after Meta ack.
     await db.whatsapp_messages.create_index(

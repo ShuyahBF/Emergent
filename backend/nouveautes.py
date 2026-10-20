@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "268", "date": "2026-10-20",
+        "titre": "🔏 Authenticité des documents : QR code chiffré",
+        "description": "Générez la clé dans cette rubrique : les QR codes imprimés sur vos documents (ex. guide ALBARKA) ouvrent sawalismartsystems.com/verifier-document, qui déchiffre et affiche titre, version, copyright et exemplaire.",
+        "rubrique": "🔏 Authenticité des documents — QR code chiffré",
+    },
+    {
         "lot": "267", "date": "2026-10-20",
         "titre": "📜 Carrousel : vos envois « accords acceptés » enfin visibles",
         "description": "Quand vous envoyez le carrousel aux personnes du tableau des accords acceptés, l'envoi concerné s'affiche « complété le … (+N destinataires) » et remonte en tête de la liste des envois, au lieu de rester sous sa date de création.",

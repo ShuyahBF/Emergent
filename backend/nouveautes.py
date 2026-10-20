@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "257", "date": "2026-10-20",
+        "titre": "⚡ Alerte MongoDB « Query Targeting » corrigée",
+        "description": "La synchro Loois ne recompte plus toute la table après chaque lot, et des index accélèrent l'export e-Kol et les accusés de réception WhatsApp : moins de lectures inutiles sur Atlas.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "256", "date": "2026-10-20",
         "titre": "🧹 Vider le support d'une plateforme depuis la plateforme",
         "description": "Le bouton « Vider les conversations » d'ALBARKA efface aussi les messages de l'espace « ALBARKA - Support » (fichiers joints compris) et clôt les requêtes en cours ; chaque plateforme ne peut vider que son propre espace.",

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "256"
-LOT_LIBELLE = "Support des plateformes : une plateforme (ALBARKA) peut vider les messages de son espace « Support » depuis son bouton « Vider les conversations »"
+LOT = "257"
+LOT_LIBELLE = "Performance MongoDB : fin des parcours complets de tables après chaque lot de synchro Loois, index pour l'export e-Kol et les accusés WhatsApp (alerte Query Targeting)"

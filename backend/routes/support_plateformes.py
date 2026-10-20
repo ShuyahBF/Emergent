@@ -27,6 +27,7 @@
 #     (Support Loois compris) : le chat l'affiche pendant une conversation.
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -654,6 +655,38 @@ def installer(*, router, db, manager, now_iso: Callable[[], str], get_current_us
             raise HTTPException(status_code=502, detail="Fichier indisponible")
         return {"type": ct or m.get("media_mime") or "application/octet-stream", "nom": m.get("file_name") or "",
                 "contenu": base64.b64encode(data).decode("ascii")}
+
+    @router.post("/support-plateforme/purge", tags=["Support des plateformes"])
+    async def purger_support(request: Request):
+        """Lot 256 — la plateforme (ALBARKA : bouton « Vider les conversations ») efface TOUS les messages de SON espace
+        « <plateforme> - Support » et clôt ses requêtes en cours. Signature obligatoire ; une plateforme ne peut jamais
+        toucher à l'espace d'une autre (l'espace vient de l'émetteur signé, pas du corps). Les fichiers joints sont
+        effacés du stockage (au mieux : un échec n'arrête pas la purge). Les requêtes closes et les compteurs sont gardés."""
+        emetteur, corps = await plateforme_signee(request)
+        if corps.get("confirmation") != "SUPPRIMER":
+            raise HTTPException(status_code=422, detail="Confirmation « SUPPRIMER » attendue")
+        code = emetteur["code"]
+        q = {"client_id": espace_id(code)}
+        chemins = [m["storage_path"] async for m in db.internal_chat_messages.find(
+            {**q, "storage_path": {"$exists": True, "$nin": [None, ""]}}, {"_id": 0, "storage_path": 1})]
+        res = await db.internal_chat_messages.delete_many(q)
+        fichiers = 0
+        if chemins:
+            import storage
+            for chemin in chemins:
+                try:
+                    await asyncio.to_thread(storage.delete_bytes, chemin)
+                    fichiers += 1
+                except Exception:  # noqa: BLE001
+                    log.warning("[support_plateformes] fichier non effacé lors de la purge : %s", chemin)
+        maintenant = _maintenant().isoformat()
+        clos = await db.support_plateformes_requetes.update_many(
+            {"plateforme": code, "statut": {"$in": list(STATUTS_EN_COURS)}},
+            {"$set": {"statut": "terminee", "terminee_le": maintenant}})
+        log.warning("[support_plateformes] purge de l'espace %s : %s message(s), %s fichier(s), %s requête(s) close(s)",
+                    code, res.deleted_count, fichiers, clos.modified_count)
+        return {"ok": True, "messages_supprimes": res.deleted_count, "fichiers_supprimes": fichiers,
+                "requetes_closes": clos.modified_count}
 
     @router.get("/support/en-attente", tags=["Support des plateformes"])
     async def demandes_en_attente(user: dict = Depends(equipe)):

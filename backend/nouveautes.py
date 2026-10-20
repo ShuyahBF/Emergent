@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "256", "date": "2026-10-20",
+        "titre": "🧹 Vider le support d'une plateforme depuis la plateforme",
+        "description": "Le bouton « Vider les conversations » d'ALBARKA efface aussi les messages de l'espace « ALBARKA - Support » (fichiers joints compris) et clôt les requêtes en cours ; chaque plateforme ne peut vider que son propre espace.",
+        "rubrique": "🛟 Support des plateformes web",
+    },
+    {
         "lot": "255", "date": "2026-10-20",
         "titre": "🗓️ Bandeau d'incident programmable",
         "description": "Le bandeau d'incident peut s'afficher à une date et une heure choisies, et disparaître à une heure de fin. Un bandeau programmé pour plus tard n'ouvre aucun incident dans l'historique public avant son heure.",

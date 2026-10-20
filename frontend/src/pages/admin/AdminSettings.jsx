@@ -95,6 +95,7 @@ import AbonnementsSessionsSection from "@/pages/admin/sections/AbonnementsSessio
 import CycleVieAbonnementsSection from "@/pages/admin/sections/CycleVieAbonnementsSection";  // lot 51
 import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSection";  // lot 52
 import WaUsageLignesSection from "@/pages/admin/sections/WaUsageLignesSection";   // lot 224 — suivi des lignes WhatsApp
+import VerificationDocumentsSection from "@/pages/admin/sections/VerificationDocumentsSection";   // lot 268 — authenticité des documents (QR chiffré)
 import AuditCollectionsMongoSection from "@/pages/admin/sections/AuditCollectionsMongoSection";   // lot 225 — audit des collections MongoDB
 import AnnonceursPlateformesSection from "@/pages/admin/sections/AnnonceursPlateformesSection";   // lot 235 — annonceurs des plateformes
 import FormulesPlateformesSection from "@/pages/admin/sections/FormulesPlateformesSection";   // lot 227 — formules et parrainage des plateformes
@@ -1477,6 +1478,10 @@ export default function AdminSettings() {
       {/* Lot 225 — audit d'utilisation des collections MongoDB (lecture seule) : libérer des collections avant de payer un palier supérieur */}
       <Filterable title="🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)" anchorId="s-audit-mongo" category="diagnostics">
         <AuditCollectionsMongoSection />
+      </Filterable>
+      {/* Lot 268 — authenticité des documents : QR code chiffré, vérifié uniquement sur SAWALI */}
+      <Filterable title="🔏 Authenticité des documents — QR code chiffré" anchorId="s-verif-documents" category="diagnostics">
+        <VerificationDocumentsSection />
       </Filterable>
       {/* Lot 227 — formules (abonnements) et parrainage des utilisateurs des plateformes, encaissés par PawaPay */}
       <Filterable title="🎟️ Formules des plateformes — abonnements et parrainage" anchorId="s-formules-plateformes" category="paiements">

@@ -214,6 +214,7 @@ import PoliciesPage from "@/pages/public/Policies";
 import PrivacyPage from "@/pages/public/Privacy";
 import TermsOfServicePage from "@/pages/public/TermsOfService";
 import GardePage from "@/pages/public/Garde";
+import VerifierDocumentPage from "@/pages/public/VerifierDocument";   // lot 268 : vérification d'un document par QR code
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -349,6 +350,8 @@ export default function App() {
           <Route path="/terms" element={<PublicRoute><TermsOfServicePage /></PublicRoute>} />
           {/* Iter43-fix22b — Page publique des pharmacies de garde (SEO local) */}
           <Route path="/garde" element={<PublicRoute><GardePage /></PublicRoute>} />
+          {/* Lot 268 — vérification d'un document (QR code chiffré) */}
+          <Route path="/verifier-document" element={<PublicRoute><VerifierDocumentPage /></PublicRoute>} />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />

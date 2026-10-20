@@ -1760,6 +1760,20 @@ async def traiter_webhook_wa_en_arriere_plan(request: Request) -> Dict[str, Any]
     return {"ok": True}
 
 
+async def _alexa_si_non_relaye(message_id: Optional[str], phrase: str) -> None:
+    """Lot 270 — annonce vocale (Alexa) d'un WhatsApp reçu, SAUF s'il a été relayé à une plateforme ou confié à son assistant
+    (champs `relaye_a` / `assistant_plateforme`, posés par la suite du traitement dans les secondes qui suivent)."""
+    try:
+        import asyncio as _aio
+        await _aio.sleep(4)
+        d = await db.whatsapp_messages.find_one({"id": message_id}, {"_id": 0, "relaye_a": 1, "assistant_plateforme": 1}) if message_id else {}
+        if d and (d.get("relaye_a") or d.get("assistant_plateforme")):
+            return
+        _alexa_notify_async("wa_inbound", phrase)
+    except Exception:  # noqa: BLE001 — l'annonce vocale ne bloque et ne casse jamais rien
+        logger.warning("[alexa] annonce WhatsApp non envoyée", exc_info=True)
+
+
 @api.post("/whatsapp/webhook", tags=["Webhook"])
 async def whatsapp_webhook_reception(request: Request):
     """Point d'entrée Meta (messages et statuts WhatsApp) : réponse immédiate, traitement en arrière-plan."""
@@ -2430,10 +2444,15 @@ async def whatsapp_webhook_incoming(request: Request):
                         target_id=doc.get("id"),
                     )
                     # Iter35x — Alexa voice notification (best-effort, fire-and-forget)
-                    _alexa_notify_async(
-                        "wa_inbound",
-                        f"Nouveau WhatsApp reçu de {profile_name or from_num}",
-                    )
+                    # Lot 270 — LIGNE DÉDIÉE d'une plateforme (ex. ALBARKA) : le message appartient à la plateforme, Alexa
+                    # ne l'annonce plus (comme le relais et l'alerte propriétaire du lot 252).
+                    # Message d'une autre ligne : si la suite du traitement le RELAIE à une plateforme (réponse à un envoi d'ALBARKA,
+                    # ZandGo…) ou l'attribue à son assistant, il ne concerne pas SAWALI : Alexa se tait. Le relais est décidé plus
+                    # bas ; on attend donc 4 s puis on relit le message (tâche d'arrière-plan : la réponse à Meta n'attend jamais).
+                    if not _sur_ligne_dediee:
+                        import asyncio as _aio_alexa
+                        _aio_alexa.create_task(_alexa_si_non_relaye(
+                            doc.get("id"), f"Nouveau WhatsApp reçu de {profile_name or from_num}"))
                     # Persist the latest profile name on the contact (or create a
                     # "wa_unmapped" record so the admin can review and import it).
                     if profile_name:
@@ -2459,7 +2478,7 @@ async def whatsapp_webhook_incoming(request: Request):
                     # Lot 269 — EXPÉDITEUR INCONNU : la trace « à importer » est gardée MÊME SANS nom de profil WhatsApp
                     # (avant, sans nom de profil, le message restait invisible dans le Centre de messagerie : ni fiche,
                     # ni encadré « à importer », ni compteur de non-lus).
-                    if not contact and digits_only:
+                    if not contact and digits_only and not _sur_ligne_dediee:   # lot 270 : pas pour la ligne d'une plateforme
                         # Un expéditeur inconnu : on crée / met à jour la fiche « à importer » pour que l'administrateur décide
                         # (créer le contact ou ignorer). Le nom de profil n'est écrit que s'il est connu.
                         _maj_inconnu = {"last_seen_at": _now(), "last_message": (text_body or "")[:200]}

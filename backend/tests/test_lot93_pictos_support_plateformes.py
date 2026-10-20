@@ -111,3 +111,26 @@ def test_transcription(env, monkeypatch):
     assert r.status_code == 200, r.text
     assert r.json()["texte"] == "Bonjour, ma caisse est bloquée."
     assert poster(c, "/api/support-plateforme/transcrire", {"utilisateur": UTILISATEUR, "audio": ""}).status_code == 422
+
+
+def test_purge_support_par_la_plateforme(env, stockage, monkeypatch):
+    """Lot 256 — la plateforme vide son espace Support (messages + fichiers), clôt ses requêtes, sans toucher aux autres."""
+    import asyncio
+    import storage
+    c, db = env
+    supprimes = []
+    monkeypatch.setattr(storage, "delete_bytes", lambda chemin, normaliser=True: supprimes.append(chemin) or 1)
+    c.put("/api/admin/support-plateformes/ster", json={"support_actif": True}, headers=H_ADMIN)
+    poster(c, "/api/support-plateforme/messages", {"utilisateur": UTILISATEUR, "texte": "Bonjour"})
+    poster(c, "/api/support-plateforme/fichier", {"utilisateur": UTILISATEUR, "fichier": data_url(JPEG, "image/jpeg"), "nom": "a.jpg"})
+    asyncio.run(db.internal_chat_messages.insert_one({"id": "autre", "client_id": "support-plat-autre", "text": "ne pas toucher"}))
+    # sans confirmation : refusé
+    assert poster(c, "/api/support-plateforme/purge", {}).status_code == 422
+    r = poster(c, "/api/support-plateforme/purge", {"confirmation": "SUPPRIMER"})
+    assert r.status_code == 200, r.text
+    assert r.json()["messages_supprimes"] == 2 and r.json()["fichiers_supprimes"] == 1 and r.json()["requetes_closes"] == 1
+    assert len(supprimes) == 1
+    assert asyncio.run(db.internal_chat_messages.count_documents({"client_id": "support-plat-ster"})) == 0
+    assert asyncio.run(db.internal_chat_messages.count_documents({"client_id": "support-plat-autre"})) == 1
+    assert c.get("/api/support/en-attente", headers=H_ADMIN).json()["total"] == 0
+    assert poster(c, "/api/support-plateforme/purge", {"confirmation": "SUPPRIMER"}, secret="faux").status_code == 401

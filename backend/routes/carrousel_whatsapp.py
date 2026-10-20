@@ -1855,6 +1855,44 @@ def attach_carrousel_whatsapp_routes(
         return await _creer_campagne(perimetre="client", user=user, tenant_id=tid, envoi=envoi,
                                      personnes=[contact], expediteur=expediteur, bg=bg)
 
+    async def _contact_visible(user: dict, contact_id: str) -> Optional[dict]:
+        """Lot 261 — la ligne « destinataire » d'UN contact visible par l'utilisateur (même forme que l'annuaire), sinon None."""
+        ids = await visible_client_ids(user)
+        doc = await db.directory_contacts.find_one(
+            {"id": contact_id, "$or": [{"client_id": {"$in": ids}}, {"owner_id": {"$in": ids}}]},
+            {"_id": 0, "id": 1, "name": 1, "company": 1, "whatsapp": 1, "phone": 1, "accord_demande_le": 1,
+             "accepte_whatsapp": 1, "accepte_whatsapp_le": 1, "accepte_whatsapp_moyen": 1})
+        if not doc:
+            return None
+        return _ligne(doc, doc.get("name"), doc.get("company"), doc.get("whatsapp") or doc.get("phone"))
+
+    @api.get("/me/whatsapp/carrousel/contacts/{contact_id}/accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def accord_du_contact_portail(contact_id: str, user: dict = Depends(utilisateur)):
+        """Lot 261 — Centre de messagerie : ce contact a-t-il accepté de recevoir vos messages WhatsApp (et sa demande
+        d'accord est-elle en attente) ? Léger : lu à l'ouverture de la fenêtre d'envoi puis toutes les quelques secondes."""
+        c = await _contact_visible(user, contact_id)
+        if not c:
+            raise HTTPException(status_code=404, detail="Contact introuvable")
+        return {"id": c["id"], "nom": c["nom"], "accepte": c["accepte"], "accepte_le": c["accepte_le"],
+                "demande_le": c["demande_le"], "numero_valide": len(numero_whatsapp(c["telephone"])) >= 10}
+
+    @api.post("/me/whatsapp/carrousel/contacts/{contact_id}/demander-accord", tags=["Portail Client — Carrousel WhatsApp"])
+    async def demander_accord_contact_portail(contact_id: str, user: dict = Depends(utilisateur)):
+        """Lot 261 — envoie à CE contact la demande d'accord WhatsApp (message à deux boutons « Oui, j'accepte » /
+        « Non merci »). Si sa fenêtre de 24 h est fermée, WhatsApp interdit ce message : on renvoie alors son lien
+        d'accord personnel, à lui transmettre autrement. La date de la demande est notée sur sa fiche."""
+        c = await _contact_visible(user, contact_id)
+        if not c:
+            raise HTTPException(status_code=404, detail="Contact introuvable")
+        if c["accepte"]:
+            return {"envoyees": 0, "fenetre_fermee": [], "erreurs": [], "deja": 1, "liens": [], "accepte": True}
+        if len(numero_whatsapp(c["telephone"])) < 10:
+            raise HTTPException(status_code=400, detail="Ce contact n'a pas de numéro WhatsApp valable : corrigez sa fiche.")
+        res = await _demander_accord([c], _tenant_id(user))
+        if res.get("envoyees"):
+            await db.directory_contacts.update_one({"id": contact_id}, {"$set": {"accord_demande_le": _maintenant()}})
+        return {**res, "accepte": False}
+
     @api.get("/me/whatsapp/carrousel/campagnes", tags=["Portail Client — Carrousel WhatsApp"])
     async def campagnes_portail(user: dict = Depends(utilisateur)):
         """Campagnes du client + (lot 168) celles que l'administration SAWALI a lancées avec les contacts de sa société :

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "270", "date": "2026-10-20",
+        "titre": "🔇 Alexa ne parle plus des messages d'ALBARKA",
+        "description": "Un WhatsApp reçu sur la ligne dédiée d'une plateforme (ex. ALBARKA), ou relayé à celle-ci, n'est plus annoncé par Alexa et ne s'ajoute plus aux numéros « à importer » de SAWALI : il appartient à la plateforme.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "269", "date": "2026-10-20",
         "titre": "📥 Numéro inconnu sans nom de profil : plus de message invisible",
         "description": "Un message WhatsApp reçu d'un numéro absent du carnet est toujours proposé dans l'encadré « à importer » du Centre de messagerie, même si WhatsApp ne donne pas son nom de profil (avant, il restait invisible alors qu'Alexa l'annonçait).",

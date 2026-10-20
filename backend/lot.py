@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "269"
-LOT_LIBELLE = "WhatsApp : un message reçu d'un numéro inconnu sans nom de profil est désormais proposé dans « contacts à importer » du Centre de messagerie (il restait invisible)"
+LOT = "270"
+LOT_LIBELLE = "Alexa n'annonce plus les WhatsApp destinés à une plateforme (ligne dédiée d'ALBARKA ou réponse relayée) ; ces numéros ne gonflent plus la liste « à importer » de SAWALI"

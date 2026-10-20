@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "267", "date": "2026-10-20",
+        "titre": "📜 Carrousel : vos envois « accords acceptés » enfin visibles",
+        "description": "Quand vous envoyez le carrousel aux personnes du tableau des accords acceptés, l'envoi concerné s'affiche « complété le … (+N destinataires) » et remonte en tête de la liste des envois, au lieu de rester sous sa date de création.",
+        "rubrique": "🖼️ Carrousel WhatsApp — modèles Meta et images IA",
+    },
+    {
         "lot": "266", "date": "2026-10-20",
         "titre": "🎚️ Contacts : « Avec / Sans prospects » dans la rangée des pastilles",
         "description": "La bascule prend le même format que les pastilles Tous, Partagés équipe, Privés et Non-lus, juste à leur droite.",

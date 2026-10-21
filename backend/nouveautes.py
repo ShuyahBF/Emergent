@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "276", "date": "2026-10-21",
+        "titre": "🏷️ Réponses aux publicités Facebook : Prospect automatique, sans appel, avec point à la connexion",
+        "description": "Un contact qui déclenche un modèle de « Liluvine Reactions & Ad Auto-Replies » est marqué « Prospect » tout seul, comme si vous cliquiez le bouton. Liluvine n'appelle plus le propriétaire pour ces messages (le relais écrit reste) et, à votre prochaine connexion, fait le point : nombre de contacts, répartition par modèle, derniers contacts, pour que vous les analysiez.",
+        "rubrique": "Liluvine Reactions & Ad Auto-Replies (fuzzy commands, templates FB)",
+    },
+    {
         "lot": "275", "date": "2026-10-21",
         "titre": "🏷️ Prospect posé automatiquement sur les réponses aux publicités",
         "description": "Quand un contact répond à une publicité Facebook (clic sur une publicité Click-to-WhatsApp, ou message reçu sur la ligne « prospects »), Liluvine le marque « Prospect » dans le Centre de messagerie, en plus des autres règles. Un inconnu reçoit l'étiquette à l'import. Case à cocher dans la rubrique, activée par défaut ; les utilisateurs du système ne sont jamais marqués.",

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "273"
-LOT_LIBELLE = "Mémoire du serveur : les fichiers (vidéos, sons, images) rechargés depuis R2 après un redéploiement sont copiés par morceaux vers le disque, deux à la fois au plus, au lieu d'être lus en entier en mémoire (arrêt du serveur pour manque de mémoire)"
+LOT = "274"
+LOT_LIBELLE = "Liluvine : en dehors des heures de service, l'appel au propriétaire est réservé aux contacts des clients sous contrat (réglable dans Paramètres) ; le message relayé part toujours"

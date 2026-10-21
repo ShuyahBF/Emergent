@@ -48,6 +48,7 @@ export default function AppelProprietaireSection() {
         appel_proprio_relais_actif: e.relais_actif !== false,
         appel_proprio_appel_actif: e.appel_actif !== false,
         appel_proprio_calme_actif: !!e.calme_actif,
+        appel_proprio_hors_service_contrat_seul: e.hors_service_contrat_seul !== false,
         appel_proprio_calme_debut: e.calme_debut || "22:00",
         appel_proprio_calme_fin: e.calme_fin || "06:00",
         appel_proprio_modele: e.modele || "",
@@ -210,6 +211,16 @@ export default function AppelProprietaireSection() {
         <label>à <input type="time" value={form.appel_proprio_calme_fin} onChange={(e) => maj("appel_proprio_calme_fin", e.target.value)}
           className="rounded border border-slate-300 px-1 py-0.5" /></label>
       </div>
+
+      {/* Lot 274 : hors heures de service (Paramètres « Heures ouvrables / RDV »), appel réservé aux clients sous contrat */}
+      <label className="flex items-start gap-2 text-xs">
+        <input type="checkbox" className="mt-0.5" checked={form.appel_proprio_hors_service_contrat_seul}
+          onChange={(e) => maj("appel_proprio_hors_service_contrat_seul", e.target.checked)} />
+        <span>
+          <span className="font-semibold">Hors heures de service : appeler seulement pour les clients sous contrat</span>
+          <span className="block text-slate-500">Les autres contacts reçoivent seulement le message relayé (pas d'appel). Heures de service : rubrique « Heures ouvrables / RDV ». Sous contrat = numéro de contrat sur la fiche du client, accès non suspendu.</span>
+        </span>
+      </label>
 
       <details className="text-xs">
         <summary className="cursor-pointer font-semibold text-slate-700">Réglages avancés (modèle Meta, voix, sonnerie, exclusions, tarifs)</summary>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "274", "date": "2026-10-21",
+        "titre": "📞 Liluvine n'appelle hors heures que pour les clients sous contrat",
+        "description": "En dehors des heures de service, Liluvine n'appelle plus le propriétaire que pour les contacts d'un client/tenant sous contrat (numéro de contrat, accès non suspendu) ; les autres reçoivent seulement le message relayé. Case à cocher dans la rubrique, activée par défaut.",
+        "rubrique": "📞 Liluvine appelle le propriétaire à chaque message",
+    },
+    {
         "lot": "273", "date": "2026-10-21",
         "titre": "🧠 Serveur : fin des arrêts pour manque de mémoire",
         "description": "Après un redéploiement, les vidéos, sons et images rechargés depuis le stockage R2 sont désormais copiés par morceaux vers le disque, deux à la fois au plus, au lieu d'être lus en entier en mémoire : le serveur n'est plus tué par Render (limite de 512 Mo) quand beaucoup de médias sont demandés d'un coup. Rien à régler.",

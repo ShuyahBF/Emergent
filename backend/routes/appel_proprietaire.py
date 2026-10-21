@@ -35,6 +35,10 @@
 #   appel_proprio_voix_elevenlabs (identifiant de voix ElevenLabs), appel_proprio_repetitions
 #   (défaut 2), appel_proprio_sonnerie_s (défaut 30), appel_proprio_exclus (numéros jamais
 #   relayés : personnel, tests…).
+#   Lot 274 — appel_proprio_hors_service_contrat_seul (défaut vrai) : en dehors des heures de service
+#   (Paramètres « Heures ouvrables / RDV »), Liluvine n'APPELLE le propriétaire que pour les contacts
+#   d'un client/tenant sous contrat (numéro de contrat sur sa fiche, accès non suspendu) ; le relais
+#   écrit part toujours.
 #   Lot 67.1 — tarifs de l'historique : appel_proprio_tarif_appel_minute (défaut 0),
 #   appel_proprio_tarif_devise (FCFA | USD, défaut FCFA), appel_proprio_tarif_arrondi (pulse6 = tranches
 #   de 6 s comme Meta | minute | seconde), appel_proprio_tarif_relais_modele (prix d'un message modèle,
@@ -206,6 +210,8 @@ def reglages(s: Dict[str, Any]) -> Dict[str, Any]:
         # Lot 69.2 — profil de voix commun avec « Liluvine décroche » (accent, voix et modèles)
         **profil_voix(s),
         "repetitions": _entier(s.get("appel_proprio_repetitions"), 2, 1, 3),
+        # Lot 274 — hors heures de service : appel réservé aux clients sous contrat (activé par défaut)
+        "hors_service_contrat_seul": s.get("appel_proprio_hors_service_contrat_seul") is not False,
         "sonnerie_s": _entier(s.get("appel_proprio_sonnerie_s"), 30, 10, 60),
         "exclus": {_chiffres(x)[-8:] for x in re.split(r"[,;\n]+", exclus_brut) if len(_chiffres(x)) >= 8},
     }
@@ -245,6 +251,27 @@ def contact_autorise(contact: Optional[Dict[str, Any]]) -> bool:
     """Autorisation de la fiche client « Appeler le propriétaire à chaque message » :
     absente = autorisée (valeur par défaut)."""
     return (contact or {}).get("appel_proprietaire") is not False
+
+
+async def client_sous_contrat(db, contact: Optional[Dict[str, Any]], client_id: Optional[str]) -> bool:
+    """Lot 274 — le contact appartient-il à un client/tenant SOUS CONTRAT ?
+    Tenant = client_id de la fiche contact (sinon le périmètre du message). Sous contrat = numéro de
+    contrat renseigné sur la fiche du tenant (même définition que les tickets) et accès non suspendu/archivé."""
+    cid = (contact or {}).get("client_id") or client_id
+    if not cid:
+        return False
+    fiche = await db.users.find_one({"id": cid}, {"_id": 0, "password_hash": 0}) or {}
+    # Même définition que tickets_clients.client_contractuel (importé ailleurs, il exige la vraie base)
+    contractuel = bool(str(fiche.get("contract_number") or "").strip())
+    ferme = (fiche.get("cycle_vie") or {}).get("statut") in ("SUSPENDU", "ARCHIVE")
+    return contractuel and not ferme
+
+
+def en_heures_de_service(s: Dict[str, Any], dt: datetime) -> bool:
+    """Lot 274 — vrai pendant les heures de service (Paramètres « Heures ouvrables / RDV » : ouverture,
+    fermeture, jours ouvrés ; heure de Ouagadougou = UTC)."""
+    from routes.message_absence import est_ouvert
+    return est_ouvert(s or {}, dt)
 
 
 def ligne_appelante(s: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[str, Optional[str]]:
@@ -1231,6 +1258,10 @@ async def traiter_message(db, *, chiffres: str, mtype: str, texte: Optional[str]
         return await relais_seul("appel vocal désactivé (relais seul)")
     if not test and en_heures_calmes(cfg, maintenant):
         return await relais_seul("heures calmes : relais seul")
+    # Lot 274 — hors heures de service, seuls les clients sous contrat déclenchent un appel
+    if (not test and cfg["hors_service_contrat_seul"] and not en_heures_de_service(s, maintenant)
+            and not await client_sous_contrat(db, contact, client_id)):
+        return await relais_seul("hors heures de service : appel réservé aux clients sous contrat (relais seul)")
     async with _verrou_client(chiffres):
         if not test and await appel_recent(db, chiffres, cfg["fenetre_min"], maintenant):
             return await relais_seul(f"déjà appelé pour ce client il y a moins de {cfg['fenetre_min']} min")
@@ -1321,7 +1352,7 @@ CHAMPS = {
     "appel_proprio_calme_fin": str, "appel_proprio_relais_actif": bool, "appel_proprio_appel_actif": bool,
     "appel_proprio_modele": str, "appel_proprio_modele_langue": str, "appel_proprio_voix": str,
     "appel_proprio_voix_elevenlabs": str, "appel_proprio_repetitions": int, "appel_proprio_sonnerie_s": int,
-    "appel_proprio_exclus": str,
+    "appel_proprio_exclus": str, "appel_proprio_hors_service_contrat_seul": bool,
     # Lot 67.1 — tarifs (coût des appels de Liluvine), devise et arrondi de la durée facturée
     "appel_proprio_tarif_appel_minute": float, "appel_proprio_tarif_devise": str,
     "appel_proprio_tarif_arrondi": str, "appel_proprio_tarif_relais_modele": float,

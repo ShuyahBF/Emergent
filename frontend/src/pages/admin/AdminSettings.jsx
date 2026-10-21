@@ -97,6 +97,7 @@ import EmailFournisseurSection from "@/pages/admin/sections/EmailFournisseurSect
 import WaUsageLignesSection from "@/pages/admin/sections/WaUsageLignesSection";   // lot 224 — suivi des lignes WhatsApp
 import VerificationDocumentsSection from "@/pages/admin/sections/VerificationDocumentsSection";   // lot 268 — authenticité des documents (QR chiffré)
 import AuditCollectionsMongoSection from "@/pages/admin/sections/AuditCollectionsMongoSection";   // lot 225 — audit des collections MongoDB
+import IndexMongoSection from "@/pages/admin/sections/IndexMongoSection";   // lot 272 — index MongoDB recommandés (conseiller Atlas)
 import AnnonceursPlateformesSection from "@/pages/admin/sections/AnnonceursPlateformesSection";   // lot 235 — annonceurs des plateformes
 import FormulesPlateformesSection from "@/pages/admin/sections/FormulesPlateformesSection";   // lot 227 — formules et parrainage des plateformes
 import PispiSection from "@/pages/admin/sections/PispiSection";  // lot 57.8 — encaissement PI-SPI
@@ -166,6 +167,7 @@ const NEW_LOTS = {
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
   "Transmission WA Universelle Liluvine (webhook entrant)": "112.1",   // lot 112.1 : texte libre si la fenêtre de 24 h est ouverte ; lot 107.1 : échec de retour effacé   // lots 83-84 : réponses citées ; lots 102-103 : assistant de la plateforme, mot-clé ; lot 104 : codes OTP par modèle
   "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "225",   // lot 225
+  "⚡ Index MongoDB recommandés — accélérer les pages lentes": "272",   // lot 272
   "🎟️ Formules des plateformes — abonnements et parrainage": "227",   // lot 227 : formules vendues aux utilisateurs des plateformes, paiement PawaPay, parrainage
   "📣 Annonceurs des plateformes — tarifs, devis et annonces des abonnés": "235",   // lot 235
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "224",   // lot 224
@@ -230,6 +232,7 @@ const NEW_SECTIONS = {
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
   "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-12",   // lot 102 ; lot 107.1
   "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "2026-10-17",   // lot 225
+  "⚡ Index MongoDB recommandés — accélérer les pages lentes": "2026-10-21",   // lot 272
   "🎟️ Formules des plateformes — abonnements et parrainage": "2026-10-17",   // lot 227
   "📣 Annonceurs des plateformes — tarifs, devis et annonces des abonnés": "2026-10-17",   // lot 235
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "2026-10-17",   // lot 224
@@ -321,6 +324,7 @@ const NEW_DESCRIPTIONS = {
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
   "Transmission WA Universelle Liluvine (webhook entrant)": "Adresse de l'assistant de chaque plateforme ; « !zandgo … » le joint à tout moment, FIN rend la main (lots 102-103).",
   "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)": "Un clic : pour chaque collection de chaque base du cluster, date de dernière utilisation, statut (vide, active, inactive) et conseil, avec graphiques et export CSV (lot 225).",
+  "⚡ Index MongoDB recommandés — accélérer les pages lentes": "Les index que recommande Atlas (export e-Kol, journal des incidents, messages WhatsApp), leur état réel et un bouton qui crée les manquants en arrière-plan : le cluster n'est pas trop petit, ces index coûtent moins cher qu'un palier supérieur (lot 272).",
   "🎟️ Formules des plateformes — abonnements et parrainage": "Formules (ex. OCR Ordonnances) vendues aux utilisateurs de Paiement Mobile : prix, durée (30 jours par défaut, cumulée), paiement PawaPay qui active tout seul, parrainage avec jours offerts aux deux (lot 227).",
   "📣 Annonceurs des plateformes — tarifs, devis et annonces des abonnés": "Un abonné de Paiement Mobile peut devenir annonceur : vous fixez ici les tarifs (format, durée, options, remises) et les tailles de médias ; son devis est calculé en direct par SAWALI, ses médias sont chiffrés, il paie (PawaPay ou PI-SPI) et suit ses statistiques. Vous seul pouvez corriger un montant (lot 235).",
   "📊 Suivi des lignes WhatsApp — messages, modèles Meta et IA par ligne et par période": "Messages, modèles Meta (catégorie) et coût de l'IA par ligne WhatsApp, par mois ou période, avec détail date/heure et export CSV (lot 224).",
@@ -1478,6 +1482,10 @@ export default function AdminSettings() {
       {/* Lot 225 — audit d'utilisation des collections MongoDB (lecture seule) : libérer des collections avant de payer un palier supérieur */}
       <Filterable title="🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)" anchorId="s-audit-mongo" category="diagnostics">
         <AuditCollectionsMongoSection />
+      </Filterable>
+      {/* Lot 272 — index MongoDB recommandés par le conseiller Atlas : état et création en un clic */}
+      <Filterable title="⚡ Index MongoDB recommandés — accélérer les pages lentes" anchorId="s-index-mongo" category="diagnostics">
+        <IndexMongoSection />
       </Filterable>
       {/* Lot 268 — authenticité des documents : QR code chiffré, vérifié uniquement sur SAWALI */}
       <Filterable title="🔏 Authenticité des documents — QR code chiffré" anchorId="s-verif-documents" category="diagnostics">

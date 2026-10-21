@@ -1237,6 +1237,9 @@ api.include_router(_make_wa_usage_router(db=db, get_current_admin=get_current_ad
 from auth import get_super_admin as _get_super_admin_audit  # noqa: E402
 from routes.audit_collections_mongo import make_audit_mongo_router as _make_audit_mongo_router  # noqa: E402
 api.include_router(_make_audit_mongo_router(db=db, get_super_admin=_get_super_admin_audit))
+# Lot 272 — index MongoDB recommandés (conseiller Atlas) : état et création en un clic, administrateur principal seulement
+from routes.index_mongo_recommandes import make_index_mongo_router as _make_index_mongo_router  # noqa: E402
+api.include_router(_make_index_mongo_router(db=db, get_super_admin=_get_super_admin_audit))
 # Lot 268 — authenticité des documents : QR code chiffré, vérifié uniquement sur SAWALI (administrateur principal pour la clé)
 from routes.verification_documents import make_verification_documents_router as _make_verification_documents_router  # noqa: E402
 api.include_router(_make_verification_documents_router(db=db, get_super_admin=_get_super_admin_audit))

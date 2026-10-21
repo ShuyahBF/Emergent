@@ -81,6 +81,21 @@ def numero_recu_courant() -> Optional[str]:
     return _numero_recu.get()
 
 
+async def ligne_recue_privee(db) -> bool:
+    """Lot 271 — vrai si le message en cours de traitement a été reçu sur une ligne marquée « privée » (lot 223).
+    Une ligne privée n'est vue de personne dans le Centre de messagerie : elle ne doit donc déclencher AUCUNE alerte
+    (Alexa, relais à l'administrateur, appel propriétaire). Ne lève jamais d'exception : en cas de doute, faux."""
+    try:
+        pid = numero_recu_courant()
+        if not pid:
+            return False
+        reglages = await db.settings.find_one({"_id": "global"}) or {}
+        ligne = ligne_par_cle(reglages, cle_de_numero(reglages, pid))
+        return bool(ligne and ligne.get("privee"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _chiffres(valeur: Any) -> str:
     """Garde uniquement les chiffres d'un numéro de téléphone."""
     return re.sub(r"\D", "", str(valeur or ""))

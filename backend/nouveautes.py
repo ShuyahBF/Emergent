@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "271", "date": "2026-10-21",
+        "titre": "🔇 Lignes privées : plus aucune alerte",
+        "description": "Un WhatsApp reçu sur une ligne marquée « privée » ne déclenche plus ni annonce Alexa, ni relais à l'administrateur, ni appel propriétaire : cette ligne n'apparaît dans le Centre de messagerie de personne.",
+        "rubrique": "🔔 Connexions aux plateformes (alerte WhatsApp)",
+    },
+    {
         "lot": "270", "date": "2026-10-20",
         "titre": "🔇 Alexa ne parle plus des messages d'ALBARKA",
         "description": "Un WhatsApp reçu sur la ligne dédiée d'une plateforme (ex. ALBARKA), ou relayé à celle-ci, n'est plus annoncé par Alexa et ne s'ajoute plus aux numéros « à importer » de SAWALI : il appartient à la plateforme.",

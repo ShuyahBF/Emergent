@@ -53,6 +53,14 @@ async def me_welcome_briefing(
         unread_lower_bound = last_seen_at or (now_for_bound - timedelta(days=7)).isoformat()
         base_unread_wa["received_at"] = {"$gte": unread_lower_bound}
         base_unread_sms["received_at"] = {"$gte": unread_lower_bound}
+    # Lot 271 — les messages d'une ligne privée n'apparaissent dans le Centre de messagerie de personne : ils ne comptent pas
+    try:
+        from routes.numeros_wa import _ids_lignes_privees
+        _privees = _ids_lignes_privees(_settings)
+        if _privees:
+            base_unread_wa["wa_numero_id"] = {"$nin": _privees}
+    except Exception:  # noqa: BLE001 — en cas de doute, comptage habituel
+        pass
     unread_wa = await db.whatsapp_messages.count_documents(base_unread_wa)
     unread_sms = await db.sms_messages.count_documents(base_unread_sms)
 

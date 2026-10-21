@@ -55,6 +55,7 @@ import logging
 import os
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -200,6 +201,58 @@ def _r2_lire(cfg: Dict[str, str], cle: str) -> Optional[Tuple[bytes, str]]:
     return donnees, rep.get("ContentType") or "application/octet-stream"
 
 
+# Lot 273 — RÉHYDRATATION EN FLUX. Le serveur Render a été tué pour manque de mémoire (512 Mo) pendant une rafale de fichiers
+# média (vidéos, sons) rechargés depuis R2 après un redéploiement : chaque fichier était lu ENTIER en mémoire, plusieurs à la
+# fois. Désormais : téléchargement par morceaux de 1 Mo directement vers le disque (la mémoire utilisée ne dépend plus de la
+# taille du fichier) et au plus 2 réhydratations en même temps.
+_TAILLE_MORCEAU = 1024 * 1024
+MAX_REHYDRATATIONS = 2
+_sem_asynchrones: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()   # une limite par boucle d'événements
+
+
+def _r2_telecharger_vers(cfg: Dict[str, str], cle: str, local_path: Path) -> bool:
+    """Copie l'objet R2 `cle` vers `local_path`, par morceaux, via un fichier temporaire renommé à la fin (jamais de fichier
+    à moitié écrit sous le vrai nom). True si écrit ; False si l'objet est absent (ou vide) ; lève pour toute autre erreur."""
+    try:
+        rep = _client(cfg).get_object(Bucket=cfg["bucket"], Key=cle)
+    except Exception as exc:  # noqa: BLE001
+        if _code_erreur(exc) in ("NoSuchKey", "404", "NotFound"):
+            return False
+        raise
+    corps = rep["Body"]
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    temporaire = local_path.with_name(f"{local_path.name}.{os.getpid()}.{threading.get_ident()}.part")
+    ecrits = 0
+    try:
+        with open(temporaire, "wb") as f:
+            while True:
+                morceau = corps.read(_TAILLE_MORCEAU)
+                if not morceau:
+                    break
+                f.write(morceau)
+                ecrits += len(morceau)
+        if not ecrits:
+            return False                                  # objet vide : comme avant, considéré comme absent
+        os.replace(temporaire, local_path)
+        return True
+    finally:
+        try:
+            corps.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            os.unlink(temporaire)                         # n'existe plus si le renommage a réussi
+        except OSError:
+            pass
+
+
+def _deja_sur_disque(local_path: Path) -> bool:
+    try:
+        return local_path.is_file() and local_path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _r2_ecrire(cfg: Dict[str, str], cle: str, data: bytes, content_type: str) -> None:
     _client(cfg).put_object(Bucket=cfg["bucket"], Key=cle, Body=data,
                             ContentType=content_type or "application/octet-stream")
@@ -284,10 +337,7 @@ def _restaurer_local_depuis_r2(local_path: Path) -> bool:
     if not cfg:
         return False
     for cle in cles_r2_local(local_path):
-        trouve = _r2_lire(cfg, cle)
-        if trouve is not None:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_local_bytes(local_path, trouve[0])
+        if _r2_telecharger_vers(cfg, cle, local_path):        # lot 273 : en flux, jamais le fichier entier en mémoire
             return True
     return False
 
@@ -300,6 +350,8 @@ def restaurer_fichier_local(local_path) -> bool:
     dernier = _missing.get(cle_cache)
     if dernier and time.time() - dernier < _MISSING_TTL:
         return False
+    if _deja_sur_disque(local_path):                           # lot 273
+        return True
     try:
         if _restaurer_local_depuis_r2(local_path):
             _missing.pop(cle_cache, None)
@@ -342,15 +394,27 @@ def rehydrate_from_storage(*, local_path, remote_path: str) -> bool:
     last_miss = _missing.get(remote_path)
     if last_miss and time.time() - last_miss < _MISSING_TTL:
         return False
-    try:
-        data, _ct = fetch_bytes(remote_path)
-        if data:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_local_bytes(local_path, data)
-            _missing.pop(remote_path, None)
-            return True
-    except Exception:  # noqa: BLE001
-        pass
+    if _deja_sur_disque(local_path):                           # lot 273 : une autre requête vient de le rapatrier
+        return True
+    cfg = config_r2()
+    if cfg:
+        try:
+            for cle in cles_r2_lecture(remote_path, cfg):      # lot 273 : R2 en flux, par morceaux, vers le disque
+                if _r2_telecharger_vers(cfg, cle, local_path):
+                    _missing.pop(remote_path, None)
+                    return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[storage] réhydratation de %s impossible : %s", remote_path, exc)
+    if _emergent_cle():                                        # repli de migration (stockage Emergent historique), inchangé
+        try:
+            data, _ct = fetch_bytes(remote_path)
+            if data:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                _write_local_bytes(local_path, data)
+                _missing.pop(remote_path, None)
+                return True
+        except Exception:  # noqa: BLE001
+            pass
     try:
         if _restaurer_local_depuis_r2(local_path):
             _missing.pop(remote_path, None)
@@ -373,12 +437,23 @@ async def asave_upload_and_cache(**kwargs):
     return await asyncio.to_thread(lambda: save_upload_and_cache(**kwargs))
 
 
+def _limite_rehydratations() -> "asyncio.Semaphore":
+    """Au plus MAX_REHYDRATATIONS téléchargements en même temps (les autres attendent SANS occuper de fil d'exécution)."""
+    boucle = asyncio.get_running_loop()
+    sem = _sem_asynchrones.get(boucle)
+    if sem is None:
+        sem = _sem_asynchrones[boucle] = asyncio.Semaphore(MAX_REHYDRATATIONS)
+    return sem
+
+
 async def arehydrate_from_storage(**kwargs) -> bool:
-    return await asyncio.to_thread(lambda: rehydrate_from_storage(**kwargs))
+    async with _limite_rehydratations():
+        return await asyncio.to_thread(lambda: rehydrate_from_storage(**kwargs))
 
 
 async def arestaurer_fichier_local(local_path) -> bool:
-    return await asyncio.to_thread(restaurer_fichier_local, local_path)
+    async with _limite_rehydratations():
+        return await asyncio.to_thread(restaurer_fichier_local, local_path)
 
 
 def _write_local_bytes(local_path, data: bytes) -> None:

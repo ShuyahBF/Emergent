@@ -605,6 +605,18 @@ def attach_liluvine_reactions_routes(
         matched = _match_ad_template(inbound_text, templates, threshold)
         if not matched:
             return None
+        # Lot 276 — le contact qui déclenche un modèle de réponse aux publicités est marqué « Prospect » (comme le
+        # bouton du Centre de messagerie, en automatique) ; sans fiche, son encadré « à importer » est marqué
+        try:
+            from routes import marquage_prospect_pub as _mpp
+            s_pub = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_wa_prospect_pub_marquage": 1}) or {}
+            if _mpp.actif(s_pub):
+                if (contact or {}).get("id"):
+                    await _mpp.marquer_contact(db, contact["id"])
+                else:
+                    await _mpp.marquer_numero_inconnu(db, phone_digits)
+        except Exception as exc:  # noqa: BLE001 — le marquage ne bloque jamais la réponse
+            logger.warning("[liluvine_reactions] marquage prospect impossible: %s", exc)
         # Increment received_count
         await db.liluvine_ad_templates.update_one(
             {"id": matched["id"]},

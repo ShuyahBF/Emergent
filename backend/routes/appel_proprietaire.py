@@ -267,6 +267,21 @@ async def client_sous_contrat(db, contact: Optional[Dict[str, Any]], client_id: 
     return contractuel and not ferme
 
 
+def message_texte_pub(texte: Optional[str]) -> bool:
+    """Lot 276 — seul un message texte peut correspondre à un modèle de réponse aux publicités."""
+    return bool((texte or "").strip())
+
+
+async def _modele_publicitaire(db, texte: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lot 276 — modèle « Ad Auto-Replies » correspondant au texte (None si aucun ou en cas d'erreur)."""
+    try:
+        from routes.marquage_prospect_pub import modele_pour_texte
+        return await modele_pour_texte(db, texte)
+    except Exception:  # noqa: BLE001 — en cas de doute, le comportement habituel (appel) reste inchangé
+        logger.warning("[appel_proprietaire] recherche du modèle publicitaire impossible", exc_info=True)
+        return None
+
+
 def en_heures_de_service(s: Dict[str, Any], dt: datetime) -> bool:
     """Lot 274 — vrai pendant les heures de service (Paramètres « Heures ouvrables / RDV » : ouverture,
     fermeture, jours ouvrés ; heure de Ouagadougou = UTC)."""
@@ -1258,6 +1273,10 @@ async def traiter_message(db, *, chiffres: str, mtype: str, texte: Optional[str]
         return await relais_seul("appel vocal désactivé (relais seul)")
     if not test and en_heures_calmes(cfg, maintenant):
         return await relais_seul("heures calmes : relais seul")
+    # Lot 276 — message qui déclenche un modèle de réponse aux publicités : pas d'appel (le contact devient « Prospect »
+    # et Liluvine fait le point à la prochaine connexion) ; le relais écrit n'est pas modifié
+    if not test and message_texte_pub(texte) and await _modele_publicitaire(db, texte):
+        return await relais_seul("réponse à une publicité : pas d'appel (point à la prochaine connexion)")
     # Lot 274 — hors heures de service, seuls les clients sous contrat déclenchent un appel
     if (not test and cfg["hors_service_contrat_seul"] and not en_heures_de_service(s, maintenant)
             and not await client_sous_contrat(db, contact, client_id)):

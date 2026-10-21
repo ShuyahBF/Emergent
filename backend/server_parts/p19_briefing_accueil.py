@@ -10,6 +10,20 @@
 # suspended), unread WA/SMS messages, and recent personal notes created
 # within the configurable window (default 3 days).
 # =====================================================================
+async def _build_prospects_publicite(user, visible_scope, last_seen_at):
+    """Lot 276 — le point de Liluvine à la connexion : contacts devenus « Prospect » en répondant aux publicités
+    Facebook depuis la dernière visite (7 jours au plus). Réservé aux administrateurs et superviseurs."""
+    if user.get("role") not in ("admin", "superviseur") and user.get("tracked_role") not in ("Administrateur", "Superviseur"):
+        return None
+    try:
+        from routes.marquage_prospect_pub import point_prospects_publicite
+        limite_7j = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        depuis = max(last_seen_at, limite_7j) if last_seen_at else limite_7j
+        return await point_prospects_publicite(db, visible_scope, depuis)
+    except Exception:  # noqa: BLE001 — le briefing ne dépend jamais de ce bloc
+        return None
+
+
 @api.get("/me/welcome-briefing", tags=["Portail Client"])
 async def me_welcome_briefing(
     last_seen_at: Optional[str] = None,
@@ -237,6 +251,7 @@ async def me_welcome_briefing(
         "expense_reminder": expense_reminder,
         "notes_kpis": await _build_welcome_notes_kpis(user),
         "liluvine_autoreply_today": await _build_liluvine_autoreply_stats(user),
+        "prospects_publicite": await _build_prospects_publicite(user, visible_scope, last_seen_at),   # lot 276
         "wa_demo_recent": await _build_wa_demo_recent_stats(user),
         "server_now": _now(),
     }

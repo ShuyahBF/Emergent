@@ -96,6 +96,9 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   const expenseReminder = data?.expense_reminder || null;
   // Iter38r-fix9d — Liluvine PRO auto-reply ROI counter
   const liluAuto = data?.liluvine_autoreply_today || null;
+  // Lot 276 — le point de Liluvine : contacts devenus « Prospect » en répondant aux publicités Facebook
+  const prospectsPub = data?.prospects_publicite || null;
+  const hasProspectsPub = !!prospectsPub && prospectsPub.total > 0;
   const hasLiluAuto = !!liluAuto && (liluAuto.today > 0 || liluAuto.last_7d > 0);
   // Iter38r-fix9o (Item 8) — WhatsApp OTP demo signups widget (admins only)
   const waDemo = data?.wa_demo_recent || null;
@@ -117,7 +120,7 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
   const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto && !hasSharedRecent && !hasWaDemo;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto && !hasProspectsPub && !hasSharedRecent && !hasWaDemo;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -299,6 +302,37 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
             )}
 
 
+
+            {/* Lot 276 — Liluvine fait le point : réponses aux publicités Facebook depuis la dernière visite (à analyser) */}
+            {hasProspectsPub && (
+              <section className="rounded-lg ring-1 ring-violet-200 bg-violet-50/60 p-3" data-testid="welcome-prospects-pub">
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles className="h-4 w-4 text-violet-700" />
+                  <h3 className="text-sm font-semibold text-violet-900">Liluvine fait le point : prospects des publicités Facebook</h3>
+                </div>
+                <p className="text-xs text-violet-900">
+                  <strong>{prospectsPub.contacts}</strong> contact{prospectsPub.contacts > 1 ? "s" : ""} marqué{prospectsPub.contacts > 1 ? "s" : ""} « Prospect »
+                  ({prospectsPub.total} réponse{prospectsPub.total > 1 ? "s" : ""}) depuis {new Date(prospectsPub.depuis).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}.
+                </p>
+                <ul className="mt-2 space-y-0.5 text-[11px] text-slate-700">
+                  {prospectsPub.par_modele.map((m) => (
+                    <li key={m.modele} className="flex justify-between gap-3"><span className="truncate">{m.modele}</span><strong>{m.nombre}</strong></li>
+                  ))}
+                </ul>
+                {prospectsPub.derniers.length > 0 && (
+                  <div className="mt-2 border-t border-violet-200 pt-2 text-[11px] text-slate-600">
+                    <div className="font-semibold text-violet-900 mb-0.5">Derniers contacts</div>
+                    {prospectsPub.derniers.map((c) => (
+                      <div key={`${c.contact_id || c.telephone}-${c.le}`} className="flex justify-between gap-3">
+                        <span className="truncate">{c.nom} — « {c.message} »</span>
+                        <span className="shrink-0 text-slate-400">{c.modele}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Link to="/portal/contacts" onClick={dismiss} className="inline-block mt-2 text-xs text-violet-700 hover:underline">Ouvrir le Centre de messagerie</Link>
+              </section>
+            )}
 
             {/* Iter38r-fix9d — Liluvine PRO auto-reply ROI counter */}
             {hasLiluAuto && (

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "273", "date": "2026-10-21",
+        "titre": "🧠 Serveur : fin des arrêts pour manque de mémoire",
+        "description": "Après un redéploiement, les vidéos, sons et images rechargés depuis le stockage R2 sont désormais copiés par morceaux vers le disque, deux à la fois au plus, au lieu d'être lus en entier en mémoire : le serveur n'est plus tué par Render (limite de 512 Mo) quand beaucoup de médias sont demandés d'un coup. Rien à régler.",
+        "rubrique": "⚡ Santé du serveur — blocages",
+    },
+    {
         "lot": "272", "date": "2026-10-21",
         "titre": "⚡ Index MongoDB recommandés : un clic pour accélérer",
         "description": "Nouvelle rubrique des Paramètres : elle liste les 10 index que le conseiller d'Atlas recommande (export e-Kol, journal des incidents, messages WhatsApp), indique lesquels manquent et les crée en un clic, en arrière-plan. Le cluster n'est pas trop petit : ces index coûtent moins cher qu'un palier supérieur.",

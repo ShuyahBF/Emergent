@@ -2343,6 +2343,14 @@ async def whatsapp_webhook_incoming(request: Request):
                         _sur_ligne_dediee = bool(await _ligne_dediee_recue(db))
                     except Exception:  # noqa: BLE001 — en cas de doute, comportement habituel
                         _sur_ligne_dediee = False
+                    # Lot 271 — LIGNE PRIVÉE (lot 223) : même traitement qu'une ligne dédiée. Ses messages n'apparaissent dans le
+                    # Centre de messagerie de personne ; ils ne doivent donc déclencher ni Alexa, ni relais, ni appel propriétaire.
+                    try:
+                        from routes.numeros_wa import ligne_recue_privee as _ligne_privee_recue
+                        if not _sur_ligne_dediee and await _ligne_privee_recue(db):
+                            _sur_ligne_dediee = True
+                    except Exception:  # noqa: BLE001 — en cas de doute, comportement habituel
+                        pass
                     # 2026-02 fork (P3b) — Emit `whatsapp.received` automation
                     # event. Create a short-lived reply-router token so an admin
                     # can respond via WhatsApp using `#R<code> <reply>` and

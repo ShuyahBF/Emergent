@@ -216,6 +216,7 @@ class AutoreplyConfigPayload(BaseModel):
     brand_maps_url: Optional[str] = Field(None, max_length=500)
     # Lot 21 — Prospects WhatsApp (expéditeurs non contractuels) + bloc « Mode WhatsApp » modifiable
     prospect_enabled: Optional[bool] = None
+    prospect_pub_marquage: Optional[bool] = None   # lot 275 : « Prospect » posé sur les réponses aux publicités Facebook
     prospect_system_prompt: Optional[str] = Field(None, max_length=20000)
     mode_instructions: Optional[str] = Field(None, max_length=4000)
     # Lot 181 — classement des conversations (catégories, une par entrée) et mise en relation avec l'assistant IA
@@ -779,6 +780,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "brand_maps_url": "liluvine_wa_brand_maps_url",
         # Lot 21 — Prospects + bloc « Mode WhatsApp »
         "prospect_enabled": "liluvine_wa_prospect_enabled",
+        "prospect_pub_marquage": "liluvine_wa_prospect_pub_marquage",
         "prospect_system_prompt": "liluvine_wa_prospect_system_prompt",
         "mode_instructions": "liluvine_wa_mode_instructions",
         "consignes_conversation": "liluvine_wa_consignes_conversation",
@@ -821,6 +823,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "brand_maps_url": s.get("liluvine_wa_brand_maps_url") or "",
             # Lot 21 — Prospects (réponse activée par défaut, comme avant le lot)
             "prospect_enabled": s.get("liluvine_wa_prospect_enabled") is not False,
+            "prospect_pub_marquage": s.get("liluvine_wa_prospect_pub_marquage") is not False,
             "prospect_system_prompt": s.get("liluvine_wa_prospect_system_prompt") or "",
             "mode_instructions": s.get("liluvine_wa_mode_instructions") or "",
             "consignes_conversation": s.get("liluvine_wa_consignes_conversation") or "",

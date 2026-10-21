@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "274"
-LOT_LIBELLE = "Liluvine : en dehors des heures de service, l'appel au propriétaire est réservé aux contacts des clients sous contrat (réglable dans Paramètres) ; le message relayé part toujours"
+LOT = "275"
+LOT_LIBELLE = "Liluvine : les contacts qui répondent à une publicité Facebook (clic sur la publicité ou ligne prospects) sont marqués « Prospect » dans le Centre de messagerie, en plus des autres règles (réglable)"

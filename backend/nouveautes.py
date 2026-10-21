@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "275", "date": "2026-10-21",
+        "titre": "🏷️ Prospect posé automatiquement sur les réponses aux publicités",
+        "description": "Quand un contact répond à une publicité Facebook (clic sur une publicité Click-to-WhatsApp, ou message reçu sur la ligne « prospects »), Liluvine le marque « Prospect » dans le Centre de messagerie, en plus des autres règles. Un inconnu reçoit l'étiquette à l'import. Case à cocher dans la rubrique, activée par défaut ; les utilisateurs du système ne sont jamais marqués.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "274", "date": "2026-10-21",
         "titre": "📞 Liluvine n'appelle hors heures que pour les clients sous contrat",
         "description": "En dehors des heures de service, Liluvine n'appelle plus le propriétaire que pour les contacts d'un client/tenant sous contrat (numéro de contrat, accès non suspendu) ; les autres reçoivent seulement le message relayé. Case à cocher dans la rubrique, activée par défaut.",

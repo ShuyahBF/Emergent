@@ -2483,6 +2483,19 @@ async def whatsapp_webhook_incoming(request: Request):
                                 {"id": contact["id"]},
                                 {"$set": patch},
                             )
+                    # Lot 275 — réponse à une publicité Facebook (objet « referral » de Meta ou ligne « prospects ») :
+                    # le contact est marqué « Prospect » dans le Centre de messagerie, en plus des autres règles
+                    _pub_prospect = False
+                    try:
+                        from routes import marquage_prospect_pub as _mpp
+                        from routes.numeros_wa import ligne_recue_prospects as _ligne_prospects
+                        _s_pub = await db.settings.find_one({"_id": "global"}) or {}
+                        if _mpp.actif(_s_pub) and not _sur_ligne_dediee:
+                            _pub_prospect = _mpp.reponse_publicitaire(msg, _ligne_prospects(_s_pub))
+                        if _pub_prospect and contact:
+                            await _mpp.marquer_contact(db, contact.get("id"))
+                    except Exception:  # noqa: BLE001 — le marquage ne bloque jamais la réception
+                        logger.warning("[prospect_pub] marquage impossible", exc_info=True)
                     # Lot 269 — EXPÉDITEUR INCONNU : la trace « à importer » est gardée MÊME SANS nom de profil WhatsApp
                     # (avant, sans nom de profil, le message restait invisible dans le Centre de messagerie : ni fiche,
                     # ni encadré « à importer », ni compteur de non-lus).
@@ -2496,6 +2509,8 @@ async def whatsapp_webhook_incoming(request: Request):
                             _maj_inconnu["wa_profile_name"] = profile_name
                         else:
                             _a_la_creation["wa_profile_name"] = ""
+                        if _pub_prospect:
+                            _maj_inconnu["prospect_pub"] = True      # lot 275 : l'import créera la fiche « prospect »
                         await db.wa_pending_imports.update_one(
                             {"phone_digits": digits_only, "client_id": client_scope},
                             {"$setOnInsert": _a_la_creation, "$set": _maj_inconnu, "$inc": {"messages_count": 1}},

@@ -92,6 +92,7 @@ export default function LiluvineWaAutoreplySection() {
         brand_maps_url: r.data.brand_maps_url || "",
         // Lot 21 — Prospects (expéditeurs non contractuels) + consignes « Mode WhatsApp »
         prospect_enabled: r.data.prospect_enabled !== false,
+        prospect_pub_marquage: r.data.prospect_pub_marquage !== false,   // lot 275
         prospect_system_prompt: r.data.prospect_system_prompt || "",
         mode_instructions: r.data.mode_instructions || "",
         // Lot 184 — consignes de conduite de la conversation (vide = texte par défaut)
@@ -139,6 +140,7 @@ export default function LiluvineWaAutoreplySection() {
         brand_maps_url: form.brand_maps_url || "",
         // Lot 21
         prospect_enabled: !!form.prospect_enabled,
+        prospect_pub_marquage: !!form.prospect_pub_marquage,   // lot 275
         prospect_system_prompt: form.prospect_system_prompt || "",
         mode_instructions: form.mode_instructions || "",
         // Lot 184 : consignes de conversation (vide = texte par défaut)
@@ -363,6 +365,20 @@ export default function LiluvineWaAutoreplySection() {
             data-testid="liluvine-prospect-enabled"
           />
           <strong>Répondre automatiquement aux prospects</strong>
+        </label>
+        {/* Lot 275 : « Prospect » posé automatiquement sur les contacts qui répondent à une publicité Facebook */}
+        <label className="flex items-start gap-2 text-[11px] text-violet-900 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={!!form.prospect_pub_marquage}
+            onChange={(e) => setForm({ ...form, prospect_pub_marquage: e.target.checked })}
+            data-testid="liluvine-prospect-pub-marquage"
+          />
+          <span>
+            <strong>Marquer « Prospect » les contacts qui répondent à une publicité Facebook</strong>
+            <span className="block text-violet-800/80">Clic sur une publicité Click-to-WhatsApp, ou message reçu sur la ligne « prospects ». L’étiquette apparaît dans le Centre de messagerie ; les utilisateurs du système ne sont jamais marqués.</span>
+          </span>
         </label>
         <div className="flex items-center justify-between">
           <span className="text-[10px] uppercase tracking-wider font-semibold text-violet-900">Prompt système des prospects</span>

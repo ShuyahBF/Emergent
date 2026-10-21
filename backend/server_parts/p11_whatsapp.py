@@ -953,6 +953,9 @@ async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest,
                 {"$set": {"contact_id": existing["id"], "contact_name": existing.get("name")}},
             )
             await db.wa_pending_imports.delete_many({"phone_digits": {"$regex": rx}, "client_id": {"$in": visible_scope}})
+        if pending.get("prospect_pub"):
+            from routes.marquage_prospect_pub import marquer_contact   # lot 275
+            await marquer_contact(db, existing.get("id"))
         await db.wa_pending_imports.delete_one({"id": pending_id})
         return {"ok": True, "already_present": True, "contact": existing}
     new_id = _uuid()
@@ -966,7 +969,7 @@ async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest,
         "email": (payload.email or "").strip(),
         "company": (payload.company or "").strip(),
         "notes": f"Importé depuis WhatsApp ({pending.get('messages_count', 0)} message(s) reçu(s))",
-        "tags": ["wa-import"],
+        "tags": ["wa-import", "prospect"] if pending.get("prospect_pub") else ["wa-import"],   # lot 275 : réponse à une publicité
         "shared": False,
         "photo_url": None,
         "wa_profile_name": pending.get("wa_profile_name"),

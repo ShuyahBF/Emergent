@@ -775,7 +775,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         m = await membre(emetteur["code"], d.utilisateur)
         existante = m.get("archives_cle") or {}
         if not existante or existante.get("verif") != d.verif_actuelle:
-            raise HTTPException(status_code=403, detail="Jeton de contrôle incorrect")
+            raise HTTPException(status_code=409, detail="Jeton de contrôle incorrect")   # 409 : le 403 est réservé aux plateformes non autorisées
         maj = {"archives_cle.enveloppe": d.enveloppe}
         if d.secours:
             maj["archives_cle.secours"] = d.secours

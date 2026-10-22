@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "277.1", "date": "2026-10-22",
+        "titre": "🗄️ Archives auRor : refus du mauvais jeton plus clair",
+        "description": "Correction du lot 277 : le remplacement de la clé des archives avec un mauvais jeton de contrôle est refusé par un code compréhensible par auRor (409 au lieu de 403). Rien à régler.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "277", "date": "2026-10-22",
         "titre": "🗄️ Archives auRor : espace en ligne gratuit et code de secours",
         "description": "Les documents des utilisateurs d'auRor ne dépendent plus de la mémoire du navigateur : tout utilisateur dispose d'un espace en ligne chiffré gratuit (50 Mo et 30 documents par défaut, réglables ici). La clé de chiffrement est protégée par la phrase secrète ET par un code de secours : sans le serveur ni SAWALI qui puissent lire.",

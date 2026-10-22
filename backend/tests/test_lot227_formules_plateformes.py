@@ -767,7 +767,7 @@ def test_archives_enveloppes_phrase_et_code_de_secours(env, archives_stock):
     e = arch(env, "etat", u).json()
     assert e["enveloppe"] == ENV1 and e["secours"] == SEC1 and e["verif"] == VERIF
     # nouvelle phrase (après usage du code de secours) : exige le jeton de contrôle actuel
-    assert arch(env, "enveloppes", u, verif_actuelle="X" * 40, enveloppe=ENV2).status_code == 403
+    assert arch(env, "enveloppes", u, verif_actuelle="X" * 40, enveloppe=ENV2).status_code == 409
     assert arch(env, "enveloppes", u, verif_actuelle=VERIF, enveloppe=ENV2).status_code == 200
     e = arch(env, "etat", u).json()
     assert e["enveloppe"] == ENV2 and e["secours"] == SEC1                                  # le secours n'a pas bougé
@@ -778,4 +778,4 @@ def test_archives_enveloppes_phrase_et_code_de_secours(env, archives_stock):
     assert arch(env, "enveloppes", v, verif_actuelle=VERIF, enveloppe=ENV1, secours=SEC1).status_code == 200
     assert arch(env, "etat", v).json()["secours"] == SEC1
     # inconnu : pas de clé enregistrée
-    assert arch(env, "enveloppes", U("u7", "70 44 44 44"), verif_actuelle=VERIF, enveloppe=ENV1).status_code == 403
+    assert arch(env, "enveloppes", U("u7", "70 44 44 44"), verif_actuelle=VERIF, enveloppe=ENV1).status_code == 409

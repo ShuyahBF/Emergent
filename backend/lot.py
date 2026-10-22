@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "277"
+LOT = "277.1"
 LOT_LIBELLE = "Archives auRor : espace en ligne gratuit pour tous (50 Mo, 30 documents, réglable), clé des documents protégée par la phrase ET par un code de secours (le serveur ne peut rien lire)"

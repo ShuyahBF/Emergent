@@ -779,3 +779,66 @@ def test_archives_enveloppes_phrase_et_code_de_secours(env, archives_stock):
     assert arch(env, "etat", v).json()["secours"] == SEC1
     # inconnu : pas de clé enregistrée
     assert arch(env, "enveloppes", U("u7", "70 44 44 44"), verif_actuelle=VERIF, enveloppe=ENV1).status_code == 409
+
+
+# ── Lot 278 : code PIN / phrase courte, essais limités côté serveur ─────────────────────────
+PREUVE = "P" * 43 + "="
+AUTRE = "Q" * 43 + "="
+
+
+def test_archives_pin_enregistrer_ouvrir_et_poivre(env):
+    u = U()
+    r = arch(env, "pin/enregistrer", u, preuve=PREUVE, type_secret="pin")
+    assert r.status_code == 200 and len(r.json()["poivre"]) == 44
+    poivre = r.json()["poivre"]
+    assert arch(env, "etat", u).json()["pin"] == "pin"
+    o = arch(env, "pin/ouvrir", u, preuve=PREUVE)
+    assert o.status_code == 200 and o.json()["poivre"] == poivre                    # même poivre à chaque bonne ouverture
+    # poivre propre à chaque utilisateur, même avec la même preuve (même code)
+    v = U("u2", "70 99 99 99")
+    assert arch(env, "pin/enregistrer", v, preuve=PREUVE).json()["poivre"] != poivre
+    # sans enregistrement : 404
+    assert arch(env, "pin/ouvrir", U("u3", "70 33 33 33"), preuve=PREUVE).status_code == 404
+
+
+def test_archives_pin_pause_apres_cinq_essais_puis_secours_apres_dix(env):
+    u = U()
+    arch(env, "pin/enregistrer", u, preuve=PREUVE)
+    for restant in (4, 3, 2, 1):
+        r = arch(env, "pin/ouvrir", u, preuve=AUTRE)
+        assert r.status_code == 409 and f"{restant} essai" in r.json()["detail"]
+    r = arch(env, "pin/ouvrir", u, preuve=AUTRE)
+    assert r.status_code == 429 and "15 min" in r.json()["detail"]                  # 5e échec : pause
+    assert arch(env, "pin/ouvrir", u, preuve=PREUVE).status_code == 429             # même la bonne preuve est refusée pendant la pause
+    # fin de la pause : la bonne preuve passe et remet les compteurs à zéro
+    env.portal.call(env.db.membres_plateformes.update_many, {}, {"$set": {"archives_pin.bloque_jusqu": "2000-01-01T00:00:00+00:00"}})
+    assert arch(env, "pin/ouvrir", u, preuve=PREUVE).status_code == 200
+    # 10 échecs sans réussite entre deux : code de secours nécessaire, même avec la bonne preuve
+    for _ in range(10):
+        env.portal.call(env.db.membres_plateformes.update_many, {}, {"$set": {"archives_pin.bloque_jusqu": None}})
+        arch(env, "pin/ouvrir", u, preuve=AUTRE)
+    r = arch(env, "pin/ouvrir", u, preuve=PREUVE)
+    assert r.status_code == 429 and "code de secours" in r.json()["detail"]
+
+
+def test_archives_pin_remplacement_exige_le_jeton_et_change_le_poivre(env):
+    u = U()
+    arch(env, "cle", u, sel=SEL, verif=VERIF)
+    assert arch(env, "pin/enregistrer", u, preuve=PREUVE).status_code == 409                        # archives existantes : jeton obligatoire
+    assert arch(env, "pin/enregistrer", u, preuve=PREUVE, verif_actuelle="X" * 40).status_code == 409
+    p1 = arch(env, "pin/enregistrer", u, preuve=PREUVE, verif_actuelle=VERIF).json()["poivre"]
+    # après des échecs (récupération par le code de secours) : nouvelle preuve, compteurs remis à zéro, poivre renouvelé
+    for _ in range(3):
+        arch(env, "pin/ouvrir", u, preuve=AUTRE)
+    p2 = arch(env, "pin/enregistrer", u, preuve=AUTRE, type_secret="phrase", verif_actuelle=VERIF).json()["poivre"]
+    assert p2 != p1 and arch(env, "etat", u).json()["pin"] == "phrase"
+    assert arch(env, "pin/ouvrir", u, preuve=AUTRE).json()["poivre"] == p2
+    assert arch(env, "pin/ouvrir", u, preuve=PREUVE).status_code == 409                              # l'ancienne preuve ne passe plus
+
+
+def test_archives_pin_preuve_jamais_gardee_en_clair(env):
+    u = U()
+    arch(env, "pin/enregistrer", u, preuve=PREUVE)
+    doc = env.portal.call(env.db.membres_plateformes.find_one, {"utilisateur_id": u["id"]}, {"_id": 0})
+    assert PREUVE not in json.dumps(doc) and len(doc["archives_pin"]["preuve_hash"]) == 64
+    assert arch(env, "pin/enregistrer", u, preuve="trop court").status_code == 422

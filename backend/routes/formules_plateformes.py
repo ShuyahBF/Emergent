@@ -33,8 +33,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
+import hmac
 import json
 import logging
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -79,6 +82,9 @@ FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiqu
 FONCTIONS["cartes_virtuelles"] = "Cartes virtuelles (voeux illustrés par l'IA, envoyés par WhatsApp)"   # lot 242
 FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
 ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
+PIN_ESSAIS_AVANT_PAUSE = 5                # lot 278 : essais de code/phrase ratés de suite avant une pause
+PIN_PAUSE_MINUTES = 15                    # lot 278 : durée de la pause
+PIN_ECHECS_AVANT_SECOURS = 10             # lot 278 : échecs sans réussite entre deux : le code de secours devient nécessaire
 ARCHIVES_GRATUIT_MO_DEFAUT = 50           # lot 277 : espace en ligne OFFERT à tout utilisateur sans abonnement, en Mo (réglable)
 ARCHIVES_GRATUIT_NOMBRE_DEFAUT = 30       # lot 277 : nombre de documents en ligne offerts sans abonnement (réglable)
 ARCHIVE_FICHIER_MAX = 8_000_000           # octets d'un document chiffré (le site réduit les photos avant de chiffrer)
@@ -172,6 +178,20 @@ class ArchiveCleIn(BaseModel):
     verif: str = Field(..., min_length=16, max_length=600)
     enveloppe: Optional[str] = Field(None, min_length=16, max_length=800)
     secours: Optional[str] = Field(None, min_length=16, max_length=800)
+
+
+class ArchivePinEnregistrerIn(BaseModel):
+    """Lot 278 — enregistre la PREUVE du code PIN / de la phrase (une empreinte dérivée, jamais le code lui-même) : le serveur limite ensuite
+    les essais et ne rend son élément secret (« poivre ») qu'à la bonne preuve. `verif_actuelle` : obligatoire si des archives existent déjà."""
+    utilisateur: Utilisateur
+    preuve: str = Field(..., min_length=40, max_length=64)
+    type_secret: str = Field("pin", pattern="^(pin|phrase)$")
+    verif_actuelle: Optional[str] = Field(None, min_length=16, max_length=600)
+
+
+class ArchivePinOuvrirIn(BaseModel):
+    utilisateur: Utilisateur
+    preuve: str = Field(..., min_length=40, max_length=64)
 
 
 class ArchiveEnveloppesIn(BaseModel):
@@ -742,6 +762,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         # Lot 277 : sans abonnement, l'espace offert s'applique (quota et nombre de documents) ; abonné : l'espace de la formule
         return {"abonne": abonne, "sel": cle.get("sel"), "verif": cle.get("verif"),
                 "enveloppe": cle.get("enveloppe"), "secours": cle.get("secours"),
+                "pin": (m.get("archives_pin") or {}).get("type"),     # lot 278 : "pin" | "phrase" si le serveur contrôle les essais, sinon None
                 "quota_octets": await reglage_archives_octets() if abonne else gratuit_octets,
                 "nombre_max": None if abonne else gratuit_nombre,
                 "utilise_octets": utilise, "nombre": n, "fichier_max_octets": ARCHIVE_FICHIER_MAX}
@@ -765,6 +786,67 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             cle["secours"] = d.secours              # lot 277 : clé des documents chiffrée par le code de secours
         await db.membres_plateformes.update_one({"id": m["id"], "archives_cle": {"$exists": False}}, {"$set": {"archives_cle": cle}})
         return {"ok": True}
+
+    # ---- Lot 278 : code PIN ou phrase COURTE, protégés par une limite d'essais côté serveur ----------------------------------------
+    # Un code de 4 chiffres n'offre que 10 000 possibilités : seul, il serait deviné en quelques minutes par qui détiendrait les données.
+    # Le serveur garde donc, hors de la base, un secret (variable d'environnement ARCHIVES_SECRET_SERVEUR, à défaut dérivé de JWT_SECRET) dont il
+    # tire un « poivre » propre à chaque utilisateur ; la clé qui ouvre les documents est protégée par (code + poivre). Le poivre n'est rendu qu'à
+    # la bonne preuve du code : 5 essais ratés = 15 min de pause ; 10 échecs = le code de secours devient nécessaire. Le serveur ne connaît ni le
+    # code ni la clé des documents et ne peut pas les lire. Limite honnête : si la base ET ce secret du serveur sont volés ensemble, un code court
+    # peut être deviné (un code de secours ou une phrase longue restent hors de portée).
+    def poivre_archives(m: dict, sel_serveur: str) -> str:
+        secret = (os.environ.get("ARCHIVES_SECRET_SERVEUR") or (os.environ.get("JWT_SECRET", "") + "-archives")).encode()
+        return base64.b64encode(hmac.new(secret, f"{m['id']}|{sel_serveur}".encode(), hashlib.sha256).digest()).decode("ascii")
+
+    def empreinte_preuve(preuve: str) -> str:
+        return hashlib.sha256(preuve.encode("ascii", "ignore")).hexdigest()
+
+    @router.post("/formules-plateformes/archives/pin/enregistrer")
+    async def archives_pin_enregistrer(request: Request):
+        """Enregistre (ou remplace, après récupération par le code de secours ou changement) la preuve du code. Rend le poivre."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchivePinEnregistrerIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        existante = m.get("archives_cle")
+        if existante and existante.get("verif") != d.verif_actuelle:
+            raise HTTPException(status_code=409, detail="Jeton de contrôle incorrect")       # 409 : le 403 est réservé aux plateformes non autorisées
+        sel_serveur = secrets.token_hex(16)                                                    # nouveau sel serveur : le poivre change à chaque (ré)enregistrement
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {"archives_pin": {
+            "preuve_hash": empreinte_preuve(d.preuve), "sel_serveur": sel_serveur, "type": d.type_secret,
+            "essais": 0, "echecs": 0, "bloque_jusqu": None}}})
+        return {"ok": True, "poivre": poivre_archives(m, sel_serveur)}
+
+    @router.post("/formules-plateformes/archives/pin/ouvrir")
+    async def archives_pin_ouvrir(request: Request):
+        """Contrôle la preuve du code : bonne = rend le poivre ; mauvaise = compte l'essai (pause après 5, code de secours après 10)."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchivePinOuvrirIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        pin = m.get("archives_pin")
+        if not pin:
+            raise HTTPException(status_code=404, detail="Aucun code enregistré pour vos archives")
+        if int(pin.get("echecs") or 0) >= PIN_ECHECS_AVANT_SECOURS:
+            raise HTTPException(status_code=429, detail="Trop d'essais ratés : utilisez votre code de secours pour rouvrir vos archives")
+        maintenant = _maintenant()
+        bloque = pin.get("bloque_jusqu")
+        if bloque and datetime.fromisoformat(bloque) > maintenant:
+            minutes = max(1, int((datetime.fromisoformat(bloque) - maintenant).total_seconds() // 60) + 1)
+            raise HTTPException(status_code=429, detail=f"Trop d'essais : réessayez dans {minutes} min (ou utilisez votre code de secours)")
+        if hmac.compare_digest(empreinte_preuve(d.preuve), pin["preuve_hash"]):
+            await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {"archives_pin.essais": 0, "archives_pin.echecs": 0, "archives_pin.bloque_jusqu": None}})
+            return {"ok": True, "poivre": poivre_archives(m, pin["sel_serveur"])}
+        essais, echecs = int(pin.get("essais") or 0) + 1, int(pin.get("echecs") or 0) + 1
+        maj = {"archives_pin.essais": essais, "archives_pin.echecs": echecs}
+        if essais >= PIN_ESSAIS_AVANT_PAUSE:
+            maj["archives_pin.essais"] = 0
+            maj["archives_pin.bloque_jusqu"] = _iso(maintenant + timedelta(minutes=PIN_PAUSE_MINUTES))
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": maj})
+        if echecs >= PIN_ECHECS_AVANT_SECOURS:
+            raise HTTPException(status_code=429, detail="Trop d'essais ratés : utilisez votre code de secours pour rouvrir vos archives")
+        if essais >= PIN_ESSAIS_AVANT_PAUSE:
+            raise HTTPException(status_code=429, detail=f"Trop d'essais : réessayez dans {PIN_PAUSE_MINUTES} min (ou utilisez votre code de secours)")
+        restants = PIN_ESSAIS_AVANT_PAUSE - essais
+        raise HTTPException(status_code=409, detail=f"Code ou phrase incorrect ({restants} essai{'s' if restants > 1 else ''} avant une pause)")
 
     @router.post("/formules-plateformes/archives/enveloppes")
     async def archives_enveloppes(request: Request):

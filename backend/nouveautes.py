@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "278", "date": "2026-10-22",
+        "titre": "🔢 Archives auRor : code PIN ou phrase courte, essais limités",
+        "description": "Les utilisateurs d'auRor peuvent protéger leurs archives par un code PIN (4 chiffres ou plus) ou une phrase courte. Pour que ce soit sûr, le serveur limite les essais : 5 essais ratés = 15 minutes de pause, 10 échecs = le code de secours devient nécessaire. Le serveur ne peut toujours rien lire. Facultatif : définir ARCHIVES_SECRET_SERVEUR sur Render (sinon dérivé de JWT_SECRET).",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "277.1", "date": "2026-10-22",
         "titre": "🗄️ Archives auRor : refus du mauvais jeton plus clair",
         "description": "Correction du lot 277 : le remplacement de la clé des archives avec un mauvais jeton de contrôle est refusé par un code compréhensible par auRor (409 au lieu de 403). Rien à régler.",

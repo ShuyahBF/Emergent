@@ -842,3 +842,66 @@ def test_archives_pin_preuve_jamais_gardee_en_clair(env):
     doc = env.portal.call(env.db.membres_plateformes.find_one, {"utilisateur_id": u["id"]}, {"_id": 0})
     assert PREUVE not in json.dumps(doc) and len(doc["archives_pin"]["preuve_hash"]) == 64
     assert arch(env, "pin/enregistrer", u, preuve="trop court").status_code == 422
+
+
+# ── Lot 280 : modifier un document archivé (nouvelle image) avec le code PIN / la phrase obligatoire ──────────────
+def _doc(env, u, octets=b"d" * 100):
+    arch(env, "cle", u, sel=SEL, verif=VERIF)
+    return arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(octets).decode()).json()["id"]
+
+
+def test_modifier_exige_le_code_quand_il_existe_et_limite_les_essais(env, archives_stock):
+    u = U()
+    aid = _doc(env, u)
+    arch(env, "pin/enregistrer", u, preuve=PREUVE, verif_actuelle=VERIF)
+    nouvelle = "N" * 48
+    r = arch(env, "modifier", u, id=aid, meta=nouvelle)
+    assert r.status_code == 409 and "code PIN" in r.json()["detail"]                                     # sans preuve : refusé
+    r = arch(env, "modifier", u, id=aid, meta=nouvelle, preuve=AUTRE)
+    assert r.status_code == 409 and "4 essai" in r.json()["detail"]                                      # mauvaise preuve : essai compté
+    assert arch(env, "liste", u).json()["archives"][0]["meta"] == META                                  # rien n'a changé
+    assert arch(env, "modifier", u, id=aid, meta=nouvelle, preuve=PREUVE).status_code == 200
+    assert arch(env, "liste", u).json()["archives"][0]["meta"] == nouvelle
+    # 5 mauvaises preuves : pause ; même la bonne est refusée
+    for _ in range(5):
+        arch(env, "modifier", u, id=aid, meta=nouvelle, preuve=AUTRE)
+    assert arch(env, "modifier", u, id=aid, meta=nouvelle, preuve=PREUVE).status_code == 429
+
+
+def test_modifier_sans_code_enregistre_reste_possible_comme_avant(env, archives_stock):
+    u = U()
+    aid = _doc(env, u)                                                                                    # anciennes archives : pas de code côté serveur
+    assert arch(env, "modifier", u, id=aid, meta="N" * 48).status_code == 200
+
+
+def test_remplacer_l_image_d_un_document(env, archives_stock):
+    u = U()
+    aid = _doc(env, u, b"a" * 100)
+    arch(env, "pin/enregistrer", u, preuve=PREUVE, verif_actuelle=VERIF)
+    ancien_chemin = list(archives_stock)[0]
+    nouveau = bytes(range(250))
+    r = arch(env, "modifier", u, id=aid, meta="N" * 48, preuve=PREUVE, contenu=_b64.b64encode(nouveau).decode())
+    assert r.status_code == 200 and r.json()["taille"] == 250
+    assert list(archives_stock.values()) == [nouveau] and ancien_chemin not in archives_stock          # ancien objet effacé, nouveau gardé tel quel
+    dl = arch(env, "telecharger", u, id=aid).json()
+    assert _b64.b64decode(dl["contenu"]) == nouveau and dl["meta"] == "N" * 48
+    e = arch(env, "etat", u).json()
+    assert e["utilise_octets"] == 250 and e["nombre"] == 1                                              # même document, jamais de doublon
+    # sans la preuve : l'image n'est PAS remplacée
+    assert arch(env, "modifier", u, id=aid, meta="M" * 48, contenu=_b64.b64encode(b"x" * 50).decode()).status_code == 409
+    assert _b64.b64decode(arch(env, "telecharger", u, id=aid).json()["contenu"]) == nouveau
+
+
+def test_remplacer_l_image_limites_de_taille_et_d_espace(env, archives_stock):
+    u = U()
+    aid = _doc(env, u, b"a" * 100)
+    assert arch(env, "modifier", u, id=aid, meta="N" * 48, contenu="@@@@" * 20).status_code == 422
+    gros = _b64.b64encode(b"g" * (fp.ARCHIVE_FICHIER_MAX + 1)).decode()
+    assert arch(env, "modifier", u, id=aid, meta="N" * 48, contenu=gros).status_code == 413
+    # espace gratuit de 1 Mo : plus gros que l'ancien et hors espace = refusé avec le prix ; plus petit = toujours permis
+    formule(env, nom="Archives", prix=2000, fonctions=["archives_cloud"])
+    env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_mo": 1})
+    r = arch(env, "modifier", u, id=aid, meta="N" * 48, contenu=_b64.b64encode(b"q" * 1_500_000).decode())
+    assert r.status_code == 402 and "Espace gratuit atteint" in r.json()["detail"]["message"]
+    assert arch(env, "modifier", u, id=aid, meta="N" * 48, contenu=_b64.b64encode(b"p" * 40).decode()).status_code == 200
+    assert list(archives_stock.values()) == [b"p" * 40]

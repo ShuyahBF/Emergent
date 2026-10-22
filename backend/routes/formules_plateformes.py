@@ -79,6 +79,8 @@ FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiqu
 FONCTIONS["cartes_virtuelles"] = "Cartes virtuelles (voeux illustrés par l'IA, envoyés par WhatsApp)"   # lot 242
 FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
 ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
+ARCHIVES_GRATUIT_MO_DEFAUT = 50           # lot 277 : espace en ligne OFFERT à tout utilisateur sans abonnement, en Mo (réglable)
+ARCHIVES_GRATUIT_NOMBRE_DEFAUT = 30       # lot 277 : nombre de documents en ligne offerts sans abonnement (réglable)
 ARCHIVE_FICHIER_MAX = 8_000_000           # octets d'un document chiffré (le site réduit les photos avant de chiffrer)
 ARCHIVE_META_MAX = 6000                   # caractères des informations chiffrées d'un document (titre, catégorie, étiquettes…)
 FONCTION_OCR = "ocr_ordonnances"          # une seule fonction débloque toutes les lectures OCR
@@ -162,10 +164,23 @@ class PispiConfirmationIn(BaseModel):
 
 
 class ArchiveCleIn(BaseModel):
-    """Sel public et jeton de contrôle de la phrase secrète (jamais la phrase elle-même, jamais la clé)."""
+    """Sel public et jeton de contrôle de la phrase secrète (jamais la phrase elle-même, jamais la clé).
+    Lot 277 : `enveloppe` et `secours` = la clé des documents CHIFFRÉE (par la phrase, par le code de secours) : octets illisibles
+    pour le serveur, qui ne peut ni les ouvrir ni retrouver la clé."""
     utilisateur: Utilisateur
     sel: str = Field(..., min_length=16, max_length=64)
     verif: str = Field(..., min_length=16, max_length=600)
+    enveloppe: Optional[str] = Field(None, min_length=16, max_length=800)
+    secours: Optional[str] = Field(None, min_length=16, max_length=800)
+
+
+class ArchiveEnveloppesIn(BaseModel):
+    """Lot 277 : remplace l'enveloppe (nouvelle phrase secrète) et/ou le secours. `verif_actuelle` = jeton de contrôle déjà enregistré :
+    seul un appareil qui a ouvert les archives le connaît (le jeton est renvoyé par « etat » mais ne suffit pas à lire les documents)."""
+    utilisateur: Utilisateur
+    verif_actuelle: str = Field(..., min_length=16, max_length=600)
+    enveloppe: str = Field(..., min_length=16, max_length=800)
+    secours: Optional[str] = Field(None, min_length=16, max_length=800)
 
 
 class ArchiveAjoutIn(BaseModel):
@@ -245,6 +260,8 @@ class ReglagesIn(BaseModel):
     ocr_par_jour: Optional[int] = Field(None, ge=1, le=500)   # lectures OCR par jour et par utilisateur
     voix_par_jour: Optional[int] = Field(None, ge=1, le=200)  # notes vocales transcrites par jour et par utilisateur
     archives_mo: Optional[int] = Field(None, ge=10, le=5000)  # espace d'archives en ligne par utilisateur, en Mo
+    archives_gratuit_mo: Optional[int] = Field(None, ge=0, le=1000)      # lot 277 : espace en ligne offert sans abonnement, en Mo
+    archives_gratuit_nombre: Optional[int] = Field(None, ge=0, le=1000)  # lot 277 : documents en ligne offerts sans abonnement
     cartes_par_jour: Optional[int] = Field(None, ge=1, le=100)  # lot 242 : images de cartes générées par jour et par utilisateur
 
 
@@ -294,7 +311,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         s = await db.settings.find_one({"_id": "global"}, {"transcription_plateformes_par_jour": 1}) or {}
         return int(s.get("transcription_plateformes_par_jour") or VOIX_PAR_JOUR_DEFAUT)
 
-    async def exiger_abonnement(plateforme: str, m: dict, fonction: str, nom_service: str, libre: bool = False) -> None:
+    async def exiger_abonnement(plateforme: str, m: dict, fonction: str, nom_service: str, libre: bool = False, refus: Optional[str] = None) -> None:
         """Refus 402 sans abonnement actif qui débloque `fonction` : le message donne le NOM et le PRIX de la formule la moins chère.
         `libre` = super-administrateur dispensé d'abonnement (les limites par jour restent appliquées)."""
         if libre or acces_fonction(m, fonction):
@@ -303,10 +320,11 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         if formules:
             f = formules[0]
             prix = f"{int(f['prix']):,}".replace(",", " ")
-            message = f"{nom_service} réservée aux abonnés. Formule « {f['nom']} » : {prix} FCFA pour {f.get('duree_jours') or DUREE_DEFAUT} jours."
+            message = f"{refus or nom_service + ' réservée aux abonnés.'} Formule « {f['nom']} » : {prix} FCFA pour {f.get('duree_jours') or DUREE_DEFAUT} jours."
             formule = {"id": f["id"], "nom": f["nom"], "prix": f["prix"], "duree_jours": f.get("duree_jours") or DUREE_DEFAUT}
         else:
-            message, formule = f"{nom_service} réservée aux abonnés : aucune formule n'est proposée pour le moment.", None
+            message = f"{refus} Aucune formule n'est proposée pour le moment." if refus else f"{nom_service} réservée aux abonnés : aucune formule n'est proposée pour le moment."
+            formule = None
         raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": message, "formule": formule})
 
     def acces_fonction(m: dict, fonction: str) -> Optional[str]:
@@ -691,6 +709,15 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         s = await db.settings.find_one({"_id": "global"}, {"archives_plateformes_mo": 1}) or {}
         return int(s.get("archives_plateformes_mo") or ARCHIVES_MO_DEFAUT) * 1_000_000
 
+    async def reglage_archives_gratuit() -> tuple:
+        """Lot 277 — (octets, nombre de documents) offerts à tout utilisateur SANS abonnement : ses papiers importants ne doivent pas
+        dépendre de la mémoire d'un navigateur."""
+        s = await db.settings.find_one({"_id": "global"}, {"archives_gratuit_mo": 1, "archives_gratuit_nombre": 1}) or {}
+        mo = s.get("archives_gratuit_mo")
+        nb = s.get("archives_gratuit_nombre")
+        return (int(ARCHIVES_GRATUIT_MO_DEFAUT if mo is None else mo) * 1_000_000,
+                int(ARCHIVES_GRATUIT_NOMBRE_DEFAUT if nb is None else nb))
+
     async def usage_archives(m: dict) -> tuple:
         """(octets utilisés, nombre de documents) d'un utilisateur : une seule lecture."""
         octets, n = 0, 0
@@ -710,8 +737,14 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         m = await membre(emetteur["code"], d.utilisateur)
         utilise, n = await usage_archives(m)
         cle = m.get("archives_cle") or {}
-        return {"abonne": bool(d.utilisateur.acces_libre or acces_fonction(m, FONCTION_ARCHIVES)), "sel": cle.get("sel"), "verif": cle.get("verif"),
-                "quota_octets": await reglage_archives_octets(), "utilise_octets": utilise, "nombre": n, "fichier_max_octets": ARCHIVE_FICHIER_MAX}
+        abonne = bool(d.utilisateur.acces_libre or acces_fonction(m, FONCTION_ARCHIVES))
+        gratuit_octets, gratuit_nombre = await reglage_archives_gratuit()
+        # Lot 277 : sans abonnement, l'espace offert s'applique (quota et nombre de documents) ; abonné : l'espace de la formule
+        return {"abonne": abonne, "sel": cle.get("sel"), "verif": cle.get("verif"),
+                "enveloppe": cle.get("enveloppe"), "secours": cle.get("secours"),
+                "quota_octets": await reglage_archives_octets() if abonne else gratuit_octets,
+                "nombre_max": None if abonne else gratuit_nombre,
+                "utilise_octets": utilise, "nombre": n, "fichier_max_octets": ARCHIVE_FICHIER_MAX}
 
     @router.post("/formules-plateformes/archives/cle")
     async def archives_cle(request: Request):
@@ -725,7 +758,28 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             if existante.get("sel") == d.sel:
                 return {"ok": True}
             raise HTTPException(status_code=409, detail="Une phrase secrète est déjà enregistrée pour vos archives")
-        await db.membres_plateformes.update_one({"id": m["id"], "archives_cle": {"$exists": False}}, {"$set": {"archives_cle": {"sel": d.sel, "verif": d.verif}}})
+        cle = {"sel": d.sel, "verif": d.verif}
+        if d.enveloppe:
+            cle["enveloppe"] = d.enveloppe          # lot 277 : clé des documents chiffrée par la phrase
+        if d.secours:
+            cle["secours"] = d.secours              # lot 277 : clé des documents chiffrée par le code de secours
+        await db.membres_plateformes.update_one({"id": m["id"], "archives_cle": {"$exists": False}}, {"$set": {"archives_cle": cle}})
+        return {"ok": True}
+
+    @router.post("/formules-plateformes/archives/enveloppes")
+    async def archives_enveloppes(request: Request):
+        """Lot 277 — enregistre ou remplace l'enveloppe (nouvelle phrase choisie après usage du code de secours, ou mise à niveau d'une
+        ancienne clé) et le secours. Les documents ne changent pas : seule la façon d'ouvrir leur clé change."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveEnveloppesIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        existante = m.get("archives_cle") or {}
+        if not existante or existante.get("verif") != d.verif_actuelle:
+            raise HTTPException(status_code=403, detail="Jeton de contrôle incorrect")
+        maj = {"archives_cle.enveloppe": d.enveloppe}
+        if d.secours:
+            maj["archives_cle.secours"] = d.secours
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": maj})
         return {"ok": True}
 
     @router.post("/formules-plateformes/archives/liste")
@@ -742,7 +796,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         emetteur, corps = await plateforme_signee(request)
         d = lire(ArchiveAjoutIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
-        await exiger_abonnement(emetteur["code"], m, FONCTION_ARCHIVES, "Archives en ligne", d.utilisateur.acces_libre)
+        abonne = bool(d.utilisateur.acces_libre or acces_fonction(m, FONCTION_ARCHIVES))
         if not m.get("archives_cle"):
             raise HTTPException(status_code=409, detail="Choisissez d'abord la phrase secrète de vos archives")
         try:
@@ -751,10 +805,17 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             raise HTTPException(status_code=422, detail="Document illisible")
         if len(octets) > ARCHIVE_FICHIER_MAX:
             raise HTTPException(status_code=413, detail=f"Document trop volumineux : {ARCHIVE_FICHIER_MAX // 1_000_000} Mo au plus")
-        utilise, _ = await usage_archives(m)
-        quota = await reglage_archives_octets()
-        if utilise + len(octets) > quota:
-            raise HTTPException(status_code=413, detail=f"Espace d'archives plein ({quota // 1_000_000} Mo) : supprimez des documents ou demandez plus d'espace")
+        utilise, nombre = await usage_archives(m)
+        if abonne:
+            quota = await reglage_archives_octets()
+            if utilise + len(octets) > quota:
+                raise HTTPException(status_code=413, detail=f"Espace d'archives plein ({quota // 1_000_000} Mo) : supprimez des documents ou demandez plus d'espace")
+        else:
+            # Lot 277 : sans abonnement, l'espace offert s'applique ; au-delà, refus 402 avec le prix de la formule
+            gratuit_octets, gratuit_nombre = await reglage_archives_gratuit()
+            if nombre >= gratuit_nombre or utilise + len(octets) > gratuit_octets:
+                await exiger_abonnement(emetteur["code"], m, FONCTION_ARCHIVES, "Archives en ligne", False,
+                                        refus=f"Espace gratuit atteint ({gratuit_octets // 1_000_000} Mo ou {gratuit_nombre} documents).")
         archive_id = str(uuid.uuid4())
         chemin = chemin_archive(m, archive_id)
         if _ecrire_archive:
@@ -942,6 +1003,8 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
                 "ocr_par_jour": await reglage_ocr_par_jour(), "voix_par_jour": await reglage_voix_par_jour(),
                 "cartes_par_jour": await reglage_cartes_par_jour(),
                 "archives_mo": (await reglage_archives_octets()) // 1_000_000,
+                "archives_gratuit_mo": (await reglage_archives_gratuit())[0] // 1_000_000,
+                "archives_gratuit_nombre": (await reglage_archives_gratuit())[1],
                 "pispi_demandes": await db.payments.count_documents({"flow": "formule_plateforme", "methode": "pispi", "status": {"$in": list(STATUTS_PISPI_OUVERTS)}}),
                 "pawapay_actif": bool((await db.settings.find_one({"_id": "global"}, {"pawapay_enabled": 1}) or {}).get("pawapay_enabled"))}
 
@@ -986,12 +1049,18 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             maj["transcription_plateformes_par_jour"] = r.voix_par_jour
         if r.archives_mo is not None:
             maj["archives_plateformes_mo"] = r.archives_mo
+        if r.archives_gratuit_mo is not None:
+            maj["archives_gratuit_mo"] = r.archives_gratuit_mo
+        if r.archives_gratuit_nombre is not None:
+            maj["archives_gratuit_nombre"] = r.archives_gratuit_nombre
         if r.cartes_par_jour is not None:
             maj["cartes_plateformes_par_jour"] = r.cartes_par_jour
         await db.settings.update_one({"_id": "global"}, {"$set": maj}, upsert=True)
         return {"ok": True, "parrainage_jours": r.parrainage_jours, "ocr_par_jour": await reglage_ocr_par_jour(),
                 "voix_par_jour": await reglage_voix_par_jour(), "cartes_par_jour": await reglage_cartes_par_jour(),
-                "archives_mo": (await reglage_archives_octets()) // 1_000_000}
+                "archives_mo": (await reglage_archives_octets()) // 1_000_000,
+                "archives_gratuit_mo": (await reglage_archives_gratuit())[0] // 1_000_000,
+                "archives_gratuit_nombre": (await reglage_archives_gratuit())[1]}
 
     # Outils partagés avec le module des annonceurs (lot 235) : signature des plateformes, fiche membre, lecture des corps
     from types import SimpleNamespace

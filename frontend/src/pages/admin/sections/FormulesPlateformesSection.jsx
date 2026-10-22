@@ -123,6 +123,8 @@ export default function FormulesPlateformesSection() {
   const [voixJour, setVoixJour] = useState(10);      // lot 229 : notes vocales transcrites par jour et par utilisateur
   const [cartesJour, setCartesJour] = useState(9);  // lot 242 : images de cartes virtuelles générées par jour et par utilisateur
   const [archivesMo, setArchivesMo] = useState(200); // lot 233 : espace d'archives en ligne (chiffrées) par utilisateur, en Mo
+  const [gratuitMo, setGratuitMo] = useState(50);       // lot 277 : espace en ligne OFFERT sans abonnement, en Mo
+  const [gratuitNombre, setGratuitNombre] = useState(30); // lot 277 : documents en ligne offerts sans abonnement
   const [envoi, setEnvoi] = useState(false);
 
   const charger = useCallback(async () => {
@@ -134,6 +136,8 @@ export default function FormulesPlateformesSection() {
       setVoixJour(r.data.voix_par_jour);
       setCartesJour(r.data.cartes_par_jour);
       setArchivesMo(r.data.archives_mo);
+      setGratuitMo(r.data.archives_gratuit_mo ?? 50);
+      setGratuitNombre(r.data.archives_gratuit_nombre ?? 30);
     } catch (e) { toast.error(e?.response?.data?.detail || "Formules indisponibles (réservé à l'administrateur principal)"); }
   }, []);
   useEffect(() => { charger(); }, [charger]);
@@ -160,7 +164,7 @@ export default function FormulesPlateformesSection() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Suppression impossible"); }
   };
   const enregistrerParrainage = async () => {
-    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour), voix_par_jour: Number(voixJour), cartes_par_jour: Number(cartesJour), archives_mo: Number(archivesMo) }); toast.success("Réglages enregistrés"); charger(); }
+    try { await apiClient.put("/admin/formules-plateformes-reglages", { parrainage_jours: Number(jours), ocr_par_jour: Number(ocrJour), voix_par_jour: Number(voixJour), cartes_par_jour: Number(cartesJour), archives_mo: Number(archivesMo), archives_gratuit_mo: Number(gratuitMo), archives_gratuit_nombre: Number(gratuitNombre) }); toast.success("Réglages enregistrés"); charger(); }
     catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
   };
 
@@ -198,6 +202,13 @@ export default function FormulesPlateformesSection() {
         </label>
         <label className="flex flex-col gap-1">Archives en ligne : espace par utilisateur (Mo)
           <input type="number" min={10} max={5000} value={archivesMo} onChange={(e) => setArchivesMo(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="archives-mo" />
+        </label>
+        {/* Lot 277 : espace en ligne OFFERT à tout utilisateur sans abonnement (ses papiers ne dépendent plus de son navigateur) */}
+        <label className="flex flex-col gap-1">Archives en ligne offertes (sans abonnement) : espace (Mo)
+          <input type="number" min={0} max={1000} value={gratuitMo} onChange={(e) => setGratuitMo(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="archives-gratuit-mo" />
+        </label>
+        <label className="flex flex-col gap-1">Archives en ligne offertes : nombre de documents
+          <input type="number" min={0} max={1000} value={gratuitNombre} onChange={(e) => setGratuitNombre(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="archives-gratuit-nombre" />
         </label>
         <button type="button" onClick={enregistrerParrainage} className="rounded bg-slate-800 px-3 py-1.5 text-white">Enregistrer</button>
         <span className="text-slate-500">Parrainage : 0 = pas de récompense (donnés à la première formule payée du filleul). OCR et voix : protègent le coût de l'IA ; refusés sans abonnement.</span>

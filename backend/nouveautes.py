@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "277", "date": "2026-10-22",
+        "titre": "🗄️ Archives auRor : espace en ligne gratuit et code de secours",
+        "description": "Les documents des utilisateurs d'auRor ne dépendent plus de la mémoire du navigateur : tout utilisateur dispose d'un espace en ligne chiffré gratuit (50 Mo et 30 documents par défaut, réglables ici). La clé de chiffrement est protégée par la phrase secrète ET par un code de secours : sans le serveur ni SAWALI qui puissent lire.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "276", "date": "2026-10-21",
         "titre": "🏷️ Réponses aux publicités Facebook : Prospect automatique, sans appel, avec point à la connexion",
         "description": "Un contact qui déclenche un modèle de « Liluvine Reactions & Ad Auto-Replies » est marqué « Prospect » tout seul, comme si vous cliquiez le bouton. Liluvine n'appelle plus le propriétaire pour ces messages (le relais écrit reste) et, à votre prochaine connexion, fait le point : nombre de contacts, répartition par modèle, derniers contacts, pour que vous les analysiez.",

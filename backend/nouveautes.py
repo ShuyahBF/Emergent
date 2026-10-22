@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "280", "date": "2026-10-22",
+        "titre": "🗄️ Archives auRor : remplacer l'image d'un document, code PIN exigé",
+        "description": "Un document déjà archivé par un utilisateur d'auRor peut recevoir une nouvelle image (nouvelle photo ou nouveau scan). Toute modification d'un document exige le code PIN ou la phrase, contrôlé par le serveur (5 essais puis 15 minutes de pause), même quand les archives sont ouvertes. L'espace gratuit ou de la formule reste respecté. Rien à régler.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "279", "date": "2026-10-22",
         "titre": "🔐 Archives auRor : application d'authentification (Authenticator)",
         "description": "Les utilisateurs d'auRor peuvent ajouter, en scannant un QR code avec Google Authenticator, Microsoft Authenticator ou Aegis, un code à 6 chiffres basé sur l'heure pour ouvrir leurs archives, en plus du code PIN. Le secret est gardé chiffré, un code ne sert qu'une fois, les essais restent limités. Rien à régler.",

@@ -235,6 +235,9 @@ class ArchiveModifierIn(BaseModel):
     utilisateur: Utilisateur
     id: str = Field(..., min_length=8, max_length=64)
     meta: str = Field(..., min_length=16, max_length=ARCHIVE_META_MAX)          # nouvelles informations, CHIFFRÉES par le site
+    # Lot 280 : toute modification exige le code PIN / la phrase (preuve) ; `contenu` = NOUVEAU document (image remplacée), chiffré par le site
+    preuve: Optional[str] = Field(None, min_length=40, max_length=64)
+    contenu: Optional[str] = Field(None, min_length=40, max_length=12_000_000)
 
 
 class ArchiveIdIn(BaseModel):
@@ -1030,17 +1033,74 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             octets, _ = await object_storage.get_object(a["chemin"])
         return {"id": a["id"], "meta": a["meta"], "contenu": base64.b64encode(octets).decode("ascii")}
 
+    async def exiger_secret(m: dict, preuve: Optional[str]) -> None:
+        """Lot 280 — toute MODIFICATION d'un document exige le code PIN / la phrase, même archives ouvertes : le serveur contrôle la preuve
+        (mêmes limites d'essais que l'ouverture : 5 puis 15 min de pause, 10 échecs : code de secours). Une clé ouverte sur un téléphone
+        laissé sans surveillance ne suffit donc pas. (Anciennes archives non encore mises à niveau : aucun code enregistré, rien à contrôler.)"""
+        pin = m.get("archives_pin")
+        if not pin:
+            return
+        if not preuve:
+            raise HTTPException(status_code=409, detail="Votre code PIN ou votre phrase secrète est nécessaire pour modifier un document")
+        exiger_hors_pause(pin)
+        if hmac.compare_digest(empreinte_preuve(preuve), pin["preuve_hash"]):
+            await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {"archives_pin.essais": 0, "archives_pin.echecs": 0, "archives_pin.bloque_jusqu": None}})
+            return
+        await noter_echec(m, pin, "Code ou phrase incorrect")
+
     @router.post("/formules-plateformes/archives/modifier")
     async def archives_modifier(request: Request):
-        """Remplace les informations chiffrées d'un document (titre, catégorie, étiquettes…) ; le document lui-même ne change pas.
-        Permis après la fin de l'abonnement (rangement de ses propres documents)."""
+        """Remplace les informations chiffrées d'un document (titre, catégorie, étiquettes…) et, si `contenu` est fourni, le DOCUMENT lui-même
+        (nouvelle photo ou nouveau scan, chiffré par le site). Exige le code PIN / la phrase (voir exiger_secret). Permis après la fin de
+        l'abonnement ; un document plus gros que l'ancien doit tenir dans l'espace offert ou dans celui de la formule."""
         emetteur, corps = await plateforme_signee(request)
         d = lire(ArchiveModifierIn, corps)
         m = await membre(emetteur["code"], d.utilisateur)
-        r = await db.archives_cloud.update_one({"id": d.id, "plateforme": m["plateforme"], "membre_id": m["id"]}, {"$set": {"meta": d.meta}})
-        if not r.matched_count:
+        a = await db.archives_cloud.find_one({"id": d.id, "plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0})
+        if not a:
             raise HTTPException(status_code=404, detail="Document introuvable")
-        return {"ok": True}
+        await exiger_secret(m, d.preuve)
+        if not d.contenu:
+            await db.archives_cloud.update_one({"id": d.id}, {"$set": {"meta": d.meta}})
+            return {"ok": True}
+        try:
+            octets = base64.b64decode(d.contenu, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="Document illisible")
+        if len(octets) > ARCHIVE_FICHIER_MAX:
+            raise HTTPException(status_code=413, detail=f"Document trop volumineux : {ARCHIVE_FICHIER_MAX // 1_000_000} Mo au plus")
+        ancienne = int(a.get("taille") or 0)
+        utilise, _ = await usage_archives(m)
+        if len(octets) > ancienne:                                   # seule une CROISSANCE est contrôlée : remplacer par plus petit est toujours permis
+            abonne = bool(d.utilisateur.acces_libre or acces_fonction(m, FONCTION_ARCHIVES))
+            nouveau_total = utilise - ancienne + len(octets)
+            if abonne:
+                quota = await reglage_archives_octets()
+                if nouveau_total > quota:
+                    raise HTTPException(status_code=413, detail=f"Espace d'archives plein ({quota // 1_000_000} Mo) : supprimez des documents ou demandez plus d'espace")
+            else:
+                gratuit_octets, gratuit_nombre = await reglage_archives_gratuit()
+                if nouveau_total > gratuit_octets:
+                    await exiger_abonnement(emetteur["code"], m, FONCTION_ARCHIVES, "Archives en ligne", False,
+                                            refus=f"Espace gratuit atteint ({gratuit_octets // 1_000_000} Mo ou {gratuit_nombre} documents).")
+        # Nouvel objet sous un NOUVEAU chemin, puis bascule en base, puis effacement de l'ancien : jamais d'écrasement à moitié fait
+        nouveau_chemin = chemin_archive(m, f"{d.id}-{uuid.uuid4().hex[:8]}")
+        if _ecrire_archive:
+            await _ecrire_archive(nouveau_chemin, octets)
+        else:
+            import object_storage
+            await object_storage.put_object(nouveau_chemin, octets, "application/octet-stream")
+        await db.archives_cloud.update_one({"id": d.id}, {"$set": {"meta": d.meta, "taille": len(octets), "chemin": nouveau_chemin,
+                                                                   "remplace_le": _iso(_maintenant())}})
+        try:
+            if _effacer_archive:
+                await _effacer_archive(a["chemin"])
+            else:
+                import storage
+                await asyncio.to_thread(storage.delete_bytes, a["chemin"], False)
+        except Exception as exc:  # noqa: BLE001 — l'ancien objet restera orphelin : sans effet pour l'utilisateur
+            logger.warning("[archives] ancien objet non supprimé (%s)", type(exc).__name__)
+        return {"ok": True, "taille": len(octets), "utilise_octets": utilise - ancienne + len(octets)}
 
     @router.post("/formules-plateformes/archives/supprimer")
     async def archives_supprimer(request: Request):

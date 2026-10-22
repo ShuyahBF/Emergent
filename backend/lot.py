@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "278"
-LOT_LIBELLE = "Archives auRor : code PIN (4 chiffres ou plus) ou phrase courte au choix, protégés par une limite d'essais côté serveur (5 essais puis 15 min de pause, 10 échecs : code de secours) ; le serveur ne peut toujours rien lire"
+LOT = "279"
+LOT_LIBELLE = "Archives auRor : application d'authentification (Authenticator, code à 6 chiffres basé sur l'heure) en plus du code PIN, secret chiffré côté serveur, un code ne sert qu'une fois, mêmes limites d'essais"

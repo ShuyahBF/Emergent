@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -46,6 +47,8 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
+import archives_totp
 
 logger = logging.getLogger("sawali.formules_plateformes")
 
@@ -192,6 +195,25 @@ class ArchivePinEnregistrerIn(BaseModel):
 class ArchivePinOuvrirIn(BaseModel):
     utilisateur: Utilisateur
     preuve: str = Field(..., min_length=40, max_length=64)
+    code_totp: Optional[str] = Field(None, max_length=12)       # lot 279 : code de l'application d'authentification (si activée)
+
+
+class ArchiveTotpPreparerIn(BaseModel):
+    """Lot 279 — début de l'activation de l'application d'authentification (QR code). `verif_actuelle` : seul un appareil qui a ouvert les archives le connaît."""
+    utilisateur: Utilisateur
+    verif_actuelle: str = Field(..., min_length=16, max_length=600)
+
+
+class ArchiveTotpActiverIn(BaseModel):
+    utilisateur: Utilisateur
+    code: str = Field(..., min_length=6, max_length=12)
+
+
+class ArchiveTotpDesactiverIn(BaseModel):
+    """Lot 279 — retire l'application d'authentification : exige le code PIN/la phrase (preuve) ET un code de l'application."""
+    utilisateur: Utilisateur
+    preuve: str = Field(..., min_length=40, max_length=64)
+    code: str = Field(..., min_length=6, max_length=12)
 
 
 class ArchiveEnveloppesIn(BaseModel):
@@ -762,6 +784,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         # Lot 277 : sans abonnement, l'espace offert s'applique (quota et nombre de documents) ; abonné : l'espace de la formule
         return {"abonne": abonne, "sel": cle.get("sel"), "verif": cle.get("verif"),
                 "enveloppe": cle.get("enveloppe"), "secours": cle.get("secours"),
+                "a2f": bool((m.get("archives_pin") or {}).get("totp")),      # lot 279 : application d'authentification activée ?
                 "pin": (m.get("archives_pin") or {}).get("type"),     # lot 278 : "pin" | "phrase" si le serveur contrôle les essais, sinon None
                 "quota_octets": await reglage_archives_octets() if abonne else gratuit_octets,
                 "nombre_max": None if abonne else gratuit_nombre,
@@ -816,37 +839,120 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
             "essais": 0, "echecs": 0, "bloque_jusqu": None}}})
         return {"ok": True, "poivre": poivre_archives(m, sel_serveur)}
 
-    @router.post("/formules-plateformes/archives/pin/ouvrir")
-    async def archives_pin_ouvrir(request: Request):
-        """Contrôle la preuve du code : bonne = rend le poivre ; mauvaise = compte l'essai (pause après 5, code de secours après 10)."""
-        emetteur, corps = await plateforme_signee(request)
-        d = lire(ArchivePinOuvrirIn, corps)
-        m = await membre(emetteur["code"], d.utilisateur)
-        pin = m.get("archives_pin")
-        if not pin:
-            raise HTTPException(status_code=404, detail="Aucun code enregistré pour vos archives")
+    # ---- Contrôle des essais, partagé par « pin/ouvrir » et « totp/desactiver » -------------------------------------------------
+    def exiger_hors_pause(pin: dict) -> None:
+        """429 si les essais sont en pause (5 ratés) ou si le code de secours est devenu nécessaire (10 échecs)."""
         if int(pin.get("echecs") or 0) >= PIN_ECHECS_AVANT_SECOURS:
             raise HTTPException(status_code=429, detail="Trop d'essais ratés : utilisez votre code de secours pour rouvrir vos archives")
-        maintenant = _maintenant()
         bloque = pin.get("bloque_jusqu")
-        if bloque and datetime.fromisoformat(bloque) > maintenant:
-            minutes = max(1, int((datetime.fromisoformat(bloque) - maintenant).total_seconds() // 60) + 1)
+        if bloque and datetime.fromisoformat(bloque) > _maintenant():
+            minutes = max(1, int((datetime.fromisoformat(bloque) - _maintenant()).total_seconds() // 60) + 1)
             raise HTTPException(status_code=429, detail=f"Trop d'essais : réessayez dans {minutes} min (ou utilisez votre code de secours)")
-        if hmac.compare_digest(empreinte_preuve(d.preuve), pin["preuve_hash"]):
-            await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {"archives_pin.essais": 0, "archives_pin.echecs": 0, "archives_pin.bloque_jusqu": None}})
-            return {"ok": True, "poivre": poivre_archives(m, pin["sel_serveur"])}
+
+    async def noter_echec(m: dict, pin: dict, message: str) -> None:
+        """Compte l'essai raté puis lève l'erreur adaptée (409 avec essais restants, 429 pause ou code de secours)."""
         essais, echecs = int(pin.get("essais") or 0) + 1, int(pin.get("echecs") or 0) + 1
         maj = {"archives_pin.essais": essais, "archives_pin.echecs": echecs}
         if essais >= PIN_ESSAIS_AVANT_PAUSE:
             maj["archives_pin.essais"] = 0
-            maj["archives_pin.bloque_jusqu"] = _iso(maintenant + timedelta(minutes=PIN_PAUSE_MINUTES))
+            maj["archives_pin.bloque_jusqu"] = _iso(_maintenant() + timedelta(minutes=PIN_PAUSE_MINUTES))
         await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": maj})
         if echecs >= PIN_ECHECS_AVANT_SECOURS:
             raise HTTPException(status_code=429, detail="Trop d'essais ratés : utilisez votre code de secours pour rouvrir vos archives")
         if essais >= PIN_ESSAIS_AVANT_PAUSE:
             raise HTTPException(status_code=429, detail=f"Trop d'essais : réessayez dans {PIN_PAUSE_MINUTES} min (ou utilisez votre code de secours)")
         restants = PIN_ESSAIS_AVANT_PAUSE - essais
-        raise HTTPException(status_code=409, detail=f"Code ou phrase incorrect ({restants} essai{'s' if restants > 1 else ''} avant une pause)")
+        raise HTTPException(status_code=409, detail=f"{message} ({restants} essai{'s' if restants > 1 else ''} avant une pause)")
+
+    # Secret de l'application d'authentification : gardé CHIFFRÉ (AES-GCM, clé tirée du secret du serveur hors base)
+    def cle_totp() -> bytes:
+        secret = (os.environ.get("ARCHIVES_SECRET_SERVEUR") or (os.environ.get("JWT_SECRET", "") + "-archives"))
+        return hashlib.sha256((secret + "|totp").encode()).digest()
+
+    def chiffrer_totp(secret_b32: str) -> str:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        nonce = secrets.token_bytes(12)
+        return base64.b64encode(nonce + AESGCM(cle_totp()).encrypt(nonce, secret_b32.encode(), b"archives-totp")).decode("ascii")
+
+    def dechiffrer_totp(valeur: str) -> str:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        brut = base64.b64decode(valeur)
+        return AESGCM(cle_totp()).decrypt(brut[:12], brut[12:], b"archives-totp").decode()
+
+    @router.post("/formules-plateformes/archives/pin/ouvrir")
+    async def archives_pin_ouvrir(request: Request):
+        """Contrôle la preuve du code (et, si activée, le code de l'application d'authentification) : bonne = rend le poivre ;
+        mauvaise = compte l'essai (pause après 5, code de secours après 10)."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchivePinOuvrirIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        pin = m.get("archives_pin")
+        if not pin:
+            raise HTTPException(status_code=404, detail="Aucun code enregistré pour vos archives")
+        exiger_hors_pause(pin)
+        preuve_ok = hmac.compare_digest(empreinte_preuve(d.preuve), pin["preuve_hash"])
+        totp = pin.get("totp")
+        pas = None
+        if totp:
+            pas = archives_totp.verifier(dechiffrer_totp(totp["secret_chiffre"]), d.code_totp or "", time.time(), totp.get("dernier_pas"))
+        if preuve_ok and (not totp or pas is not None):
+            maj = {"archives_pin.essais": 0, "archives_pin.echecs": 0, "archives_pin.bloque_jusqu": None}
+            if pas is not None:
+                maj["archives_pin.totp.dernier_pas"] = pas              # un code ne sert qu'une fois
+            await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": maj})
+            return {"ok": True, "poivre": poivre_archives(m, pin["sel_serveur"])}
+        # Même message que le code soit faux ou l'application : on ne dit pas lequel des deux a échoué
+        await noter_echec(m, pin, "Code, phrase ou code de l'application incorrect" if totp else "Code ou phrase incorrect")
+
+    # ---- Lot 279 : application d'authentification (Authenticator…) en plus du code PIN / de la phrase -------------------------------
+    @router.post("/formules-plateformes/archives/totp/preparer")
+    async def archives_totp_preparer(request: Request):
+        """Crée un secret en attente et renvoie l'adresse otpauth:// (le site en fait un QR code). Rien n'est actif tant que
+        « totp/activer » n'a pas reçu un code valable : une erreur de scan ne peut jamais verrouiller l'utilisateur dehors."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveTotpPreparerIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        pin, cle = m.get("archives_pin"), m.get("archives_cle") or {}
+        if not pin or cle.get("verif") != d.verif_actuelle:
+            raise HTTPException(status_code=409, detail="Jeton de contrôle incorrect")
+        secret = archives_totp.nouveau_secret()
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {"archives_pin.totp_attente": chiffrer_totp(secret)}})
+        compte = (d.utilisateur.telephone or d.utilisateur.nom or "archives").strip() or "archives"
+        return {"secret": secret, "uri": archives_totp.uri_otpauth(secret, compte)}
+
+    @router.post("/formules-plateformes/archives/totp/activer")
+    async def archives_totp_activer(request: Request):
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveTotpActiverIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        pin = m.get("archives_pin") or {}
+        attente = pin.get("totp_attente")
+        if not attente:
+            raise HTTPException(status_code=409, detail="Aucune activation en cours : recommencez")
+        exiger_hors_pause(pin)
+        pas = archives_totp.verifier(dechiffrer_totp(attente), d.code, time.time())
+        if pas is None:
+            await noter_echec(m, pin, "Code incorrect : vérifiez l'heure de votre téléphone")
+        await db.membres_plateformes.update_one({"id": m["id"]}, {
+            "$set": {"archives_pin.totp": {"secret_chiffre": attente, "dernier_pas": pas}, "archives_pin.essais": 0},
+            "$unset": {"archives_pin.totp_attente": ""}})
+        return {"ok": True}
+
+    @router.post("/formules-plateformes/archives/totp/desactiver")
+    async def archives_totp_desactiver(request: Request):
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(ArchiveTotpDesactiverIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        pin = m.get("archives_pin") or {}
+        totp = pin.get("totp")
+        if not totp:
+            return {"ok": True}
+        exiger_hors_pause(pin)
+        pas = archives_totp.verifier(dechiffrer_totp(totp["secret_chiffre"]), d.code, time.time(), totp.get("dernier_pas"))
+        if not hmac.compare_digest(empreinte_preuve(d.preuve), pin["preuve_hash"]) or pas is None:
+            await noter_echec(m, pin, "Code, phrase ou code de l'application incorrect")
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$unset": {"archives_pin.totp": "", "archives_pin.totp_attente": ""}})
+        return {"ok": True}
 
     @router.post("/formules-plateformes/archives/enveloppes")
     async def archives_enveloppes(request: Request):

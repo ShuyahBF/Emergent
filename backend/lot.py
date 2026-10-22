@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "276"
-LOT_LIBELLE = "Liluvine : les contacts qui déclenchent un modèle de réponse aux publicités Facebook (Ad Auto-Replies) sont marqués « Prospect » automatiquement, ne provoquent plus d'appel vocal au propriétaire, et Liluvine en fait le point à la prochaine connexion"
+LOT = "277"
+LOT_LIBELLE = "Archives auRor : espace en ligne gratuit pour tous (50 Mo, 30 documents, réglable), clé des documents protégée par la phrase ET par un code de secours (le serveur ne peut rien lire)"

@@ -575,7 +575,9 @@ def abonne_archives(env, u=None):
 
 
 def test_archives_refusees_sans_abonnement_avec_le_prix(env, archives_stock):
+    # Lot 277 : l'espace offert est désactivé ici (0) pour vérifier le refus 402 avec le prix de la formule
     formule(env, nom="Archives", prix=2000, fonctions=["archives_cloud"])
+    assert env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_mo": 0, "archives_gratuit_nombre": 0}).status_code == 200
     assert arch(env, "cle", sel=SEL, verif=VERIF).status_code == 200
     r = arch(env, "ajouter", meta=META, contenu=_b64.b64encode(b"x" * 100).decode())
     assert r.status_code == 402 and "2 000 FCFA" in r.json()["detail"]["message"] and not archives_stock
@@ -602,6 +604,7 @@ def test_archives_cycle_complet_et_lecture_apres_expiration(env, archives_stock)
     assert arch(env, "etat", u).json()["abonne"] is False
     dl = arch(env, "telecharger", u, id=aid).json()
     assert _b64.b64decode(dl["contenu"]) == secret and dl["meta"] == META
+    env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_mo": 0, "archives_gratuit_nombre": 0})   # lot 277 : sans espace offert
     assert arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"y" * 100).decode()).status_code == 402
     assert arch(env, "supprimer", u, id=aid).status_code == 200
     assert arch(env, "liste", u).json()["archives"] == [] and not archives_stock
@@ -726,3 +729,53 @@ def test_pispi_groupe_montant_total_reprise_et_confirmation(env, pispi_actif):
     assert env.post(f"/api/admin/formules-plateformes/pispi/{d['reference']}/confirmer", json={}).status_code == 200
     ab = {x["formule_id"]: x for x in appel(env, "formules-plateformes/catalogue", {"utilisateur": U()}).json()["abonnements"]}
     assert ab[a["id"]]["actif"] and ab[b["id"]]["actif"]
+
+
+# ── Lot 277 : espace gratuit, enveloppes de la clé (phrase + code de secours) ─────────────────
+def test_archives_espace_gratuit_sans_abonnement(env, archives_stock):
+    u = U()
+    formule(env, nom="Archives", prix=2000, fonctions=["archives_cloud"])
+    e = arch(env, "etat", u).json()
+    assert e["abonne"] is False and e["quota_octets"] == 50_000_000 and e["nombre_max"] == 30       # valeurs par défaut offertes
+    arch(env, "cle", u, sel=SEL, verif=VERIF)
+    assert arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"d" * 100).decode()).status_code == 200   # sans abonnement : permis
+    # nombre de documents limité
+    env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_nombre": 1})
+    r = arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"e" * 100).decode())
+    assert r.status_code == 402 and "Espace gratuit atteint" in r.json()["detail"]["message"] and "2 000 FCFA" in r.json()["detail"]["message"]
+    # espace en octets limité
+    env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_nombre": 30, "archives_gratuit_mo": 1})
+    r = arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"f" * 1_500_000).decode())
+    assert r.status_code == 402
+    # un abonné n'est pas concerné par l'espace offert
+    abonne_archives(env, u)
+    assert arch(env, "etat", u).json()["quota_octets"] == 200_000_000 and arch(env, "etat", u).json()["nombre_max"] is None
+    assert arch(env, "ajouter", u, meta=META, contenu=_b64.b64encode(b"f" * 1_500_000).decode()).status_code == 200
+
+
+def test_archives_reglage_admin_espace_gratuit(env):
+    g = env.get("/api/admin/formules-plateformes").json()
+    assert g["archives_gratuit_mo"] == 50 and g["archives_gratuit_nombre"] == 30
+    r = env.put("/api/admin/formules-plateformes-reglages", json={"parrainage_jours": 7, "archives_gratuit_mo": 80, "archives_gratuit_nombre": 40}).json()
+    assert r["archives_gratuit_mo"] == 80 and r["archives_gratuit_nombre"] == 40
+
+
+def test_archives_enveloppes_phrase_et_code_de_secours(env, archives_stock):
+    u = U()
+    ENV1, SEC1, ENV2 = "E" * 40, "S" * 40, "N" * 40
+    assert arch(env, "cle", u, sel=SEL, verif=VERIF, enveloppe=ENV1, secours=SEC1).status_code == 200
+    e = arch(env, "etat", u).json()
+    assert e["enveloppe"] == ENV1 and e["secours"] == SEC1 and e["verif"] == VERIF
+    # nouvelle phrase (après usage du code de secours) : exige le jeton de contrôle actuel
+    assert arch(env, "enveloppes", u, verif_actuelle="X" * 40, enveloppe=ENV2).status_code == 403
+    assert arch(env, "enveloppes", u, verif_actuelle=VERIF, enveloppe=ENV2).status_code == 200
+    e = arch(env, "etat", u).json()
+    assert e["enveloppe"] == ENV2 and e["secours"] == SEC1                                  # le secours n'a pas bougé
+    # ancienne clé sans enveloppe (avant le lot 277) : mise à niveau possible avec le jeton
+    v = U("u9", "70 55 55 55")
+    arch(env, "cle", v, sel=SEL, verif=VERIF)
+    assert arch(env, "etat", v).json()["enveloppe"] is None
+    assert arch(env, "enveloppes", v, verif_actuelle=VERIF, enveloppe=ENV1, secours=SEC1).status_code == 200
+    assert arch(env, "etat", v).json()["secours"] == SEC1
+    # inconnu : pas de clé enregistrée
+    assert arch(env, "enveloppes", U("u7", "70 44 44 44"), verif_actuelle=VERIF, enveloppe=ENV1).status_code == 403

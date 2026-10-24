@@ -526,6 +526,8 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
     technician: "",
     status: "completed",
     duration_hours: "",
+    date_heure_debut: "",
+    date_heure_fin: "",
     client_id: user?.client_id || user?.parent_client_id || user?.id || "",
     voice_note_url: "",
     voice_note_transcript: "",
@@ -549,6 +551,8 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
         intervention_date: new Date(form.intervention_date).toISOString(),
         technician: form.technician || null,
         duration_hours: form.duration_hours ? Number(form.duration_hours) : null,
+        date_heure_debut: form.date_heure_debut || null,
+        date_heure_fin: form.date_heure_fin || null,
         attachments: [],
         voice_note_url: form.voice_note_url || null,
         voice_note_transcript: form.voice_note_transcript || null,
@@ -621,7 +625,9 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
             <label className="block text-xs font-semibold mb-1">Technicien</label>
             <input value={form.technician} onChange={(e) => setForm({ ...form, technician: e.target.value.toUpperCase() })} placeholder="NOM DU TECHNICIEN" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-technician" />
           </div>
-          <DurationField value={form.duration_hours} onChange={(v) => setForm({ ...form, duration_hours: v })} />
+          <DurationField value={form.duration_hours} onChange={(v) => setForm((f) => ({ ...f, duration_hours: v }))}
+                         debut={form.date_heure_debut} fin={form.date_heure_fin}
+                         onPlage={(d, f2) => setForm((f) => (f.date_heure_debut === d && f.date_heure_fin === f2 ? f : { ...f, date_heure_debut: d, date_heure_fin: f2 }))} />
         </div>
 
         <VoiceNoteRecorder
@@ -924,14 +930,31 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
 }
 
 // ============================================================
+// Lot 286 : date enregistrée (avec ou sans fuseau) → valeur d'un champ datetime-local « AAAA-MM-JJTHH:MM » en heure locale
+function versDatetimeLocal(v) {
+  if (!v) return "";
+  if (!/(Z|[+-]\d\d:?\d\d)$/.test(v)) return String(v).slice(0, 16);   // déjà une heure locale
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 // Durée — saisie directe (pas de 0.25h) ou calcul automatique à partir d'un
 // Début/Fin. Le résultat calculé est TOUJOURS arrondi au quart d'heure
 // INFÉRIEUR (jamais vers le haut) pour ne pas sur-facturer le client.
 // ============================================================
-function DurationField({ value, onChange }) {
-  const [mode, setMode] = useState("simple");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+// Lot 286 : `debut` / `fin` = plage déjà enregistrée (réouverture : on revient en mode « Début → Fin » avec les dates) ;
+// `onPlage(debut, fin)` remonte la plage au formulaire pour qu'elle soit enregistrée avec l'intervention.
+function DurationField({ value, onChange, debut = "", fin = "", onPlage }) {
+  const [mode, setMode] = useState(debut || fin ? "range" : "simple");
+  const [start, setStart] = useState(debut || "");
+  const [end, setEnd] = useState(fin || "");
+
+  // Toute modification de la plage est remontée au formulaire (vide en mode « Durée »)
+  useEffect(() => {
+    onPlage?.(mode === "range" ? start : "", mode === "range" ? end : "");
+  }, [start, end, mode]);
 
   const floorQuarterHour = (hours) => Math.floor(hours * 4) / 4;
 
@@ -997,6 +1020,8 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
     intervention_date: (intervention.intervention_date || "").slice(0, 10),
     technician: intervention.technician || "",
     duration_hours: intervention.duration_hours ?? "",
+    date_heure_debut: versDatetimeLocal(intervention.date_heure_debut),   // lot 286
+    date_heure_fin: versDatetimeLocal(intervention.date_heure_fin),
     reporter_name: intervention.reporter_name || "",
     reporter_contact_id: intervention.reporter_contact_id || null,
   });
@@ -1020,6 +1045,9 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
           : Number(form.duration_hours),
         reporter_name: form.reporter_name.trim(),
         reporter_contact_id: form.reporter_contact_id || null,
+        // Lot 286 : plage Début → Fin ("" = effacée, car la mise à jour ignore les valeurs nulles)
+        date_heure_debut: form.date_heure_debut || "",
+        date_heure_fin: form.date_heure_fin || "",
       };
       await apiClient.put(`/admin/interventions/${intervention.id}`, payload);
       toast.success("Intervention mise à jour");
@@ -1112,7 +1140,9 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                    data-testid="intervention-edit-field-technician" />
           </div>
-          <DurationField value={form.duration_hours} onChange={(v) => setForm({ ...form, duration_hours: v })} />
+          <DurationField value={form.duration_hours} onChange={(v) => setForm((f) => ({ ...f, duration_hours: v }))}
+                         debut={form.date_heure_debut} fin={form.date_heure_fin}
+                         onPlage={(d, f2) => setForm((f) => (f.date_heure_debut === d && f.date_heure_fin === f2 ? f : { ...f, date_heure_debut: d, date_heure_fin: f2 }))} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

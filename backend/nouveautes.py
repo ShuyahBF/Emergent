@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "286", "date": "2026-10-24",
+        "titre": "🕒 Interventions : dates de début et de fin conservées",
+        "description": "Quand on saisit la durée d'une intervention en mode « Début → Fin », les deux dates/heures sont maintenant enregistrées avec la fiche : à la réouverture elles réapparaissent (et la fiche s'ouvre directement en mode « Début → Fin »). Rien à régler.",
+        "rubrique": "🎫 Tickets d'intervention — motif",
+    },
+    {
         "lot": "285", "date": "2026-10-24",
         "titre": "🛑 Contrôle à distance : annuler un transfert de fichier en cours",
         "description": "Dans « Transferts » de l'onglet Fichiers, chaque ligne en cours a un bouton rouge « Annuler » : l'envoi ou la récupération s'arrête aussitôt et le fichier partiel est abandonné (pas de reprise). Pour arrêter aussi l'envoi côté poste lors d'une récupération, le poste doit avoir la dernière version de Loois ; sinon le navigateur ignore simplement la suite. Rien à régler.",

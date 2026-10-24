@@ -399,6 +399,9 @@ class InterventionCreate(BaseModel):
     intervention_date: str
     technician: Optional[str] = None
     duration_hours: Optional[float] = None
+    # Lot 286 — plage Début → Fin saisie avec la durée (conservée pour la réouverture de la fiche)
+    date_heure_debut: Optional[str] = None
+    date_heure_fin: Optional[str] = None
     attachments: List[str] = []
     images: Optional[List[dict]] = None  # [{file_id, url, filename}], max 10
     # Iter34y/z — Note vocale facultative + transcription Whisper.
@@ -427,6 +430,8 @@ class InterventionUpdate(BaseModel):
     intervention_date: Optional[str] = None
     technician: Optional[str] = None
     duration_hours: Optional[float] = None
+    date_heure_debut: Optional[str] = None   # lot 286
+    date_heure_fin: Optional[str] = None
     attachments: Optional[List[str]] = None
     images: Optional[List[dict]] = None
     client_id: Optional[str] = None  # iter34y — permet de re-rattacher l'intervention

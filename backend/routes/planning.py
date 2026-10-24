@@ -269,6 +269,11 @@ class PlanningConfigUpdate(BaseModel):
     # Lot 74 (anomalie A6) : modèle Meta du rappel (4 variables : patient, médecin, heure, motif)
     reminder_wa_template: Optional[str] = Field(None, description="Nom du modèle Meta du rappel (vide = texte libre)")
     reminder_wa_language: Optional[str] = Field(None, description="Langue du modèle Meta (fr par défaut)")
+    # Lot 287 — réponse de Liluvine aux demandes de report, selon le code_clinique (voir routes/planning_report_rdv.py)
+    report_actif: Optional[bool] = Field(None, description="Active la réponse automatique aux demandes de report")
+    report_reponses: Optional[List[Dict[str, str]]] = Field(None, description="[{code_clinique, message}]")
+    report_defaut: Optional[str] = Field(None, description="Message pour une clinique sans ligne (vide = pas de réponse)")
+    report_repondre_tout: Optional[bool] = Field(None, description="Répondre à tout message après un rappel")
 
 
 def attach_planning_routes(
@@ -305,6 +310,7 @@ def attach_planning_routes(
     async def _ensure_indexes():
         try:
             await db.planning_appointments.create_index("tenant_id")
+            await db.planning_appointments.create_index("reminder_sent_at")   # lot 287 : recherche des RDV récemment rappelés
             await db.planning_appointments.create_index([("tenant_id", 1), ("start_at", 1)])
             await db.planning_appointments.create_index([("tenant_id", 1), ("medecin_id", 1), ("start_at", 1)])
             await db.planning_appointments.create_index(
@@ -427,6 +433,12 @@ def attach_planning_routes(
             "reminder_template": s.get("planning_reminder_template") or "",
             "reminder_wa_template": s.get("planning_reminder_wa_template") or "",
             "reminder_wa_language": s.get("planning_reminder_wa_language") or "fr",
+            # Lot 287 — réponses aux demandes de report + codes de clinique déjà reçus (liste déroulante de l'écran)
+            "report_actif": bool(s.get("planning_report_actif")),
+            "report_reponses": s.get("planning_report_reponses") or [],
+            "report_defaut": s.get("planning_report_defaut") or "",
+            "report_repondre_tout": bool(s.get("planning_report_repondre_tout")),
+            "codes_clinique_connus": sorted([c for c in await db.planning_appointments.distinct("code_clinique") if c and c != "manual"]),
             "sample_payload": {
                 "code_clinique": "CLI-001",
                 "medecin": "Dr. Aissata Ouedraogo",
@@ -471,6 +483,16 @@ def attach_planning_routes(
             set_doc["planning_reminder_wa_template"] = payload.reminder_wa_template.strip()
         if payload.reminder_wa_language is not None:
             set_doc["planning_reminder_wa_language"] = payload.reminder_wa_language.strip() or "fr"
+        # Lot 287 — réponses de Liluvine aux demandes de report (un message par code_clinique)
+        if payload.report_actif is not None:
+            set_doc["planning_report_actif"] = bool(payload.report_actif)
+        if payload.report_reponses is not None:
+            from routes.planning_report_rdv import normaliser_reponses
+            set_doc["planning_report_reponses"] = normaliser_reponses(payload.report_reponses)
+        if payload.report_defaut is not None:
+            set_doc["planning_report_defaut"] = payload.report_defaut.strip()[:1000]
+        if payload.report_repondre_tout is not None:
+            set_doc["planning_report_repondre_tout"] = bool(payload.report_repondre_tout)
         await db.settings.update_one(
             {"_id": "global"},
             {"$set": set_doc},

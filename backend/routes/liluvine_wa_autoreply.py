@@ -515,6 +515,20 @@ async def autoreply_to_inbound(
             logger.warning("[wa_autoreply] copie dans le fil échouée (%s)", command, exc_info=True)
         return res
 
+    # Lot 287 — un patient qui répond à un rappel de RDV (demande de report…) reçoit le message réglé pour la
+    # clinique (code_clinique) de SON rendez-vous ; sans réglage ou sans rappel récent, le traitement habituel continue.
+    if not text.startswith(("!", "/")):
+        try:
+            from routes.planning_report_rdv import repondre_report_rdv
+            res_report = await repondre_report_rdv(
+                db, phone_digits=phone_digits, texte=text, reglages=settings_doc or {},
+                envoyer=lambda to, msg: _send_mirrored(to, msg, "report_rdv"), numero_destinataire=from_num,
+            )
+            if res_report:
+                return res_report
+        except Exception as exc:  # noqa: BLE001 — une panne ici ne doit jamais bloquer la réponse habituelle
+            logger.warning("[wa_autoreply] réponse report RDV échouée : %s", exc)
+
     try:
         import server as _server_module
         reactions_helpers = getattr(_server_module, "LILUVINE_REACTIONS_HELPERS", None) or {}

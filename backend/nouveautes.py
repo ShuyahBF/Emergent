@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "287", "date": "2026-10-24",
+        "titre": "📞 Liluvine : réponse aux demandes de report de RDV, propre à chaque clinique",
+        "description": "Quand un patient répond à son rappel de RDV (report, annulation, indisponibilité), Liluvine retrouve son rendez-vous, lit le code_clinique et envoie le message réglé pour cette clinique (ex. « Appelez l'accueil SVP : 78267900/70463624 »), une seule fois par RDV. Réglage : une ligne par clinique (liste déroulante des codes reçus), un message par défaut et l'activation. À activer dans la rubrique.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "286", "date": "2026-10-24",
         "titre": "🕒 Interventions : dates de début et de fin conservées",
         "description": "Quand on saisit la durée d'une intervention en mode « Début → Fin », les deux dates/heures sont maintenant enregistrées avec la fiche : à la réouverture elles réapparaissent (et la fiche s'ouvre directement en mode « Début → Fin »). Rien à régler.",

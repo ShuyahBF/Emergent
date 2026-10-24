@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play } from "lucide-react";
+import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play, Plus, Trash2, PhoneForwarded } from "lucide-react";
 
 const DEFAULT_TEMPLATE = "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI";
 
@@ -20,6 +20,12 @@ export default function PlanningWebhookSection() {
   const [langueWa, setLangueWa] = useState("fr");
   const [savingTpl, setSavingTpl] = useState(false);
   const [runningCron, setRunningCron] = useState(false);
+  // Lot 287 — réponse de Liluvine aux demandes de report, selon le code_clinique du RDV
+  const [reportActif, setReportActif] = useState(false);
+  const [reportLignes, setReportLignes] = useState([]);       // [{code_clinique, message, autre}]
+  const [reportDefaut, setReportDefaut] = useState("");
+  const [reportTout, setReportTout] = useState(false);
+  const [savingReport, setSavingReport] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +35,10 @@ export default function PlanningWebhookSection() {
       setTemplate(c.data?.reminder_template || "");
       setModeleWa(c.data?.reminder_wa_template || "");
       setLangueWa(c.data?.reminder_wa_language || "fr");
+      setReportActif(Boolean(c.data?.report_actif));
+      setReportLignes((c.data?.report_reponses || []).map((l) => ({ ...l })));
+      setReportDefaut(c.data?.report_defaut || "");
+      setReportTout(Boolean(c.data?.report_repondre_tout));
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Impossible de charger la config");
     } finally {
@@ -61,6 +71,27 @@ export default function PlanningWebhookSection() {
       toast.error(e?.response?.data?.detail || "Erreur de régénération");
     } finally {
       setRegenerating(false);
+    }
+  };
+
+  // Lot 287 — codes proposés dans la liste déroulante : ceux déjà reçus par le webhook + ceux déjà réglés (jamais de perte à l'édition)
+  const codesProposes = Array.from(new Set([...(cfg?.codes_clinique_connus || []), ...reportLignes.map((l) => l.code_clinique).filter(Boolean)])).sort();
+  const majLigne = (i, patch) => setReportLignes((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const enregistrerReport = async () => {
+    setSavingReport(true);
+    try {
+      await apiClient.put("/admin/planning/config", {
+        report_actif: reportActif,
+        report_reponses: reportLignes.filter((l) => l.code_clinique?.trim() && l.message?.trim())
+          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim() })),
+        report_defaut: reportDefaut, report_repondre_tout: reportTout,
+      });
+      toast.success("Réponses aux demandes de report enregistrées");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur sauvegarde");
+    } finally {
+      setSavingReport(false);
     }
   };
 
@@ -237,6 +268,71 @@ export default function PlanningWebhookSection() {
                 Lancer maintenant
               </button>
             </div>
+          </div>
+
+          {/* Lot 287 — Réponse de Liluvine aux demandes de report, adaptée à la clinique (code_clinique) */}
+          <div className="pt-4 border-t border-slate-200 space-y-3" data-testid="planning-report-bloc">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                <PhoneForwarded className="h-4 w-4 text-violet-700" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-slate-800">Réponse de Liluvine aux demandes de report de RDV</h3>
+                <p className="text-xs text-slate-500">
+                  Quand un patient écrit dans les 24 h qui suivent son rappel, Liluvine retrouve son RDV (par son numéro), lit le
+                  <code className="bg-slate-100 px-1 rounded mx-1">code_clinique</code> et répond avec le message réglé pour cette clinique
+                  (une seule fois par RDV). Marqueurs possibles : <code className="bg-slate-100 px-1 rounded">{"{patient}"}</code>,{" "}
+                  <code className="bg-slate-100 px-1 rounded">{"{medecin}"}</code>.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={reportActif} onChange={(e) => setReportActif(e.target.checked)} data-testid="planning-report-actif" />
+              Activer la réponse automatique
+            </label>
+            <div className="space-y-2">
+              {reportLignes.map((l, i) => (
+                <div key={i} className="grid sm:grid-cols-[11rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
+                  {/* Liste déroulante des codes connus ; « Autre… » ouvre une saisie libre */}
+                  {l.autre || (l.code_clinique && !codesProposes.includes(l.code_clinique)) ? (
+                    <input value={l.code_clinique} onChange={(e) => majLigne(i, { code_clinique: e.target.value })} placeholder="Code clinique"
+                           className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
+                  ) : (
+                    <select value={l.code_clinique} onChange={(e) => (e.target.value === "__autre__" ? majLigne(i, { autre: true, code_clinique: "" }) : majLigne(i, { code_clinique: e.target.value }))}
+                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono">
+                      <option value="">— Clinique —</option>
+                      {codesProposes.map((c) => <option key={c} value={c}>{c}</option>)}
+                      <option value="__autre__">Autre…</option>
+                    </select>
+                  )}
+                  <textarea value={l.message} onChange={(e) => majLigne(i, { message: e.target.value })} rows={2}
+                            placeholder="Appelez l'accueil SVP : 78267900/70463624. Pour tout complément d'information ou report de RDV."
+                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+                  <button type="button" onClick={() => setReportLignes((ls) => ls.filter((_, k) => k !== i))} title="Retirer cette clinique"
+                          className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setReportLignes((ls) => [...ls, { code_clinique: "", message: "" }])}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700"
+                      data-testid="planning-report-ajouter">
+                <Plus className="h-4 w-4" /> Ajouter une clinique
+              </button>
+            </div>
+            <label className="block text-xs text-slate-600">
+              Message pour une clinique sans ligne ci-dessus (vide = Liluvine répond comme d'habitude)
+              <textarea value={reportDefaut} onChange={(e) => setReportDefaut(e.target.value)} rows={2}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="planning-report-defaut" />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" checked={reportTout} onChange={(e) => setReportTout(e.target.checked)} data-testid="planning-report-tout" />
+              Répondre à tout message reçu après un rappel (sinon : seulement aux demandes de report, d'annulation ou d'indisponibilité)
+            </label>
+            <button type="button" onClick={enregistrerReport} disabled={savingReport}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50"
+                    data-testid="planning-report-save-btn">
+              {savingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+              Enregistrer les réponses
+            </button>
           </div>
         </>
       )}

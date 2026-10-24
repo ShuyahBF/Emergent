@@ -125,3 +125,18 @@ async def repondre_report_rdv(
         {"$set": {"report_reponse_at": datetime.now(timezone.utc).isoformat(), "report_reponse_code": rdv.get("code_clinique")}},
     )
     return {"ok": True, "command": "report_rdv", "code_clinique": rdv.get("code_clinique"), "reply": texte_reponse[:120]}
+
+
+# Code fictif des essais « client sans ligne » : il n'existe dans aucune ligne réglée, donc le message par défaut s'applique
+CODE_ESSAI_SANS_LIGNE = "ESSAI-SANS-LIGNE"
+
+
+def simuler_reponse(reglages: Dict[str, Any], code_client: Optional[str]) -> Dict[str, Any]:
+    """Message que Liluvine enverrait pour ce code client, avec un patient et un médecin d'exemple (boutons d'essai).
+    `source` dit d'où vient le message : « ligne » (réglé pour ce client), « defaut » ou « aucun » (Liluvine répondrait comme d'habitude)."""
+    code = (code_client or "").strip().upper()
+    ligne = next((l for l in normaliser_reponses(reglages.get("planning_report_reponses")) if l["code_clinique"] == code), None)
+    message = ligne["message"] if ligne else str(reglages.get("planning_report_defaut") or "").strip()
+    source = "ligne" if ligne else ("defaut" if message else "aucun")
+    exemple = {"patient": "PATIENT TEST", "medecin": "DR TEST", "code_clinique": code}
+    return {"source": source, "message": remplir(message, exemple) if message else ""}

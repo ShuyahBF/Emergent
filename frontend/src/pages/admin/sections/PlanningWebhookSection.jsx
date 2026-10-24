@@ -26,6 +26,10 @@ export default function PlanningWebhookSection() {
   const [reportDefaut, setReportDefaut] = useState("");
   const [reportTout, setReportTout] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
+  // Essai : numéro WhatsApp qui reçoit le message (mémorisé dans ce navigateur), client de la ligne essayée, essai en cours
+  const [telEssai, setTelEssai] = useState(() => { try { return localStorage.getItem("planning_report_tel_essai") || ""; } catch { return ""; } });
+  const [clientEssai, setClientEssai] = useState("");
+  const [essaiEnCours, setEssaiEnCours] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +96,28 @@ export default function PlanningWebhookSection() {
       toast.error(e?.response?.data?.detail || "Erreur sauvegarde");
     } finally {
       setSavingReport(false);
+    }
+  };
+
+  // Essai : envoie au numéro saisi le message tel que l'écran le règle en ce moment (sans rien enregistrer)
+  const lancerEssai = async (mode) => {
+    if (!telEssai.trim()) { toast.error("Saisissez d'abord le numéro WhatsApp qui recevra l'essai"); return; }
+    try { localStorage.setItem("planning_report_tel_essai", telEssai.trim()); } catch { /* stockage indisponible */ }
+    setEssaiEnCours(mode);
+    try {
+      const r = await apiClient.post("/admin/planning/report/test", {
+        mode, telephone: telEssai.trim(), code_client: clientEssai || null,
+        report_reponses: reportLignes.filter((l) => l.code_clinique?.trim() && l.message?.trim())
+          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim() })),
+        report_defaut: reportDefaut,
+      });
+      const d = r.data || {};
+      if (d.envoye) toast.success(`Essai envoyé (${d.source === "ligne" ? `client ${d.code_client}` : "message par défaut"}) : ${d.message}`);
+      else toast.warning(d.detail || "Essai non envoyé");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur d'essai");
+    } finally {
+      setEssaiEnCours("");
     }
   };
 
@@ -279,8 +305,8 @@ export default function PlanningWebhookSection() {
               <div className="flex-1">
                 <h3 className="text-sm font-semibold text-slate-800">Réponse de Liluvine aux demandes de report de RDV</h3>
                 <p className="text-xs text-slate-500">
-                  Quand un patient écrit dans les 24 h qui suivent son rappel, Liluvine retrouve son RDV (par son numéro), lit le
-                  <code className="bg-slate-100 px-1 rounded mx-1">code_clinique</code> et répond avec le message réglé pour cette clinique
+                  Quand un patient écrit dans les 24 h qui suivent son rappel, Liluvine retrouve son RDV (par son numéro), lit le code du client (champ
+                  <code className="bg-slate-100 px-1 rounded mx-1">code_clinique</code>) et répond avec le message réglé pour ce client
                   (une seule fois par RDV). Marqueurs possibles : <code className="bg-slate-100 px-1 rounded">{"{patient}"}</code>,{" "}
                   <code className="bg-slate-100 px-1 rounded">{"{medecin}"}</code>.
                 </p>
@@ -290,17 +316,22 @@ export default function PlanningWebhookSection() {
               <input type="checkbox" checked={reportActif} onChange={(e) => setReportActif(e.target.checked)} data-testid="planning-report-actif" />
               Activer la réponse automatique
             </label>
+            {!reportActif && (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2" data-testid="planning-report-inactif">
+                Désactivé : aucun patient ne recevra ces messages tant que la case n'est pas cochée (les essais ci-dessous fonctionnent quand même).
+              </p>
+            )}
             <div className="space-y-2">
               {reportLignes.map((l, i) => (
                 <div key={i} className="grid sm:grid-cols-[11rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
                   {/* Liste déroulante des codes connus ; « Autre… » ouvre une saisie libre */}
                   {l.autre || (l.code_clinique && !codesProposes.includes(l.code_clinique)) ? (
-                    <input value={l.code_clinique} onChange={(e) => majLigne(i, { code_clinique: e.target.value })} placeholder="Code clinique"
+                    <input value={l.code_clinique} onChange={(e) => majLigne(i, { code_clinique: e.target.value })} placeholder="Code client"
                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
                   ) : (
                     <select value={l.code_clinique} onChange={(e) => (e.target.value === "__autre__" ? majLigne(i, { autre: true, code_clinique: "" }) : majLigne(i, { code_clinique: e.target.value }))}
                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono">
-                      <option value="">— Clinique —</option>
+                      <option value="">— Client —</option>
                       {codesProposes.map((c) => <option key={c} value={c}>{c}</option>)}
                       <option value="__autre__">Autre…</option>
                     </select>
@@ -308,18 +339,18 @@ export default function PlanningWebhookSection() {
                   <textarea value={l.message} onChange={(e) => majLigne(i, { message: e.target.value })} rows={2}
                             placeholder="Appelez l'accueil SVP : 78267900/70463624. Pour tout complément d'information ou report de RDV."
                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-                  <button type="button" onClick={() => setReportLignes((ls) => ls.filter((_, k) => k !== i))} title="Retirer cette clinique"
+                  <button type="button" onClick={() => setReportLignes((ls) => ls.filter((_, k) => k !== i))} title="Retirer ce client"
                           className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
                 </div>
               ))}
               <button type="button" onClick={() => setReportLignes((ls) => [...ls, { code_clinique: "", message: "" }])}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700"
                       data-testid="planning-report-ajouter">
-                <Plus className="h-4 w-4" /> Ajouter une clinique
+                <Plus className="h-4 w-4" /> Ajouter un client
               </button>
             </div>
             <label className="block text-xs text-slate-600">
-              Message pour une clinique sans ligne ci-dessus (vide = Liluvine répond comme d'habitude)
+              Message pour un client sans ligne ci-dessus (vide = Liluvine répond comme d'habitude)
               <textarea value={reportDefaut} onChange={(e) => setReportDefaut(e.target.value)} rows={2}
                         className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="planning-report-defaut" />
             </label>
@@ -327,6 +358,42 @@ export default function PlanningWebhookSection() {
               <input type="checkbox" checked={reportTout} onChange={(e) => setReportTout(e.target.checked)} data-testid="planning-report-tout" />
               Répondre à tout message reçu après un rappel (sinon : seulement aux demandes de report, d'annulation ou d'indisponibilité)
             </label>
+            {/* Essais : un client réglé et un client sans ligne, envoyés sur un numéro WhatsApp de test */}
+            <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-2" data-testid="planning-report-essais">
+              <p className="text-xs font-medium text-slate-700">Essayer les réponses (envoi sur votre numéro, jamais à un patient)</p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                <label className="text-xs text-slate-600">
+                  Numéro WhatsApp qui reçoit l'essai
+                  <input value={telEssai} onChange={(e) => setTelEssai(e.target.value)} placeholder="+22670001122"
+                         className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" data-testid="planning-report-tel-essai" />
+                </label>
+                <label className="text-xs text-slate-600">
+                  Client de la ligne à essayer
+                  <select value={clientEssai} onChange={(e) => setClientEssai(e.target.value)}
+                          className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono">
+                    <option value="">Première ligne réglée</option>
+                    {reportLignes.map((l) => l.code_clinique).filter(Boolean).map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2 boutons-distincts">
+                <button type="button" onClick={() => lancerEssai("avec_ligne")} disabled={Boolean(essaiEnCours)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-50"
+                        data-testid="planning-report-essai-avec">
+                  {essaiEnCours === "avec_ligne" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  Essai : client avec ligne
+                </button>
+                <button type="button" onClick={() => lancerEssai("sans_ligne")} disabled={Boolean(essaiEnCours)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-50"
+                        data-testid="planning-report-essai-sans">
+                  {essaiEnCours === "sans_ligne" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  Essai : client sans ligne
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                L'essai utilise ce qui est affiché à l'écran (même non enregistré), avec « PATIENT TEST » et « DR TEST ». Le message en texte libre n'arrive que si ce numéro a écrit à Liluvine dans les 24 dernières heures.
+              </p>
+            </div>
             <button type="button" onClick={enregistrerReport} disabled={savingReport}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50"
                     data-testid="planning-report-save-btn">

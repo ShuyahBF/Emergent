@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "288", "date": "2026-10-24",
+        "titre": "🧪 Réponse aux demandes de report : essais « client avec ligne » et « client sans ligne »",
+        "description": "Dans la rubrique du webhook Planning, le bloc de réponse de Liluvine parle maintenant de « client » (et non plus de clinique) et propose deux boutons d'essai : l'un envoie sur votre numéro WhatsApp le message d'un client réglé, l'autre celui d'un client sans ligne (message par défaut). L'essai utilise ce qui est affiché à l'écran, même non enregistré. Un avertissement rappelle quand la réponse automatique n'est pas activée.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "287", "date": "2026-10-24",
         "titre": "📞 Liluvine : réponse aux demandes de report de RDV, propre à chaque clinique",
         "description": "Quand un patient répond à son rappel de RDV (report, annulation, indisponibilité), Liluvine retrouve son rendez-vous, lit le code_clinique et envoie le message réglé pour cette clinique (ex. « Appelez l'accueil SVP : 78267900/70463624 »), une seule fois par RDV. Réglage : une ligne par clinique (liste déroulante des codes reçus), un message par défaut et l'activation. À activer dans la rubrique.",

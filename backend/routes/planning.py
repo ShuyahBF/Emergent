@@ -276,6 +276,15 @@ class PlanningConfigUpdate(BaseModel):
     report_repondre_tout: Optional[bool] = Field(None, description="Répondre à tout message après un rappel")
 
 
+class PlanningReportTest(BaseModel):
+    """Essai de la réponse aux demandes de report : utilise les valeurs ACTUELLES de l'écran (même non enregistrées)."""
+    mode: str = Field(..., description="avec_ligne | sans_ligne")
+    telephone: str = Field(..., max_length=32, description="Numéro WhatsApp qui reçoit l'essai")
+    code_client: Optional[str] = Field(None, description="Pour « avec_ligne » : le client de la ligne à essayer")
+    report_reponses: Optional[List[Dict[str, str]]] = None
+    report_defaut: Optional[str] = None
+
+
 def attach_planning_routes(
     *,
     api,
@@ -507,6 +516,41 @@ def attach_planning_routes(
             "reminder_wa_template": set_doc.get("planning_reminder_wa_template", s.get("planning_reminder_wa_template") or ""),
             "reminder_wa_language": set_doc.get("planning_reminder_wa_language", s.get("planning_reminder_wa_language") or "fr"),
         }
+
+    @api.post("/admin/planning/report/test", tags=["Admin — Planning"])
+    async def admin_planning_report_test(payload: PlanningReportTest, user: dict = Depends(get_current_admin)):
+        """Lot 288 — envoie au numéro donné la réponse que recevrait un patient : « avec_ligne » = d'un client réglé,
+        « sans_ligne » = d'un client sans ligne (message par défaut). Jamais envoyé à un patient réel."""
+        from routes.planning_report_rdv import CODE_ESSAI_SANS_LIGNE, chiffres, normaliser_reponses, simuler_reponse
+        if payload.mode not in ("avec_ligne", "sans_ligne"):
+            raise HTTPException(status_code=400, detail="Mode d'essai inconnu")
+        if len(chiffres(payload.telephone)) < 8:
+            raise HTTPException(status_code=400, detail="Numéro WhatsApp invalide")
+        if not wa_send_text:
+            raise HTTPException(status_code=503, detail="Envoi WhatsApp indisponible")
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        reglages = {
+            "planning_report_reponses": normaliser_reponses(payload.report_reponses) if payload.report_reponses is not None
+            else (s.get("planning_report_reponses") or []),
+            "planning_report_defaut": payload.report_defaut if payload.report_defaut is not None else (s.get("planning_report_defaut") or ""),
+        }
+        if payload.mode == "avec_ligne":
+            code = (payload.code_client or "").strip() or (reglages["planning_report_reponses"][0]["code_clinique"]
+                                                           if reglages["planning_report_reponses"] else "")
+            if not code:
+                raise HTTPException(status_code=400, detail="Aucune ligne client réglée à essayer")
+        else:
+            code = CODE_ESSAI_SANS_LIGNE
+        sim = simuler_reponse(reglages, code)
+        if sim["source"] == "aucun":
+            return {"ok": True, "envoye": False, "source": "aucun", "code_client": code,
+                    "detail": "Aucun message par défaut : pour un client sans ligne, Liluvine répondrait comme d'habitude (rien d'envoyé)."}
+        if payload.mode == "avec_ligne" and sim["source"] != "ligne":
+            raise HTTPException(status_code=400, detail=f"Le client « {code} » n'a pas de ligne réglée")
+        res = await wa_send_text(payload.telephone, "[ESSAI] " + sim["message"])
+        ok = bool(res and res.get("ok"))
+        return {"ok": ok, "envoye": ok, "source": sim["source"], "code_client": code, "message": sim["message"],
+                "detail": None if ok else ((res or {}).get("error") or "Envoi refusé par WhatsApp (le destinataire doit avoir écrit dans les 24 h)")}
 
     @api.post("/admin/planning/reminders/run", tags=["Admin — Planning"])
     async def admin_planning_reminders_run_now(user: dict = Depends(get_current_admin)):

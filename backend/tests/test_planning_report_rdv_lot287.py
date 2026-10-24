@@ -95,3 +95,12 @@ def test_repondre_a_tout_message_si_demande():
     db = _base([_rdv("CMC")])
     res, _ = _lancer(db, "Merci beaucoup", {**REGLAGES, "planning_report_repondre_tout": True})
     assert res and res["ok"]
+
+
+def test_simulation_pour_les_boutons_d_essai():
+    from routes.planning_report_rdv import CODE_ESSAI_SANS_LIGNE, simuler_reponse
+    avec = simuler_reponse(REGLAGES, "CMCO")
+    assert avec["source"] == "ligne" and avec["message"] == "Bonjour PATIENT TEST, appelez le 70000000."
+    assert simuler_reponse(REGLAGES, CODE_ESSAI_SANS_LIGNE) == {"source": "aucun", "message": ""}
+    sans = simuler_reponse({**REGLAGES, "planning_report_defaut": "Appelez {patient}"}, CODE_ESSAI_SANS_LIGNE)
+    assert sans == {"source": "defaut", "message": "Appelez PATIENT TEST"}

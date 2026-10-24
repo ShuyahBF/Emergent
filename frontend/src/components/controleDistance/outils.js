@@ -49,7 +49,7 @@ export async function attendreTampon(ws) {
  */
 export async function envoyerFichier(ws, id, fichier, progression, dossier = "", options = {}) {
   // `dossier` : dossier de base mémorisé pour ce poste (vide = « Reçu du support SAWALI » sur son Bureau)
-  const { reprise = false, attendrePret = null } = options;
+  const { reprise = false, attendrePret = null, annule = null } = options;   // lot 284 : annule() = true → l'envoi s'arrête
   ws.send(JSON.stringify({ type: "fichier_debut", id, nom: fichier.name, taille: fichier.size, chemin: dossier || "",
                            reprise, modifie: fichier.lastModified || 0 }));
   let depart = 0;
@@ -65,6 +65,11 @@ export async function envoyerFichier(ws, id, fichier, progression, dossier = "",
   }
   for (let debut = depart; debut < fichier.size; debut += TAILLE_MORCEAU) {
     if (ws.readyState !== WebSocket.OPEN) return false;
+    if (annule?.()) {
+      // Lot 284 : annulé par le technicien — le poste jette le fichier partiel
+      ws.send(JSON.stringify({ type: "fichier_annuler", id }));
+      return "annule";
+    }
     const morceau = await fichier.slice(debut, Math.min(fichier.size, debut + TAILLE_MORCEAU)).arrayBuffer();
     await attendreTampon(ws);
     ws.send(trameFichier(TRAME_FICHIER_VERS_POSTE, id, morceau));

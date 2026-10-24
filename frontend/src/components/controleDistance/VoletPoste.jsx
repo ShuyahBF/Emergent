@@ -202,7 +202,7 @@ function OngletChat({ filId }) {
 // ---------------------------------------------------------------------
 // Onglet « Fichiers » : dossiers du poste ; un clic sur un fichier le récupère
 // ---------------------------------------------------------------------
-function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, onDossierBase, onDemanderFichier, onReprendre, onReprendreTous, onEffacer, onProlonger }) {
+function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, onDossierBase, onDemanderFichier, onReprendre, onReprendreTous, onEffacer, onProlonger, onAnnuler }) {
   const [chemin, setChemin] = useState("");
   const [copieDe, setCopieDe] = useState(null);   // fichier dont on choisit le poste de destination
   // Lot 283 : tri de la liste (nom, date/heure, taille ; croissant ou décroissant), mémorisé pendant la session
@@ -369,6 +369,11 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
                       <span className={t.interrompu ? "text-amber-300" : t.erreur ? "text-rose-300" : t.fini ? "text-emerald-300" : "text-slate-400"}>
                         {t.interrompu ? `interrompu ${pct} %` : t.erreur ? "échec" : t.fini ? "terminé" : `${pct} %`}
                       </span>
+                      {/* Lot 284 : annuler un transfert en cours */}
+                      {!t.fini && !t.erreur && !t.interrompu && (
+                        <button type="button" onClick={() => onAnnuler?.(t)} title="Annuler ce transfert (le fichier partiel est abandonné)"
+                                className="inline-flex items-center gap-0.5 rounded bg-rose-600/80 px-1 py-0.5 text-[10px] text-white hover:bg-rose-500" data-testid="annuler-transfert"><X className="h-3 w-3" />Annuler</button>
+                      )}
                       {t.interrompu && t.reprenable && (
                         <button type="button" disabled={!actif} onClick={() => onReprendre?.(t)} title="Reprendre ce transfert là où il s'est arrêté"
                                 className="rounded p-0.5 text-sky-300 hover:bg-white/10 disabled:opacity-30" data-testid="reprendre-transfert"><RotateCcw className="h-3 w-3" /></button>

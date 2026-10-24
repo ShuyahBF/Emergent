@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "285"
-LOT_LIBELLE = "Contrôle à distance, onglet Fichiers : bouton « Annuler » sur un transfert en cours (envoi ou récupération), le fichier partiel est abandonné"
+LOT = "286"
+LOT_LIBELLE = "Interventions : les dates/heures de début et de fin saisies avec la durée sont enregistrées et retrouvées à la réouverture de la fiche"

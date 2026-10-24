@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "283", "date": "2026-10-24",
+        "titre": "🗂️ Contrôle à distance : date/heure de modification et tri dans l'onglet Fichiers",
+        "description": "La liste des fichiers du poste affiche maintenant la date et l'heure de dernière modification de chaque fichier et dossier. Des boutons « Nom / Date/heure / Taille » trient la liste : un clic trie, un second clic inverse le sens (▲ ▼). Les dossiers restent en tête. Rien à régler.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "282", "date": "2026-10-24",
         "titre": "🎫 Contrôle à distance : motif du ticket modifiable, note rappelée à la prochaine prise en main, noms de postes lisibles",
         "description": "Pendant une prise en main, un clic sur le ticket (badge orange) ouvre une fenêtre pour corriger son motif et écrire une note : elle est ajoutée à l'intervention à la fin de la session et affichée en rappel (bandeau orange, « Supprimer le rappel ») à la prochaine prise en main du même ordinateur. La fenêtre « + » de choix des postes est plus large : les noms longs ne sont plus coupés. Rien à régler.",

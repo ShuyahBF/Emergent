@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "282"
-LOT_LIBELLE = "Contrôle à distance : fenêtre de choix des postes élargie (noms longs) ; clic sur le ticket pour modifier son motif et laisser une note, ajoutée à l'intervention et rappelée à la prochaine prise en main du même poste"
+LOT = "283"
+LOT_LIBELLE = "Contrôle à distance, onglet Fichiers : date/heure de modification affichée pour chaque fichier et dossier du poste, tri par nom, date/heure ou taille (croissant ou décroissant)"

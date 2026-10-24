@@ -14,6 +14,7 @@ import {
   ArrowUp, RefreshCw, Download, Activity, Info, Home, Copy, Pin, X, RotateCcw, Trash2, TimerReset,
 } from "lucide-react";
 import { dateLisible, tailleLisible, dureeLisible, autresPostes } from "./outils";
+import { CRITERES_TRI, trierEntrees } from "./tri";
 
 // Petite jauge horizontale (pourcentage), couleur selon le niveau
 function Jauge({ valeur, libelle, icone: Icone }) {
@@ -204,6 +205,12 @@ function OngletChat({ filId }) {
 function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, onDossierBase, onDemanderFichier, onReprendre, onReprendreTous, onEffacer, onProlonger }) {
   const [chemin, setChemin] = useState("");
   const [copieDe, setCopieDe] = useState(null);   // fichier dont on choisit le poste de destination
+  // Lot 283 : tri de la liste (nom, date/heure, taille ; croissant ou décroissant), mémorisé pendant la session
+  const [tri, setTri] = useState({ critere: "nom", sens: "asc" });
+  const choisirTri = (critere) => setTri((t) => (t.critere === critere
+    ? { critere, sens: t.sens === "asc" ? "desc" : "asc" }          // même critère : on inverse le sens
+    : { critere, sens: critere === "nom" ? "asc" : "desc" }));      // nouveau critère : date/taille = plus récent/plus gros d'abord
+  const entreesTriees = trierEntrees(liste?.entrees, tri.critere, tri.sens);
   const ouvrir = (c) => { setChemin(c); envoyer({ type: "fichiers_lister", chemin: c }); };
   // Lot 135 : départ = dernier dossier parcouru (mémorisé à la fermeture), sinon le dossier de base, sinon les points de départ
   const depart = dossiers?.dernier_chemin || dossiers?.dossier_base || "";
@@ -257,8 +264,20 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
         </button>
       )}
       {liste?.erreur && <p className="text-[11px] text-rose-300">{liste.erreur}</p>}
+      {/* Lot 283 : barre de tri */}
+      {(liste?.entrees || []).length > 1 && (
+        <div className="flex items-center gap-1 text-[10px] text-slate-400" data-testid="tri-fichiers">
+          <span>Trier :</span>
+          {CRITERES_TRI.map((c) => (
+            <button key={c.id} type="button" onClick={() => choisirTri(c.id)} aria-pressed={tri.critere === c.id}
+                    className={`rounded px-1.5 py-0.5 ${tri.critere === c.id ? "bg-sky-600 text-white" : "bg-white/10 hover:bg-white/20"}`}>
+              {c.libelle}{tri.critere === c.id ? (tri.sens === "asc" ? " ▲" : " ▼") : ""}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="max-h-[50vh] overflow-auto">
-        {(liste?.entrees || []).map((e) => (
+        {entreesTriees.map((e) => (
           <div key={e.nom} className="relative">
             <div className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-slate-100 hover:bg-white/10">
               <button type="button" disabled={!actif}
@@ -267,6 +286,8 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
                       title={e.dossier ? "Ouvrir" : "Récupérer ce fichier"}>
                 {e.dossier ? <Folder className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-sky-300" />}
                 <span className="min-w-0 flex-1 truncate">{e.nom}</span>
+                {/* Lot 283 : date/heure de modification (dossiers compris) */}
+                <span className="shrink-0 text-[10px] text-slate-500" title="Dernière modification">{dateLisible(e.modifie)}</span>
                 {!e.dossier && <span className="shrink-0 text-slate-400">{tailleLisible(e.taille)}</span>}
                 {!e.dossier && <Download className="h-3 w-3 shrink-0 text-slate-400" />}
               </button>

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "285", "date": "2026-10-24",
+        "titre": "🛑 Contrôle à distance : annuler un transfert de fichier en cours",
+        "description": "Dans « Transferts » de l'onglet Fichiers, chaque ligne en cours a un bouton rouge « Annuler » : l'envoi ou la récupération s'arrête aussitôt et le fichier partiel est abandonné (pas de reprise). Pour arrêter aussi l'envoi côté poste lors d'une récupération, le poste doit avoir la dernière version de Loois ; sinon le navigateur ignore simplement la suite. Rien à régler.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "284", "date": "2026-10-24",
         "titre": "⬇️ Contrôle à distance : téléchargement uniquement par le pictogramme",
         "description": "Dans l'onglet Fichiers, cliquer sur le nom d'un fichier ne lance plus le téléchargement : il faut cliquer sur le pictogramme de téléchargement à droite. Un double clic ne lance plus deux transferts du même fichier. Les dossiers s'ouvrent toujours au clic sur leur nom. Rien à régler.",

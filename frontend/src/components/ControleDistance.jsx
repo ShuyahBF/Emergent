@@ -167,6 +167,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const connexionRef = useRef(0);        // lot 281 : numéro de la connexion en cours (les identifiants de fichier du poste redémarrent à 1 à chaque prise en main)
   const uidRef = useRef(0);              // lot 281 : identifiant UNIQUE de chaque ligne de l'historique des transferts
   const envoisRef = useRef(new Map());   // lot 281 : identifiant de fichier envoyé → uid de la ligne (connexion en cours)
+  const annulesRef = useRef(new Set());   // lot 284 : lignes d'envoi annulées par le technicien (uid)
   const pretsRef = useRef(new Map());    // lot 281 : réponses « fichier_pret » attendues pour une reprise d'envoi (id → fonction)
   const dernierCheminRef = useRef("");   // lot 135 : dernier dossier parcouru, mémorisé à la fermeture
   const cheminEnregistreRef = useRef("");
@@ -278,7 +279,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     const t = lireTrameFichier(tampon);
     if (!t) return;
     const r = receptionsRef.current.get(t.id);
-    if (!r) return;
+    if (!r || r.annule) return;   // lot 284 : transfert annulé, les morceaux encore en route sont jetés
     r.partiel.morceaux.push(t.donnees);
     r.partiel.recu += t.donnees.byteLength;
     const fait = r.partiel.recu;
@@ -355,6 +356,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     else if (m.type === "fichier_fin") {
       const r = receptionsRef.current.get(m.id);
       receptionsRef.current.delete(m.id);
+      if (r?.annule) return;   // lot 284 : transfert annulé par le technicien, rien à afficher
       if (!r) demandesRef.current.shift();   // échec avant tout envoi : la demande est abandonnée
       const complet = Boolean(r && m.ok && r.partiel.recu === r.partiel.taille);
       if (complet) {
@@ -585,10 +587,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         const minuterie = setTimeout(() => { pretsRef.current.delete(idFichier); ok(null); }, delai);
         pretsRef.current.set(idFichier, (octets) => { clearTimeout(minuterie); pretsRef.current.delete(idFichier); ok(octets); });
       });
-      return envoyerFichier(ws, id, f, (fait) => majTransfert(uid, { fait }), dossierBaseRef.current, { reprise: avecReprise, attendrePret });
+      return envoyerFichier(ws, id, f, (fait) => majTransfert(uid, { fait }), dossierBaseRef.current, { reprise: avecReprise, attendrePret, annule: () => annulesRef.current.has(uid) });
     };
     let ok = await lancer(reprise);
     if (ok === "repli") ok = await lancer(false);   // ancien Loois sans reprise : on recommence depuis le début
+    if (ok === "annule") return false;              // lot 284 : la ligne est déjà marquée « annulé » par annulerTransfert
     if (!ok) majTransfert(uid, { erreur: "connexion interrompue", interrompu: true, reprenable: true });
     return Boolean(ok);
   }, [majTransfert]);
@@ -619,6 +622,21 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     if (etat !== "active" || !peutAgir) { toast.warning("Reprise possible pendant une prise en main en mode « Contrôler »"); return; }
     if (t.sens === "envoi" && t.fichier) envoyerAuPoste(t.fichier, { reprise: true, uid: t.uid });
     else if (t.sens === "reception" && t.chemin) demanderFichier(t.chemin, t.destination || null, t.uid);
+  };
+  // Lot 284 : « Annuler » un transfert EN COURS (envoi ou réception) : il s'arrête, le fichier partiel est abandonné (poste et navigateur)
+  const annulerTransfert = (t) => {
+    if (t.fini || t.erreur || t.cx !== connexionRef.current) return;
+    if (t.sens === "envoi") {
+      annulesRef.current.add(t.uid);              // la boucle d'envoi s'arrête au prochain morceau et prévient le poste
+      envoisRef.current.delete(t.id);
+    } else {
+      const r = receptionsRef.current.get(t.id);
+      if (r) r.annule = true;                     // les morceaux encore en route seront ignorés
+      envoyer({ type: "fichier_arreter", id: t.id });   // le poste arrête de lire et d'envoyer le fichier
+      partielsReception.delete(t.cle);            // on abandonne aussi les octets déjà reçus (pas de reprise)
+    }
+    majTransfert(t.uid, { erreur: "annulé", interrompu: false, reprenable: false, fichier: null });
+    toast.info(`Transfert annulé : ${t.nom}`);
   };
   const reprendreTous = () => transferts.filter((t) => t.interrompu && t.reprenable).forEach(reprendreTransfert);
   const effacerHistorique = (t = null) => {
@@ -1034,7 +1052,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
           <VoletPoste onglet={ongletVolet} setOnglet={setOngletVolet} infos={infos} perf={perf} filId={fiche?.fil_id}
                       liste={listeFichiers} transferts={transferts} envoyer={envoyer} peutAgir={peutAgir} actif={etat === "active"}
                       posteId={posteId} dossiers={dossiers} onDossierBase={definirDossierBase} onDemanderFichier={demanderFichier}
-                      onReprendre={reprendreTransfert} onReprendreTous={reprendreTous} onEffacer={effacerHistorique} onProlonger={prolongerSession} />
+                      onReprendre={reprendreTransfert} onAnnuler={annulerTransfert} onReprendreTous={reprendreTous} onEffacer={effacerHistorique} onProlonger={prolongerSession} />
         )}
       </div>
 

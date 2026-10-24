@@ -91,7 +91,7 @@ TAILLE_MAX_TRAME = 2 * 1024 * 1024   # 2 Mo par trame binaire (une tuile JPEG es
 COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte", "maintenance",   # lot 140 : maintenance du disque
                     # Lot 135 : système, blocage des entrées, fichiers
                     "systeme", "bloquer_entrees", "fichier_debut", "fichier_fin", "fichier_annuler",
-                    "fichiers_lister", "fichier_demander"}
+                    "fichiers_lister", "fichier_demander", "fichier_arreter"}   # lot 284 : arrêter l'envoi d'un fichier par le poste
 # Commandes du technicien autorisées dans tous les modes (réglages de l'affichage)
 COMMANDES_AFFICHAGE = {"choix_ecran", "qualite", "image_complete", "ping", "arreter",
                        "echelle", "infos_demander"}   # lot 135

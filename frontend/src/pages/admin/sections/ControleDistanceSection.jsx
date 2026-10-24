@@ -27,6 +27,7 @@ const STATUTS = {
 const ACTIONS = {
   systeme: "Action système", bloquer_entrees: "Clavier / souris", fichier_envoye: "Fichier envoyé",
   fichier_recupere: "Fichier récupéré", identifiants_windows: "Identifiant Windows",
+  ticket_modifie: "Ticket modifié",   // lot 282
 };
 
 // `lienPage` : dans les Paramètres, bouton vers l'écran Plateformes → Contrôle à distance (absent sur cet écran lui-même)

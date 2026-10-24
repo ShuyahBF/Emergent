@@ -80,7 +80,7 @@ function ChoixPoste({ onChoisir, onFermer }) {
   }, []);
   const visibles = postes.filter((p) => !filtre || `${p.nom} ${p.cle_client_libelle || ""}`.toLowerCase().includes(filtre.toLowerCase()));
   return (
-    <div className="absolute right-2 top-11 z-30 w-96 rounded-2xl bg-slate-900 p-3 shadow-2xl ring-1 ring-white/15">
+    <div className="absolute right-2 top-11 z-30 w-[46rem] max-w-[calc(100vw-1rem)] rounded-2xl bg-slate-900 p-3 shadow-2xl ring-1 ring-white/15">   {/* lot 282 : fenêtre élargie, les noms de postes sont longs */}
       <div className="mb-2 flex items-center gap-2 rounded-lg bg-white/10 px-2">
         <Search className="h-4 w-4 text-slate-400" />
         <input autoFocus value={filtre} onChange={(e) => setFiltre(e.target.value)} placeholder="Rechercher un poste…"
@@ -96,8 +96,8 @@ function ChoixPoste({ onChoisir, onFermer }) {
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-slate-100 hover:bg-white/10">
               <span className={`h-2 w-2 shrink-0 rounded-full ${enLigne ? "bg-emerald-400" : "bg-slate-500"}`} />
               {p.agent_service ? <ServerCog className="h-3.5 w-3.5 shrink-0 text-sky-300" /> : <Monitor className="h-3.5 w-3.5 shrink-0 text-slate-300" />}
-              <span className="min-w-0 flex-1 truncate">{p.nom}</span>
-              <span className="shrink-0 text-[10px] text-slate-400">{p.cle_client_libelle || p.cle_client_code}</span>
+              <span className="min-w-0 flex-1 break-words" title={p.nom}>{p.nom}</span>
+              <span className="max-w-[12rem] shrink-0 text-right text-[10px] text-slate-400" title={p.cle_client_libelle || p.cle_client_code}>{p.cle_client_libelle || p.cle_client_code}</span>
             </button>
           );
         })}

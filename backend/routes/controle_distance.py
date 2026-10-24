@@ -301,6 +301,12 @@ class Relais:
 # ---------------------------------------------------------------------------------------------------------------------
 # Modèles des requêtes
 # ---------------------------------------------------------------------------------------------------------------------
+class TicketModif(BaseModel):
+    """Lot 282 — modification du ticket d'intervention d'une prise en main : motif et/ou note (rappel à la prochaine connexion)."""
+    motif: Optional[str] = Field(None, max_length=300)
+    note: Optional[str] = Field(None, max_length=1000)
+
+
 class DemandeSession(BaseModel):
     poste_id: str = Field(..., min_length=1, max_length=200)
     mode: str = Field("controler", pattern="^(voir|controler)$")
@@ -520,7 +526,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
             bilan = await module.cloturer_ticket(
                 ticket, outcome="done",
                 acteur={"id": session.get("technicien_id"), "full_name": session.get("technicien_nom")},
-                note=f"Prise en main {session.get('numero') or ''} terminée ({motif})",
+                note=f"Prise en main {session.get('numero') or ''} terminée ({motif})"
+                     + (f"\nNote du technicien : {session['note_intervention']}" if session.get("note_intervention") else ""),   # lot 282
                 taches=taches_effectuees(session.get("taches")))   # lot 140 : maintenance du disque → tâches effectuées
             inter = (bilan or {}).get("intervention") or {}
             if inter:
@@ -725,16 +732,73 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
         if not s or s.get("technicien_id") != user.get("id"):
             raise HTTPException(status_code=404, detail="Session introuvable")
         s = await _expirer(s)
+        motif_ticket = s.get("ticket_motif")
+        if not motif_ticket and s.get("ticket_id"):   # lot 282 : motif d'origine du ticket (modifiable)
+            tk = await db.support_tickets.find_one({"id": s["ticket_id"]}, {"_id": 0, "motif": 1}) or {}
+            motif_ticket = tk.get("motif")
         reponse = {"session_id": sid, "statut": s["statut"], "mode": s.get("mode"), "poste_nom": s.get("poste_nom"),
                    "motif_fin": s.get("motif_fin"),
                    # Lot 135
-                   "numero": s.get("numero"), "client_nom": s.get("client_nom"), "ticket_number": s.get("ticket_number")}
+                   "numero": s.get("numero"), "client_nom": s.get("client_nom"), "ticket_number": s.get("ticket_number"),
+                   # Lot 282 : motif et note actuels du ticket (fenêtre « Modifier le ticket »)
+                   "ticket_motif": motif_ticket, "note_intervention": s.get("note_intervention") or ""}
         if s["statut"] == "acceptee" and not s.get("jeton_tech_remis"):
             jeton = _jetons_tech_a_remettre.pop(sid, None)
             if jeton:
                 await db.controle_distance_sessions.update_one({"id": sid}, {"$set": {"jeton_tech_remis": True}})
                 reponse["jeton"] = jeton
         return reponse
+
+    # --- Lot 282 : modifier le motif du ticket d'intervention et laisser une note de rappel pour la prochaine prise en main -----
+    @router.put("/controle-distance/sessions/{sid}/ticket")
+    async def modifier_ticket(sid: str, payload: TicketModif, user: Dict[str, Any] = Depends(_technicien)):
+        """Le technicien corrige le MOTIF du ticket de la prise en main et/ou écrit une NOTE : la note est ajoutée à l'intervention
+        (à la clôture) et affichée en RAPPEL à la prochaine prise en main de ce même ordinateur, jusqu'à ce qu'on la supprime."""
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0})
+        if not s or s.get("technicien_id") != user.get("id"):
+            raise HTTPException(status_code=404, detail="Session introuvable")
+        motif = None if payload.motif is None else payload.motif.strip()
+        note = None if payload.note is None else payload.note.strip()
+        if motif is not None and not motif:
+            raise HTTPException(status_code=422, detail="Le motif du ticket ne peut pas être vide")
+        maj_session: Dict[str, Any] = {}
+        if motif is not None:
+            maj_session["ticket_motif"] = motif
+            if s.get("ticket_id"):
+                await db.support_tickets.update_one({"id": s["ticket_id"]}, {"$set": {"motif": motif, "updated_at": iso(maintenant())}})
+        if note is not None:
+            maj_session["note_intervention"] = note
+            if s.get("ticket_id"):
+                await db.support_tickets.update_one({"id": s["ticket_id"]}, {"$set": {"notes": note or None, "updated_at": iso(maintenant())}})
+            # Rappel gardé avec l'ordinateur (même document que ses dossiers de transfert) : pas de nouvelle collection
+            poste = await db.support_loois_postes.find_one({"id": s.get("poste_id")}, {"_id": 0}) or {"id": s.get("poste_id")}
+            mid = _id_machine(poste)
+            if note:
+                rappel = {"note": note, "session_id": sid, "session_numero": s.get("numero"), "ticket_number": s.get("ticket_number"),
+                          "par": user.get("full_name") or user.get("email") or "", "le": iso(maintenant())}
+                await db.controle_distance_dossiers.update_one(
+                    {"id": mid}, {"$set": {"rappel": rappel, "maj_le": iso(maintenant())}, "$setOnInsert": {"id": mid}}, upsert=True)
+            else:
+                await db.controle_distance_dossiers.update_one({"id": mid}, {"$unset": {"rappel": ""}})
+        if maj_session:
+            await db.controle_distance_sessions.update_one({"id": sid}, {"$set": maj_session})
+            details = []
+            if motif is not None:
+                details.append(f"motif : {motif[:80]}")
+            if note is not None:
+                details.append("note ajoutée" if note else "note retirée")
+            await _noter_action(sid, {"type": "ticket_modifie", "detail": " · ".join(details)})
+        s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0}) or s
+        return {"ticket_number": s.get("ticket_number"), "ticket_motif": s.get("ticket_motif"), "note_intervention": s.get("note_intervention") or ""}
+
+    @router.delete("/controle-distance/postes/{poste_id}/rappel")
+    async def supprimer_rappel(poste_id: str, user: Dict[str, Any] = Depends(_technicien)):
+        """Lot 282 — le technicien a lu le rappel de la dernière intervention : il n'est plus affiché aux prochaines prises en main."""
+        p = await db.support_loois_postes.find_one({"id": poste_id}, {"_id": 0})
+        if not p:
+            raise HTTPException(status_code=404, detail="Poste Loois inconnu")
+        await db.controle_distance_dossiers.update_one({"id": _id_machine(p)}, {"$unset": {"rappel": ""}})
+        return {"rappel": None}
 
     @router.post("/controle-distance/sessions/{sid}/arreter")
     async def arreter(sid: str, user: Dict[str, Any] = Depends(_technicien)):
@@ -783,7 +847,9 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                 {"ecole": p.get("ecole"), "poste": p.get("poste"), "agent_service": True}, {"_id": 0, "id": 1, "nom": 1})
         client = await _client_du_poste(p, None)
         identifiants = await db.controle_distance_identifiants.find_one({"id": _id_machine(p)}, {"_id": 0})
+        dossiers_machine = await db.controle_distance_dossiers.find_one({"id": _id_machine(p)}, {"_id": 0, "rappel": 1}) or {}   # lot 282
         return {"possible": bool(p.get("cle_client_code")), "sans_surveillance": bool(p.get("sans_surveillance")),
+                "rappel": dossiers_machine.get("rappel"),   # lot 282 : note laissée à la dernière intervention (ou null)
                 "poste_nom": p.get("nom"), "dernier_contact": p.get("dernier_contact"),
                 "session_ouverte": bool(ouverte),
                 "agent_service": bool(p.get("agent_service")), "fil_id": fil_id, "fiche_service": fiche_service,

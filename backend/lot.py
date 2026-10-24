@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "280"
-LOT_LIBELLE = "Archives auRor : l'image d'un document déjà archivé peut être remplacée (nouvelle photo ou nouveau scan) ; toute modification exige le code PIN ou la phrase, contrôlé par le serveur avec les mêmes limites d'essais"
+LOT = "281"
+LOT_LIBELLE = "Contrôle à distance : un transfert de fichier interrompu reprend là où il s'est arrêté, l'historique des transferts s'efface (une ligne ou tout), la session n'est jamais coupée en plein transfert et se prolonge de 2 h ; le journal garde le code de fermeture de la liaison"

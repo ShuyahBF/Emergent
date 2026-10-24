@@ -42,18 +42,35 @@ export async function attendreTampon(ws) {
 
 /**
  * Envoie un fichier au poste par morceaux : « fichier_debut », trames binaires de type 2, « fichier_fin ».
- * `progression(octets)` est appelée après chaque morceau. Renvoie faux si la connexion s'est fermée en route.
+ * `progression(octets)` est appelée après chaque morceau.
+ * Lot 281 — REPRISE : avec `options.reprise`, le poste est interrogé (« fichier_debut » avec reprise → « fichier_pret » {octets}) et l'envoi
+ * repart à la position où le poste s'était arrêté ; `options.attendrePret(id, delaiMs)` renvoie ces octets (ou null sans réponse).
+ * Renvoie vrai (envoyé), faux (connexion fermée en route) ou « repli » (poste sans reprise : l'appelant renvoie depuis le début).
  */
-export async function envoyerFichier(ws, id, fichier, progression, dossier = "") {
+export async function envoyerFichier(ws, id, fichier, progression, dossier = "", options = {}) {
   // `dossier` : dossier de base mémorisé pour ce poste (vide = « Reçu du support SAWALI » sur son Bureau)
-  ws.send(JSON.stringify({ type: "fichier_debut", id, nom: fichier.name, taille: fichier.size, chemin: dossier || "" }));
-  for (let debut = 0; debut < fichier.size; debut += TAILLE_MORCEAU) {
+  const { reprise = false, attendrePret = null } = options;
+  ws.send(JSON.stringify({ type: "fichier_debut", id, nom: fichier.name, taille: fichier.size, chemin: dossier || "",
+                           reprise, modifie: fichier.lastModified || 0 }));
+  let depart = 0;
+  if (reprise) {
+    const octets = attendrePret ? await attendrePret(id, 5000) : null;
+    if (octets === null) {
+      // Poste sans reprise (ancien Loois) : on annule cette tentative, l'appelant recommence depuis le début
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "fichier_annuler", id }));
+      return "repli";
+    }
+    depart = Math.max(0, Math.min(fichier.size, octets));
+    progression?.(depart);
+  }
+  for (let debut = depart; debut < fichier.size; debut += TAILLE_MORCEAU) {
     if (ws.readyState !== WebSocket.OPEN) return false;
     const morceau = await fichier.slice(debut, Math.min(fichier.size, debut + TAILLE_MORCEAU)).arrayBuffer();
     await attendreTampon(ws);
     ws.send(trameFichier(TRAME_FICHIER_VERS_POSTE, id, morceau));
     progression?.(Math.min(fichier.size, debut + TAILLE_MORCEAU));
   }
+  if (ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify({ type: "fichier_fin", id }));
   return true;
 }

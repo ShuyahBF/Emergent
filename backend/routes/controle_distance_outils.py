@@ -8,7 +8,8 @@ Contenu :
   - délais mesurés d'une session (accord, connexion, durée) et résumé lisible pour le journal d'activités ;
   - chiffrement des identifiants Windows mémorisés par poste (Fernet dérivé de JWT_SECRET, étiquette propre) ;
   - lien signé et de courte durée pour relire la vidéo d'une session dans le navigateur (balise <video>) ;
-  - réglages de la rubrique (valeurs par défaut et bornes).
+  - réglages de la rubrique (valeurs par défaut et bornes) ;
+  - lot 281 : durée de la session — fin automatique à 4 h, mais JAMAIS en plein transfert de fichier, et prolongation à la demande.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ import hashlib
 import hmac
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -245,3 +246,40 @@ def reglages_valides(brut: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(brut.get("conservation_jours"), int) and not isinstance(brut.get("conservation_jours"), bool):
         r["conservation_jours"] = min(3650, max(1, brut["conservation_jours"]))
     return r
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 281 — durée d'une session : 4 h, prolongeable, jamais coupée en plein transfert de fichier
+# ---------------------------------------------------------------------------------------------------------------------
+DUREE_MAX_S = 4 * 3600             # durée normale d'une session
+DUREE_PROLONGATION_S = 2 * 3600    # chaque « Prolonger » ajoute 2 heures
+DUREE_ABSOLUE_S = 12 * 3600        # plafond de sécurité : jamais plus de 12 h au total
+FENETRE_TRANSFERT_S = 90           # un transfert est « en cours » si une trame de fichier est passée il y a moins de 90 s
+
+
+def plafond_session(debut: datetime) -> datetime:
+    """Heure au-delà de laquelle la session est fermée quoi qu'il arrive (début + 12 h)."""
+    return debut + timedelta(seconds=DUREE_ABSOLUE_S)
+
+
+def session_expiree(debut: datetime, maintenant: datetime, limite_fin: datetime, dernier_fichier: Optional[datetime]) -> bool:
+    """Vrai si la session doit être fermée : la limite est dépassée ET aucun fichier n'est en cours de transfert
+    (ou le plafond de 12 h est dépassé)."""
+    if maintenant <= limite_fin:
+        return False
+    if maintenant > plafond_session(debut):
+        return True
+    return not (dernier_fichier is not None and (maintenant - dernier_fichier).total_seconds() <= FENETRE_TRANSFERT_S)
+
+
+def prolonger_limite(debut: datetime, maintenant: datetime, limite_fin: datetime) -> datetime:
+    """Nouvelle limite après « Prolonger » : 2 h de plus que la limite actuelle (ou que maintenant si elle est dépassée),
+    sans dépasser le plafond de 12 h."""
+    return min(max(limite_fin, maintenant) + timedelta(seconds=DUREE_PROLONGATION_S), plafond_session(debut))
+
+
+def motif_deconnexion(role: str, code: Any = None) -> str:
+    """Motif inscrit au journal quand un bout se déconnecte : « déconnexion du poste (code 1006) ». Le code de fermeture du
+    WebSocket aide à comprendre une coupure (1006 = liaison coupée sans fermeture propre ; 1001 = page fermée ; 1000 = normale)."""
+    base = f"déconnexion du {role}"
+    return f"{base} (code {code})" if isinstance(code, int) and code else base

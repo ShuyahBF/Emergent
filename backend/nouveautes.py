@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "284", "date": "2026-10-24",
+        "titre": "⬇️ Contrôle à distance : téléchargement uniquement par le pictogramme",
+        "description": "Dans l'onglet Fichiers, cliquer sur le nom d'un fichier ne lance plus le téléchargement : il faut cliquer sur le pictogramme de téléchargement à droite. Un double clic ne lance plus deux transferts du même fichier. Les dossiers s'ouvrent toujours au clic sur leur nom. Rien à régler.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "283", "date": "2026-10-24",
         "titre": "🗂️ Contrôle à distance : date/heure de modification et tri dans l'onglet Fichiers",
         "description": "La liste des fichiers du poste affiche maintenant la date et l'heure de dernière modification de chaque fichier et dossier. Des boutons « Nom / Date/heure / Taille » trient la liste : un clic trie, un second clic inverse le sens (▲ ▼). Les dossiers restent en tête. Rien à régler.",

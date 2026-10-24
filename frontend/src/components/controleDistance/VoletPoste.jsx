@@ -222,6 +222,14 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
     morceaux.pop();
     return ouvrir(morceaux.join("\\") + (morceaux.length === 1 ? "\\" : ""));
   };
+  // Lot 284 : anti double-clic — un même fichier ne peut pas être demandé deux fois en moins de 3 secondes
+  const dernierEnvoi = useRef({});
+  const lancerTelechargement = (nom) => {
+    const maintenant = Date.now();
+    if (maintenant - (dernierEnvoi.current[nom] || 0) < 3000) return;
+    dernierEnvoi.current[nom] = maintenant;
+    onDemanderFichier?.(joindre(nom));
+  };
   const joindre = (nom) => (liste?.chemin ? `${liste.chemin.replace(/[\\/]+$/, "")}\\${nom}` : nom);
   return (
     <div className="space-y-2">
@@ -280,17 +288,27 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
         {entreesTriees.map((e) => (
           <div key={e.nom} className="relative">
             <div className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-slate-100 hover:bg-white/10">
-              <button type="button" disabled={!actif}
-                      onClick={() => (e.dossier ? ouvrir(joindre(e.nom)) : onDemanderFichier?.(joindre(e.nom)))}
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                      title={e.dossier ? "Ouvrir" : "Récupérer ce fichier"}>
-                {e.dossier ? <Folder className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-sky-300" />}
-                <span className="min-w-0 flex-1 truncate">{e.nom}</span>
-                {/* Lot 283 : date/heure de modification (dossiers compris) */}
-                <span className="shrink-0 text-[10px] text-slate-500" title="Dernière modification">{dateLisible(e.modifie)}</span>
-                {!e.dossier && <span className="shrink-0 text-slate-400">{tailleLisible(e.taille)}</span>}
-                {!e.dossier && <Download className="h-3 w-3 shrink-0 text-slate-400" />}
-              </button>
+              {/* Lot 284 : un dossier s'ouvre au clic sur son nom ; un fichier ne se télécharge QUE par le pictogramme */}
+              {e.dossier ? (
+                <button type="button" disabled={!actif} onClick={() => ouvrir(joindre(e.nom))}
+                        className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title="Ouvrir">
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                  <span className="min-w-0 flex-1 truncate">{e.nom}</span>
+                  <span className="shrink-0 text-[10px] text-slate-500" title="Dernière modification">{dateLisible(e.modifie)}</span>
+                </button>
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-sky-300" />
+                  <span className="min-w-0 flex-1 truncate" title={e.nom}>{e.nom}</span>
+                  <span className="shrink-0 text-[10px] text-slate-500" title="Dernière modification">{dateLisible(e.modifie)}</span>
+                  <span className="shrink-0 text-slate-400">{tailleLisible(e.taille)}</span>
+                  <button type="button" disabled={!actif} onClick={() => lancerTelechargement(e.nom)}
+                          className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                          title="Télécharger ce fichier" data-testid="telecharger-fichier">
+                    <Download className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               {/* Lot 135 : copie de poste à poste */}
               {!e.dossier && (
                 <button type="button" disabled={!actif || destinations.length === 0} onClick={() => setCopieDe(copieDe === e.nom ? null : e.nom)}

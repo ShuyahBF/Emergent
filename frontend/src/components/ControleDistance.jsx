@@ -36,8 +36,12 @@ import ClavierVirtuel from "@/components/controleDistance/ClavierVirtuel";
 import VoletPoste from "@/components/controleDistance/VoletPoste";
 import {
   TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN, TAILLE_MAX_FICHIER, envoyerFichier, lireTrameFichier, telecharger,
-  mesuresFinales, ACTIONS_SYSTEME, ACTIONS_MAINTENANCE, registrePostes,
+  mesuresFinales, ACTIONS_SYSTEME, ACTIONS_MAINTENANCE, registrePostes, tailleLisible,
 } from "@/components/controleDistance/outils";
+// Lot 281 : reprise et historique des transferts de fichiers
+import {
+  clePartiel, debutReception, departDemande, effacerTransferts, interrompre, oublierPartiels, partielsReception,
+} from "@/components/controleDistance/transferts";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -156,7 +160,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const partieVideoRef = useRef(0);
   const receptionsRef = useRef(new Map());   // lot 135 : fichiers reçus du poste en cours {id → {nom, taille, morceaux, recu}}
   const prochainFichierRef = useRef(1);
-  const destinationsRef = useRef([]);    // lot 135 : pour chaque fichier demandé au poste, poste de destination (ou null = téléchargement)
+  const demandesRef = useRef([]);        // lots 135 et 281 : pour chaque fichier demandé au poste (dans l'ordre) : { destination (autre poste ou null = téléchargement), cle, chemin, uid }
+  const connexionRef = useRef(0);        // lot 281 : numéro de la connexion en cours (les identifiants de fichier du poste redémarrent à 1 à chaque prise en main)
+  const uidRef = useRef(0);              // lot 281 : identifiant UNIQUE de chaque ligne de l'historique des transferts
+  const envoisRef = useRef(new Map());   // lot 281 : identifiant de fichier envoyé → uid de la ligne (connexion en cours)
+  const pretsRef = useRef(new Map());    // lot 281 : réponses « fichier_pret » attendues pour une reprise d'envoi (id → fonction)
   const dernierCheminRef = useRef("");   // lot 135 : dernier dossier parcouru, mémorisé à la fermeture
   const cheminEnregistreRef = useRef("");
   const moteurRef = useRef("");
@@ -258,14 +266,20 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   }, []);
 
   // ---- Lot 135 : morceau d'un fichier envoyé par le poste (trame de type 3) ----
+  // Lot 281 : les morceaux s'ajoutent au « partiel » gardé en mémoire (reprise possible si la liaison tombe)
+  const majTransfert = useCallback((uid, patch) => {
+    setTransferts((liste) => liste.map((x) => (x.uid === uid ? { ...x, ...(typeof patch === "function" ? patch(x) : patch) } : x)));
+  }, []);
+
   const recevoirMorceau = useCallback((tampon) => {
     const t = lireTrameFichier(tampon);
     if (!t) return;
     const r = receptionsRef.current.get(t.id);
     if (!r) return;
-    r.morceaux.push(t.donnees);
-    r.recu += t.donnees.byteLength;
-    setTransferts((liste) => liste.map((x) => (x.sens === "reception" && x.id === t.id ? { ...x, fait: r.recu } : x)));
+    r.partiel.morceaux.push(t.donnees);
+    r.partiel.recu += t.donnees.byteLength;
+    const fait = r.partiel.recu;
+    setTransferts((liste) => liste.map((x) => (x.uid === r.uid ? { ...x, fait } : x)));
   }, []);
 
   // ---- Lot 135 : messages JSON du poste ----
@@ -314,44 +328,63 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
       if (m.chemin && !m.erreur) dernierCheminRef.current = m.chemin;   // lot 135 : mémorisé à la fermeture
     }
     else if (m.type === "fichier_recu") {
-      setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === m.id
-        ? { ...x, fini: Boolean(m.ok), erreur: m.ok ? "" : (m.detail || "refusé"), chemin: m.chemin || "" } : x)));
+      // Accusé du poste pour un fichier ENVOYÉ (lot 281 : la ligne est retrouvée par son identifiant unique)
+      const uid = envoisRef.current.get(m.id);
+      const reprise = !m.ok && String(m.detail || "").includes("reprise possible");
+      if (uid !== undefined) {
+        majTransfert(uid, (x) => ({ fini: Boolean(m.ok), erreur: m.ok ? "" : (m.detail || "refusé"), chemin: m.chemin || "",
+                                    interrompu: reprise, reprenable: reprise && Boolean(x.fichier) }));
+      }
       if (m.ok) toast.success(`Fichier déposé sur le poste : ${m.chemin}`); else toast.error(m.detail || "Fichier refusé par le poste");
     }
+    else if (m.type === "fichier_pret") pretsRef.current.get(m.id)?.(Number(m.octets) || 0);   // lot 281 : reprise d'un envoi
     else if (m.type === "fichier_debut") {
-      // Lot 135 : destination choisie à la demande (autre poste contrôlé) ou téléchargement (null)
-      const destination = destinationsRef.current.shift() || null;
-      receptionsRef.current.set(m.id, { nom: m.nom, taille: m.taille, morceaux: [], recu: 0, destination });
-      setTransferts((liste) => [...liste, { sens: "reception", id: m.id, nom: m.nom, taille: m.taille, fait: 0 }]);
+      // Lots 135 et 281 : fichier demandé au poste ; destination choisie (autre poste contrôlé) ou téléchargement (null) ;
+      // le partiel déjà reçu est CONTINUÉ si le poste reprend exactement à sa position
+      const dem = demandesRef.current.shift() || { destination: null, cle: clePartiel(posteId, m.nom), chemin: "" };
+      const { partiel } = debutReception(partielsReception, dem.cle, m);
+      const uid = dem.uid ?? ++uidRef.current;
+      receptionsRef.current.set(m.id, { uid, cle: dem.cle, partiel, destination: dem.destination });
+      const ligne = { uid, sens: "reception", id: m.id, cx: connexionRef.current, nom: m.nom, taille: m.taille, fait: partiel.recu,
+                      cle: dem.cle, chemin: dem.chemin, destination: dem.destination, fini: false, erreur: "", interrompu: false, reprenable: false };
+      setTransferts((liste) => (liste.some((x) => x.uid === uid) ? liste.map((x) => (x.uid === uid ? { ...x, ...ligne } : x)) : [...liste, ligne]));
     }
     else if (m.type === "fichier_fin") {
       const r = receptionsRef.current.get(m.id);
       receptionsRef.current.delete(m.id);
-      if (!r) destinationsRef.current.shift();   // échec avant tout envoi : la destination demandée est abandonnée
-      if (r && m.ok) {
-        const contenu = new Blob(r.morceaux);
+      if (!r) demandesRef.current.shift();   // échec avant tout envoi : la demande est abandonnée
+      const complet = Boolean(r && m.ok && r.partiel.recu === r.partiel.taille);
+      if (complet) {
+        const contenu = new Blob(r.partiel.morceaux);
+        partielsReception.delete(r.cle);   // terminé : plus rien à reprendre
         if (r.destination) {
           // Lot 135 : copie de poste à poste — le fichier part vers le poste de l'autre onglet
-          r.destination.recevoir(contenu, r.nom)
-            .then(() => toast.success(`${r.nom} copié vers ${r.destination.nom}`))
+          r.destination.recevoir(contenu, r.partiel.nom)
+            .then(() => toast.success(`${r.partiel.nom} copié vers ${r.destination.nom}`))
             .catch(() => toast.error(`Copie vers ${r.destination.nom} impossible (prise en main fermée ?)`));
         } else {
-          telecharger(contenu, r.nom);
-          toast.success(`Fichier récupéré : ${r.nom}`);
+          telecharger(contenu, r.partiel.nom);
+          toast.success(`Fichier récupéré : ${r.partiel.nom}`);
         }
       } else if (m.detail) toast.error(m.detail);
-      setTransferts((liste) => liste.map((x) => (x.sens === "reception" && x.id === m.id
-        ? { ...x, fini: Boolean(m.ok), erreur: m.ok ? "" : (m.detail || "échec") } : x)));
+      if (r) {
+        // Échec : les octets déjà reçus sont gardés, « Reprendre » demandera la fin du fichier
+        majTransfert(r.uid, () => ({ fini: complet, erreur: complet ? "" : (m.detail || "échec"), fait: r.partiel.recu,
+                                      interrompu: !complet, reprenable: !complet && r.partiel.recu > 0 && r.partiel.recu < r.partiel.taille }));
+      }
     }
     else if (m.type === "info") toast.info(m.detail || "");
     else if (m.type === "refuse") toast.warning(m.detail || "Commande refusée");
     else if (m.type === "erreur") { signalerEchec(m.detail || "Erreur du poste"); }
     else if (m.type === "fin") { setMotifFin(m.motif || ""); setEtat("terminee"); }
-  }, [signalerEchec]);
+  }, [signalerEchec, majTransfert, posteId]);
 
   // ---- Connexion au relais avec le jeton à usage unique ----
   const connecter = useCallback((sid, jeton) => {
     setEtat("connexion");
+    // Lot 281 : nouvelle connexion → les identifiants de fichier du poste repartent de 1 : on oublie ceux de la précédente
+    connexionRef.current += 1;
+    envoisRef.current.clear(); pretsRef.current.clear(); receptionsRef.current.clear(); demandesRef.current = [];
     const ws = new WebSocket(adresseRelais());
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
@@ -368,7 +401,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
       try { m = JSON.parse(ev.data); } catch { return; }
       traiterMessage(m);
     };
-    ws.onclose = () => { setEtat((e) => (e === "active" || e === "attente_poste" || e === "connexion" ? "terminee" : e)); };
+    ws.onclose = () => {
+      setEtat((e) => (e === "active" || e === "attente_poste" || e === "connexion" ? "terminee" : e));
+      // Lot 281 : la liaison est tombée → les transferts en cours deviennent « interrompus » (reprenables à la prochaine prise en main)
+      setTransferts((liste) => interrompre(liste));
+    };
     ws.onerror = () => setEtat((e) => {
       if (e === "connexion") signalerEchec("Connexion au poste impossible (liaison interrompue avant l'ouverture de l'écran).");
       return e === "connexion" ? "erreur" : e;
@@ -519,8 +556,6 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     const fichiers = Array.from(ev.dataTransfer?.files || []);
     for (const f of fichiers) {
       if (f.size > TAILLE_MAX_FICHIER) { toast.error(`${f.name} : 2 Go au plus`); continue; }
-      const id = prochainFichierRef.current++;
-      setTransferts((liste) => [...liste, { sens: "envoi", id, nom: f.name, taille: f.size, fait: 0 }]);
       setVoletOuvert(true);
       setOngletVolet("fichiers");
       await envoyerAuPoste(f);
@@ -530,15 +565,29 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   // ---- Lot 135 : envoi d'un fichier à CE poste (dépôt ou copie depuis un autre poste), dans le dossier de base ----
   const dossierBaseRef = useRef("");
   dossierBaseRef.current = dossiers.dossier_base;
-  const envoyerAuPoste = useCallback(async (f) => {
-    const id = prochainFichierRef.current++;
-    setTransferts((liste) => [...liste, { sens: "envoi", id, nom: f.name, taille: f.size, fait: 0 }]);
-    const ws = wsRef.current;
-    const ok = ws ? await envoyerFichier(ws, id, f, (fait) =>
-      setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === id ? { ...x, fait } : x))), dossierBaseRef.current) : false;
-    if (!ok) setTransferts((liste) => liste.map((x) => (x.sens === "envoi" && x.id === id ? { ...x, erreur: "connexion fermée" } : x)));
-    return ok;
-  }, []);
+  // Lot 281 : chaque envoi a sa ligne (uid unique) ; avec `reprise`, le poste dit combien d'octets il a déjà et l'envoi repart de là
+  // (poste sans reprise : nouvelle tentative depuis le début) ; la ligne garde le fichier pour pouvoir « Reprendre » après une coupure
+  const envoyerAuPoste = useCallback(async (f, { reprise = false, uid: uidExistant = null } = {}) => {
+    const uid = uidExistant ?? ++uidRef.current;
+    const lancer = async (avecReprise) => {
+      const id = prochainFichierRef.current++;
+      envoisRef.current.set(id, uid);
+      const ligne = { uid, sens: "envoi", id, cx: connexionRef.current, nom: f.name, taille: f.size, fait: 0, fichier: f,
+                      fini: false, erreur: "", interrompu: false, reprenable: false };
+      setTransferts((liste) => (liste.some((x) => x.uid === uid) ? liste.map((x) => (x.uid === uid ? { ...x, ...ligne } : x)) : [...liste, ligne]));
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      const attendrePret = (idFichier, delai) => new Promise((ok) => {
+        const minuterie = setTimeout(() => { pretsRef.current.delete(idFichier); ok(null); }, delai);
+        pretsRef.current.set(idFichier, (octets) => { clearTimeout(minuterie); pretsRef.current.delete(idFichier); ok(octets); });
+      });
+      return envoyerFichier(ws, id, f, (fait) => majTransfert(uid, { fait }), dossierBaseRef.current, { reprise: avecReprise, attendrePret });
+    };
+    let ok = await lancer(reprise);
+    if (ok === "repli") ok = await lancer(false);   // ancien Loois sans reprise : on recommence depuis le début
+    if (!ok) majTransfert(uid, { erreur: "connexion interrompue", interrompu: true, reprenable: true });
+    return Boolean(ok);
+  }, [majTransfert]);
 
   // ---- Lot 135 : ce poste s'inscrit comme destination des copies de poste à poste (mode « Contrôler » seulement) ----
   const peutRecevoir = etat === "active" && mode === "controler";
@@ -551,11 +600,31 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     return () => registrePostes.delete(posteId);
   }, [peutRecevoir, posteId, posteNom, fiche, envoyerAuPoste]);
 
-  // ---- Lot 135 : demande d'un fichier au poste, pour le télécharger (destination null) ou le copier vers un autre poste ----
-  const demanderFichier = (chemin, destination = null) => {
-    destinationsRef.current.push(destination);
-    envoyer({ type: "fichier_demander", chemin });
+  // ---- Lots 135 et 281 : demande d'un fichier au poste, pour le télécharger (destination null) ou le copier vers un autre poste ----
+  // Lot 281 : si des octets de ce fichier sont déjà gardés (liaison tombée), on demande seulement la FIN (depuis, modifie)
+  const demanderFichier = (chemin, destination = null, uid = null) => {
+    const cle = clePartiel(posteId, chemin);
+    const { depuis, modifie } = departDemande(partielsReception, cle);
+    demandesRef.current.push({ destination, cle, chemin, uid });
+    envoyer({ type: "fichier_demander", chemin, depuis, modifie });
+    if (depuis > 0) toast.info(`Reprise du fichier à ${tailleLisible(depuis)}`);
   };
+
+  // ---- Lot 281 : « Reprendre » un transfert interrompu (ou tous), « Effacer » une ligne ou tout l'historique, « Prolonger » la session ----
+  const reprendreTransfert = (t) => {
+    if (etat !== "active" || !peutAgir) { toast.warning("Reprise possible pendant une prise en main en mode « Contrôler »"); return; }
+    if (t.sens === "envoi" && t.fichier) envoyerAuPoste(t.fichier, { reprise: true, uid: t.uid });
+    else if (t.sens === "reception" && t.chemin) demanderFichier(t.chemin, t.destination || null, t.uid);
+  };
+  const reprendreTous = () => transferts.filter((t) => t.interrompu && t.reprenable).forEach(reprendreTransfert);
+  const effacerHistorique = (t = null) => {
+    setTransferts((liste) => {
+      const { liste: reste, retires } = effacerTransferts(liste, t ? { uid: t.uid } : { tout: true });
+      oublierPartiels(retires);   // les octets gardés en mémoire pour une reprise sont libérés
+      return reste;
+    });
+  };
+  const prolongerSession = () => envoyer({ type: "prolonger" });
 
   // ---- Lot 135 : dossier de base des transferts pour ce poste ----
   const definirDossierBase = async (chemin) => {
@@ -917,7 +986,8 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         {voletOuvert && (
           <VoletPoste onglet={ongletVolet} setOnglet={setOngletVolet} infos={infos} perf={perf} filId={fiche?.fil_id}
                       liste={listeFichiers} transferts={transferts} envoyer={envoyer} peutAgir={peutAgir} actif={etat === "active"}
-                      posteId={posteId} dossiers={dossiers} onDossierBase={definirDossierBase} onDemanderFichier={demanderFichier} />
+                      posteId={posteId} dossiers={dossiers} onDossierBase={definirDossierBase} onDemanderFichier={demanderFichier}
+                      onReprendre={reprendreTransfert} onReprendreTous={reprendreTous} onEffacer={effacerHistorique} onProlonger={prolongerSession} />
         )}
       </div>
 

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "281", "date": "2026-10-24",
+        "titre": "📂 Contrôle à distance : transferts de fichiers repris, historique effaçable, session jamais coupée en plein transfert",
+        "description": "Un fichier envoyé ou récupéré qui s'interrompt (liaison coupée) reprend là où il s'est arrêté : « Reprendre » sur la ligne ou « Tout reprendre » (le poste doit avoir la dernière version de Loois). Chaque ligne de l'historique s'efface (croix) ou tout l'historique d'un clic ; les lignes interrompues ne restent plus bloquées à « 43 % ». La session de 4 h n'est jamais coupée pendant un transfert (12 h au plus) et « Prolonger la session » ajoute 2 h. Le journal des prises en main indique maintenant le code de fermeture de la liaison (ex. « déconnexion du poste (code 1006) ») pour comprendre les coupures.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "280", "date": "2026-10-22",
         "titre": "🗄️ Archives auRor : remplacer l'image d'un document, code PIN exigé",
         "description": "Un document déjà archivé par un utilisateur d'auRor peut recevoir une nouvelle image (nouvelle photo ou nouveau scan). Toute modification d'un document exige le code PIN ou la phrase, contrôlé par le serveur (5 essais puis 15 minutes de pause), même quand les archives sont ouvertes. L'espace gratuit ou de la formule reste respecté. Rien à régler.",

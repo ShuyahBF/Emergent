@@ -11,7 +11,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Cpu, MemoryStick, HardDrive, Network, Monitor, Package, Send, MessageSquare, FolderOpen, Folder, FileText,
-  ArrowUp, RefreshCw, Download, Activity, Info, Home, Copy, Pin,
+  ArrowUp, RefreshCw, Download, Activity, Info, Home, Copy, Pin, X, RotateCcw, Trash2, TimerReset,
 } from "lucide-react";
 import { dateLisible, tailleLisible, dureeLisible, autresPostes } from "./outils";
 
@@ -201,7 +201,7 @@ function OngletChat({ filId }) {
 // ---------------------------------------------------------------------
 // Onglet « Fichiers » : dossiers du poste ; un clic sur un fichier le récupère
 // ---------------------------------------------------------------------
-function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, onDossierBase, onDemanderFichier }) {
+function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, onDossierBase, onDemanderFichier, onReprendre, onReprendreTous, onEffacer, onProlonger }) {
   const [chemin, setChemin] = useState("");
   const [copieDe, setCopieDe] = useState(null);   // fichier dont on choisit le poste de destination
   const ouvrir = (c) => { setChemin(c); envoyer({ type: "fichiers_lister", chemin: c }); };
@@ -293,21 +293,59 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
           </div>
         ))}
       </div>
+      {/* Lot 281 : prolonger la session (+2 h, plafond 12 h) — la session n'est de toute façon jamais coupée en plein transfert */}
+      {actif && (
+        <button type="button" onClick={() => onProlonger?.()} title="Ajoute 2 heures à la durée de la session (12 heures au plus). Un transfert en cours n'est jamais coupé."
+                className="inline-flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10" data-testid="prolonger-session">
+          <TimerReset className="h-3.5 w-3.5" /> Prolonger la session (+2 h)
+        </button>
+      )}
       {transferts.length > 0 && (
-        <section className="space-y-1 border-t border-white/10 pt-2">
-          <h5 className="text-[11px] font-semibold text-slate-300">Transferts</h5>
-          {transferts.slice(-8).reverse().map((t) => (
-            <div key={`${t.sens}-${t.id}`} className="text-[11px]">
-              <div className="flex justify-between gap-2">
-                <span className="truncate">{t.sens === "envoi" ? "↑" : "↓"} {t.nom}</span>
-                <span className={t.erreur ? "text-rose-300" : t.fini ? "text-emerald-300" : "text-slate-400"}>
-                  {t.erreur ? "échec" : t.fini ? "terminé" : `${Math.round((100 * t.fait) / Math.max(1, t.taille))} %`}
-                </span>
-              </div>
-              <div className="h-1 overflow-hidden rounded bg-white/10"><div className={`h-full ${t.erreur ? "bg-rose-500" : "bg-sky-400"}`} style={{ width: `${(100 * t.fait) / Math.max(1, t.taille)}%` }} /></div>
-              {(t.erreur || t.chemin) && <div className="truncate text-[10px] text-slate-400" title={t.erreur || t.chemin}>{t.erreur || t.chemin}</div>}
+        <section className="space-y-1 border-t border-white/10 pt-2" data-testid="transferts">
+          <div className="flex items-center justify-between gap-2">
+            <h5 className="text-[11px] font-semibold text-slate-300">Transferts</h5>
+            <div className="flex items-center gap-1">
+              {transferts.some((t) => t.interrompu && t.reprenable) && (
+                <button type="button" disabled={!actif} onClick={() => onReprendreTous?.()} title="Reprendre tous les transferts interrompus, là où ils se sont arrêtés"
+                        className="inline-flex items-center gap-1 rounded bg-sky-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-sky-500 disabled:opacity-30" data-testid="reprendre-tous">
+                  <RotateCcw className="h-3 w-3" /> Tout reprendre
+                </button>
+              )}
+              {transferts.some((t) => t.fini || t.erreur) && (
+                <button type="button" onClick={() => onEffacer?.()} title="Efface de la liste les transferts terminés ou en échec (les transferts en cours restent)"
+                        className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-200 hover:bg-white/20" data-testid="effacer-historique">
+                  <Trash2 className="h-3 w-3" /> Effacer l'historique
+                </button>
+              )}
             </div>
-          ))}
+          </div>
+          <div className="max-h-[30vh] space-y-1 overflow-auto pr-1">
+            {[...transferts].reverse().map((t) => {
+              const pct = Math.round((100 * t.fait) / Math.max(1, t.taille));
+              return (
+                <div key={t.uid ?? `${t.sens}-${t.id}`} className="text-[11px]" data-testid="transfert">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate" title={t.nom}>{t.sens === "envoi" ? "↑" : "↓"} {t.nom}</span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <span className={t.interrompu ? "text-amber-300" : t.erreur ? "text-rose-300" : t.fini ? "text-emerald-300" : "text-slate-400"}>
+                        {t.interrompu ? `interrompu ${pct} %` : t.erreur ? "échec" : t.fini ? "terminé" : `${pct} %`}
+                      </span>
+                      {t.interrompu && t.reprenable && (
+                        <button type="button" disabled={!actif} onClick={() => onReprendre?.(t)} title="Reprendre ce transfert là où il s'est arrêté"
+                                className="rounded p-0.5 text-sky-300 hover:bg-white/10 disabled:opacity-30" data-testid="reprendre-transfert"><RotateCcw className="h-3 w-3" /></button>
+                      )}
+                      {(t.fini || t.erreur) && (
+                        <button type="button" onClick={() => onEffacer?.(t)} title="Retirer cette ligne de la liste"
+                                className="rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-white" data-testid="effacer-transfert"><X className="h-3 w-3" /></button>
+                      )}
+                    </span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded bg-white/10"><div className={`h-full ${t.interrompu ? "bg-amber-400" : t.erreur ? "bg-rose-500" : "bg-sky-400"}`} style={{ width: `${Math.min(100, pct)}%` }} /></div>
+                  {(t.erreur || t.chemin) && <div className="truncate text-[10px] text-slate-400" title={t.erreur || t.chemin}>{t.erreur || t.chemin}</div>}
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
     </div>
@@ -318,7 +356,7 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
 // Le volet lui-même
 // ---------------------------------------------------------------------
 export default function VoletPoste({ onglet, setOnglet, infos, perf, filId, liste, transferts, envoyer, peutAgir, actif,
-                                     posteId, dossiers, onDossierBase, onDemanderFichier }) {
+                                     posteId, dossiers, onDossierBase, onDemanderFichier, onReprendre, onReprendreTous, onEffacer, onProlonger }) {
   const ONGLETS = [["poste", "Poste", Info], ["chat", "Chat", MessageSquare], ["fichiers", "Fichiers", FolderOpen]];
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-white/10 bg-slate-950/70 backdrop-blur" data-testid="controle-distance-volet">
@@ -334,7 +372,8 @@ export default function VoletPoste({ onglet, setOnglet, infos, perf, filId, list
         {onglet === "poste" && <OngletPoste infos={infos} perf={perf} actif={actif} onActualiser={() => envoyer({ type: "infos_demander" })} />}
         {onglet === "chat" && <OngletChat filId={filId} />}
         {onglet === "fichiers" && <OngletFichiers liste={liste} transferts={transferts} envoyer={envoyer} actif={peutAgir} posteId={posteId}
-                                                  dossiers={dossiers} onDossierBase={onDossierBase} onDemanderFichier={onDemanderFichier} />}
+                                                  dossiers={dossiers} onDossierBase={onDossierBase} onDemanderFichier={onDemanderFichier}
+                                                  onReprendre={onReprendre} onReprendreTous={onReprendreTous} onEffacer={onEffacer} onProlonger={onProlonger} />}
       </div>
     </aside>
   );

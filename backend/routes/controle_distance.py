@@ -49,6 +49,11 @@ Lot 135 (propriétaire, 12/10/2026) — EXTENSIONS :
   - numéro « CD-AAAA-NNNNN », ticket du client ouvert au début et clôturé à la fin (intervention dans la fiche client) ;
   - délais mesurés (accord, connexion, durée) + mesures de la visionneuse, résumé dans le journal d'activités ;
   - vidéo de la session envoyée par parties par la visionneuse, relue par un lien signé de courte durée ;
+  - lot 281 : REPRISE des transferts de fichiers — {"type":"fichier_debut",…,"reprise":true,"modifie":ms} : le poste garde le fichier
+    partiel (« nom.partiel ») et répond {"type":"fichier_pret","id","octets"} ; {"type":"fichier_demander","chemin","depuis","modifie"} :
+    le poste reprend l'envoi à cette position si le fichier n'a pas changé (« fichier_debut » annonce la position réelle) ;
+    la session n'est jamais coupée en plein transfert (plafond 12 h) et le technicien peut la prolonger : {"type":"prolonger"} ;
+    le journal garde le code de fermeture du WebSocket (« déconnexion du poste (code 1006) ») ;
   - agent du SERVICE WINDOWS Loois (en-tête X-Loois-Agent: service) : fiche « machine » distincte, qui fonctionne
     écran verrouillé, à l'écran de connexion et session fermée.
 """
@@ -80,7 +85,7 @@ logger = logging.getLogger("sawali.controle_distance")
 MODES = ("voir", "controler")
 DELAI_REPONSE_S = 120            # le poste a 2 minutes pour accepter, sinon la demande expire
 DELAI_CONNEXION_S = 120          # après l'accord, 2 minutes pour ouvrir les deux connexions
-DUREE_MAX_S = 4 * 3600           # une session dure au plus 4 heures
+DUREE_MAX_S = outils.DUREE_MAX_S   # une session dure 4 heures, prolongeable (lot 281), jamais coupée en plein transfert
 TAILLE_MAX_TRAME = 2 * 1024 * 1024   # 2 Mo par trame binaire (une tuile JPEG est bien plus petite)
 # Commandes du technicien qui AGISSENT sur le poste : refusées en mode « voir seulement »
 COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte", "maintenance",   # lot 140 : maintenance du disque
@@ -92,6 +97,8 @@ COMMANDES_AFFICHAGE = {"choix_ecran", "qualite", "image_complete", "ping", "arre
                        "echelle", "infos_demander"}   # lot 135
 # Lot 135 — commandes TRAITÉES PAR LE SERVEUR (jamais relayées telles quelles), mode « contrôler » seulement
 COMMANDES_SERVEUR = {"identifiants_windows"}
+# Lot 281 — le technicien peut PROLONGER la session de 2 h (plafond 12 h) ; traité par le serveur, jamais relayé au poste
+COMMANDE_PROLONGER = "prolonger"
 # Lot 135 — actions système acceptées
 # Lot 135.2 : bureaux virtuels de Windows (Win+Tab) — bascule VISIBLE de l'écran de l'utilisateur (raccourcis Win+Ctrl+→ / ← / D)
 ACTIONS_SYSTEME = {"deconnecter", "redemarrer", "eteindre", "verrouiller", "ctrl_alt_suppr",
@@ -108,7 +115,7 @@ RE_VOLUME = re.compile(r"^[A-Za-z]:?$")
 # Informations que le poste peut envoyer au technicien
 MESSAGES_POSTE = {"ecrans", "curseur", "stats", "presse_papiers", "pong", "arreter", "erreur",
                   # Lot 135
-                  "infos_poste", "perf", "bureau", "capture", "fichier_debut", "fichier_fin", "fichier_recu",
+                  "infos_poste", "perf", "bureau", "capture", "fichier_debut", "fichier_fin", "fichier_recu", "fichier_pret",   # lot 281 : fichier_pret = reprise d'un envoi
                   "fichiers_liste", "systeme_resultat", "entrees_bloquees", "maintenance_etat"}
 # Lot 135 — types des trames binaires (octet 0)
 TRAME_TUILE, TRAME_FICHIER_VERS_POSTE, TRAME_FICHIER_VERS_TECHNICIEN = 1, 2, 3
@@ -410,6 +417,8 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
 
     # --- Lot 135 : outils internes des extensions --------------------------------------------------------------------
     _identifiants_saisis: set = set()      # sessions où l'identifiant Windows a déjà été saisi automatiquement
+    # Lot 281 — durée de chaque session, PARTAGÉE par les deux connexions : {debut, limite, fichier} (fichier = dernier passage d'une trame de fichier)
+    _durees: Dict[str, Dict[str, Any]] = {}
 
     async def _reglages() -> Dict[str, Any]:
         doc = await db.controle_distance_reglages.find_one({"id": "reglages"}, {"_id": 0}) or {}
@@ -553,6 +562,7 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
     async def _terminer(sid: str, motif: str) -> None:
         """Clôt la session et complète le journal (durée)."""
         s = await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0})
+        _durees.pop(sid, None)
         if not s or s.get("statut") in ("terminee", "refusee", "expiree"):
             await relais.fermer(sid, motif)
             return
@@ -986,22 +996,26 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                 await _ouvrir_ticket(await db.controle_distance_sessions.find_one({"id": sid}, {"_id": 0}) or session)
             except Exception:  # noqa: BLE001
                 logger.exception("[controle_distance] ticket de la session %s non créé", sid)
-        limite_fin = maintenant() + timedelta(seconds=DUREE_MAX_S)
+        debut_session = maintenant()
+        duree = _durees.setdefault(sid, {"debut": debut_session, "limite": debut_session + timedelta(seconds=DUREE_MAX_S), "fichier": None})
         motif = "connexion fermée"
         try:
             while True:
-                if maintenant() > limite_fin:
+                # Lot 281 : fin à la limite (4 h, prolongeable) SAUF si un fichier est en cours de transfert (plafond 12 h)
+                if outils.session_expiree(duree["debut"], maintenant(), duree["limite"], duree["fichier"]):
                     motif = "durée maximale atteinte"
                     break
                 trame = await websocket.receive()
                 if trame.get("type") == "websocket.disconnect":
-                    motif = f"déconnexion du {role}"
+                    motif = outils.motif_deconnexion(role, trame.get("code"))   # lot 281 : code de fermeture dans le journal
                     break
                 donnees_bin, texte = trame.get("bytes"), trame.get("text")
                 if donnees_bin is not None:
                     # Images et fichiers du poste vers le technicien ; fichiers du technicien vers le poste (lot 135),
                     # seulement en mode « contrôler » ; taille bornée
                     if trame_binaire_autorisee(role, mode, donnees_bin):
+                        if donnees_bin[0] in (TRAME_FICHIER_VERS_POSTE, TRAME_FICHIER_VERS_TECHNICIEN):
+                            duree["fichier"] = maintenant()   # lot 281 : un transfert est en cours, la session n'est pas coupée
                         await relais.envoyer_binaire(sid, "technicien" if role == "poste" else "poste", donnees_bin)
                     continue
                 if texte is None:
@@ -1016,6 +1030,13 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                     motif = f"arrêtée par le {role}"
                     break
                 if role == "technicien":
+                    # Lot 281 : « Prolonger la session » (+2 h, plafond 12 h) — traité par le serveur, jamais relayé au poste
+                    if message.get("type") == COMMANDE_PROLONGER:
+                        duree["limite"] = outils.prolonger_limite(duree["debut"], maintenant(), duree["limite"])
+                        reste_min = max(0, int((duree["limite"] - maintenant()).total_seconds() // 60))
+                        await websocket.send_json({"type": "info", "detail": f"Session prolongée : encore {reste_min // 60} h {reste_min % 60:02d} avant la fin automatique",
+                                                   "reste_s": reste_min * 60})
+                        continue
                     # Lot 135 : identifiant Windows mémorisé — envoyé au poste PAR LE SERVEUR (jamais par le navigateur)
                     if message.get("type") in COMMANDES_SERVEUR:
                         if mode != "controler":
@@ -1056,10 +1077,11 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                             if not await _injecter_identifiants(sid, session, "saisie automatique"):
                                 await relais.envoyer_json(sid, "technicien", {
                                     "type": "info", "detail": "Identifiant Windows mémorisé saisi automatiquement"})
-        except WebSocketDisconnect:
-            motif = f"déconnexion du {role}"
+        except WebSocketDisconnect as exc:
+            motif = outils.motif_deconnexion(role, getattr(exc, "code", None))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[controle_distance] relais %s interrompu : %s", sid, exc)
+            motif = f"liaison interrompue du {role} ({type(exc).__name__})"   # lot 281 : cause notée au journal
         finally:
             relais.debrancher(sid, role)
             await _terminer(sid, motif)

@@ -117,6 +117,9 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const [entreesBloquees, setEntreesBloquees] = useState(false);
   const [menuSysteme, setMenuSysteme] = useState(false);
   const [confirmation, setConfirmation] = useState(null);   // action système à confirmer
+  // Lot 282 : fenêtre « Modifier le ticket » (motif + note de rappel) et rappel laissé à la dernière intervention sur ce poste
+  const [ticketEdition, setTicketEdition] = useState(null);   // {motif, note} pendant la saisie
+  const [rappelMasque, setRappelMasque] = useState(false);
   // Lot 140 : maintenance du disque (outils Windows) — confirmation {action, volume} et avancement des tâches {id, action, libelle, volume, etat, resume}
   const [confirmationMaint, setConfirmationMaint] = useState(null);
   const [maintenances, setMaintenances] = useState([]);
@@ -418,6 +421,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     setEchec(null);
     setEtat("demande");
     setInfos(null); setPerf(null); setBureau(null); setMaintenances([]); setListeFichiers(null); setEntreesBloquees(false); setTicket("");
+    setRappelMasque(false); chargerFiche();   // lot 282 : le rappel laissé à la prise en main précédente est relu et affiché
     const attente = toast.loading("Patientez… demande envoyée au poste");
     try {
       const r = await apiClient.post("/controle-distance/sessions", {
@@ -626,6 +630,33 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   };
   const prolongerSession = () => envoyer({ type: "prolonger" });
 
+  // ---- Lot 282 : clic sur le ticket → modifier son motif et laisser une note (ajoutée à l'intervention, rappelée à la prochaine prise en main) ----
+  const ouvrirTicket = async () => {
+    const sid = sessionRef.current;
+    if (!sid) return;
+    try {
+      const r = await apiClient.get(`/controle-distance/sessions/${sid}`);
+      setTicketEdition({ motif: r.data.ticket_motif || "", note: r.data.note_intervention || "" });
+    } catch { toast.error("Ticket illisible"); }
+  };
+  const enregistrerTicket = async () => {
+    const sid = sessionRef.current;
+    if (!sid || !ticketEdition) return;
+    if (!ticketEdition.motif.trim()) { toast.warning("Le motif du ticket ne peut pas être vide"); return; }
+    try {
+      await apiClient.put(`/controle-distance/sessions/${sid}/ticket`, { motif: ticketEdition.motif, note: ticketEdition.note });
+      setTicketEdition(null);
+      toast.success(ticketEdition.note.trim() ? "Ticket modifié — la note sera rappelée à la prochaine prise en main de ce poste" : "Ticket modifié");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Ticket non modifié"); }
+  };
+  const supprimerRappel = async () => {
+    try {
+      await apiClient.delete(`/controle-distance/postes/${encodeURIComponent(posteId)}/rappel`);
+      setFiche((f) => (f ? { ...f, rappel: null } : f));
+      toast.success("Rappel supprimé");
+    } catch { toast.error("Rappel non supprimé"); }
+  };
+
   // ---- Lot 135 : dossier de base des transferts pour ce poste ----
   const definirDossierBase = async (chemin) => {
     try {
@@ -717,6 +748,20 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         </div>
       )}
 
+      {/* ---- Lot 282 : rappel laissé lors de la dernière intervention sur ce poste (pas celui de la session en cours) ---- */}
+      {fiche?.rappel && !rappelMasque && fiche.rappel.session_id !== sessionRef.current && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-xl bg-amber-500/15 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-400/40" data-testid="rappel-intervention">
+          <PenLine className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Rappel de la dernière intervention sur ce poste{fiche.rappel.session_numero ? ` (${fiche.rappel.session_numero})` : ""}</p>
+            <p className="mt-0.5 whitespace-pre-wrap break-words">{fiche.rappel.note}</p>
+            <p className="mt-0.5 text-[10px] text-amber-200/70">{[fiche.rappel.par, fiche.rappel.le ? new Date(fiche.rappel.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""].filter(Boolean).join(" · ")}</p>
+          </div>
+          <button type="button" onClick={() => setRappelMasque(true)} className="shrink-0 rounded px-2 py-0.5 text-[11px] hover:bg-white/10" title="Masquer pour cette prise en main (le rappel reste pour la prochaine)">Masquer</button>
+          <button type="button" onClick={supprimerRappel} className="shrink-0 rounded bg-amber-500/30 px-2 py-0.5 text-[11px] hover:bg-amber-500/50" data-testid="rappel-supprimer" title="Supprime le rappel : il ne sera plus affiché aux prochaines prises en main">Supprimer le rappel</button>
+        </div>
+      )}
+
       {/* ---- En-tête : poste, mode et mesures (pictogrammes) ---- */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 shadow-lg" aria-hidden="true">
@@ -725,9 +770,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         <span className="text-sm font-semibold">{posteNom || fiche?.poste_nom || "Poste Loois"}</span>
         {numero && <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[11px] text-slate-200" title="Numéro de la prise en main">{numero}</span>}
         {ticket && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] text-amber-200 ring-1 ring-amber-400/40" title="Ticket du client ouvert automatiquement">
-            <Ticket className="h-3 w-3" />{ticket}
-          </span>
+          <button type="button" onClick={ouvrirTicket} data-testid="ticket-modifier"
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] text-amber-200 ring-1 ring-amber-400/40 hover:bg-amber-500/30"
+                  title="Ticket du client ouvert automatiquement — cliquer pour modifier son motif ou ajouter une note de rappel">
+            <Ticket className="h-3 w-3" />{ticket}<PenLine className="h-3 w-3 opacity-70" />
+          </button>
         )}
         {fiche?.client_nom && <span className="text-[11px] text-slate-400">{fiche.client_nom}</span>}
         {sansSurveillance && (
@@ -990,6 +1037,29 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
                       onReprendre={reprendreTransfert} onReprendreTous={reprendreTous} onEffacer={effacerHistorique} onProlonger={prolongerSession} />
         )}
       </div>
+
+      {/* ---- Lot 282 : modifier le motif du ticket et laisser une note de rappel ---- */}
+      {ticketEdition && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-black/60 p-4" data-testid="ticket-fenetre">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 p-5 shadow-2xl ring-1 ring-white/15">
+            <h4 className="flex items-center gap-2 text-sm font-bold text-slate-100"><Ticket className="h-4 w-4 text-amber-300" />Ticket {ticket}</h4>
+            <label className="mt-3 block text-[11px] font-semibold text-slate-300">Motif du ticket
+              <textarea value={ticketEdition.motif} maxLength={300} rows={2} onChange={(e) => setTicketEdition({ ...ticketEdition, motif: e.target.value })}
+                        className="mt-1 w-full rounded-lg bg-white/10 p-2 text-xs text-slate-100 outline-none ring-1 ring-white/10 focus:ring-sky-400" data-testid="ticket-motif" />
+            </label>
+            <label className="mt-3 block text-[11px] font-semibold text-slate-300">Note de l'intervention (rappel à la prochaine prise en main de ce poste)
+              <textarea value={ticketEdition.note} maxLength={1000} rows={4} onChange={(e) => setTicketEdition({ ...ticketEdition, note: e.target.value })}
+                        placeholder="Ex. : refaire la sauvegarde sur le disque D vendredi…"
+                        className="mt-1 w-full rounded-lg bg-white/10 p-2 text-xs text-slate-100 outline-none ring-1 ring-white/10 placeholder:text-slate-500 focus:ring-sky-400" data-testid="ticket-note" />
+            </label>
+            <p className="mt-1 text-[10px] text-slate-400">La note est ajoutée à l'intervention à la fin de la prise en main et affichée en rappel la prochaine fois. Vide = pas de rappel.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setTicketEdition(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+              <button type="button" onClick={enregistrerTicket} className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500" data-testid="ticket-enregistrer">Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---- Confirmation d'une action système ---- */}
       {confirmation && (

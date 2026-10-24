@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "282", "date": "2026-10-24",
+        "titre": "🎫 Contrôle à distance : motif du ticket modifiable, note rappelée à la prochaine prise en main, noms de postes lisibles",
+        "description": "Pendant une prise en main, un clic sur le ticket (badge orange) ouvre une fenêtre pour corriger son motif et écrire une note : elle est ajoutée à l'intervention à la fin de la session et affichée en rappel (bandeau orange, « Supprimer le rappel ») à la prochaine prise en main du même ordinateur. La fenêtre « + » de choix des postes est plus large : les noms longs ne sont plus coupés. Rien à régler.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "281", "date": "2026-10-24",
         "titre": "📂 Contrôle à distance : transferts de fichiers repris, historique effaçable, session jamais coupée en plein transfert",
         "description": "Un fichier envoyé ou récupéré qui s'interrompt (liaison coupée) reprend là où il s'est arrêté : « Reprendre » sur la ligne ou « Tout reprendre » (le poste doit avoir la dernière version de Loois). Chaque ligne de l'historique s'efface (croix) ou tout l'historique d'un clic ; les lignes interrompues ne restent plus bloquées à « 43 % ». La session de 4 h n'est jamais coupée pendant un transfert (12 h au plus) et « Prolonger la session » ajoute 2 h. Le journal des prises en main indique maintenant le code de fermeture de la liaison (ex. « déconnexion du poste (code 1006) ») pour comprendre les coupures.",

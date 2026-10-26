@@ -9,6 +9,16 @@ import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play,
 
 const DEFAULT_TEMPLATE = "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI";
 
+// Pictogrammes proposés en tête du message (liste finie, identique à celle du serveur)
+const EMOJIS = ["📞", "☎️", "🏥", "🩺", "📅", "🕒", "ℹ️", "⚠️", "🙏", "👋", "✅", "💬"];
+const SelectEmoji = ({ value, onChange, testid }) => (
+  <select value={value || ""} onChange={(e) => onChange(e.target.value)} title="Pictogramme en tête du message"
+          className="px-2 py-2 border border-slate-300 rounded-lg text-lg" data-testid={testid}>
+    <option value="">Aucun</option>
+    {EMOJIS.map((e) => <option key={e} value={e}>{e}</option>)}
+  </select>
+);
+
 export default function PlanningWebhookSection() {
   const [cfg, setCfg] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +35,8 @@ export default function PlanningWebhookSection() {
   const [reportLignes, setReportLignes] = useState([]);       // [{code_clinique, message, autre}]
   const [reportDefaut, setReportDefaut] = useState("");
   const [reportTout, setReportTout] = useState(false);
+  const [reportDefautEmoji, setReportDefautEmoji] = useState("");   // pictogramme du message par défaut
+  const [reportIndicatif, setReportIndicatif] = useState("226");     // indicatif pays ajouté aux numéros locaux
   const [savingReport, setSavingReport] = useState(false);
   // Essai : numéro WhatsApp qui reçoit le message (mémorisé dans ce navigateur), client de la ligne essayée, essai en cours
   const [telEssai, setTelEssai] = useState(() => { try { return localStorage.getItem("planning_report_tel_essai") || ""; } catch { return ""; } });
@@ -43,6 +55,8 @@ export default function PlanningWebhookSection() {
       setReportLignes((c.data?.report_reponses || []).map((l) => ({ ...l })));
       setReportDefaut(c.data?.report_defaut || "");
       setReportTout(Boolean(c.data?.report_repondre_tout));
+      setReportDefautEmoji(c.data?.report_defaut_emoji || "");
+      setReportIndicatif(c.data?.report_indicatif || "226");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Impossible de charger la config");
     } finally {
@@ -87,8 +101,9 @@ export default function PlanningWebhookSection() {
       await apiClient.put("/admin/planning/config", {
         report_actif: reportActif,
         report_reponses: reportLignes.filter((l) => l.code_clinique?.trim() && l.message?.trim())
-          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim() })),
+          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim(), emoji: l.emoji || "" })),
         report_defaut: reportDefaut, report_repondre_tout: reportTout,
+        report_defaut_emoji: reportDefautEmoji, report_indicatif: reportIndicatif,
       });
       toast.success("Réponses aux demandes de report enregistrées");
       load();
@@ -108,8 +123,8 @@ export default function PlanningWebhookSection() {
       const r = await apiClient.post("/admin/planning/report/test", {
         mode, telephone: telEssai.trim(), code_client: clientEssai || null,
         report_reponses: reportLignes.filter((l) => l.code_clinique?.trim() && l.message?.trim())
-          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim() })),
-        report_defaut: reportDefaut,
+          .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim(), emoji: l.emoji || "" })),
+        report_defaut: reportDefaut, report_defaut_emoji: reportDefautEmoji, report_indicatif: reportIndicatif,
       });
       const d = r.data || {};
       if (d.envoye) toast.success(`Essai envoyé (${d.source === "ligne" ? `client ${d.code_client}` : "message par défaut"}) : ${d.message}`);
@@ -323,7 +338,7 @@ export default function PlanningWebhookSection() {
             )}
             <div className="space-y-2">
               {reportLignes.map((l, i) => (
-                <div key={i} className="grid sm:grid-cols-[11rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
+                <div key={i} className="grid sm:grid-cols-[11rem_5.5rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
                   {/* Liste déroulante des codes connus ; « Autre… » ouvre une saisie libre */}
                   {l.autre || (l.code_clinique && !codesProposes.includes(l.code_clinique)) ? (
                     <input value={l.code_clinique} onChange={(e) => majLigne(i, { code_clinique: e.target.value })} placeholder="Code client"
@@ -336,6 +351,7 @@ export default function PlanningWebhookSection() {
                       <option value="__autre__">Autre…</option>
                     </select>
                   )}
+                  <SelectEmoji value={l.emoji} onChange={(v) => majLigne(i, { emoji: v })} testid="planning-report-emoji" />
                   <textarea value={l.message} onChange={(e) => majLigne(i, { message: e.target.value })} rows={2}
                             placeholder="Appelez l'accueil SVP : 78267900/70463624. Pour tout complément d'information ou report de RDV."
                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
@@ -351,9 +367,18 @@ export default function PlanningWebhookSection() {
             </div>
             <label className="block text-xs text-slate-600">
               Message pour un client sans ligne ci-dessus (vide = Liluvine répond comme d'habitude)
-              <textarea value={reportDefaut} onChange={(e) => setReportDefaut(e.target.value)} rows={2}
-                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="planning-report-defaut" />
+              <div className="mt-1 flex gap-2 items-start">
+                <SelectEmoji value={reportDefautEmoji} onChange={setReportDefautEmoji} testid="planning-report-defaut-emoji" />
+                <textarea value={reportDefaut} onChange={(e) => setReportDefaut(e.target.value)} rows={2}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="planning-report-defaut" />
+              </div>
             </label>
+            <p className="text-[11px] text-slate-500">
+              Numéros cliquables : les numéros à 8 chiffres écrits dans un message (ex. 78267900) sont envoyés au format international
+              (+<input value={reportIndicatif} onChange={(e) => setReportIndicatif(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                       className="mx-1 w-12 px-1 py-0.5 border border-slate-300 rounded text-center font-mono" data-testid="planning-report-indicatif" />
+              78 26 79 00) : WhatsApp les rend alors cliquables et un appui ouvre le compositeur du téléphone.
+            </p>
             <label className="flex items-center gap-2 text-xs text-slate-600">
               <input type="checkbox" checked={reportTout} onChange={(e) => setReportTout(e.target.checked)} data-testid="planning-report-tout" />
               Répondre à tout message reçu après un rappel (sinon : seulement aux demandes de report, d'annulation ou d'indisponibilité)

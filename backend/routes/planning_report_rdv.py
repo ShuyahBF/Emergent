@@ -58,26 +58,63 @@ def est_demande_report(texte: str) -> bool:
     return any(mot in t for mot in MOTS_REPORT)
 
 
+# Liste FINIE des pictogrammes proposés en tête du message (choix dans une liste déroulante de l'écran de réglage)
+EMOJIS = ("📞", "☎️", "🏥", "🩺", "📅", "🕒", "ℹ️", "⚠️", "🙏", "👋", "✅", "💬")
+
+
+def emoji_valide(valeur: Any) -> str:
+    """Pictogramme accepté seulement s'il est dans la liste ; sinon vide (aucun pictogramme)."""
+    v = str(valeur or "").strip()
+    return v if v in EMOJIS else ""
+
+
 def normaliser_reponses(brut: Any) -> List[Dict[str, str]]:
-    """Nettoie la liste des réponses par clinique : code en majuscules sans espaces, doublons retirés (le dernier gagne)."""
-    par_code: Dict[str, str] = {}
+    """Nettoie la liste des réponses par client : code en majuscules sans espaces, doublons retirés (le dernier gagne),
+    pictogramme limité à la liste proposée."""
+    par_code: Dict[str, Dict[str, str]] = {}
     for ligne in brut if isinstance(brut, list) else []:
         if not isinstance(ligne, dict):
             continue
         code = str(ligne.get("code_clinique") or "").strip()
         message = str(ligne.get("message") or "").strip()
         if code and message:
-            par_code[code.upper()] = message[:1000]
-    return [{"code_clinique": c, "message": m} for c, m in par_code.items()]
+            par_code[code.upper()] = {"code_clinique": code.upper(), "message": message[:1000], "emoji": emoji_valide(ligne.get("emoji"))}
+    return list(par_code.values())
 
 
 def message_pour_clinique(reglages: Dict[str, Any], code_clinique: Optional[str]) -> str:
-    """Message réglé pour cette clinique (comparaison sans casse), sinon le message par défaut, sinon vide."""
+    """Message réglé pour ce client (comparaison sans casse), sinon le message par défaut, sinon vide.
+    Le pictogramme choisi est placé en tête ; les numéros de téléphone sont rendus cliquables (voir `lier_numeros`)."""
     code = (code_clinique or "").strip().upper()
+    indicatif = chiffres(reglages.get("planning_report_indicatif")) or INDICATIF_DEFAUT
     for ligne in normaliser_reponses(reglages.get("planning_report_reponses")):
         if ligne["code_clinique"] == code:
-            return ligne["message"]
-    return str(reglages.get("planning_report_defaut") or "").strip()
+            return composer(ligne["emoji"], ligne["message"], indicatif)
+    defaut = str(reglages.get("planning_report_defaut") or "").strip()
+    return composer(emoji_valide(reglages.get("planning_report_defaut_emoji")), defaut, indicatif) if defaut else ""
+
+
+# Indicatif pays ajouté aux numéros locaux à 8 chiffres (Burkina Faso) ; réglable : planning_report_indicatif
+INDICATIF_DEFAUT = "226"
+# Un numéro à 8 chiffres, éventuellement précédé d'un préfixe international « +226 » (alors laissé tel quel)
+_NUMERO_LOCAL = re.compile(r"(\+\d{1,3}[ .]?)?(?<![\d])(\d{2})[ .]?(\d{2})[ .]?(\d{2})[ .]?(\d{2})(?!\d)")
+
+
+def lier_numeros(texte: str, indicatif: str = INDICATIF_DEFAUT) -> str:
+    """Met chaque numéro local à 8 chiffres au format international « +226 78 26 79 00 ».
+    WhatsApp reconnaît alors le numéro et le rend cliquable : un appui ouvre le compositeur du téléphone (ou propose d'appeler).
+    Les numéros déjà au format « +… » ne sont pas touchés ; « 78267900/70463624 » donne deux numéros cliquables."""
+    def remplacer(m):
+        if m.group(1):          # déjà international : on ne change rien
+            return m.group(0)
+        return f"+{indicatif} {m.group(2)} {m.group(3)} {m.group(4)} {m.group(5)}"
+    return _NUMERO_LOCAL.sub(remplacer, texte or "")
+
+
+def composer(emoji: str, message: str, indicatif: str = INDICATIF_DEFAUT) -> str:
+    """Message final : pictogramme en tête (s'il y en a un) puis le texte avec ses numéros cliquables."""
+    corps = lier_numeros(message, indicatif)
+    return f"{emoji} {corps}" if emoji else corps
 
 
 def remplir(message: str, rdv: Dict[str, Any]) -> str:
@@ -136,7 +173,7 @@ def simuler_reponse(reglages: Dict[str, Any], code_client: Optional[str]) -> Dic
     `source` dit d'où vient le message : « ligne » (réglé pour ce client), « defaut » ou « aucun » (Liluvine répondrait comme d'habitude)."""
     code = (code_client or "").strip().upper()
     ligne = next((l for l in normaliser_reponses(reglages.get("planning_report_reponses")) if l["code_clinique"] == code), None)
-    message = ligne["message"] if ligne else str(reglages.get("planning_report_defaut") or "").strip()
+    message = message_pour_clinique(reglages, code)   # pictogramme en tête + numéros cliquables, comme l'envoi réel
     source = "ligne" if ligne else ("defaut" if message else "aucun")
     exemple = {"patient": "PATIENT TEST", "medecin": "DR TEST", "code_clinique": code}
     return {"source": source, "message": remplir(message, exemple) if message else ""}

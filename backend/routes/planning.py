@@ -274,6 +274,8 @@ class PlanningConfigUpdate(BaseModel):
     report_reponses: Optional[List[Dict[str, str]]] = Field(None, description="[{code_clinique, message}]")
     report_defaut: Optional[str] = Field(None, description="Message pour une clinique sans ligne (vide = pas de réponse)")
     report_repondre_tout: Optional[bool] = Field(None, description="Répondre à tout message après un rappel")
+    report_defaut_emoji: Optional[str] = Field(None, description="Pictogramme du message par défaut (liste proposée)")
+    report_indicatif: Optional[str] = Field(None, description="Indicatif pays ajouté aux numéros locaux (226 par défaut)")
 
 
 class PlanningReportTest(BaseModel):
@@ -283,6 +285,8 @@ class PlanningReportTest(BaseModel):
     code_client: Optional[str] = Field(None, description="Pour « avec_ligne » : le client de la ligne à essayer")
     report_reponses: Optional[List[Dict[str, str]]] = None
     report_defaut: Optional[str] = None
+    report_defaut_emoji: Optional[str] = None
+    report_indicatif: Optional[str] = None
 
 
 def attach_planning_routes(
@@ -447,6 +451,9 @@ def attach_planning_routes(
             "report_reponses": s.get("planning_report_reponses") or [],
             "report_defaut": s.get("planning_report_defaut") or "",
             "report_repondre_tout": bool(s.get("planning_report_repondre_tout")),
+            "report_defaut_emoji": s.get("planning_report_defaut_emoji") or "",
+            "report_indicatif": s.get("planning_report_indicatif") or "226",
+            "report_emojis": list(__import__("routes.planning_report_rdv", fromlist=["EMOJIS"]).EMOJIS),
             "codes_clinique_connus": sorted([c for c in await db.planning_appointments.distinct("code_clinique") if c and c != "manual"]),
             "sample_payload": {
                 "code_clinique": "CLI-001",
@@ -502,6 +509,12 @@ def attach_planning_routes(
             set_doc["planning_report_defaut"] = payload.report_defaut.strip()[:1000]
         if payload.report_repondre_tout is not None:
             set_doc["planning_report_repondre_tout"] = bool(payload.report_repondre_tout)
+        if payload.report_defaut_emoji is not None:
+            from routes.planning_report_rdv import emoji_valide
+            set_doc["planning_report_defaut_emoji"] = emoji_valide(payload.report_defaut_emoji)
+        if payload.report_indicatif is not None:
+            from routes.planning_report_rdv import chiffres as _chiffres
+            set_doc["planning_report_indicatif"] = _chiffres(payload.report_indicatif)[:4] or "226"
         await db.settings.update_one(
             {"_id": "global"},
             {"$set": set_doc},
@@ -533,6 +546,8 @@ def attach_planning_routes(
             "planning_report_reponses": normaliser_reponses(payload.report_reponses) if payload.report_reponses is not None
             else (s.get("planning_report_reponses") or []),
             "planning_report_defaut": payload.report_defaut if payload.report_defaut is not None else (s.get("planning_report_defaut") or ""),
+            "planning_report_defaut_emoji": payload.report_defaut_emoji if payload.report_defaut_emoji is not None else (s.get("planning_report_defaut_emoji") or ""),
+            "planning_report_indicatif": payload.report_indicatif if payload.report_indicatif is not None else (s.get("planning_report_indicatif") or "226"),
         }
         if payload.mode == "avec_ligne":
             code = (payload.code_client or "").strip() or (reglages["planning_report_reponses"][0]["code_clinique"]

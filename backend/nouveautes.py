@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "309", "date": "2026-10-27",
+        "titre": "📺 Hall : heure en grand, tous les médecins, listes avec et sans RDV",
+        "description": "Écran TV du hall : l'heure s'affiche en grand (liste « Taille de l'heure » par écran : normale, grande, très grande, géante). Tous les médecins de la clinique y figurent (les RDV rangés sous un autre compte mais portant le même code clinique sont repris). Chaque médecin montre ses deux listes du jour : avec rendez-vous et sans rendez-vous (par numéro d'ordre). Dans le Planning, le médecin dispose de boutons Reculer / Avancer sur chaque liste : le patient en consultation s'affiche en vert sur la télé.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "308", "date": "2026-10-27",
         "titre": "📺 Planning : lecture du champ patient (nom, téléphone, reçu)",
         "description": "Le patient enregistré est le nom et les prénoms ; le téléphone est le numéro qui suit le premier « : » (ou simplement le premier numéro qui suit le nom) ; le numéro de reçu vient à la suite du téléphone (« : », « ; », virgule ou espace). Exemples reconnus : « OUOBA Alphone : 25614545 : R-202660230 » et « OUOBA Alphone 25614545 R-202660230 ». L'écran TV du hall affiche le nom et le téléphone anonymisés puis le reçu.",

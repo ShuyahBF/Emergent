@@ -79,12 +79,20 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .carte-med .bientot{display:inline-block;background:#f59e0b;color:#111;border-radius:1.2vh;padding:.4vh 1.2vw;font-size:3vh;margin-top:1vh;margin-left:1vw;font-weight:bold}
 .liste-rdv{-webkit-flex:1;flex:1;min-height:0;overflow:hidden;margin-top:2vh}
 .ligne-rdv{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;background:#16203a;border-radius:1.4vh;padding:1.2vh 1.6vw;margin-bottom:1vh;font-size:3.4vh}
-.ligne-rdv .hr{width:12vw;font-weight:bold;color:#7dd3fc}
+.ligne-rdv .hr{font-weight:bold;color:#7dd3fc;-webkit-flex:none;flex:none}
 .ligne-rdv .qui{-webkit-flex:1;flex:1;min-width:0}
 .ligne-rdv .tel{width:22vw;color:#94a3b8;font-size:3vh}
 .ligne-rdv .etat{width:20vw;text-align:right;font-size:2.8vh}
 .ligne-rdv.consult{background:#064e3b}
 .ligne-rdv.fini{opacity:.5}
+.t-normale .ligne-rdv .hr{font-size:3.4vh;width:12vh}.t-normale .ligne-rdv .qui{font-size:3.4vh}
+.t-grande .ligne-rdv .hr{font-size:6.5vh;width:22vh}.t-grande .ligne-rdv .qui{font-size:4.2vh}
+.t-tres_grande .ligne-rdv .hr{font-size:9vh;width:30vh}.t-tres_grande .ligne-rdv .qui{font-size:5vh}
+.t-geante .ligne-rdv .hr{font-size:12vh;width:40vh}.t-geante .ligne-rdv .qui{font-size:6vh}
+.deux-col{display:-webkit-flex;display:flex}
+.deux-col>div{-webkit-flex:1;flex:1;min-width:0;padding-right:1.5vw}
+.sous-titre{font-size:3vh;color:#7dd3fc;margin:1vh 0}
+.enc-txt{display:block;color:#34d399;font-weight:bold;font-size:3vh}
 .points{text-align:center;font-size:3vh;color:#475569;margin-top:1vh}
 .points b{color:#38bdf8}
 #erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
@@ -95,7 +103,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "307";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "309";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
@@ -313,17 +321,17 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       // Lot 304 — planning des médecins en carrousel : un médecin à la fois (changement toutes les minutes), données ANONYMISÉES par le serveur
       var hall = (flux && flux.hall) || { medecins: [], prochain: null }, liste = [], k2;
       for (i = 0; i < hall.medecins.length; i++) {
-        var mm = hall.medecins[i], actif = false;
-        for (k2 = 0; k2 < mm.rdv.length; k2++) { if (!mm.rdv[k2].passe) { actif = true; } }   // lot 305 : seuls les RDV non encore passés comptent
+        var mm = hall.medecins[i], actif = false, tous = (mm.rdv || []).concat(mm.sans_rdv || []);
+        for (k2 = 0; k2 < tous.length; k2++) { if (!tous[k2].passe) { actif = true; } }   // au moins un patient pas encore passé (RDV ou sans RDV)
         if (actif) { liste.push(mm); }
       }
-      if (!liste.length) { for (i = 0; i < hall.medecins.length; i++) { if (hall.medecins[i].rdv.length) { liste.push(hall.medecins[i]); } } }
+      if (!liste.length) { for (i = 0; i < hall.medecins.length; i++) { if ((hall.medecins[i].rdv || []).length || (hall.medecins[i].sans_rdv || []).length) { liste.push(hall.medecins[i]); } } }
       // À l'approche d'un RDV (moins de 5 minutes) le médecin concerné passe à l'écran, une seule fois par RDV
       for (i = 0; i < liste.length; i++) {
-        var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + liste[i].prochain_min + "|" + liste[i].rdv.length;
+        var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + liste[i].prochain_min + "|" + (liste[i].rdv || []).length;
         if (pm !== null && pm >= 0 && pm <= 5 && !forces[cleU]) { forces[cleU] = true; idxMed = i; }
       }
-      h += '<div class="plan">';
+      h += '<div class="plan t-' + esc((flux && flux.ecran && flux.ecran.taille_heure) || "grande") + '">';
       if (!liste.length) {
         h += '<div class="centre"><div class="vide">Aucun rendez-vous prévu aujourd\'hui</div></div>';
       } else {
@@ -332,13 +340,23 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
           '<div><div class="nom-g">' + esc(md.medecin) + '</div>' + (md.profession ? '<div class="titre-g">' + esc(md.profession) + "</div>" : "") +
           (md.porte ? '<span class="porte-g">' + esc(md.porte) + "</span>" : "") +
           (md.prochain_min !== null && md.prochain_min >= 0 && md.prochain_min <= 30 ? '<span class="bientot">Prochain RDV dans ' + md.prochain_min + " min</span>" : "") + "</div></div>";
-        h += '<div class="liste-rdv">';
-        if (!md.rdv.length) { h += '<div class="vide">Aucun rendez-vous</div>'; }
-        for (k2 = 0; k2 < md.rdv.length; k2++) {
-          var r = md.rdv[k2];
-          // Lot 305 : « Gu**. R. Pa**** | 7*****42 | R-2026302201 » (identité et téléphone anonymisés par le serveur ; le reçu n'apparaît que s'il est transmis)
-          h += '<div class="ligne-rdv' + (r.passe ? " fini" : "") + '"><span class="hr">' + esc(r.heure) + '</span><span class="qui">' + esc(r.qui) + " | " + esc(r.tel || "—") +
-            (r.recu ? " | " + esc(r.recu) : "") + "</span></div>";
+        var lstR = md.rdv || [], lstS = md.sans_rdv || [];
+        // Une ligne : « heure (ou N°) | identité anonymisée | téléphone masqué | reçu » ; vert = en consultation, estompée = déjà passé
+        var ligneHtml = function (r, sans) {
+          return '<div class="ligne-rdv' + (r.etat === "en_cours" ? " consult" : (r.passe ? " fini" : "")) + '"><span class="hr">' + (sans ? "N° " + esc(r.ordre) : esc(r.heure)) + '</span><span class="qui">' + esc(r.qui) + " | " + esc(r.tel || "—") +
+            (r.recu ? " | " + esc(r.recu) : "") + (r.etat === "en_cours" ? '<span class="enc-txt">▶ En consultation</span>' : "") + "</span></div>";
+        };
+        h += '<div class="liste-rdv deux-col">';
+        if (!lstR.length && !lstS.length) { h += '<div class="vide">Aucun rendez-vous</div>'; }
+        if (lstR.length) {
+          h += "<div>" + (lstS.length ? '<div class="sous-titre">Avec rendez-vous</div>' : "");
+          for (k2 = 0; k2 < lstR.length; k2++) { h += ligneHtml(lstR[k2], false); }
+          h += "</div>";
+        }
+        if (lstS.length) {
+          h += '<div><div class="sous-titre">Sans rendez-vous</div>';
+          for (k2 = 0; k2 < lstS.length; k2++) { h += ligneHtml(lstS[k2], true); }
+          h += "</div>";
         }
         h += "</div>";
         for (i = 0; i < liste.length; i++) { pts += (i === idxMed % liste.length ? "<b>●</b> " : "○ "); }

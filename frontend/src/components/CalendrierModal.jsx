@@ -9,14 +9,16 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Minimize2, Maximize2, RefreshCw, Share2, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Image as ImageIcon, Loader2, Minimize2, Maximize2, RefreshCw, Share2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import CalendrierSemaine from "@/components/CalendrierSemaine";
+import { genererImageDisponibilites } from "@/lib/calendrierImage";
 
 const jourIso = (d) => d.toISOString().slice(0, 10);
 const lundi = (d) => { const x = new Date(d); const n = (x.getDay() + 6) % 7; x.setDate(x.getDate() - n); return x; };
 
-export default function CalendrierModal({ contactNom, onPartager, onClose }) {
+// Lot 313 : `onPartagerImage(file)` (facultatif) — envoie les disponibilités sous forme d'IMAGE lisible d'un coup d'œil
+export default function CalendrierModal({ contactNom, onPartager, onPartagerImage, onClose }) {
   const [debut, setDebut] = useState(() => lundi(new Date()));
   const [donnees, setDonnees] = useState(null);
   const [reduit, setReduit] = useState(false);
@@ -65,6 +67,19 @@ export default function CalendrierModal({ contactNom, onPartager, onClose }) {
     catch (e) { toast.error(e?.response?.data?.detail || "Impossible de libérer"); }
   };
 
+  // Lot 313 : image PNG des disponibilités de la semaine affichée (vert = libre, gris = occupé) jointe au message du contact
+  const partagerImage = async () => {
+    if (!donnees) return;
+    setOccupe(true);
+    try {
+      const fichier = await genererImageDisponibilites({ debut: donnees.debut, jours: 7, horaires: donnees.horaires, occupations: donnees.occupations });
+      onPartagerImage?.(fichier);
+      toast.success("Image des disponibilités jointe au message : relisez puis envoyez");
+      onClose?.();
+    } catch (e) { toast.error(e?.message || "Image impossible à générer"); }
+    finally { setOccupe(false); }
+  };
+
   const partager = async () => {
     setOccupe(true);
     try {
@@ -103,9 +118,16 @@ export default function CalendrierModal({ contactNom, onPartager, onClose }) {
             <span className="text-xs text-slate-500">
               Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués)
             </span>
+            {onPartagerImage && (
+              <button type="button" onClick={partagerImage} disabled={occupe || !donnees} data-testid="calendrier-partager-image"
+                title="Joindre au message une image des créneaux libres (plus lisible qu'un lien)"
+                className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700 disabled:opacity-50">
+                <ImageIcon className="h-3.5 w-3.5" /> Envoyer en image
+              </button>
+            )}
             <button type="button" onClick={partager} disabled={occupe || !onPartager} data-testid="calendrier-partager"
-              className="ml-auto inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs hover:bg-emerald-700 disabled:opacity-50">
-              <Share2 className="h-3.5 w-3.5" /> Partager au contact
+              className={`${onPartagerImage ? "" : "ml-auto "}inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs hover:bg-emerald-700 disabled:opacity-50`}>
+              <Share2 className="h-3.5 w-3.5" /> Partager le lien
             </button>
           </div>
           {!donnees ? <Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" /> : (

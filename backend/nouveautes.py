@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "313", "date": "2026-10-27",
+        "titre": "📅 Disponibilités envoyées en image (lisibles d'un coup d'œil)",
+        "description": "Dans le calendrier ouvert depuis une discussion WhatsApp, le bouton « Envoyer en image » joint au message une image de la semaine : un jour par ligne, barre verte (libre) et grise (occupé), et les créneaux libres écrits en gros caractères (ex. « 07h00 – 09h15 · 09h45 – 10h30 »). Plus besoin d'ouvrir un lien : l'image se lit directement dans la conversation, sans titre ni nom de client. La légende reste modifiable avant « Envoyer ». Le bouton « Partager le lien » reste disponible.",
+        "rubrique": "🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)",
+    },
+    {
         "lot": "312", "date": "2026-10-27",
         "titre": "📅 Calendrier : tous les évènements Google, affichés comme le lien partagé",
         "description": "Dans le calendrier de la discussion, les évènements Google marqués « Disponible » ne sont plus en pointillé : ils s'affichent grisés comme tous les autres, exactement comme dans le lien de disponibilités partagé au contact (même ensemble d'évènements, même si les rendez-vous fictifs occupent de la place ou si certains titres sont coupés). Le titre reste visible sur votre écran ; le lien partagé n'affiche toujours que « Occupé ».",

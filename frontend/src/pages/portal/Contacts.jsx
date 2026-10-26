@@ -3216,7 +3216,12 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 </button>
                 {calendrierOuvert && (
                   <CalendrierModal contactNom={contact?.name} onClose={() => setCalendrierOuvert(false)}
-                    onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))} />
+                    onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))}
+                    // Lot 313 : l'image des disponibilités devient la pièce jointe du message (légende modifiable avant « Envoyer »)
+                    onPartagerImage={(f) => {
+                      setPendingFile({ file: f, kind: "image", previewUrl: URL.createObjectURL(f) });
+                      setText((x) => x || "📅 Mes disponibilités cette semaine : répondez avec le créneau qui vous convient.");
+                    }} />
                 )}
                 {/* Lot 158 — canal de réponse : choix de la ligne WhatsApp avant d'écrire (affiché s'il y a plusieurs lignes) */}
                 {lignesCanal.length > 1 && (

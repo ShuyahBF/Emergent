@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
+JOURS_RDV_MASQUES = 3            # lot 303 : les patients rappelés pour un RDV depuis 3 jours n'apparaissent pas dans les conversations
 
 
 def _maintenant() -> datetime:
@@ -58,6 +60,35 @@ def masquer_numero(chiffres: str) -> str:
     return f"•••• {c[-4:]}" if len(c) >= 4 else "Contact"
 
 
+def derniers8(valeur: Any) -> str:
+    """Clé de rapprochement d'un numéro de téléphone : ses 8 derniers chiffres (vide si trop court)."""
+    c = "".join(ch for ch in str(valeur or "") if ch.isdigit())
+    return c[-8:] if len(c) >= 8 else ""
+
+
+def est_conversation_rdv(doc: Dict[str, Any], numeros_rdv: set) -> bool:
+    """Lot 303 : vrai si le message appartient à la conversation d'un patient rappelé pour un RDV (rappel, réponse du patient,
+    réponse automatique) — ces échanges se suivent dans le Centre de Messagerie → « Suivi des RDV », pas sur la télé."""
+    return bool(numeros_rdv) and derniers8(doc.get("phone_digits") or doc.get("from") or doc.get("to")) in numeros_rdv
+
+
+_SIGNATURE_AGENT = re.compile(r"^\s*[—-]\s*([^\n(,]+?)\s*(?:\([^)\n]*\))?,\s*assistant Liluvine", re.IGNORECASE | re.MULTILINE)
+
+
+def agent_ia(doc: Dict[str, Any]) -> str:
+    """Lot 303 : prénom de l'agent IA qui a écrit ce message sortant (vide si message humain).
+    1) champ `agent_ia` enregistré avec le message ; 2) sinon la signature « — Awa (Secrétaire), assistant Liluvine 🤖 » du texte ;
+    3) sinon « Liluvine » pour toute réponse automatique ou générée par l'IA."""
+    if doc.get("direction") == "inbound":
+        return ""
+    if doc.get("agent_ia"):
+        return str(doc["agent_ia"])[:30]
+    if not (doc.get("ai_generated") or doc.get("auto_reply")):
+        return ""
+    m = _SIGNATURE_AGENT.search(str(doc.get("body") or ""))
+    return (m.group(1).strip()[:30] if m else "Liluvine")
+
+
 def cle_fil(doc: Dict[str, Any]) -> str:
     """Clé d'une conversation : la fiche contact si elle existe, sinon une empreinte des 8 derniers chiffres du numéro."""
     if doc.get("contact_id"):
@@ -77,7 +108,7 @@ def forme_fils(docs: List[Dict[str, Any]], non_lus: Dict[str, int], noms: Dict[s
             continue                                             # le premier rencontré est le plus récent
         m = forme_message(d)
         nom = d.get("contact_name") or noms.get(cle) or d.get("from_profile_name") or masquer_numero(d.get("phone_digits") or d.get("from") or d.get("to"))
-        fils[cle] = {"cle": cle, "nom": str(nom)[:60], "dernier": m["texte"][:100], "sens": m["sens"], "date": m["date"], "non_lus": 0}
+        fils[cle] = {"cle": cle, "nom": str(nom)[:60], "dernier": m["texte"][:100], "sens": m["sens"], "date": m["date"], "non_lus": 0, "agent": m["agent"]}
     for cle, n in non_lus.items():
         if cle in fils:
             fils[cle]["non_lus"] = n
@@ -93,7 +124,8 @@ def forme_message(doc: Dict[str, Any]) -> Dict[str, Any]:
                  "video": "🎬 Vidéo", "sticker": "🙂 Autocollant", "location": "📍 Position"}.get(type_msg, "…")
     nom = doc.get("contact_name") or doc.get("from_profile_name") or masquer_numero(doc.get("phone_digits") or doc.get("from") or doc.get("to"))
     return {"id": doc.get("id"), "sens": "entrant" if doc.get("direction") == "inbound" else "sortant", "fil": cle_fil(doc),
-            "nom": str(nom)[:60], "texte": corps[:240], "date": doc.get("received_at") or doc.get("sent_at") or doc.get("created_at")}
+            "nom": str(nom)[:60], "texte": corps[:240], "date": doc.get("received_at") or doc.get("sent_at") or doc.get("created_at"),
+            "agent": agent_ia(doc)}
 
 
 def forme_ticket(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -122,7 +154,8 @@ def borne_jour(maintenant: datetime) -> tuple:
     return j0, j0 + timedelta(days=1)
 
 
-def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime) -> Dict[str, Any]:
+def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
+               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False) -> Dict[str, Any]:
     """Consultations du jour par médecin. Aucun nom de patient : « N° 12 » (numéro d'ordre) ou l'heure du RDV.
     - en consultation : type CST (le patient est reçu) ; terminés : type RCU (reçu édité) ;
     - en attente : RDV (classés par heure) et arrivées sans heure (classées par heure d'arrivée) ;
@@ -153,7 +186,9 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
     for fiche in par_med.values():
         fiche["attente"].sort(key=lambda x: x["quand"])
         fiche["consultation"].sort(key=lambda x: x["quand"], reverse=True)
-        medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"],
+        extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # lot 303 : profession et photo du médecin
+        medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"], "profession": extra.get("profession", ""),
+                         "a_photo": bool(extra.get("photo")), "photo": extra.get("photo", "") if avec_photos else "",
                          "en_consultation": fiche["consultation"][0]["libelle"] if fiche["consultation"] else None,
                          "prochains": [{"libelle": x["libelle"], "heure": x["heure"]} for x in fiche["attente"][:3]],
                          "restants": len(fiche["attente"]), "vus": fiche["vus"], "_premier": fiche["attente"][0]["quand"] if fiche["attente"] else None})
@@ -168,16 +203,29 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
     return {"medecins": medecins, "prochain": prochain}
 
 
+MAX_PHOTO = 60000        # taille maximale (caractères) de la photo d'un médecin, enregistrée en « data:image » réduite par l'écran d'administration
+
+
 def normaliser_portes(brut: Any) -> List[Dict[str, str]]:
-    """Table « médecin → porte / bureau » (ex. Dr OUEDRAOGO → « Bureau 3 ») : une ligne par médecin (sans casse), lignes vides retirées."""
+    """Table « médecin → porte / bureau, profession, photo » (ex. Dr OUEDRAOGO → « Bureau 3 ») : une ligne par médecin (sans casse),
+    lignes vides retirées. Lot 303 : `profession` (texte court) et `photo` (petite image « data:image/jpeg|png|webp;base64,… »)."""
     par_nom: Dict[str, Dict[str, str]] = {}
     for ligne in brut if isinstance(brut, list) else []:
         if not isinstance(ligne, dict):
             continue
         medecin = str(ligne.get("medecin") or "").strip()
         porte = str(ligne.get("porte") or "").strip()
-        if medecin and porte:
-            par_nom[medecin.lower()] = {"medecin": medecin[:80], "porte": porte[:30]}
+        profession = str(ligne.get("profession") or "").strip()[:60]
+        photo = str(ligne.get("photo") or "").strip()
+        if not (photo.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")) and len(photo) <= MAX_PHOTO):
+            photo = ""                                  # photo absente, d'un autre type ou trop lourde : ignorée
+        if medecin and (porte or profession or photo):
+            entree = {"medecin": medecin[:80], "porte": porte[:30]}
+            if profession:
+                entree["profession"] = profession
+            if photo:
+                entree["photo"] = photo
+            par_nom[medecin.lower()] = entree
     return list(par_nom.values())
 
 
@@ -262,7 +310,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         return ecran
 
     @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default=""), fil: str = Query("", max_length=40)):
+    async def tv_flux(x_tv_secret: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0)):
         """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
         `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
@@ -273,8 +321,16 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             docs = await db.whatsapp_messages.find(
                 {"client_id": {"$in": ids}},
                 {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_id": 1, "contact_name": 1, "from_profile_name": 1,
-                 "phone_digits": 1, "from": 1, "to": 1, "received_at": 1, "sent_at": 1, "created_at": 1},
-            ).sort("created_at", -1).to_list(600 if fil else FENETRE_FILS)
+                 "phone_digits": 1, "from": 1, "to": 1, "received_at": 1, "sent_at": 1, "created_at": 1,
+                 "ai_generated": 1, "auto_reply": 1, "agent_ia": 1},
+            ).sort("created_at", -1).to_list(900 if fil else FENETRE_FILS + 300)
+            # Lot 303 : on retire les conversations des patients rappelés pour un RDV (UNE lecture des RDV récents)
+            limite_rdv = (_maintenant() - timedelta(days=JOURS_RDV_MASQUES)).isoformat()
+            numeros_rdv = set()
+            async for r in db.planning_appointments.find({"reminder_sent_at": {"$gte": limite_rdv}}, {"_id": 0, "patient_phone": 1}).limit(3000):
+                if derniers8(r.get("patient_phone")):
+                    numeros_rdv.add(derniers8(r.get("patient_phone")))
+            docs = [d for d in docs if not est_conversation_rdv(d, numeros_rdv)]
             # Noms des contacts : celui du message, sinon la fiche du carnet (UNE lecture pour tous les contacts concernés)
             ids_contacts = list({d["contact_id"] for d in docs if d.get("contact_id") and not d.get("contact_name")})
             noms = {}
@@ -290,6 +346,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             async for d in db.whatsapp_messages.find(
                     {"client_id": {"$in": ids}, "direction": "inbound", "read_by_us_at": None, "created_at": {"$gte": depuis}},
                     {"_id": 0, "contact_id": 1, "phone_digits": 1, "from": 1}).limit(5000):
+                if est_conversation_rdv(d, numeros_rdv):
+                    continue                                       # lot 303 : jamais de non-lu pour une conversation de RDV
                 cle = cle_fil(d)
                 non_lus[cle] = non_lus.get(cle, 0) + 1
             flux["fils"] = forme_fils(docs[:FENETRE_FILS], non_lus, {})
@@ -315,7 +373,9 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                  "numero_ordre": 1, "type_evenement": 1, "status": 1},
             ).to_list(2000)
             r = await _reglages_portes()
-            flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant)
+            # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
+            flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
+                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos))
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():
@@ -356,7 +416,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         client = await db.users.find_one({"id": payload.client_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
         if not client:
             raise HTTPException(status_code=404, detail="Client introuvable")
-        ecran = {"id": uuid.uuid4().hex, "nom": payload.nom.strip(), "client_id": payload.client_id,
+        ecran = {"id": uuid.uuid4().hex, "nom": payload.nom.strip(), "code": code, "client_id": payload.client_id,
                  "client_nom": client.get("company") or client.get("full_name") or "",
                  "modules": modules_valides(payload.modules or {"messagerie": True, "support": True}),
                  "empreinte": appairage["empreinte"], "cree_le": _maintenant().isoformat(), "cree_par": user.get("email"), "vu_le": None}
@@ -381,7 +441,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         res = await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran_id}, {"$set": champs})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Écran introuvable")
-        return {"ok": True}
+        # Lot 303 : on renvoie ce qui est réellement enregistré (l'écran d'administration s'aligne dessus)
+        s2 = await _reglages()
+        ecran = next((e for e in s2.get("tv_ecrans") or [] if e.get("id") == ecran_id), {})
+        return {"ok": True, "modules": modules_valides(ecran.get("modules"))}
 
     @api.delete("/admin/tv/ecrans/{ecran_id}", tags=["Admin — Écrans TV"])
     async def admin_tv_revoquer(ecran_id: str, user: dict = Depends(get_current_admin)):

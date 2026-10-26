@@ -394,6 +394,7 @@ function PortalLayoutInner({ admin = false }) {
   const allowedTranslatorPaths = new Set(["/portal/i18n"]);
   const allowedMedecinTrackedPaths = new Set([
     "/portal/planning",
+    "/portal/reponses-rdv",          // lot 303 : réponses WA aux RDV (lecture seule)
     "/portal/prescription-analysis",  // Iter43-fix24az-ac — conservé pour compatibilité, plus lié en sidebar
     // Portage site-meetafrican — Sécurisation remplace "Analyse prescription"
     // en sidebar (même page conceptuelle, enrichie — voir VidalSecurisation.jsx).
@@ -429,6 +430,7 @@ function PortalLayoutInner({ admin = false }) {
   ]);
   const allowedSecretaireMedicalePaths = new Set([
     "/portal/planning",
+    "/portal/reponses-rdv",
     "/portal/my-account",
   ]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
@@ -452,6 +454,8 @@ function PortalLayoutInner({ admin = false }) {
     : (isMedecinTracked
         ? [
             { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+            // Lot 303 : réponses des patients aux rappels de RDV (lecture seule, leurs patients)
+            { to: "/portal/reponses-rdv", label: "Réponses WA aux RDV", icon: MessageCircle },
             // Iter43-fix24az-ac (2026-07-22) — devenu "Sécurisation" (portage
             // site-meetafrican) : même page conceptuelle, enrichie — voir
             // VidalSecurisation.jsx. featureGate conservé pour masquer le
@@ -490,6 +494,8 @@ function PortalLayoutInner({ admin = false }) {
             : (isSecretaireMedicale
                 ? [
                     { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+                    // Lot 303 : réponses des patients aux rappels de RDV (lecture seule)
+                    { to: "/portal/reponses-rdv", label: "Réponses WA aux RDV", icon: MessageCircle },
                   ]
                 : (admin ? adminLinks : clientLinks)))));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués

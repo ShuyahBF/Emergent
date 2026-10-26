@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "303", "date": "2026-10-26",
+        "titre": "📺 Écran TV et RDV : agent IA, conversations de RDV masquées, réponses aux RDV pour les médecins",
+        "description": "Liste des écrans appairés : le code d'appairage est affiché. Sur la télé : la pastille rouge d'une conversation se met à jour dès qu'on l'ouvre, les conversations des patients rappelés pour un RDV (3 derniers jours) n'y apparaissent plus, et une pastille violette indique le prénom de l'agent IA quand c'est lui qui a répondu. Dans « Portes des médecins », on peut charger la photo et la profession de chaque médecin (affichées dans le hall) ; cocher Hall/Messagerie/Support affiche maintenant une confirmation « enregistré ». Les utilisateurs suivis Médecin et Secrétaire médicale ont un nouveau lien « Réponses WA aux RDV » (lecture seule : un médecin voit ses patients, le secrétariat ceux de sa société).",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "302", "date": "2026-10-26",
         "titre": "📺 Écrans TV : la liste des écrans appairés ne disparaît plus",
         "description": "Un écran appairé n'était jamais supprimé, mais la liste restait vide quand un des chargements (portes des médecins, clients) échouait, par exemple pendant une mise à jour du serveur. Les chargements sont maintenant indépendants : la liste s'affiche toujours, et en cas de souci un message orange indique quoi, avec un bouton Réessayer.",

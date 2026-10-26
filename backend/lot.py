@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "302"
-LOT_LIBELLE = "Écrans TV : la liste des écrans appairés s'affiche même si les portes ou la liste des clients ne se chargent pas (message d'erreur et bouton Réessayer)"
+LOT = "303"
+LOT_LIBELLE = "Écran TV : code d'appairage visible, non-lus mis à jour à la lecture, conversations de RDV masquées, photo et profession du médecin dans le hall, enregistrement du Hall confirmé, pastille de l'agent IA ; lien « Réponses WA aux RDV » (lecture seule) pour médecins et secrétariat médical"

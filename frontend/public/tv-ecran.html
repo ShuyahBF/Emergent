@@ -54,12 +54,16 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .direct::-webkit-scrollbar,.listefils::-webkit-scrollbar{width:1.4vh}
 .direct::-webkit-scrollbar-track{background:#111b30}
 .direct::-webkit-scrollbar-thumb{background:#38bdf8;border-radius:.7vh}
+.agentia{display:inline-block;background:#a78bfa;color:#1e1b4b;border-radius:1vh;padding:.1vh .8vw;font-size:2vh;font-weight:bold;margin-left:.6vw}
 .badgeson{background:#f59e0b;color:#111;border-radius:1vh;padding:.3vh 1vw;font-size:2.2vh;margin-right:1vw}
 .prochain{background:#064e3b;border:.5vh solid #34d399;border-radius:2vh;padding:2vh 2vw;margin-bottom:2vh;text-align:center}
 .prochain small{display:block;font-size:2.6vh;color:#a7f3d0}
 .prochain b{display:block;font-size:7vh;margin-top:.6vh}
 .med{background:#16203a;border-radius:1.4vh;padding:1.4vh 1.4vw;margin-bottom:1.2vh}
 .med .t{display:-webkit-flex;display:flex;-webkit-justify-content:space-between;justify-content:space-between;-webkit-align-items:center;align-items:center;font-size:3.2vh;font-weight:bold}
+.med .id{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}
+.med .photo{width:8vh;height:8vh;border-radius:4vh;margin-right:1vw;border:.4vh solid #38bdf8;background:#0b1220}
+.med .prof{font-size:2.2vh;color:#94a3b8;font-weight:normal}
 .med .porte{background:#38bdf8;color:#04243a;border-radius:1vh;padding:.3vh 1.2vw;font-size:2.8vh}
 .med .l{font-size:2.6vh;color:#cbd5e1;margin-top:.6vh}
 .med .enc{color:#fbbf24}
@@ -74,6 +78,17 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   var CLE = "sawali_tv_secret", API = "/api";
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
+  // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
+  var photosMed = {}, nbFlux = 0;      // lot 303 : photos des médecins (demandées au serveur au démarrage puis toutes les ~10 min)
+  var CLE_LUS = "sawali_tv_lus", lus = {};
+  try { lus = JSON.parse(localStorage.getItem(CLE_LUS) || "{}") || {}; } catch (e) { lus = {}; }
+  function sauverLus() { try { localStorage.setItem(CLE_LUS, JSON.stringify(lus)); } catch (e) {} }
+  // Non-lus affichés = non-lus du serveur moins ceux déjà vus ici ; si le serveur en compte moins (lus ailleurs), on s'aligne
+  function nonLusVisibles(f) {
+    var vu = lus[f.cle] || 0;
+    if (f.non_lus < vu) { lus[f.cle] = vu = f.non_lus; sauverLus(); }
+    return Math.max(0, f.non_lus - vu);
+  }
   var racine = document.getElementById("racine"), zoneErreur = document.getElementById("erreur");
 
   // Toute erreur est affichée en bas de l'écran (diagnostic sur la télé, sans console)
@@ -139,6 +154,18 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
     } catch (e) { /* son impossible : on ignore */ }
   }
+  // Lot 303 : au chargement, on tente d'activer le son sans geste ; certaines télés l'autorisent, sinon le bandeau « Appuyez sur OK »
+  // reste affiché (règle des navigateurs : le son exige une action de l'utilisateur à chaque chargement de page).
+  function essaiSonAuto() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) { return; }
+      ctxSon = ctxSon || new Ctx();
+      if (ctxSon.resume) { ctxSon.resume(); }
+      setTimeout(function () { if (ctxSon && ctxSon.state === "running" && !sonActif) { sonActif = true; if (flux) { dessiner(); } } }, 600);
+    } catch (e) { /* pas de son automatique : on attend un appui sur OK */ }
+  }
+  essaiSonAuto();
   document.addEventListener("click", activerSon, false);
   document.addEventListener("keydown", activerSon, false);
   document.addEventListener("touchstart", activerSon, false);
@@ -146,8 +173,14 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   // ---------- Choix d'une conversation (clic de la télécommande pointeur, ou flèches + OK) ----------
   function choisirFil(cle) {
     filChoisi = (cle === filChoisi) ? "" : cle;     // un second clic sur la même conversation revient à « tout afficher »
+    if (filChoisi) { marquerVu(filChoisi); if (flux) { dessiner(); } }   // lot 303 : la pastille rouge se met à jour aussitôt
     vus = {}; dejaCharge = false;                    // le contenu change : pas d'animation ni de bip pour l'affichage initial
     charger();
+  }
+  // Lot 303 : les non-lus d'une conversation ouverte sont considérés comme lus sur la télé
+  function marquerVu(cle) {
+    var i, fl = (flux && flux.fils) || [];
+    for (i = 0; i < fl.length; i++) { if (fl[i].cle === cle) { lus[cle] = fl[i].non_lus; sauverLus(); } }
   }
   racine.addEventListener("click", function (e) {
     var n = e.target;
@@ -204,7 +237,9 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     dernierFils = fils;
     for (i = 0; i < msgs.length; i++) { if (dejaCharge && !vus[msgs[i].id]) { if (msgs[i].sens === "entrant") { nouveauEntrant = true; } } }
     // Un nouveau non-lu dans une AUTRE conversation que celle affichée déclenche aussi le bip
-    var nl = (flux && flux.non_lus_total) || 0;
+    if (filChoisi) { marquerVu(filChoisi); }              // un message qui arrive dans la conversation ouverte est vu aussitôt
+    var nl = 0;
+    for (i = 0; i < fils.length; i++) { nl += nonLusVisibles(fils[i]); }
     if (dejaCharge && dernierNonLus >= 0 && nl > dernierNonLus) { nouveauEntrant = true; }
     dernierNonLus = nl;
     h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' +
@@ -212,13 +247,13 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (m.messagerie) {
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
-        (flux && flux.non_lus_total ? ' <span class="pastille" style="display:inline-block">' + flux.non_lus_total + "</span>" : "") + '</div><div class="msgzone">';
+        (nl ? ' <span class="pastille" style="display:inline-block">' + nl + "</span>" : "") + '</div><div class="msgzone">';
       // Conversations : nom du contact, dernier message, bulle rouge = messages non lus
       h += '<div class="listefils"><div class="astuce">Cliquez sur une conversation (ou flèches + OK)</div>';
       if (!fils.length) { h += '<div class="vide">Aucune conversation</div>'; }
       for (i = 0; i < fils.length; i++) {
-        h += '<div class="fil1' + (i === curseur ? " curs" : "") + (fils[i].cle === filChoisi ? " choisi" : "") + '" data-cle="' + esc(fils[i].cle) + '" tabindex="0"><div class="corps1"><div class="n">' + esc(fils[i].nom) + '</div><div class="d">' + (fils[i].sens === "sortant" ? "↗ " : "") + esc(fils[i].dernier) + '</div></div><span class="h">' + heure(fils[i].date) + "</span>" +
-          (fils[i].non_lus ? '<span class="pastille">' + fils[i].non_lus + "</span>" : "") + "</div>";
+        h += '<div class="fil1' + (i === curseur ? " curs" : "") + (fils[i].cle === filChoisi ? " choisi" : "") + '" data-cle="' + esc(fils[i].cle) + '" tabindex="0"><div class="corps1"><div class="n">' + esc(fils[i].nom) + '</div><div class="d">' + (fils[i].sens === "sortant" ? "↗ " : "") + (fils[i].agent ? "🤖 " + esc(fils[i].agent) + " : " : "") + esc(fils[i].dernier) + '</div></div><span class="h">' + heure(fils[i].date) + "</span>" +
+          (nonLusVisibles(fils[i]) ? '<span class="pastille">' + nonLusVisibles(fils[i]) + "</span>" : "") + "</div>";
       }
       h += '</div><div class="zone-direct">';
       if (filChoisi) {
@@ -231,7 +266,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       if (!msgs.length) { h += '<div class="vide">Aucun message récent</div>'; }
       for (i = 0; i < msgs.length; i++) {
         var g = msgs[i], nouveau = dejaCharge && !vus[g.id];
-        h += '<div class="rang ' + (g.sens === "entrant" ? "" : "droite") + '"><div class="bulle ' + (g.sens === "entrant" ? "entrant" : "sortant") + (nouveau ? " nouveau" : "") + '"><div class="nom">' + esc(g.nom) + " · " + heure(g.date) + "</div>" + esc(g.texte) + "</div></div>";
+        h += '<div class="rang ' + (g.sens === "entrant" ? "" : "droite") + '"><div class="bulle ' + (g.sens === "entrant" ? "entrant" : "sortant") + (nouveau ? " nouveau" : "") + '"><div class="nom">' + esc(g.nom) + " · " + heure(g.date) + (g.agent ? ' <span class="agentia">🤖 ' + esc(g.agent) + "</span>" : "") + "</div>" + esc(g.texte) + "</div></div>";
       }
       h += "</div></div></div></div>";
     }
@@ -253,7 +288,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       for (i = 0; i < hall.medecins.length; i++) {
         var md = hall.medecins[i], suiv = [], k;
         for (k = 0; k < md.prochains.length; k++) { suiv.push(esc(md.prochains[k].libelle)); }
-        h += '<div class="med"><div class="t"><span>' + esc(md.medecin) + "</span>" + (md.porte ? '<span class="porte">' + esc(md.porte) + "</span>" : "") + "</div>" +
+        h += '<div class="med"><div class="t"><span class="id">' + (photosMed[md.medecin] ? '<img class="photo" src="' + photosMed[md.medecin] + '" alt="">' : "") +
+          "<span>" + esc(md.medecin) + (md.profession ? '<br><span class="prof">' + esc(md.profession) + "</span>" : "") + "</span></span>" + (md.porte ? '<span class="porte">' + esc(md.porte) + "</span>" : "") + "</div>" +
           (md.en_consultation ? '<div class="l enc">En consultation : ' + esc(md.en_consultation) + "</div>" : "") +
           '<div class="l">' + (suiv.length ? "Suivants : " + suiv.join(" · ") : "Aucun patient en attente") + (md.restants > 3 ? " · " + md.restants + " en attente" : "") + "</div></div>";
       }
@@ -269,8 +305,17 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   }
   function charger() {
     if (phase !== "flux") { return; }
-    appeler("GET", "/tv/flux" + (filChoisi ? "?fil=" + encodeURIComponent(filChoisi) : ""), lire(), null, function (st, d) {
+    var avecPhotos = (nbFlux % 75 === 0);   // les photos (lourdes) ne sont demandées qu'au premier appel puis de temps en temps
+    nbFlux++;
+    appeler("GET", "/tv/flux?photos=" + (avecPhotos ? "1" : "0") + (filChoisi ? "&fil=" + encodeURIComponent(filChoisi) : ""), lire(), null, function (st, d) {
       if (phase !== "flux") { return; }
+      if (st === 200 && d && d.hall && avecPhotos) {
+        var q; photosMed = {};
+        for (q = 0; q < d.hall.medecins.length; q++) { if (d.hall.medecins[q].photo) { photosMed[d.hall.medecins[q].medecin] = d.hall.medecins[q].photo; } }
+      } else if (st === 200 && d && d.hall) {
+        // une photo vient d'être ajoutée côté administration : on la demande au prochain appel
+        var r2; for (r2 = 0; r2 < d.hall.medecins.length; r2++) { if (d.hall.medecins[r2].a_photo && !photosMed[d.hall.medecins[r2].medecin]) { nbFlux = 0; } }
+      }
       if (st === 401) { ecrire(""); flux = null; demarrerAppairage(); return; }
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
       if (flux) { dessiner(); }

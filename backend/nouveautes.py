@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "325", "date": "2026-10-27",
+        "titre": "📅 Planning consultations : vue sur 3 jours ou la semaine (téléphone et PC)",
+        "description": "Dans le menu Planning consultations, un choix Jour / 3 jours / Semaine affiche les rendez-vous groupés par jour, avec les noms et téléphones des patients en clair (réservé au portail connecté ; la télé du hall reste masquée). La liste se rafraîchit toute seule. Rubrique liée : Écrans TV.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "324", "date": "2026-10-27",
         "titre": "🔒 Écran TV : patients toujours masqués, détail en clair seulement dans SAWALI",
         "description": "Même après la connexion administrateur, la télé du hall n'affiche jamais les noms et téléphones des patients en clair (« GU**. R. Pa**** | 7*****42 »). Le détail complet se consulte dans SAWALI (menu Planning), sur téléphone ou PC, connecté en administrateur.",

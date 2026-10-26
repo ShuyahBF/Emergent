@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "324"
-LOT_LIBELLE = "Écran TV : patients toujours masqués sur la télé, y compris en connexion administrateur ; le détail en clair se consulte seulement dans SAWALI (Planning) connecté en administrateur."
+LOT = "325"
+LOT_LIBELLE = "Planning consultations : vue sur 3 jours ou la semaine (liste groupée par jour, patients en clair pour le portail connecté, adaptée au téléphone)."

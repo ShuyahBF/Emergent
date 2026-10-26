@@ -11,7 +11,7 @@
 //   • journal des appels : évènement window « sawali:journal-appels » {telephone?}.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Phone, PhoneIncoming, PhoneOff, PhoneOutgoing, Mic, MicOff, X } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOff, PhoneOutgoing, Mic, MicOff, Volume2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import PastilleLigneWa from "./PastilleLigneWa";
 import TranscriptionAppelLiluvine from "./TranscriptionAppelLiluvine";   // Lot 69
@@ -19,6 +19,32 @@ import TranscriptionAppelLiluvine from "./TranscriptionAppelLiluvine";   // Lot 
 // Serveurs STUN publics : permettent au navigateur de découvrir son adresse publique (WebRTC)
 const ICE_SERVERS = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
 const INTERROGATION_MS = 3000;
+
+// Lot 296 — sortie audio (haut-parleur) choisie par l'utilisateur, mémorisée dans ce navigateur
+const CLE_SORTIE = "sawali_wa_sortie_audio";
+const lireSortie = () => { try { return localStorage.getItem(CLE_SORTIE) || ""; } catch { return ""; } };
+const ecrireSortie = (v) => { try { if (v) localStorage.setItem(CLE_SORTIE, v); else localStorage.removeItem(CLE_SORTIE); } catch { /* stockage indisponible */ } };
+// Le choix de la sortie (setSinkId) n'existe que sur Chrome, Edge et Opera ; Firefox et Safari utilisent la sortie par défaut du système
+const sortieChoisissable = () => typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+
+// Joue un bip de 1 s SUR la sortie choisie (vide = sortie par défaut) pour vérifier que le haut-parleur répond
+async function bipTest(idSortie) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  const dest = ctx.createMediaStreamDestination();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  gain.gain.value = 0.25;
+  osc.frequency.value = 660;
+  osc.connect(gain); gain.connect(dest);
+  const lecteur = new Audio();
+  lecteur.srcObject = dest.stream;
+  if (idSortie && lecteur.setSinkId) await lecteur.setSinkId(idSortie);
+  osc.start();
+  await lecteur.play();
+  await new Promise((r) => setTimeout(r, 1000));
+  osc.stop(); lecteur.pause(); ctx.close();
+}
 
 // Attend la fin de la collecte des « candidats ICE » (adresses réseau) — 3 s au plus,
 // car WhatsApp attend une description SDP complète (pas d'envoi au fil de l'eau)
@@ -79,6 +105,9 @@ export default function AppelsWhatsApp() {
   const [deplie, setDeplie] = useState(null);         // Lot 69 — appel de Liluvine dont la transcription est dépliée
   const [etatSon, setEtatSon] = useState("");         // Lot 94 — état de la liaison audio (connexion, établie, échec…)
   const [sonBloque, setSonBloque] = useState(false);  // Lot 94 — le navigateur a bloqué la lecture du son
+  const [sorties, setSorties] = useState([]);         // Lot 296 — haut-parleurs disponibles [{deviceId, label}]
+  const [sortieId, setSortieId] = useState(lireSortie());   // Lot 296 — haut-parleur choisi ("" = celui du système)
+  const [recu, setRecu] = useState(null);             // Lot 296 — son réellement reçu de WhatsApp {octets, niveau}
   const pcRef = useRef(null);                          // connexion WebRTC
   const micRef = useRef(null);                         // flux du micro
   const audioRef = useRef(null);                       // lecteur du son du correspondant
@@ -111,6 +140,8 @@ export default function AppelsWhatsApp() {
       if (!lecteur) return;
       const flux = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
       if (lecteur.srcObject !== flux) lecteur.srcObject = flux;
+      // Lot 296 : haut-parleur choisi par l'utilisateur
+      if (lireSortie() && lecteur.setSinkId) lecteur.setSinkId(lireSortie()).catch(() => { /* sortie disparue : celle du système */ });
       lecteur.play().then(() => setSonBloque(false)).catch(() => setSonBloque(true));
     };
     // Lot 94 — état de la liaison audio affiché dans le panneau de l'appel (aide au diagnostic)
@@ -118,6 +149,48 @@ export default function AppelsWhatsApp() {
     pcRef.current = pc;
     return pc;
   }, []);
+
+  // Lot 296 — liste des haut-parleurs (les noms n'apparaissent qu'après l'autorisation du micro, donc pendant un appel)
+  const actualiserSorties = useCallback(async () => {
+    try {
+      const liste = await navigator.mediaDevices.enumerateDevices();
+      setSorties(liste.filter((d) => d.kind === "audiooutput"));
+    } catch { setSorties([]); }
+  }, []);
+  useEffect(() => {
+    actualiserSorties();
+    navigator.mediaDevices?.addEventListener?.("devicechange", actualiserSorties);   // casque branché / débranché
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", actualiserSorties);
+  }, [actualiserSorties]);
+
+  const choisirSortie = async (id) => {
+    setSortieId(id); ecrireSortie(id);
+    try { if (audioRef.current?.setSinkId) await audioRef.current.setSinkId(id || ""); }
+    catch { toast.error("Ce haut-parleur n'a pas pu être sélectionné."); }
+  };
+  const testerHautParleur = async () => {
+    try { await bipTest(sortieId); toast.success("Bip joué sur le haut-parleur choisi : l'avez-vous entendu ?"); }
+    catch { toast.error("Impossible de jouer le bip : vérifiez le volume et la sortie audio du PC."); }
+  };
+
+  // Lot 296 — témoin du son REÇU de WhatsApp (toutes les secondes pendant l'appel) : permet de savoir si le silence vient
+  // de la liaison (aucun octet reçu) ou du haut-parleur (octets reçus mais rien d'audible)
+  useEffect(() => {
+    if (!appel) { setRecu(null); return undefined; }
+    const t = setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === "inbound-rtp" && (r.kind === "audio" || r.mediaType === "audio")) {
+            setRecu({ octets: r.bytesReceived || 0, niveau: typeof r.audioLevel === "number" ? r.audioLevel : null });
+          }
+        });
+      } catch { /* statistiques indisponibles */ }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [appel]);
 
   // Interrogation régulière : appels qui sonnent + état de mon appel
   useEffect(() => {
@@ -370,6 +443,30 @@ export default function AppelsWhatsApp() {
               🔊 Activer le son
             </button>
           )}
+          {/* Lot 296 — son reçu de WhatsApp + choix du haut-parleur + bip de test */}
+          <div className="mt-3 rounded-lg bg-slate-800 p-2 text-[11px] space-y-1.5" data-testid="appel-sortie-audio">
+            <p className={recu && recu.octets > 0 ? "text-emerald-300" : "text-amber-300"} data-testid="appel-son-recu">
+              {recu === null ? "Son reçu : en attente…"
+                : recu.octets > 0 ? `Son reçu de WhatsApp : ${Math.round(recu.octets / 1024)} Ko${recu.niveau !== null ? ` · niveau ${Math.round(recu.niveau * 100)} %` : ""}`
+                : "Aucun son reçu de WhatsApp pour l'instant"}
+            </p>
+            {recu && recu.octets > 0 && recu.niveau !== null && (
+              <div className="h-1.5 rounded bg-slate-700 overflow-hidden"><div className="h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round(recu.niveau * 300))}%` }} /></div>
+            )}
+            {sortieChoisissable() ? (
+              <div className="flex gap-1.5 items-center">
+                <Volume2 className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                <select value={sortieId} onChange={(e) => choisirSortie(e.target.value)} data-testid="appel-choix-sortie"
+                        className="min-w-0 flex-1 rounded bg-slate-700 px-1.5 py-1 text-white">
+                  <option value="">Haut-parleur par défaut du système</option>
+                  {sorties.filter((d) => d.deviceId && d.deviceId !== "default").map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || "Haut-parleur"}</option>)}
+                </select>
+                <button type="button" onClick={testerHautParleur} className="shrink-0 rounded bg-slate-600 px-2 py-1 hover:bg-slate-500" data-testid="appel-test-hp">Tester</button>
+              </div>
+            ) : (
+              <p className="text-slate-400">Ce navigateur utilise toujours la sortie audio du système (choix possible sous Chrome ou Edge).</p>
+            )}
+          </div>
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={basculerMicro}
               className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold ${muet ? "bg-amber-500" : "bg-slate-700 hover:bg-slate-600"}`}>

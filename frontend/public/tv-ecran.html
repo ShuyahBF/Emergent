@@ -127,7 +127,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "321";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "323";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var adminCode = "", adminExpire = 0, adminTimer = null;   // lot 323 : connexion administrateur approuvée depuis SAWALI (code affiché sur la télé)
   var horizon = 1, jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
@@ -241,6 +242,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     if (pinEnvoi) { return; }
     if (t === "eff") { pinSaisie = pinSaisie.substring(0, pinSaisie.length - 1); pinMsg = ""; dessiner(); return; }
     if (t === "ann") { annulerPin(); return; }
+    if (t === "admin") { demanderAdmin(); return; }
+    if (t === "ann-admin") { annulerAdmin(); return; }
     if (t === "ok") { validerPin(); return; }
     if (pinSaisie.length < 8) { pinSaisie += t; pinMsg = ""; dessiner(); }
   }
@@ -254,13 +257,37 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       dessiner();
     });
   }
+  // Lot 323 — connexion administrateur : la télé obtient un CODE à saisir dans SAWALI (Paramètres → Écrans TV → « Approuver une télé »),
+  // avec le compte administrateur déjà connecté ; aucun mot de passe n'est tapé sur la télé. Le jeton reste en mémoire de la page.
+  function demanderAdmin() {
+    var candidat = fabriquer();
+    appeler("POST", "/tv/admin-demande", lire(), { jeton: candidat }, function (st, d) {
+      if (st === 200 && d && d.code) {
+        adminCode = d.code; jeton = candidat; adminExpire = new Date().getTime() + (d.valide_minutes || 5) * 60000;
+        if (adminTimer) { clearInterval(adminTimer); }
+        adminTimer = setInterval(function () {            // lecture rapprochée tant qu'on attend l'approbation ; abandon à l'expiration du code
+          if (!adminCode) { clearInterval(adminTimer); adminTimer = null; return; }
+          if (new Date().getTime() > adminExpire) { annulerAdmin(); return; }
+          charger();
+        }, 3000);
+      } else { pinMsg = "Connexion administrateur indisponible"; }
+      dessiner();
+    });
+  }
+  function annulerAdmin() { adminCode = ""; jeton = ""; if (adminTimer) { clearInterval(adminTimer); adminTimer = null; } pinMsg = ""; dessiner(); }
+  function adminHtml() {
+    return '<div class="pin-boite"><div class="t-pin">🔑 Connexion administrateur</div><div class="aide">Dans SAWALI, connecté avec votre compte : Paramètres → Écrans TV → « Approuver une télé », puis saisissez ce code</div>' +
+      '<div class="code">' + esc(adminCode) + '</div><div class="aide">Valable 5 minutes · en attente de votre approbation…</div>' +
+      '<div style="margin-top:2vh"><span class="bascule" data-touche="ann-admin" tabindex="0">Annuler</span></div></div>';
+  }
   function padHtml() {
+    if (adminCode) { return adminHtml(); }
     var pts = "", i, t = ["1", "2", "3", "4", "5", "6", "7", "8", "9"], g = "";
     for (i = 0; i < pinSaisie.length; i++) { pts += "●"; }
     for (i = 0; i < t.length; i++) { g += '<span class="tch" data-touche="' + t[i] + '">' + t[i] + "</span>"; }
     g += '<span class="tch sec" data-touche="eff">⌫</span><span class="tch" data-touche="0">0</span><span class="tch val" data-touche="ok">OK</span>';
     return '<div class="pin-boite"><div class="t-pin">🔒 Suivi Support</div><div class="aide">Saisissez le code PIN</div><div class="points-pin">' + (pts || "&nbsp;") +
-      '</div><div class="msg-pin">' + esc(pinMsg) + '</div><div class="pad">' + g + '</div><div style="margin-top:1vh"><span class="bascule" data-touche="ann" tabindex="0">Retour au planning</span></div></div>';
+      '</div><div class="msg-pin">' + esc(pinMsg) + '</div><div class="pad">' + g + '</div><div style="margin-top:1vh"><span class="bascule" data-touche="ann" tabindex="0">Retour au planning</span> <span class="bascule" data-touche="admin" tabindex="0">🔑 Connexion administrateur</span></div></div>';
   }
   // Carrousel : un médecin à la fois, on passe au suivant toutes les minutes
   setInterval(function () { if (mode === "planning" && flux) { idxMed++; dessiner(); } }, 60000);
@@ -284,6 +311,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   document.addEventListener("keydown", function (e) {
     var k = e.keyCode;
     derniere = new Date().getTime();
+    if (adminCode && (k === 8 || k === 461 || k === 10009 || k === 27)) { annulerAdmin(); e.preventDefault(); return; }
     if (mode === "suivi" && verrouille()) {            // clavier du code PIN : chiffres, OK = valider, Retour = effacer puis annuler
       if (k >= 48 && k <= 57) { toucherPin(String(k - 48)); } else if (k >= 96 && k <= 105) { toucherPin(String(k - 96)); }
       else if (k === 13) { toucherPin("ok"); }
@@ -361,7 +389,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     if (!mode || (mode === "planning" && !hallOn) || (mode === "suivi" && !suiviOn)) { mode = hallOn ? "planning" : "suivi"; }
     h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (mode === "planning" && hallOn && flux && flux.ecran && flux.ecran.suivi_ouvert ? '<span class="hor">' + horizonHtml() + "</span>" : "") + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
       (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
-      (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
+      (flux && flux.ecran && flux.ecran.admin ? '<span class="hor"><span class="on">🔓 Administrateur</span></span>' : "") + (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (mode === "suivi" && verrouille()) { h += padHtml(); }
     if (mode === "suivi" && !verrouille() && m.messagerie) {
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
@@ -502,7 +530,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         var sv = new Date(d.maintenant).getTime();
         if (!isNaN(sv)) { decalage = sv - new Date().getTime(); }
       }
-      if (st === 200 && d && d.ecran && !d.ecran.suivi_ouvert) { jeton = ""; horizon = 1; }     // jeton expiré côté serveur : on reverrouille
+      if (st === 200 && d && d.ecran && d.ecran.suivi_ouvert && adminCode) { adminCode = ""; derniere = new Date().getTime(); }       // lot 323 : approuvée
+      if (st === 200 && d && d.ecran && !d.ecran.suivi_ouvert && !adminCode) { jeton = ""; horizon = 1; }     // jeton expiré côté serveur : on reverrouille
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
       if (flux) { dessiner(); }
     });

@@ -35,6 +35,9 @@ export default function EcransTvSection() {
   const [savingPin, setSavingPin] = useState(false);
   // Lot 321 : suivi du RDV par le patient (QR code sur l'écran du hall)
   const [suiviActif, setSuiviActif] = useState(false);
+  // Lot 323 : approbation d'une « connexion administrateur » affichée sur une télé
+  const [codeApprobation, setCodeApprobation] = useState("");
+  const [approbation, setApprobation] = useState(false);
   const [erreurChargement, setErreurChargement] = useState("");
   const adresse = `${window.location.origin}/tv`;
 
@@ -157,6 +160,18 @@ export default function EcransTvSection() {
     setSuiviActif(valeur);
     try { await apiClient.put("/admin/suivi-rdv", { actif: valeur }); toast.success(valeur ? "Suivi du RDV activé : le QR code s'affiche sur l'écran du hall" : "Suivi du RDV désactivé"); }
     catch (err) { setSuiviActif(!valeur); toast.error(err?.response?.data?.detail || "Modification impossible"); }
+  };
+
+  // Lot 323 : l'administrateur, connecté à SAWALI avec son compte, saisit le code affiché par la télé : elle se déverrouille 10 minutes
+  const approuverTele = async () => {
+    if (!codeApprobation.trim()) { toast.error("Saisissez le code affiché sur la télé"); return; }
+    setApprobation(true);
+    try {
+      const r = await apiClient.post("/admin/tv/approuver", { code: codeApprobation });
+      toast.success(`Télé « ${r.data?.ecran || ""} » déverrouillée ${r.data?.valide_minutes || 10} minutes (mode administrateur)`);
+      setCodeApprobation("");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Approbation impossible"); }
+    finally { setApprobation(false); }
   };
 
   const revoquer = async (ecran) => {
@@ -321,6 +336,22 @@ export default function EcransTvSection() {
             {savingPin ? "Enregistrement…" : (pinDefini ? "Changer le code" : "Enregistrer le code")}
           </button>
           {pinDefini && <button type="button" onClick={() => enregistrerPin(true)} disabled={savingPin} className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm" data-testid="tv-pin-supprimer">Supprimer le code</button>}
+        </div>
+      </div>
+      {/* Lot 323 — connexion administrateur d'une télé : approbation depuis SAWALI (aucun mot de passe tapé sur la télé) */}
+      <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-2" data-testid="tv-approuver">
+        <p className="text-sm font-medium text-slate-700">Approuver une télé (connexion administrateur)</p>
+        <p className="text-xs text-slate-500">
+          Sur la télé : bouton « Suivi Support » puis « 🔑 Connexion administrateur » : la télé affiche un code de 6 caractères. Saisissez-le ici, avec votre compte SAWALI déjà connecté :
+          la télé est déverrouillée 10 minutes (Suivi Support, messagerie, planning sur 3 jours ou la semaine) <b>avec les noms et téléphones des patients en clair</b>.
+          Aucun mot de passe n'est saisi sur la télé.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 boutons-distincts">
+          <input value={codeApprobation} onChange={(e) => setCodeApprobation(e.target.value.toUpperCase())} maxLength={8} placeholder="Code de la télé"
+                 className="w-40 px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-mono tracking-widest" data-testid="tv-approuver-code" />
+          <button type="button" onClick={approuverTele} disabled={approbation || !codeApprobation} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-approuver-bouton">
+            {approbation ? "Approbation…" : "Approuver la télé"}
+          </button>
         </div>
       </div>
       {/* Lot 321 — suivi du rendez-vous par le patient : QR code affiché sur l'écran du hall */}

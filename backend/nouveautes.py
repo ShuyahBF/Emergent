@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "323", "date": "2026-10-27",
+        "titre": "🔑 Écran TV : connexion administrateur approuvée depuis SAWALI",
+        "description": "Sur la télé, « Suivi Support » puis « Connexion administrateur » affiche un code de 6 caractères : saisissez-le ici (« Approuver une télé ») avec votre compte SAWALI déjà connecté. La télé s'ouvre 10 minutes en mode administrateur : Suivi Support, messagerie, planning sur 3 jours ou la semaine, patients en clair. Aucun mot de passe n'est tapé sur la télé.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "322", "date": "2026-10-27",
         "titre": "🔘 Niveaux de service : bouton « 3 boutons » dans la fenêtre Calendrier",
         "description": "Dans la fenêtre Calendrier d'un contact, le bouton « 🔘 3 boutons » envoie tout de suite au contact les boutons WhatsApp « Avec contrat », « Sans contrat » et « En express » (avec les délais réglés ici), sans passer par l'image. Un second appui confirme l'envoi ; le contact doit avoir écrit depuis moins de 24 h.",

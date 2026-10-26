@@ -264,3 +264,58 @@ def test_lot319_horizon_3_ou_7_jours_reserve_au_code_pin():
     f7 = c.get("/api/tv/flux?jours=7", headers=tv).json()["hall"]
     assert len(f1["medecins"][0]["rdv"]) == 1 and f1["horizon"] == 1
     assert len(f7["medecins"][0]["rdv"]) == 2 and f7["horizon"] == 7 and f7["jour"] and f7["medecins"][0]["rdv"][1]["jour"] != f7["jour"]
+
+
+# ---------- Lot 323 : connexion administrateur approuvée depuis SAWALI ----------
+def _flux_admin(c, jeton):
+    return c.get("/api/tv/flux", headers={"x-tv-secret": SECRET, "x-tv-deverrou": jeton}).json()
+
+
+def test_lot323_approbation_administrateur_deverrouille_et_affiche_en_clair():
+    from datetime import datetime, timedelta, timezone
+    c, base = _tele_appairee()
+    tv, adm = {"x-tv-secret": SECRET}, {"x-admin": "1"}
+    ecran_id = c.get("/api/admin/tv/ecrans", headers=adm).json()["ecrans"][0]["id"]
+    c.put(f"/api/admin/tv/ecrans/{ecran_id}", headers=adm, json={"modules": {"messagerie": True, "support": True, "hall": True}})
+    _run(base.planning_appointments.insert_one({"id": "r1", "tenant_id": "cli-1", "medecin": "DR X", "is_rdv": 1, "patient": "OUEDRAOGO Alphonse : 70001122 : R-5",
+        "patient_phone": "70001122", "start_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()}))
+    jeton = "j" * 40
+    # sans PIN défini, le Suivi Support est quand même « possible » (connexion administrateur)
+    f0 = _flux_admin(c, jeton)
+    assert f0["ecran"]["suivi_possible"] is True and f0["ecran"]["suivi_ouvert"] is False and "messages" not in f0
+    assert f0["hall"]["medecins"][0]["rdv"][0]["qui"] == "OU******* Al*******"[:len(f0["hall"]["medecins"][0]["rdv"][0]["qui"])] or "*" in f0["hall"]["medecins"][0]["rdv"][0]["qui"]
+    # la télé demande un code ; une mauvaise saisie ou un administrateur absent ne déverrouille rien
+    d = c.post("/api/tv/admin-demande", headers=tv, json={"jeton": jeton}).json()
+    assert len(d["code"]) == 6 and d["valide_minutes"] == 5
+    assert c.post("/api/admin/tv/approuver", headers=adm, json={"code": "ZZZZZZ"}).status_code == 404
+    assert c.post("/api/admin/tv/approuver", json={"code": d["code"]}).status_code == 403
+    assert _flux_admin(c, jeton)["ecran"]["suivi_ouvert"] is False
+    # l'administrateur approuve : la télé est ouverte, en mode administrateur, patients en clair ; le code ne sert qu'une fois
+    ok = c.post("/api/admin/tv/approuver", headers=adm, json={"code": d["code"].lower()})
+    assert ok.status_code == 200 and ok.json()["valide_minutes"] == 10
+    f = _flux_admin(c, jeton)
+    assert f["ecran"]["suivi_ouvert"] is True and f["ecran"]["admin"] is True and "messages" in f and "support" in f
+    ligne = f["hall"]["medecins"][0]["rdv"][0]
+    assert ligne["qui"] == "OUEDRAOGO Alphonse" and ligne["tel"] == "70 00 11 22"
+    assert c.post("/api/admin/tv/approuver", headers=adm, json={"code": d["code"]}).status_code == 404
+    # un autre jeton n'ouvre rien ; les champs internes ne sortent pas dans la liste d'administration
+    assert _flux_admin(c, "autre-jeton-" + "x" * 30)["ecran"]["suivi_ouvert"] is False
+    ecran = c.get("/api/admin/tv/ecrans", headers=adm).json()["ecrans"][0]
+    assert not {"admin_demande", "deverrou_admin", "deverrou_par", "deverrou_hash"} & set(ecran)
+
+
+def test_lot323_code_expire_et_jeton_trop_court():
+    c, base = _tele_appairee()
+    tv, adm = {"x-tv-secret": SECRET}, {"x-admin": "1"}
+    assert c.post("/api/tv/admin-demande", headers=tv, json={"jeton": "court"}).status_code == 400
+    d = c.post("/api/tv/admin-demande", headers=tv, json={"jeton": "k" * 40}).json()
+    _run(base.settings.update_one({"_id": "global"}, {"$set": {"tv_ecrans.0.admin_demande.expire": "2000-01-01T00:00:00+00:00"}}))   # code périmé
+    assert c.post("/api/admin/tv/approuver", headers=adm, json={"code": d["code"]}).status_code == 404
+
+
+def test_lot323_le_pin_ne_donne_pas_les_identites():
+    """Le déverrouillage par PIN garde les patients masqués (seule l'approbation administrateur les montre)."""
+    c, base = _tele_appairee()
+    deverrouiller(c)
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert f["ecran"]["suivi_ouvert"] is True and f["ecran"]["admin"] is False

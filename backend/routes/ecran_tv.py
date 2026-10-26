@@ -37,11 +37,12 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "321"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "323"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
 PIN_BLOCAGE_S = 60                           # … pendant 60 secondes
+APPROBATION_MIN = 5                          # lot 323 : le code d'approbation « connexion administrateur » affiché par la télé n'est valable que 5 minutes
 DEVERROU_MIN = 10                            # un déverrouillage valable 10 minutes (la page revient d'elle-même au planning avant)
 NOUVEAU_RDV_MIN = 10                         # un RDV créé il y a moins de 10 minutes clignote sur l'écran du hall
 JOURS_RDV_MASQUES = 3            # lot 303 : les patients rappelés pour un RDV depuis 3 jours n'apparaissent pas dans les conversations
@@ -206,8 +207,20 @@ def masquer_tel_hall(tel: Any) -> str:
     return f"{c[0]}{'*' * (len(c) - 3)}{c[-2:]}" if len(c) >= 4 else ""
 
 
+def nom_clair(patient: Any) -> str:
+    """Lot 323 : nom et prénoms du patient EN CLAIR (partie avant le premier « : » du champ « NOM Prénoms : téléphone : reçu »)."""
+    return str(patient or "").split(":")[0].strip() or "—"
+
+
+def tel_clair(tel: Any) -> str:
+    """Lot 323 : téléphone en clair, 8 derniers chiffres groupés par deux (« 70 00 11 22 »)."""
+    c = "".join(ch for ch in str(tel or "") if ch.isdigit())[-8:]
+    return " ".join(c[i:i + 2] for i in range(0, len(c), 2))
+
+
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
-               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14) -> Dict[str, Any]:
+               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14,
+               en_clair: bool = False) -> Dict[str, Any]:
     """Planning du jour par médecin (RDV pris tels quels ; le champ `type_evenement` n'est pas utilisé).
     Deux listes par médecin (lot 309) : `rdv` (avec rendez-vous, classés par heure) et `sans_rdv` (consultations sans RDV, classées par
     numéro d'ordre, mises à jour par le secrétariat médical). Chaque ligne : patient ANONYMISÉ (« GU**. R. Pa**** »), téléphone masqué
@@ -223,7 +236,8 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         debut = None if sans else _dt(d.get("start_at"))
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
         quand = debut or arrivee
-        ligne = {"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
+        ligne = {"heure": quand.strftime("%H:%M"), "qui": nom_clair(d.get("patient")) if en_clair else anonymiser_nom(d.get("patient")),
+                 "tel": tel_clair(d.get("patient_phone")) if en_clair else masquer_tel_hall(d.get("patient_phone")),
                  "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30],
                  "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand,
                  # lot 317 : début exact (UTC) pour que la télé masque le RDV à son heure ; « nouveau » = créé depuis moins de 10 minutes (clignote)
@@ -407,9 +421,24 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             raise HTTPException(status_code=403, detail="Code incorrect")
         jeton = secrets.token_urlsafe(18)
         await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {"$set": {
-            "tv_ecrans.$.pin_echecs": 0, "tv_ecrans.$.deverrou_hash": empreinte(jeton),
+            "tv_ecrans.$.pin_echecs": 0, "tv_ecrans.$.deverrou_hash": empreinte(jeton), "tv_ecrans.$.deverrou_admin": False,
             "tv_ecrans.$.deverrou_expire": (maintenant + timedelta(minutes=DEVERROU_MIN)).isoformat()}})
         return {"jeton": jeton, "valide_minutes": DEVERROU_MIN}
+
+    # ---------------- Lot 323 : « connexion administrateur » approuvée depuis SAWALI (aucun mot de passe tapé sur la télé) ----------------
+    @api.post("/tv/admin-demande", tags=["Écran TV"])
+    async def tv_demander_approbation(corps: Dict[str, Any] = Body(...), x_tv_secret: str = Header(default="")):
+        """La télé fabrique un jeton secret (gardé en mémoire de la page), n'en envoie que l'empreinte et reçoit un CODE à 6 caractères.
+        L'administrateur, déjà connecté à SAWALI avec son compte, saisit ce code (Paramètres → Écrans TV → « Approuver une télé »)."""
+        ecran = await _ecran_de_la_tele(x_tv_secret)
+        jeton = str(corps.get("jeton") or "")
+        if not (16 <= len(jeton) <= 80):
+            raise HTTPException(status_code=400, detail="Jeton invalide")
+        code = nouveau_code()
+        expire = (_maintenant() + timedelta(minutes=APPROBATION_MIN)).isoformat()
+        await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {"$set": {
+            "tv_ecrans.$.admin_demande": {"code": code, "hash": empreinte(jeton), "expire": expire}}})
+        return {"code": code, "valide_minutes": APPROBATION_MIN}
 
     @api.get("/tv/flux", tags=["Écran TV"])
     async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
@@ -420,12 +449,14 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         ids = await _perimetre(ecran.get("client_id"))
         # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)
         pin_defini = bool(((await _reglages()).get("tv_pin") or {}).get("hash"))
-        suivi_possible = pin_defini and (modules["messagerie"] or modules["support"])
+        suivi_possible = bool(modules["messagerie"] or modules["support"])      # lot 323 : possible aussi sans PIN (connexion administrateur)
         suivi_ouvert = bool(suivi_possible and x_tv_deverrou and ecran.get("deverrou_hash") == empreinte(x_tv_deverrou)
                             and (ecran.get("deverrou_expire") or "") > _maintenant().isoformat())
+        # Lot 323 : session ouverte par un ADMINISTRATEUR (approbation depuis SAWALI) : les patients du hall s'affichent en clair
+        admin_ouvert = bool(suivi_ouvert and ecran.get("deverrou_admin"))
         modules_servis = {**modules, "messagerie": modules["messagerie"] and suivi_ouvert, "support": modules["support"] and suivi_ouvert}
         flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
-                                          "suivi_possible": suivi_possible, "suivi_ouvert": suivi_ouvert, "pin_defini": pin_defini},
+                                          "suivi_possible": suivi_possible, "suivi_ouvert": suivi_ouvert, "pin_defini": pin_defini, "admin": admin_ouvert},
                                 "maintenant": _maintenant().isoformat(),
                                 "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
         if modules_servis["messagerie"]:
@@ -495,7 +526,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
-                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon)
+                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon, en_clair=admin_ouvert)
             flux["hall"]["horizon"] = horizon
             # Lot 321 : QR « suivre mon RDV » sur l'écran du hall (si le service est activé dans les Paramètres)
             flux["suivi_rdv"] = bool(((await db.settings.find_one({"_id": "global"}, {"suivi_rdv": 1})) or {}).get("suivi_rdv", {}).get("actif"))
@@ -509,8 +540,26 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
     @api.get("/admin/tv/ecrans", tags=["Admin — Écrans TV"])
     async def admin_tv_liste(user: dict = Depends(get_current_admin)):
         s = await _reglages()
-        secrets_ecran = {"empreinte", "deverrou_hash", "deverrou_expire", "pin_echecs", "pin_bloque_jusqua"}
+        secrets_ecran = {"empreinte", "deverrou_hash", "deverrou_expire", "pin_echecs", "pin_bloque_jusqua", "admin_demande", "deverrou_admin", "deverrou_par"}
         return {"ecrans": [{k: v for k, v in e.items() if k not in secrets_ecran} for e in s.get("tv_ecrans") or []]}
+
+    @api.post("/admin/tv/approuver", tags=["Admin — Écrans TV"])
+    async def admin_tv_approuver(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        """Lot 323 : l'administrateur (connecté à SAWALI avec son propre compte) saisit le code affiché par la télé : cette télé est déverrouillée
+        10 minutes en mode administrateur (Suivi Support, messagerie, planning sur 3 jours / semaine, patients en clair)."""
+        code = "".join(ch for ch in str(corps.get("code") or "").upper() if ch.isalnum())
+        maintenant = _maintenant()
+        s = await _reglages()
+        ecran = next((e for e in s.get("tv_ecrans") or [] if code and (e.get("admin_demande") or {}).get("code") == code
+                      and (e["admin_demande"].get("expire") or "") > maintenant.isoformat()), None)
+        if not ecran:
+            raise HTTPException(status_code=404, detail="Code inconnu ou expiré : relancez « Connexion administrateur » sur la télé")
+        await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {
+            "$set": {"tv_ecrans.$.deverrou_hash": ecran["admin_demande"]["hash"], "tv_ecrans.$.deverrou_admin": True,
+                     "tv_ecrans.$.deverrou_par": str(user.get("email") or ""),
+                     "tv_ecrans.$.deverrou_expire": (maintenant + timedelta(minutes=DEVERROU_MIN)).isoformat()},
+            "$unset": {"tv_ecrans.$.admin_demande": ""}})
+        return {"ok": True, "ecran": ecran.get("nom"), "valide_minutes": DEVERROU_MIN}
 
     @api.get("/admin/tv/pin", tags=["Admin — Écrans TV"])
     async def admin_tv_pin_etat(user: dict = Depends(get_current_admin)):

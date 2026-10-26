@@ -86,3 +86,29 @@ def test_appairage_flux_et_revocation():
     assert c.delete(f"/api/admin/tv/ecrans/{ecran_id}", headers=adm).status_code == 200
     assert c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).status_code == 401
     assert c.get(f"/api/tv/appairage/{d['appairage_id']}", headers={"x-tv-secret": SECRET}).json()["etat"] == "expire"
+
+
+def test_perimetre_de_la_societe_comme_le_centre_de_messagerie():
+    """Lot 298 — le client choisi à l'appairage est un compte de la société ; les messages sont rangés sous le compte principal."""
+    base = AsyncMongoMockClient()["test_tv_298"]
+    _run(base.users.insert_many([{"id": "sous-compte", "company": "SAWALI", "client_id": "racine"}, {"id": "racine", "company": "SAWALI"}]))
+    _run(base.whatsapp_messages.insert_one({"id": "m1", "client_id": "racine", "direction": "inbound", "body": "Bonjour",
+                                            "phone_digits": "22670001122", "created_at": "2026-10-26T10:00:00+00:00"}))
+    _run(base.support_tickets.insert_one({"id": "t1", "client_id": "racine", "number": "TKT-9", "motif": "Panne", "status": "open",
+                                          "opened_at": "2026-10-26T09:00:00+00:00"}))
+
+    async def admin(request: Request):
+        return {"email": "admin@test"}
+
+    async def perimetre(compte):          # même rôle que _resolve_visible_client_ids : compte, rattachement, société
+        return [compte["id"], compte.get("client_id") or compte["id"]]
+
+    api = APIRouter(prefix="/api")
+    setup_ecran_tv_routes(db=base, api=api, get_current_admin=admin, resolve_visible_client_ids=perimetre)
+    app = FastAPI()
+    app.include_router(api)
+    c = TestClient(app)
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    assert c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Bureau", "client_id": "sous-compte"}).status_code == 200
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert [m["id"] for m in f["messages"]] == ["m1"] and [t["numero"] for t in f["support"]] == ["TKT-9"]

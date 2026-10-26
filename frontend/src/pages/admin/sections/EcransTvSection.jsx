@@ -31,7 +31,10 @@ export default function EcransTvSection() {
     try {
       const [e, c] = await Promise.all([apiClient.get("/admin/tv/ecrans"), apiClient.get("/admin/clients")]);
       setEcrans(e.data?.ecrans || []);
-      setClients((c.data || []).map((u) => ({ id: u.id, nom: u.company || u.full_name || u.email })).sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")));
+      // Un seul choix par société (plusieurs comptes d'une même société partagent les mêmes messages)
+      const parSociete = new Map();
+      (c.data || []).forEach((u) => { const nom = u.company || u.full_name || u.email; if (nom && !parSociete.has(nom.toLowerCase())) parSociete.set(nom.toLowerCase(), { id: u.id, nom }); });
+      setClients(Array.from(parSociete.values()).sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")));
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Chargement impossible");
     } finally {

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "297"
-LOT_LIBELLE = "Appels WhatsApp : le nom du contact appelé ne change plus (plusieurs contacts au même numéro), numéro affiché sous le nom, étapes de la liaison et diagnostic du son copiable"
+LOT = "298"
+LOT_LIBELLE = "Écran TV : lit les messages et demandes de support de toute la société choisie (comme le Centre de Messagerie), fin des zones vides ; un seul choix par société dans la liste"

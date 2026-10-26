@@ -186,3 +186,13 @@ def test_compatibilite_ancienne_page_et_version_de_page():
     assert m["prochains"][0]["libelle"] == "10:20" and [r["etat"] for r in m["rdv"]] == ["termine", "attente"]
     html = open("../frontend/public/tv-ecran.html", encoding="utf-8").read()
     assert f'VERSION_PAGE = "{PAGE_TV_VERSION}"' in html            # la page et le serveur annoncent la même version
+
+
+def test_patient_nom_puis_telephone_puis_recu_lot308():
+    """Lot 308 : nom et prénoms, puis le téléphone (après le 1er « : » ou premier numéro qui suit), puis le reçu."""
+    from routes.planning import separer_patient_tel_recu as f
+    assert f("OUOBA Alphone :  25614545 : R-202660230") == ("OUOBA Alphone : 25614545", "25614545", "R-202660230")
+    assert f("OUOBA Alphone 25614545 R-202660230") == ("OUOBA Alphone : 25614545", "25614545", "R-202660230")      # sans « : »
+    assert f("KANE Sali Marie : +226 70 00 11 22 : R-1") == ("KANE Sali Marie : +226 70 00 11 22", "+226 70 00 11 22", "R-1")
+    assert f("DABRE SAFOURA ; 70369266 ; R-20263") == ("DABRE SAFOURA : 70369266", "70369266", "R-20263")
+    assert f("OUOBA JF 77000155") == ("OUOBA JF : 77000155", "77000155", "") and f("SOMDA") == ("SOMDA", None, "")

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "308", "date": "2026-10-27",
+        "titre": "📺 Planning : lecture du champ patient (nom, téléphone, reçu)",
+        "description": "Le patient enregistré est le nom et les prénoms ; le téléphone est le numéro qui suit le premier « : » (ou simplement le premier numéro qui suit le nom) ; le numéro de reçu vient à la suite du téléphone (« : », « ; », virgule ou espace). Exemples reconnus : « OUOBA Alphone : 25614545 : R-202660230 » et « OUOBA Alphone 25614545 R-202660230 ». L'écran TV du hall affiche le nom et le téléphone anonymisés puis le reçu.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "307", "date": "2026-10-26",
         "titre": "📺 Écran TV : mise à jour automatique de la page",
         "description": "Certaines télés gardaient en mémoire une ancienne version de la page et affichaient un bandeau rouge d'erreur après une mise à jour. Le serveur reste maintenant compatible avec l'ancienne page, et la page se recharge toute seule dès qu'une nouvelle version existe (au plus 2 tentatives). Si une télé garde malgré tout l'ancien affichage, rouvrez l'adresse /tv ou videz les données du navigateur de la télé.",

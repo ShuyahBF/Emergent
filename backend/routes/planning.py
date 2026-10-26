@@ -166,21 +166,33 @@ def separer_patient_telephone(patient: str) -> tuple:
     return f"{nom} : {tel}", tel
 
 
-# Lot 306 — « NOM Prénom : téléphone : reçu » (ex. « OUOBA Alphone :  25614545 : R-202660230 »)
-_NOM_TEL_RECU = re.compile(r"^(?P<nom>[^:]*?)\s*:\s*(?P<tel>\+?\d[\d .\-]{6,}\d)\s*:\s*(?P<recu>\S.*?)\s*$")
+# Lot 308 — champ patient = « NOM Prénoms », puis le téléphone (après le premier « : », ou simplement le premier numéro qui suit le nom),
+# puis, après le téléphone, le numéro de reçu : « OUOBA Alphone :  25614545 : R-202660230 »
+_TEL_DEBUT = re.compile(r"^\s*(?P<tel>\+?\d[\d .\-]{6,}\d)(?P<reste>.*)$", re.S)
+_PREMIER_NUMERO = re.compile(r"\+?\d[\d .\-]{6,}\d")
 
 
 def separer_patient_tel_recu(patient: str) -> tuple:
-    """Lot 306 — le champ patient peut porter le numéro de reçu après le téléphone : « OUOBA Alphone : 25614545 : R-202660230 ».
-    Retourne (patient normalisé « NOM : téléphone » SANS le reçu, téléphone, reçu). Le reçu est retiré du nom pour que la clé
-    d'idempotence reste stable (un RDV renvoyé plus tard avec son reçu met à jour la même ligne). Sans reçu : comportement du lot 42."""
+    """Retourne (patient normalisé « NOM Prénoms : téléphone » SANS le reçu, téléphone, reçu).
+    - le nom est ce qui précède le premier « : » ; sans « : », ce qui précède le premier numéro (8 chiffres au moins) ;
+    - le téléphone est le numéro qui suit ; ce qui vient après lui (séparateur « : », « ; », « , », « - » ou espace) est le reçu ;
+    - le reçu est retiré du patient enregistré : la clé d'idempotence reste stable (un RDV renvoyé plus tard avec son reçu met à jour
+      la même ligne). Pas de téléphone reconnu : texte inchangé, téléphone None."""
     texte = (patient or "").strip()
-    m = _NOM_TEL_RECU.match(texte)
-    if m and m.group("nom").strip(" ;,-–"):
-        tel = m.group("tel").strip()
-        return f"{m.group('nom').strip(' ;,-–')} : {tel}", tel, m.group("recu").strip()[:30]
-    nom, tel = separer_patient_telephone(texte)
-    return nom, tel, ""
+    if ":" in texte:
+        nom, _, suite = texte.partition(":")
+    else:
+        m0 = _PREMIER_NUMERO.search(texte)
+        if not m0:
+            return texte, None, ""
+        nom, suite = texte[:m0.start()], texte[m0.start():]
+    nom = nom.strip(" :;,-–")
+    m = _TEL_DEBUT.match(suite)
+    if not nom or not m or len("".join(ch for ch in m.group("tel") if ch.isdigit())) < 8:
+        return texte, None, ""
+    tel = m.group("tel").strip()
+    recu = m.group("reste").strip(" :;,-–\t")[:30]
+    return f"{nom} : {tel}", tel, recu
 
 
 def _find_free_slot(

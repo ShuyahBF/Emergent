@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "307"
-LOT_LIBELLE = "Écran TV : plus d'erreur rouge avec une ancienne page gardée en cache par la télé (compatibilité) et rechargement automatique de la page quand une nouvelle version est disponible"
+LOT = "308"
+LOT_LIBELLE = "Planning : champ patient « NOM Prénoms : téléphone : reçu » analysé plus largement (téléphone après le premier « : » ou premier numéro, reçu à la suite)"

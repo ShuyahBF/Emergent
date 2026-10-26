@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "306", "date": "2026-10-26",
+        "titre": "📺 Écran TV : reçu saisi après le téléphone",
+        "description": "Dans le champ patient du Planning, le numéro de reçu se saisit après le téléphone, séparé par « : » (ex. « OUOBA Alphone : 25614545 : R-202660230 »). SAWALI en tire le téléphone et le reçu, garde « NOM : téléphone » comme patient, et l'écran TV du hall affiche « OU*** Al***** | 2*****45 | R-202660230 ». Un RDV renvoyé plus tard avec son reçu met à jour la même ligne, sans doublon.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "305", "date": "2026-10-26",
         "titre": "📺 Écran TV : planning anonymisé « identité | téléphone | reçu »",
         "description": "Le planning du hall prend les RDV tels qu'ils arrivent du webhook (le type d'évènement n'est plus utilisé). Chaque ligne s'affiche « GU**. R. Pa**** | 7*****42 | R-2026302201 » : 2 premiers caractères de chaque mot du nom et du prénom, téléphone réduit au 1er chiffre et aux 2 derniers, puis le numéro de reçu s'il est transmis par le webhook (champ numero_recu). Le bouton de bascule s'appelle maintenant « Suivi Support ».",

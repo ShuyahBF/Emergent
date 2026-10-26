@@ -95,6 +95,25 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .enc-txt{display:block;color:#34d399;font-weight:bold;font-size:3vh}
 .points{text-align:center;font-size:3vh;color:#475569;margin-top:1vh}
 .points b{color:#38bdf8}
+/* Lot 317 — repère « maintenant » : gros triangle rouge + trait + heure, visible de loin (placé entre les RDV passés et à venir) */
+.maint{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin:.4vh 0 1.2vh -1.2vw;height:7vh}
+.maint .tri{width:0;height:0;border-top:3.6vh solid transparent;border-bottom:3.6vh solid transparent;border-left:6vh solid #ef4444;-webkit-flex:none;flex:none;-webkit-filter:drop-shadow(0 0 1vh rgba(239,68,68,.9));filter:drop-shadow(0 0 1vh rgba(239,68,68,.9))}
+.maint .trait{-webkit-flex:1;flex:1;height:.9vh;background:#ef4444;border-radius:.5vh}
+.maint .h-now{background:#ef4444;color:#fff;font-weight:bold;font-size:3.6vh;border-radius:1.2vh;padding:.3vh 1.2vw;margin-left:1vw;-webkit-flex:none;flex:none}
+/* RDV nouvellement positionné : clignote (fond orange) pour attirer l'attention */
+@-webkit-keyframes clign{0%,100%{background:#16203a}50%{background:#b45309}}
+@keyframes clign{0%,100%{background:#16203a}50%{background:#b45309}}
+.ligne-rdv.nouveau{-webkit-animation:clign 1s infinite;animation:clign 1s infinite;border:.4vh solid #f59e0b}
+.ligne-rdv .neuf{background:#f59e0b;color:#111;font-weight:bold;border-radius:1vh;padding:.2vh .8vw;margin-left:1vw;font-size:2.6vh}
+/* Suivi Support : clavier du code PIN */
+.pin-boite{margin:auto;text-align:center;padding:3vh 3vw}
+.pin-boite .t-pin{font-size:5vh;font-weight:bold}
+.pin-boite .points-pin{font-size:6vh;letter-spacing:1.5vw;min-height:8vh;color:#38bdf8}
+.pin-boite .msg-pin{font-size:3vh;color:#fca5a5;min-height:4vh}
+.pad{display:inline-block;width:54vh}
+.pad .tch{display:inline-block;vertical-align:top;width:15vh;height:9vh;line-height:9vh;margin:.6vh;background:#1d4ed8;border-radius:1.6vh;font-size:5vh;font-weight:bold;cursor:pointer}
+.pad .tch.sec{background:#334155;font-size:3.4vh}
+.pad .tch.val{background:#059669;font-size:3.4vh}
 #erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
 </style>
 </head>
@@ -103,7 +122,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "309";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "317";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
@@ -145,6 +165,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     x.open(methode, API + chemin, true);
     x.timeout = 15000;
     if (secret) { x.setRequestHeader("X-Tv-Secret", secret); }
+    if (jeton) { x.setRequestHeader("X-Tv-Deverrou", jeton); }
     if (corps) { x.setRequestHeader("Content-Type", "application/json"); }
     x.onreadystatechange = function () {
       if (x.readyState !== 4) { return; }
@@ -207,7 +228,35 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     charger();
   }
   // Lot 304 : bascule entre le planning des médecins (défaut) et le suivi (messages + demandes de support)
-  function basculer() { mode = (mode === "planning") ? "suivi" : "planning"; vus = {}; dejaCharge = false; if (flux) { dessiner(); } }
+  // Lot 317 : le Suivi Support est protégé par un code PIN (réglé dans Paramètres → Écrans TV) ; sans jeton valide, c'est le clavier du code qui s'affiche
+  function basculer() { mode = (mode === "planning") ? "suivi" : "planning"; pinSaisie = ""; pinMsg = ""; vus = {}; dejaCharge = false; if (flux) { dessiner(); } }
+  function verrouille() { return !!(flux && flux.ecran && !flux.ecran.suivi_ouvert); }
+  function annulerPin() { pinSaisie = ""; pinMsg = ""; mode = "planning"; jeton = ""; dessiner(); }
+  function toucherPin(t) {
+    if (pinEnvoi) { return; }
+    if (t === "eff") { pinSaisie = pinSaisie.substring(0, pinSaisie.length - 1); pinMsg = ""; dessiner(); return; }
+    if (t === "ann") { annulerPin(); return; }
+    if (t === "ok") { validerPin(); return; }
+    if (pinSaisie.length < 8) { pinSaisie += t; pinMsg = ""; dessiner(); }
+  }
+  function validerPin() {
+    if (pinSaisie.length < 4) { pinMsg = "Saisissez au moins 4 chiffres"; dessiner(); return; }
+    pinEnvoi = true; pinMsg = "Vérification…"; dessiner();
+    appeler("POST", "/tv/pin", lire(), { pin: pinSaisie }, function (st, d) {
+      pinEnvoi = false; pinSaisie = "";
+      if (st === 200 && d && d.jeton) { jeton = d.jeton; pinMsg = ""; derniere = new Date().getTime(); dejaCharge = false; vus = {}; charger(); return; }
+      pinMsg = st === 403 ? "Code incorrect" : (st === 429 ? "Trop d'essais : patientez une minute" : (st === 409 ? "Aucun code PIN défini : Paramètres → Écrans TV" : "Serveur injoignable"));
+      dessiner();
+    });
+  }
+  function padHtml() {
+    var pts = "", i, t = ["1", "2", "3", "4", "5", "6", "7", "8", "9"], g = "";
+    for (i = 0; i < pinSaisie.length; i++) { pts += "●"; }
+    for (i = 0; i < t.length; i++) { g += '<span class="tch" data-touche="' + t[i] + '">' + t[i] + "</span>"; }
+    g += '<span class="tch sec" data-touche="eff">⌫</span><span class="tch" data-touche="0">0</span><span class="tch val" data-touche="ok">OK</span>';
+    return '<div class="pin-boite"><div class="t-pin">🔒 Suivi Support</div><div class="aide">Saisissez le code PIN</div><div class="points-pin">' + (pts || "&nbsp;") +
+      '</div><div class="msg-pin">' + esc(pinMsg) + '</div><div class="pad">' + g + '</div><div style="margin-top:1vh"><span class="bascule" data-touche="ann" tabindex="0">Retour au planning</span></div></div>';
+  }
   // Carrousel : un médecin à la fois, on passe au suivant toutes les minutes
   setInterval(function () { if (mode === "planning" && flux) { idxMed++; dessiner(); } }, 60000);
   // Lot 303 : les non-lus d'une conversation ouverte sont considérés comme lus sur la télé
@@ -217,7 +266,9 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   }
   racine.addEventListener("click", function (e) {
     var n = e.target;
+    derniere = new Date().getTime();
     while (n && n !== racine) {
+      if (n.getAttribute && n.getAttribute("data-touche")) { toucherPin(n.getAttribute("data-touche")); return; }
       if (n.getAttribute && n.getAttribute("data-cle")) { choisirFil(n.getAttribute("data-cle")); return; }
       if (n.getAttribute && n.getAttribute("data-bascule")) { basculer(); return; }
       if (n.getAttribute && n.getAttribute("data-tout")) { if (filChoisi) { choisirFil(filChoisi); } return; }
@@ -226,6 +277,14 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   }, false);
   document.addEventListener("keydown", function (e) {
     var k = e.keyCode;
+    derniere = new Date().getTime();
+    if (mode === "suivi" && verrouille()) {            // clavier du code PIN : chiffres, OK = valider, Retour = effacer puis annuler
+      if (k >= 48 && k <= 57) { toucherPin(String(k - 48)); } else if (k >= 96 && k <= 105) { toucherPin(String(k - 96)); }
+      else if (k === 13) { toucherPin("ok"); }
+      else if (k === 8 || k === 461 || k === 10009 || k === 27) { if (pinSaisie) { toucherPin("eff"); } else { annulerPin(); } }
+      else if (k === 403 || k === 66) { annulerPin(); }
+      e.preventDefault(); return;
+    }
     if (k === 40 || k === 38) {                       // flèche bas / haut : parcourt les conversations
       if (dernierFils.length) { curseur = k === 40 ? Math.min(dernierFils.length - 1, curseur + 1) : Math.max(0, curseur - 1); dessiner(); }
       e.preventDefault();
@@ -264,9 +323,11 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   }
 
   // ---------- Phase « flux » ----------
+  // Lot 317 : repère « maintenant » (heure du serveur UTC convertie à l'heure locale de la télé)
+  function maintHtml(d) { return '<div class="maint"><span class="tri"></span><span class="trait"></span><span class="h-now">' + heure(d.toISOString()) + "</span></div>"; }
   function dessiner() {
     var m = (flux && flux.ecran && flux.ecran.modules) || {}, h = "", i, msgs = (flux && flux.messages) || [], sup = (flux && flux.support) || [], fils = (flux && flux.fils) || [];
-    var maintenant = new Date(), nouveauEntrant = false;
+    var maintenant = new Date(new Date().getTime() + decalage), nouveauEntrant = false;   // lot 317 : heure corrigée sur l'horloge UTC du serveur
     var jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
     // Position de défilement du fil en direct avant le redessin : on reste en bas s'il y était ou si un message arrive
     var ancien = document.getElementById("direct"), etaitEnBas = !ancien || (ancien.scrollHeight - ancien.scrollTop - ancien.clientHeight < 80), ancienHaut = ancien ? ancien.scrollTop : 0;
@@ -284,7 +345,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
       (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
-    if (mode === "suivi" && m.messagerie) {
+    if (mode === "suivi" && verrouille()) { h += padHtml(); }
+    if (mode === "suivi" && !verrouille() && m.messagerie) {
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
         (nl ? ' <span class="pastille" style="display:inline-block">' + nl + "</span>" : "") + '</div><div class="msgzone">';
       // Conversations : nom du contact, dernier message, bulle rouge = messages non lus
@@ -309,7 +371,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
       h += "</div></div></div></div>";
     }
-    if (mode === "suivi" && m.support) {
+    if (mode === "suivi" && !verrouille() && m.support) {
       h += '<div class="col"><div class="titre">🛟 Demandes de support ouvertes</div>';
       if (!sup.length) { h += '<div class="vide">Aucune demande en cours</div>'; }
       for (i = 0; i < sup.length && i < 6; i++) {
@@ -326,6 +388,14 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         if (actif) { liste.push(mm); }
       }
       if (!liste.length) { for (i = 0; i < hall.medecins.length; i++) { if ((hall.medecins[i].rdv || []).length || (hall.medecins[i].sans_rdv || []).length) { liste.push(hall.medecins[i]); } } }
+      // Lot 317 : un RDV tout juste positionné fait passer son médecin à l'écran (une seule fois par RDV)
+      for (i = 0; i < liste.length; i++) {
+        var tr = (liste[i].rdv || []).concat(liste[i].sans_rdv || []);
+        for (k2 = 0; k2 < tr.length; k2++) {
+          var cleN = "n|" + liste[i].medecin + "|" + tr[k2].heure + "|" + tr[k2].qui;
+          if (tr[k2].nouveau && !tr[k2].passe && !forces[cleN]) { forces[cleN] = true; idxMed = i; }
+        }
+      }
       // À l'approche d'un RDV (moins de 5 minutes) le médecin concerné passe à l'écran, une seule fois par RDV
       for (i = 0; i < liste.length; i++) {
         var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + liste[i].prochain_min + "|" + (liste[i].rdv || []).length;
@@ -343,19 +413,27 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         var lstR = md.rdv || [], lstS = md.sans_rdv || [];
         // Une ligne : « heure (ou N°) | identité anonymisée | téléphone masqué | reçu » ; vert = en consultation, estompée = déjà passé
         var ligneHtml = function (r, sans) {
-          return '<div class="ligne-rdv' + (r.etat === "en_cours" ? " consult" : (r.passe ? " fini" : "")) + '"><span class="hr">' + (sans ? "N° " + esc(r.ordre) : esc(r.heure)) + '</span><span class="qui">' + esc(r.qui) + " | " + esc(r.tel || "—") +
-            (r.recu ? " | " + esc(r.recu) : "") + (r.etat === "en_cours" ? '<span class="enc-txt">▶ En consultation</span>' : "") + "</span></div>";
+          return '<div class="ligne-rdv' + (r.etat === "en_cours" ? " consult" : "") + (r.nouveau && r.etat !== "en_cours" ? " nouveau" : "") + '"><span class="hr">' + (sans ? "N° " + esc(r.ordre) : esc(r.heure)) + '</span><span class="qui">' + esc(r.qui) + " | " + esc(r.tel || "—") +
+            (r.recu ? " | " + esc(r.recu) : "") + (r.nouveau && r.etat !== "en_cours" ? '<span class="neuf">NOUVEAU</span>' : "") + (r.etat === "en_cours" ? '<span class="enc-txt">▶ En consultation</span>' : "") + "</span></div>";
         };
         h += '<div class="liste-rdv deux-col">';
         if (!lstR.length && !lstS.length) { h += '<div class="vide">Aucun rendez-vous</div>'; }
         if (lstR.length) {
           h += "<div>" + (lstS.length ? '<div class="sous-titre">Avec rendez-vous</div>' : "");
-          for (k2 = 0; k2 < lstR.length; k2++) { h += ligneHtml(lstR[k2], false); }
+          // Lot 317 : les RDV déjà passés disparaissent ; le triangle rouge se place avant le premier RDV encore à venir
+          var posee = false, nowT = maintenant.getTime(), dT;
+          for (k2 = 0; k2 < lstR.length; k2++) {
+            if (lstR[k2].passe && lstR[k2].etat !== "en_cours") { continue; }
+            dT = lstR[k2].debut ? new Date(lstR[k2].debut).getTime() : NaN;
+            if (!posee && lstR[k2].etat !== "en_cours" && !isNaN(dT) && dT > nowT) { h += maintHtml(maintenant); posee = true; }
+            h += ligneHtml(lstR[k2], false);
+          }
+          if (!posee) { h += maintHtml(maintenant); }
           h += "</div>";
         }
         if (lstS.length) {
           h += '<div><div class="sous-titre">Sans rendez-vous</div>';
-          for (k2 = 0; k2 < lstS.length; k2++) { h += ligneHtml(lstS[k2], true); }
+          for (k2 = 0; k2 < lstS.length; k2++) { if (!lstS[k2].passe || lstS[k2].etat === "en_cours") { h += ligneHtml(lstS[k2], true); } }
           h += "</div>";
         }
         h += "</div>";
@@ -397,6 +475,11 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
           return;
         }
       }
+      if (st === 200 && d && d.maintenant) {      // lot 317 : écart entre l'horloge de la télé et l'heure UTC du serveur
+        var sv = new Date(d.maintenant).getTime();
+        if (!isNaN(sv)) { decalage = sv - new Date().getTime(); }
+      }
+      if (st === 200 && d && d.ecran && !d.ecran.suivi_ouvert) { jeton = ""; }     // jeton expiré côté serveur : on reverrouille
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
       if (flux) { dessiner(); }
     });
@@ -406,6 +489,11 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   // Départ : télé déjà appairée → contenu ; sinon code
   if (lire()) { demarrerFlux(); } else { demarrerAppairage(); }
   setInterval(charger, 8000);
+  // Lot 317 : le triangle rouge avance avec l'heure (redessin toutes les 20 s) ; le Suivi Support se reverrouille après 5 min sans action
+  setInterval(function () {
+    if (mode === "planning" && flux) { dessiner(); }
+    if (mode === "suivi" && jeton && new Date().getTime() - derniere > 300000) { jeton = ""; mode = "planning"; if (flux) { flux.ecran.suivi_ouvert = false; dessiner(); } }
+  }, 20000);
 })();
 </script>
 </body>

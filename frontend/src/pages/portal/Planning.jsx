@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import PlanningHeatmap from "@/components/PlanningHeatmap";
 // 2026-02 fork (P2) — Walk-in CRUD modal
 import WalkInModal from "@/components/WalkInModal";
+import PlanningPlage from "@/components/PlanningPlage";   // lot 325 : vue sur 3 jours ou la semaine
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -118,6 +119,7 @@ export default function Planning() {
     const tr = me.tracked_role || "";
     return ["Secrétaire médicale", "Administrateur", "Superviseur", "Moderation", "Médecin"].includes(tr);
   }, [me]);
+  const [plage, setPlage] = useState(1);                     // lot 325 : 1 = le jour (grille), 3 = 3 jours, 7 = la semaine (liste groupée par jour)
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [editingWalkIn, setEditingWalkIn] = useState(null);
 
@@ -433,6 +435,13 @@ export default function Planning() {
               <ChevronRight className="h-3 w-3 text-indigo-500" />
             </button>
           )}
+          {/* Lot 325 : étendue de l'affichage (liste finie → choix unique) */}
+          <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs" role="group" aria-label="Étendue" data-testid="planning-plage-choix">
+            {[[1, "Jour"], [3, "3 jours"], [7, "Semaine"]].map(([n, lib]) => (
+              <button key={n} type="button" onClick={() => setPlage(n)} aria-pressed={plage === n} data-testid={`planning-plage-${n}`}
+                className={`px-2.5 py-1.5 ${plage === n ? "bg-sky-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>{lib}</button>
+            ))}
+          </div>
           <button
             onClick={fetchAppointments}
             className="p-2 rounded-lg hover:bg-slate-100 text-slate-600"
@@ -497,6 +506,9 @@ export default function Planning() {
         )}
       </div>
 
+      {/* Lot 325 : sur 3 jours ou la semaine, une liste groupée par jour remplace la grille du jour */}
+      {plage > 1 && <PlanningPlage debut={selectedDate} jours={plage} medecinId={selectedMedecinId} />}
+      {plage === 1 && (<>
       {/* Iter43-fix24az-ad (2026-07-22) — Panneau principal : calendrier + heatmap latérale. */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_240px] gap-4">
         {/* Calendar grid */}
@@ -686,6 +698,7 @@ export default function Planning() {
           </ul>
         )}
       </div>
+      </>)}
       {/* 2026-02 fork (P2) — Modal walk-in (création/édition/suppression) */}
       <WalkInModal
         open={walkInModalOpen}

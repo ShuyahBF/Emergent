@@ -635,6 +635,9 @@ _attach_avancement(api=api, db=db, get_current_user=get_current_user, is_admin_l
 # Lot 314 — niveaux de service (contrat / standard / EXPRESS) : la disponibilité vendue comme un engagement, envoyée en image
 from routes.niveaux_service import setup_niveaux_service_routes as _setup_niveaux_service  # noqa: E402
 _setup_niveaux_service(db=db, api=api, get_current_user=get_current_user, get_current_admin=get_current_admin)
+from routes.niveaux_boutons import setup_niveaux_boutons_routes as _setup_niveaux_boutons  # noqa: E402  (lot 322 : 3 boutons envoyés depuis la fenêtre Calendrier)
+_setup_niveaux_boutons(db=db, api=api, get_current_user=get_current_user, resolve_visible_client_ids=_resolve_visible_client_ids,
+                       wa_send_interactive_button=_wa_send_interactive_button)
 
 # Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
 # la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "289", "date": "2026-10-24",
+        "titre": "📺 Écrans TV : messagerie et demandes de support sur une Smart TV",
+        "description": "Ouvrez l'adresse /tv dans le navigateur d'une télé (LG webOS ou autre) : un code s'affiche ; saisissez-le dans Paramètres → « Écrans TV », choisissez le client et les contenus. La télé montre alors, sans aucun bouton, le fil des messages (les nouveaux s'animent) et les demandes de support ouvertes ; les numéros de téléphone sont masqués. Chaque écran se modifie ou se révoque à tout moment. L'affichage du hall (programme des médecins, prochain patient) viendra dans un prochain lot.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "288", "date": "2026-10-24",
         "titre": "🧪 Réponse aux demandes de report : essais « client avec ligne » et « client sans ligne »",
         "description": "Dans la rubrique du webhook Planning, le bloc de réponse de Liluvine parle maintenant de « client » (et non plus de clinique) et propose deux boutons d'essai : l'un envoie sur votre numéro WhatsApp le message d'un client réglé, l'autre celui d'un client sans ligne (message par défaut). L'essai utilise ce qui est affiché à l'écran, même non enregistré. Un avertissement rappelle quand la réponse automatique n'est pas activée.",

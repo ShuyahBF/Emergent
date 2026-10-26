@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "295", "date": "2026-10-26",
+        "titre": "📺 Écran TV : fin de l'écran blanc sur les Smart TV",
+        "description": "L'adresse /tv ouvre désormais une page autonome écrite en JavaScript ancien (sans l'application SAWALI complète), que le navigateur d'une télé LG webOS ou autre sait lire. Même fonctionnement : code d'appairage à saisir dans cette rubrique, puis fil de messagerie et demandes de support. Si quelque chose bloque, l'erreur s'affiche en rouge en bas de l'écran de la télé au lieu d'un écran blanc. Si la télé affichait déjà un écran blanc, la recharger (ou vider son cache).",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "294", "date": "2026-10-26",
         "titre": "⚠ Réponse aux reports : alerte quand {client} n'a pas de nom réglé",
         "description": "Si un message utilise {client} alors qu'aucun nom n'est réglé pour ce code dans le bloc « Nom du client cité dans les messages aux patients », l'écran affiche une alerte sous la ligne et le bouton d'essai prévient après l'envoi, au lieu de laisser un trou dans le message (« Clinique . »). Rappel : si le nom réglé contient déjà « Clinique », écrire « de {client} » et non « de la Clinique {client} ».",

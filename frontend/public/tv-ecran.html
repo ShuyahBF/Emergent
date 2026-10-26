@@ -67,6 +67,26 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .med .porte{background:#38bdf8;color:#04243a;border-radius:1vh;padding:.3vh 1.2vw;font-size:2.8vh}
 .med .l{font-size:2.6vh;color:#cbd5e1;margin-top:.6vh}
 .med .enc{color:#fbbf24}
+/* Lot 304 — écran « Planning des médecins » (carrousel du hall) */
+.bascule{cursor:pointer;background:#1d4ed8;border-radius:1.2vh;padding:.5vh 1.2vw;font-size:2.4vh;margin-right:1.2vw;display:inline-block}
+.plan{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;min-width:0;padding:2vh 3vw}
+.carte-med{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;border:.6vh solid #38bdf8;border-radius:2.4vh;background:#111b30;padding:2vh 2.4vw}
+.carte-med .photo-g{width:20vh;height:20vh;border-radius:10vh;border:.5vh solid #38bdf8;background:#0b1220;margin-right:2.4vw;-webkit-flex:none;flex:none}
+.carte-med .sans-photo{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;font-size:9vh;color:#38bdf8}
+.carte-med .nom-g{font-size:6vh;font-weight:bold}
+.carte-med .titre-g{font-size:3.6vh;color:#7dd3fc;margin-top:.6vh}
+.carte-med .porte-g{display:inline-block;background:#38bdf8;color:#04243a;border-radius:1.2vh;padding:.4vh 1.4vw;font-size:3.4vh;margin-top:1vh;font-weight:bold}
+.carte-med .bientot{display:inline-block;background:#f59e0b;color:#111;border-radius:1.2vh;padding:.4vh 1.2vw;font-size:3vh;margin-top:1vh;margin-left:1vw;font-weight:bold}
+.liste-rdv{-webkit-flex:1;flex:1;min-height:0;overflow:hidden;margin-top:2vh}
+.ligne-rdv{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;background:#16203a;border-radius:1.4vh;padding:1.2vh 1.6vw;margin-bottom:1vh;font-size:3.4vh}
+.ligne-rdv .hr{width:12vw;font-weight:bold;color:#7dd3fc}
+.ligne-rdv .qui{-webkit-flex:1;flex:1;min-width:0}
+.ligne-rdv .tel{width:22vw;color:#94a3b8;font-size:3vh}
+.ligne-rdv .etat{width:20vw;text-align:right;font-size:2.8vh}
+.ligne-rdv.consult{background:#064e3b}
+.ligne-rdv.fini{opacity:.45}
+.points{text-align:center;font-size:3vh;color:#475569;margin-top:1vh}
+.points b{color:#38bdf8}
 #erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
 </style>
 </head>
@@ -79,7 +99,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
-  var photosMed = {}, nbFlux = 0;      // lot 303 : photos des médecins (demandées au serveur au démarrage puis toutes les ~10 min)
+  var photosMed = {}, nbFlux = 0, mode = "", idxMed = 0, forces = {};   // lot 304 : mode = "planning" (par défaut) ou "suivi"; idxMed = médecin affiché au carrousel
+        // lot 303 : photos des médecins (demandées au serveur au démarrage puis toutes les ~10 min)
   var CLE_LUS = "sawali_tv_lus", lus = {};
   try { lus = JSON.parse(localStorage.getItem(CLE_LUS) || "{}") || {}; } catch (e) { lus = {}; }
   function sauverLus() { try { localStorage.setItem(CLE_LUS, JSON.stringify(lus)); } catch (e) {} }
@@ -177,6 +198,10 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     vus = {}; dejaCharge = false;                    // le contenu change : pas d'animation ni de bip pour l'affichage initial
     charger();
   }
+  // Lot 304 : bascule entre le planning des médecins (défaut) et le suivi (messages + demandes de support)
+  function basculer() { mode = (mode === "planning") ? "suivi" : "planning"; vus = {}; dejaCharge = false; if (flux) { dessiner(); } }
+  // Carrousel : un médecin à la fois, on passe au suivant toutes les minutes
+  setInterval(function () { if (mode === "planning" && flux) { idxMed++; dessiner(); } }, 60000);
   // Lot 303 : les non-lus d'une conversation ouverte sont considérés comme lus sur la télé
   function marquerVu(cle) {
     var i, fl = (flux && flux.fils) || [];
@@ -186,6 +211,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     var n = e.target;
     while (n && n !== racine) {
       if (n.getAttribute && n.getAttribute("data-cle")) { choisirFil(n.getAttribute("data-cle")); return; }
+      if (n.getAttribute && n.getAttribute("data-bascule")) { basculer(); return; }
       if (n.getAttribute && n.getAttribute("data-tout")) { if (filChoisi) { choisirFil(filChoisi); } return; }
       n = n.parentNode;
     }
@@ -197,6 +223,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       e.preventDefault();
     } else if (k === 13) {                            // OK : ouvre la conversation sous le curseur
       if (curseur >= 0 && dernierFils[curseur]) { choisirFil(dernierFils[curseur].cle); }
+    } else if (k === 403 || k === 66) {               // touche rouge de la télécommande LG (ou B) : bascule planning / suivi
+      basculer();
     } else if (k === 27 || k === 461 || k === 10009 || k === 8) {   // Échap / Retour (LG, Samsung) : tout afficher
       if (filChoisi) { choisirFil(filChoisi); }
     }
@@ -242,10 +270,13 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     for (i = 0; i < fils.length; i++) { nl += nonLusVisibles(fils[i]); }
     if (dejaCharge && dernierNonLus >= 0 && nl > dernierNonLus) { nouveauEntrant = true; }
     dernierNonLus = nl;
-    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' +
-      (sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
+    // Lot 304 : écran par défaut = planning des médecins (si le contenu « Hall » est activé), sinon suivi
+    var hallOn = !!m.hall, suiviOn = !!(m.messagerie || m.support);
+    if (!mode || (mode === "planning" && !hallOn) || (mode === "suivi" && !suiviOn)) { mode = hallOn ? "planning" : "suivi"; }
+    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi (messages)" : "Planning des médecins") + "</span>" : "") +
+      (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
-    if (m.messagerie) {
+    if (mode === "suivi" && m.messagerie) {
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
         (nl ? ' <span class="pastille" style="display:inline-block">' + nl + "</span>" : "") + '</div><div class="msgzone">';
       // Conversations : nom du contact, dernier message, bulle rouge = messages non lus
@@ -270,7 +301,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
       h += "</div></div></div></div>";
     }
-    if (m.support) {
+    if (mode === "suivi" && m.support) {
       h += '<div class="col"><div class="titre">🛟 Demandes de support ouvertes</div>';
       if (!sup.length) { h += '<div class="vide">Aucune demande en cours</div>'; }
       for (i = 0; i < sup.length && i < 6; i++) {
@@ -278,20 +309,39 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
       h += "</div>";
     }
-    if (m.hall) {
-      var hall = (flux && flux.hall) || { medecins: [], prochain: null };
-      h += '<div class="col"><div class="titre">🩺 Consultations du jour</div>';
-      if (hall.prochain) {
-        h += '<div class="prochain"><small>Prochain patient</small><b>' + esc(hall.prochain.libelle) + (hall.prochain.porte ? " → " + esc(hall.prochain.porte) : "") + '</b><small>' + esc(hall.prochain.medecin) + "</small></div>";
-      }
-      if (!hall.medecins.length) { h += '<div class="vide">Aucune consultation aujourd\'hui</div>'; }
+    if (mode === "planning") {
+      // Lot 304 — planning des médecins en carrousel : un médecin à la fois (changement toutes les minutes), données ANONYMISÉES par le serveur
+      var hall = (flux && flux.hall) || { medecins: [], prochain: null }, liste = [], k2;
       for (i = 0; i < hall.medecins.length; i++) {
-        var md = hall.medecins[i], suiv = [], k;
-        for (k = 0; k < md.prochains.length; k++) { suiv.push(esc(md.prochains[k].libelle)); }
-        h += '<div class="med"><div class="t"><span class="id">' + (photosMed[md.medecin] ? '<img class="photo" src="' + photosMed[md.medecin] + '" alt="">' : "") +
-          "<span>" + esc(md.medecin) + (md.profession ? '<br><span class="prof">' + esc(md.profession) + "</span>" : "") + "</span></span>" + (md.porte ? '<span class="porte">' + esc(md.porte) + "</span>" : "") + "</div>" +
-          (md.en_consultation ? '<div class="l enc">En consultation : ' + esc(md.en_consultation) + "</div>" : "") +
-          '<div class="l">' + (suiv.length ? "Suivants : " + suiv.join(" · ") : "Aucun patient en attente") + (md.restants > 3 ? " · " + md.restants + " en attente" : "") + "</div></div>";
+        var mm = hall.medecins[i], actif = false;
+        for (k2 = 0; k2 < mm.rdv.length; k2++) { if (mm.rdv[k2].etat === "attente" || mm.rdv[k2].etat === "consultation") { actif = true; } }
+        if (actif) { liste.push(mm); }
+      }
+      if (!liste.length) { for (i = 0; i < hall.medecins.length; i++) { if (hall.medecins[i].rdv.length) { liste.push(hall.medecins[i]); } } }
+      // À l'approche d'un RDV (moins de 5 minutes) le médecin concerné passe à l'écran, une seule fois par RDV
+      for (i = 0; i < liste.length; i++) {
+        var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + (liste[i].prochains[0] ? liste[i].prochains[0].libelle : "");
+        if (pm !== null && pm >= 0 && pm <= 5 && !forces[cleU]) { forces[cleU] = true; idxMed = i; }
+      }
+      h += '<div class="plan">';
+      if (!liste.length) {
+        h += '<div class="centre"><div class="vide">Aucun rendez-vous prévu aujourd\'hui</div></div>';
+      } else {
+        var md = liste[idxMed % liste.length], pts = "";
+        h += '<div class="carte-med">' + (photosMed[md.medecin] ? '<img class="photo-g" src="' + photosMed[md.medecin] + '" alt="">' : '<div class="photo-g sans-photo">🩺</div>') +
+          '<div><div class="nom-g">' + esc(md.medecin) + '</div>' + (md.profession ? '<div class="titre-g">' + esc(md.profession) + "</div>" : "") +
+          (md.porte ? '<span class="porte-g">' + esc(md.porte) + "</span>" : "") +
+          (md.prochain_min !== null && md.prochain_min >= 0 && md.prochain_min <= 30 ? '<span class="bientot">Prochain RDV dans ' + md.prochain_min + " min</span>" : "") + "</div></div>";
+        h += '<div class="liste-rdv">';
+        if (!md.rdv.length) { h += '<div class="vide">Aucun rendez-vous</div>'; }
+        for (k2 = 0; k2 < md.rdv.length; k2++) {
+          var r = md.rdv[k2], libEtat = r.etat === "consultation" ? "En consultation" : r.etat === "termine" ? "Terminé" : r.etat === "passe" ? "Non venu" : "En attente";
+          h += '<div class="ligne-rdv' + (r.etat === "consultation" ? " consult" : (r.etat === "termine" || r.etat === "passe" ? " fini" : "")) + '"><span class="hr">' + esc(r.heure) + '</span><span class="qui">' + esc(r.qui) +
+            (r.ordre ? " · N° " + esc(r.ordre) : "") + '</span><span class="tel">' + esc(r.tel) + '</span><span class="etat">' + libEtat + "</span></div>";
+        }
+        h += "</div>";
+        for (i = 0; i < liste.length; i++) { pts += (i === idxMed % liste.length ? "<b>●</b> " : "○ "); }
+        h += '<div class="points">' + pts + "</div>";
       }
       h += "</div>";
     }
@@ -299,7 +349,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     racine.innerHTML = h + "</div>";
     var el = document.getElementById("direct");
     if (el) { el.scrollTop = (etaitEnBas || nouveauEntrant) ? el.scrollHeight : ancienHaut; }   // défilement automatique vers le dernier message
-    if (nouveauEntrant) { bip(); }                                                                // bip à chaque nouveau message reçu
+    if (nouveauEntrant && mode === "suivi") { bip(); }                                                                // bip à chaque nouveau message reçu
     for (i = 0; i < msgs.length; i++) { vus[msgs[i].id] = true; }
     dejaCharge = true;
   }

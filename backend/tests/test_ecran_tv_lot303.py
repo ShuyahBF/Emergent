@@ -142,3 +142,18 @@ def test_photo_et_profession_du_medecin_dans_le_hall():
     sans = forme_hall(docs, {"dr x": "201"}, maintenant, fiches={"dr x": par["DR X"]}, avec_photos=False)["medecins"][0]
     avec = forme_hall(docs, {"dr x": "201"}, maintenant, fiches={"dr x": par["DR X"]}, avec_photos=True)["medecins"][0]
     assert sans["profession"] == "Cardiologue" and sans["a_photo"] and sans["photo"] == "" and avec["photo"] == petite
+
+
+def test_planning_du_jour_anonymise_pour_le_hall():
+    """Lot 304 : le hall est public — initiales et 2 derniers chiffres seulement, jamais le nom ni le numéro complet."""
+    from routes.ecran_tv import anonymiser_nom, forme_hall, masquer_tel_hall
+    assert anonymiser_nom("KANE Fatimata") == "K. F." and anonymiser_nom("") == "—"
+    assert masquer_tel_hall("+226 70 00 11 22") == "•• •• •• 22" and masquer_tel_hall("") == ""
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    docs = [{"medecin": "DR X", "patient": "KANE Fatimata", "patient_phone": "+226 70 00 11 22", "is_rdv": 1, "start_at": "2026-10-26T10:20:00+00:00"},
+            {"medecin": "DR X", "patient": "OUEDRAOGO Ali", "patient_phone": "70003344", "is_rdv": 1, "start_at": "2026-10-26T09:30:00+00:00", "type_evenement": "CST"}]
+    m = forme_hall(docs, {}, maintenant)["medecins"][0]
+    assert [(r["heure"], r["qui"], r["tel"], r["etat"]) for r in m["rdv"]] == [("09:30", "O. A.", "•• •• •• 44", "consultation"), ("10:20", "K. F.", "•• •• •• 22", "attente")]
+    assert m["prochain_min"] == 20
+    texte = str(m)
+    assert "KANE" not in texte and "Fatimata" not in texte and "70001122" not in texte and "70003344" not in texte

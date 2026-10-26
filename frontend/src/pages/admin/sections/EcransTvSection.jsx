@@ -343,8 +343,8 @@ export default function EcransTvSection() {
         <p className="text-sm font-medium text-slate-700">Approuver une télé (connexion administrateur)</p>
         <p className="text-xs text-slate-500">
           Sur la télé : bouton « Suivi Support » puis « 🔑 Connexion administrateur » : la télé affiche un code de 6 caractères. Saisissez-le ici, avec votre compte SAWALI déjà connecté :
-          la télé est déverrouillée 10 minutes (Suivi Support, messagerie, planning sur 3 jours ou la semaine) <b>avec les noms et téléphones des patients en clair</b>.
-          Aucun mot de passe n'est saisi sur la télé.
+          la télé est déverrouillée 10 minutes (Suivi Support, messagerie, planning sur 3 jours ou la semaine). <b>Les patients restent masqués sur la télé</b> :
+          leurs noms et téléphones en clair ne se voient que dans SAWALI (menu Planning), sur votre téléphone ou votre PC, connecté en administrateur. Aucun mot de passe n'est saisi sur la télé.
         </p>
         <div className="flex flex-wrap items-center gap-2 boutons-distincts">
           <input value={codeApprobation} onChange={(e) => setCodeApprobation(e.target.value.toUpperCase())} maxLength={8} placeholder="Code de la télé"

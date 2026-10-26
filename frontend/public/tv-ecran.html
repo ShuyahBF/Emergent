@@ -127,7 +127,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "323";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "324";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   var adminCode = "", adminExpire = 0, adminTimer = null;   // lot 323 : connexion administrateur approuvée depuis SAWALI (code affiché sur la télé)
   var horizon = 1, jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";

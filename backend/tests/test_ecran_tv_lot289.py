@@ -271,7 +271,7 @@ def _flux_admin(c, jeton):
     return c.get("/api/tv/flux", headers={"x-tv-secret": SECRET, "x-tv-deverrou": jeton}).json()
 
 
-def test_lot323_approbation_administrateur_deverrouille_et_affiche_en_clair():
+def test_lot323_approbation_administrateur_deverrouille_patients_toujours_masques():
     from datetime import datetime, timedelta, timezone
     c, base = _tele_appairee()
     tv, adm = {"x-tv-secret": SECRET}, {"x-admin": "1"}
@@ -283,7 +283,6 @@ def test_lot323_approbation_administrateur_deverrouille_et_affiche_en_clair():
     # sans PIN défini, le Suivi Support est quand même « possible » (connexion administrateur)
     f0 = _flux_admin(c, jeton)
     assert f0["ecran"]["suivi_possible"] is True and f0["ecran"]["suivi_ouvert"] is False and "messages" not in f0
-    assert f0["hall"]["medecins"][0]["rdv"][0]["qui"] == "OU******* Al*******"[:len(f0["hall"]["medecins"][0]["rdv"][0]["qui"])] or "*" in f0["hall"]["medecins"][0]["rdv"][0]["qui"]
     # la télé demande un code ; une mauvaise saisie ou un administrateur absent ne déverrouille rien
     d = c.post("/api/tv/admin-demande", headers=tv, json={"jeton": jeton}).json()
     assert len(d["code"]) == 6 and d["valide_minutes"] == 5
@@ -296,7 +295,8 @@ def test_lot323_approbation_administrateur_deverrouille_et_affiche_en_clair():
     f = _flux_admin(c, jeton)
     assert f["ecran"]["suivi_ouvert"] is True and f["ecran"]["admin"] is True and "messages" in f and "support" in f
     ligne = f["hall"]["medecins"][0]["rdv"][0]
-    assert ligne["qui"] == "OUEDRAOGO Alphonse" and ligne["tel"] == "70 00 11 22"
+    assert "OUEDRAOGO" not in str(f) and "70001122" not in str(f) and "70 00 11 22" not in str(f)      # lot 324 : jamais en clair sur la télé
+    assert ligne["tel"] == "7*****22" and ligne["qui"].startswith("OU")
     assert c.post("/api/admin/tv/approuver", headers=adm, json={"code": d["code"]}).status_code == 404
     # un autre jeton n'ouvre rien ; les champs internes ne sortent pas dans la liste d'administration
     assert _flux_admin(c, "autre-jeton-" + "x" * 30)["ecran"]["suivi_ouvert"] is False

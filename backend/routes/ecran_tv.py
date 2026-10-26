@@ -37,7 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "323"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "324"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
@@ -207,20 +207,8 @@ def masquer_tel_hall(tel: Any) -> str:
     return f"{c[0]}{'*' * (len(c) - 3)}{c[-2:]}" if len(c) >= 4 else ""
 
 
-def nom_clair(patient: Any) -> str:
-    """Lot 323 : nom et prénoms du patient EN CLAIR (partie avant le premier « : » du champ « NOM Prénoms : téléphone : reçu »)."""
-    return str(patient or "").split(":")[0].strip() or "—"
-
-
-def tel_clair(tel: Any) -> str:
-    """Lot 323 : téléphone en clair, 8 derniers chiffres groupés par deux (« 70 00 11 22 »)."""
-    c = "".join(ch for ch in str(tel or "") if ch.isdigit())[-8:]
-    return " ".join(c[i:i + 2] for i in range(0, len(c), 2))
-
-
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
-               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14,
-               en_clair: bool = False) -> Dict[str, Any]:
+               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14) -> Dict[str, Any]:
     """Planning du jour par médecin (RDV pris tels quels ; le champ `type_evenement` n'est pas utilisé).
     Deux listes par médecin (lot 309) : `rdv` (avec rendez-vous, classés par heure) et `sans_rdv` (consultations sans RDV, classées par
     numéro d'ordre, mises à jour par le secrétariat médical). Chaque ligne : patient ANONYMISÉ (« GU**. R. Pa**** »), téléphone masqué
@@ -236,8 +224,7 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         debut = None if sans else _dt(d.get("start_at"))
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
         quand = debut or arrivee
-        ligne = {"heure": quand.strftime("%H:%M"), "qui": nom_clair(d.get("patient")) if en_clair else anonymiser_nom(d.get("patient")),
-                 "tel": tel_clair(d.get("patient_phone")) if en_clair else masquer_tel_hall(d.get("patient_phone")),
+        ligne = {"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
                  "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30],
                  "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand,
                  # lot 317 : début exact (UTC) pour que la télé masque le RDV à son heure ; « nouveau » = créé depuis moins de 10 minutes (clignote)
@@ -452,7 +439,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         suivi_possible = bool(modules["messagerie"] or modules["support"])      # lot 323 : possible aussi sans PIN (connexion administrateur)
         suivi_ouvert = bool(suivi_possible and x_tv_deverrou and ecran.get("deverrou_hash") == empreinte(x_tv_deverrou)
                             and (ecran.get("deverrou_expire") or "") > _maintenant().isoformat())
-        # Lot 323 : session ouverte par un ADMINISTRATEUR (approbation depuis SAWALI) : les patients du hall s'affichent en clair
+        # Lot 323 : session ouverte par un ADMINISTRATEUR (approbation depuis SAWALI). Lot 324 : les patients restent TOUJOURS masqués sur la télé ;
+        # le détail en clair se consulte seulement dans SAWALI (Planning), connecté en administrateur.
         admin_ouvert = bool(suivi_ouvert and ecran.get("deverrou_admin"))
         modules_servis = {**modules, "messagerie": modules["messagerie"] and suivi_ouvert, "support": modules["support"] and suivi_ouvert}
         flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
@@ -526,7 +514,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
-                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon, en_clair=admin_ouvert)
+                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon)
             flux["hall"]["horizon"] = horizon
             # Lot 321 : QR « suivre mon RDV » sur l'écran du hall (si le service est activé dans les Paramètres)
             flux["suivi_rdv"] = bool(((await db.settings.find_one({"_id": "global"}, {"suivi_rdv": 1})) or {}).get("suivi_rdv", {}).get("actif"))
@@ -546,7 +534,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
     @api.post("/admin/tv/approuver", tags=["Admin — Écrans TV"])
     async def admin_tv_approuver(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
         """Lot 323 : l'administrateur (connecté à SAWALI avec son propre compte) saisit le code affiché par la télé : cette télé est déverrouillée
-        10 minutes en mode administrateur (Suivi Support, messagerie, planning sur 3 jours / semaine, patients en clair)."""
+        10 minutes en mode administrateur (Suivi Support, messagerie, planning sur 3 jours / semaine ; patients toujours masqués sur la télé)."""
         code = "".join(ch for ch in str(corps.get("code") or "").upper() if ch.isalnum())
         maintenant = _maintenant()
         s = await _reglages()

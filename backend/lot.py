@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "316"
-LOT_LIBELLE = "Liluvine gère les demandes d'intervention : questions au contact, niveau applicable (contrat / standard), proposition EXPRESS avec délai et forfait du client, propriétaire prévenu à l'acceptation"
+LOT = "317"
+LOT_LIBELLE = "Écran TV : triangle rouge de l'heure (UTC), RDV passés masqués, RDV neufs clignotants, Suivi Support protégé par un code PIN réglable dans les Paramètres."

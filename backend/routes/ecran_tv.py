@@ -37,8 +37,13 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "309"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "317"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
+PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
+PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
+PIN_BLOCAGE_S = 60                           # … pendant 60 secondes
+DEVERROU_MIN = 10                            # un déverrouillage valable 10 minutes (la page revient d'elle-même au planning avant)
+NOUVEAU_RDV_MIN = 10                         # un RDV créé il y a moins de 10 minutes clignote sur l'écran du hall
 JOURS_RDV_MASQUES = 3            # lot 303 : les patients rappelés pour un RDV depuis 3 jours n'apparaissent pas dans les conversations
 
 
@@ -49,6 +54,16 @@ def _maintenant() -> datetime:
 def empreinte(secret: str) -> str:
     """Empreinte SHA-256 d'un secret : c'est la seule chose gardée côté serveur."""
     return hashlib.sha256((secret or "").encode("utf-8")).hexdigest()
+
+
+def hacher_pin(pin: str, sel: str) -> str:
+    """Empreinte salée du code PIN : le code lui-même n'est jamais conservé ni renvoyé à la télé."""
+    return hashlib.sha256(f"{sel}:{pin}".encode("utf-8")).hexdigest()
+
+
+def pin_valide(pin: Any) -> bool:
+    """Code PIN accepté : 4 à 8 chiffres."""
+    return isinstance(pin, str) and pin.isdigit() and PIN_MIN <= len(pin) <= PIN_MAX and pin.isascii()
 
 
 def nouveau_code() -> str:
@@ -210,7 +225,10 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         quand = debut or arrivee
         ligne = {"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
                  "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30],
-                 "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand}
+                 "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand,
+                 # lot 317 : début exact (UTC) pour que la télé masque le RDV à son heure ; « nouveau » = créé depuis moins de 10 minutes (clignote)
+                 "debut": debut.isoformat() if debut else None,
+                 "nouveau": bool(_dt(d.get("created_at")) and maintenant - _dt(d.get("created_at")) < timedelta(minutes=NOUVEAU_RDV_MIN))}
         fiche["sans_rdv" if sans else "rdv"].append(ligne)
 
     def finir(lignes: List[Dict[str, Any]], par_numero: bool) -> List[Dict[str, Any]]:
@@ -328,7 +346,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         return normaliser_portes(s.get("tv_portes"))
 
     async def _reglages() -> Dict[str, Any]:
-        return await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1, "tv_appairages": 1}) or {}
+        return await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1, "tv_appairages": 1, "tv_pin": 1}) or {}
 
     # ---------------- Côté télé (public) ----------------
     @api.post("/tv/appairage", tags=["Écran TV"])
@@ -365,16 +383,51 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             raise HTTPException(status_code=401, detail="Écran non appairé ou révoqué")
         return ecran
 
+    # ---------------- Lot 317 : code PIN du « Suivi Support » (messages + demandes de support) ----------------
+    @api.post("/tv/pin", tags=["Écran TV"])
+    async def tv_deverrouiller(corps: Dict[str, Any] = Body(...), x_tv_secret: str = Header(default="")):
+        """La télé envoie le code saisi à la télécommande ; le serveur le compare à l'empreinte enregistrée dans les Paramètres.
+        Réussite : un jeton valable 10 minutes (la télé le renvoie à chaque lecture). Échecs répétés : écran bloqué 60 secondes."""
+        ecran = await _ecran_de_la_tele(x_tv_secret)
+        s = await _reglages()
+        pin = s.get("tv_pin") or {}
+        if not pin.get("hash"):
+            raise HTTPException(status_code=409, detail="Aucun code PIN défini dans les Paramètres")
+        maintenant = _maintenant()
+        if (ecran.get("pin_bloque_jusqua") or "") > maintenant.isoformat():
+            raise HTTPException(status_code=429, detail="Trop d'essais : patientez une minute")
+        saisi = str(corps.get("pin") or "")
+        if not (pin_valide(saisi) and secrets.compare_digest(hacher_pin(saisi, pin.get("sel", "")), pin["hash"])):
+            echecs = int(ecran.get("pin_echecs") or 0) + 1
+            maj = {"tv_ecrans.$.pin_echecs": 0 if echecs >= PIN_ESSAIS_MAX else echecs}
+            if echecs >= PIN_ESSAIS_MAX:
+                maj["tv_ecrans.$.pin_bloque_jusqua"] = (maintenant + timedelta(seconds=PIN_BLOCAGE_S)).isoformat()
+            await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {"$set": maj})
+            raise HTTPException(status_code=403, detail="Code incorrect")
+        jeton = secrets.token_urlsafe(18)
+        await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {"$set": {
+            "tv_ecrans.$.pin_echecs": 0, "tv_ecrans.$.deverrou_hash": empreinte(jeton),
+            "tv_ecrans.$.deverrou_expire": (maintenant + timedelta(minutes=DEVERROU_MIN)).isoformat()}})
+        return {"jeton": jeton, "valide_minutes": DEVERROU_MIN}
+
     @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0)):
+    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0)):
         """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
         `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
         ids = await _perimetre(ecran.get("client_id"))
-        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure"))}, "maintenant": _maintenant().isoformat(),
+        # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)
+        pin_defini = bool(((await _reglages()).get("tv_pin") or {}).get("hash"))
+        suivi_possible = pin_defini and (modules["messagerie"] or modules["support"])
+        suivi_ouvert = bool(suivi_possible and x_tv_deverrou and ecran.get("deverrou_hash") == empreinte(x_tv_deverrou)
+                            and (ecran.get("deverrou_expire") or "") > _maintenant().isoformat())
+        modules_servis = {**modules, "messagerie": modules["messagerie"] and suivi_ouvert, "support": modules["support"] and suivi_ouvert}
+        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
+                                          "suivi_possible": suivi_possible, "suivi_ouvert": suivi_ouvert, "pin_defini": pin_defini},
+                                "maintenant": _maintenant().isoformat(),
                                 "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
-        if modules["messagerie"]:
+        if modules_servis["messagerie"]:
             docs = await db.whatsapp_messages.find(
                 {"client_id": {"$in": ids}},
                 {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_id": 1, "contact_name": 1, "from_profile_name": 1,
@@ -413,7 +466,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             retenus = [d for d in docs if cle_fil(d) == fil] if fil else docs
             flux["fil_choisi"] = fil or None
             flux["messages"] = [forme_message(d) for d in reversed(retenus[:MAX_MESSAGES])]   # du plus ancien au plus récent : le nouveau arrive en bas
-        if modules["support"]:
+        if modules_servis["support"]:
             docs = await db.support_tickets.find(
                 {"client_id": {"$in": ids}, "status": {"$in": list(STATUTS_OUVERTS)}},
                 {"_id": 0, "id": 1, "number": 1, "motif": 1, "contact_name": 1, "status": 1, "opened_at": 1},
@@ -449,7 +502,26 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
     @api.get("/admin/tv/ecrans", tags=["Admin — Écrans TV"])
     async def admin_tv_liste(user: dict = Depends(get_current_admin)):
         s = await _reglages()
-        return {"ecrans": [{k: v for k, v in e.items() if k != "empreinte"} for e in s.get("tv_ecrans") or []]}
+        secrets_ecran = {"empreinte", "deverrou_hash", "deverrou_expire", "pin_echecs", "pin_bloque_jusqua"}
+        return {"ecrans": [{k: v for k, v in e.items() if k not in secrets_ecran} for e in s.get("tv_ecrans") or []]}
+
+    @api.get("/admin/tv/pin", tags=["Admin — Écrans TV"])
+    async def admin_tv_pin_etat(user: dict = Depends(get_current_admin)):
+        """Un code PIN est-il défini ? (jamais le code lui-même)"""
+        return {"defini": bool(((await _reglages()).get("tv_pin") or {}).get("hash"))}
+
+    @api.put("/admin/tv/pin", tags=["Admin — Écrans TV"])
+    async def admin_tv_pin_definir(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        """Définit le code PIN (4 à 8 chiffres) du Suivi Support ; code vide = suppression (le Suivi Support n'est alors plus accessible)."""
+        pin = str(corps.get("pin") or "").strip()
+        if not pin:
+            await db.settings.update_one({"_id": "global"}, {"$unset": {"tv_pin": ""}}, upsert=True)
+            return {"defini": False}
+        if not pin_valide(pin):
+            raise HTTPException(status_code=400, detail=f"Le code PIN doit comporter de {PIN_MIN} à {PIN_MAX} chiffres")
+        sel = secrets.token_hex(8)
+        await db.settings.update_one({"_id": "global"}, {"$set": {"tv_pin": {"sel": sel, "hash": hacher_pin(pin, sel)}}}, upsert=True)
+        return {"defini": True}
 
     @api.get("/admin/tv/portes", tags=["Admin — Écrans TV"])
     async def admin_tv_portes(user: dict = Depends(get_current_admin)):

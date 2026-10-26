@@ -29,6 +29,14 @@ def test_code_lisible_sans_caracteres_ambigus():
         assert len(c) == 6 and not set(c) & set("ILO01")
 
 
+def deverrouiller(c, admin=None):
+    """Lot 317 : messages et support ne sortent qu'avec le jeton du code PIN — définit le code (1234), le saisit comme la télé, mémorise le jeton."""
+    assert c.put("/api/admin/tv/pin", headers=admin or {"x-admin": "1"}, json={"pin": "1234"}).status_code == 200
+    r = c.post("/api/tv/pin", headers={"x-tv-secret": SECRET}, json={"pin": "1234"})
+    assert r.status_code == 200, r.text
+    c.headers.update({"x-tv-deverrou": r.json()["jeton"]})
+
+
 def _app():
     base = AsyncMongoMockClient()["test_tv_289"]
     _run(base.users.insert_one({"id": "cli-1", "company": "Clinique A"}))
@@ -69,6 +77,10 @@ def test_appairage_flux_et_revocation():
     assert r.status_code == 200 and "empreinte" not in r.json()["ecran"]
     ecran_id = r.json()["ecran"]["id"]
     assert c.get(f"/api/tv/appairage/{d['appairage_id']}", headers={"x-tv-secret": SECRET}).json()["etat"] == "ok"
+    # Lot 317 : sans code PIN déverrouillé, aucun message ni demande de support ne sort
+    verrouille = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert "messages" not in verrouille and "support" not in verrouille and verrouille["ecran"]["suivi_ouvert"] is False
+    deverrouiller(c)
     # Le flux ne contient que les messages et tickets OUVERTS de CE client, sans numéro complet
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
     assert [m["id"] for m in f["messages"]] == ["m1", "m2"]
@@ -110,6 +122,7 @@ def test_perimetre_de_la_societe_comme_le_centre_de_messagerie():
     c = TestClient(app)
     d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
     assert c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Bureau", "client_id": "sous-compte"}).status_code == 200
+    deverrouiller(c, {})
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
     assert [m["id"] for m in f["messages"]] == ["m1"] and [t["numero"] for t in f["support"]] == ["TKT-9"]
 
@@ -127,6 +140,7 @@ def test_fils_avec_noms_et_non_lus():
          "created_at": "2026-10-26T10:00:00+00:00", "read_by_us_at": "2026-10-26T10:01:00+00:00"}]))
     d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
     c.post("/api/admin/tv/appairer", headers={"x-admin": "1"}, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
+    deverrouiller(c)
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
     gacko = next(x for x in f["fils"] if x["cle"] == "k1")
     assert gacko["nom"] == "Dr GACKO" and gacko["non_lus"] == 2 and gacko["dernier"] == "Merci"
@@ -187,6 +201,45 @@ def test_conversation_choisie_sur_la_tele():
         {"id": "a2", "client_id": "cli-1", "contact_id": "kA", "contact_name": "Alice", "direction": "outbound", "body": "Re", "created_at": "2026-10-26T11:02:00+00:00"}]))
     d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
     c.post("/api/admin/tv/appairer", headers={"x-admin": "1"}, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
+    deverrouiller(c)
     f = c.get("/api/tv/flux", params={"fil": "kA"}, headers={"x-tv-secret": SECRET}).json()
     assert [m["id"] for m in f["messages"]] == ["a1", "a2"] and f["fil_choisi"] == "kA"
     assert {x["cle"] for x in f["fils"]} >= {"kA", "kB"}
+
+
+# ---------- Lot 317 : code PIN du Suivi Support ----------
+def _tele_appairee():
+    """Client de test avec une télé appairée (sans code PIN défini)."""
+    c, base = _app()
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    c.post("/api/admin/tv/appairer", headers={"x-admin": "1"}, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
+    return c, base
+
+
+def test_lot317_pin_refuse_puis_accepte():
+    """Aucun PIN → 409 ; trop court → 400 ; mauvais code → 403 ; bon code → jeton ; le code n'apparaît jamais dans le flux."""
+    c, _ = _tele_appairee()
+    tv = {"x-tv-secret": SECRET}
+    assert c.post("/api/tv/pin", headers=tv, json={"pin": "1234"}).status_code == 409
+    assert c.put("/api/admin/tv/pin", headers={"x-admin": "1"}, json={"pin": "12"}).status_code == 400
+    assert c.put("/api/admin/tv/pin", headers={"x-admin": "1"}, json={"pin": "1234"}).status_code == 200
+    assert c.post("/api/tv/pin", headers=tv, json={"pin": "9999"}).status_code == 403
+    assert "1234" not in c.get("/api/tv/flux", headers=tv).text
+    assert c.post("/api/tv/pin", headers=tv, json={"pin": "1234"}).status_code == 200
+
+
+def test_lot317_blocage_apres_cinq_echecs():
+    """Cinq mauvais codes → 429 (même avec le bon code) pendant la minute de blocage."""
+    c, _ = _tele_appairee()
+    tv = {"x-tv-secret": SECRET}
+    c.put("/api/admin/tv/pin", headers={"x-admin": "1"}, json={"pin": "4321"})
+    for _i in range(5):
+        assert c.post("/api/tv/pin", headers=tv, json={"pin": "0000"}).status_code == 403
+    assert c.post("/api/tv/pin", headers=tv, json={"pin": "4321"}).status_code == 429
+
+
+def test_lot317_flux_hall_expose_debut_et_nouveau():
+    """Le planning du hall reste libre (sans PIN) et chaque RDV porte `debut` (instant) et `nouveau` (créé depuis moins de 10 min)."""
+    c, _ = _tele_appairee()
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert f["page"] == "317" and f["maintenant"] and f["ecran"]["suivi_ouvert"] is False

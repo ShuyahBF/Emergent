@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "317", "date": "2026-10-27",
+        "titre": "📺 Écran TV : triangle rouge « maintenant », RDV neufs clignotants, Suivi Support par code PIN",
+        "description": "Sur /tv, un triangle rouge suit l'heure du serveur (UTC) le long des RDV, les RDV déjà passés disparaissent, un RDV nouvellement positionné clignote et fait passer son médecin à l'écran. Le Suivi Support (messagerie, demandes) ne s'ouvre qu'avec le code PIN réglé dans cette rubrique ; rouvrez /tv sur la télé.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "316", "date": "2026-10-27",
         "titre": "⚡ Liluvine gère les demandes d'intervention (contrat, standard, EXPRESS)",
         "description": "Quand un contact demande une intervention ou signale une urgence, Liluvine pose au plus 3 questions courtes (nature du problème, urgence, poste ou logiciel), annonce le niveau qui lui correspond avec le délai réglé dans cette rubrique (contrat valide ou non), propose l'EXPRESS avec son délai et son tarif (le « Forfait par intervention » de la fiche du client ; à 0 : « à préciser avant l'intervention »), et quand le contact accepte, vous prévient par la notification WhatsApp d'escalade déjà réglée. Elle n'annonce jamais d'autre délai ni d'autre prix. Tant que la rubrique n'est pas activée avec ses trois délais, Liluvine se comporte comme avant.",

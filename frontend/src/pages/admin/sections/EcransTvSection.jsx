@@ -29,6 +29,10 @@ export default function EcransTvSection() {
   const [medecinsConnus, setMedecinsConnus] = useState([]);
   const [savingPortes, setSavingPortes] = useState(false);
   const [envoi, setEnvoi] = useState(false);
+  // Lot 317 : code PIN qui protège le « Suivi Support » sur les télés (jamais relu : on sait seulement s'il est défini)
+  const [pinDefini, setPinDefini] = useState(false);
+  const [pinSaisi, setPinSaisi] = useState("");
+  const [savingPin, setSavingPin] = useState(false);
   const [erreurChargement, setErreurChargement] = useState("");
   const adresse = `${window.location.origin}/tv`;
 
@@ -36,11 +40,13 @@ export default function EcransTvSection() {
     setChargement(true);
     // Lot 302 : les trois lectures sont indépendantes. Si l'une échoue (ex. portes, clients),
     // la liste des écrans appairés reste affichée ; seul le bloc concerné signale l'erreur.
-    const [e, c, p] = await Promise.allSettled([
+    const [e, c, p, n] = await Promise.allSettled([
       apiClient.get("/admin/tv/ecrans"),
       apiClient.get("/admin/clients"),
       apiClient.get("/admin/tv/portes"),
+      apiClient.get("/admin/tv/pin"),
     ]);
+    if (n.status === "fulfilled") setPinDefini(!!n.value.data?.defini);
     const echecs = [];
     if (e.status === "fulfilled") setEcrans(e.value.data?.ecrans || []); else echecs.push("écrans appairés");
     if (p.status === "fulfilled") {
@@ -126,6 +132,20 @@ export default function EcransTvSection() {
       await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, { taille_heure: valeur });
       toast.success("Taille de l'heure enregistrée");
     } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible"); charger(); }
+  };
+
+  // Lot 317 : définir / changer / supprimer le code PIN (4 à 8 chiffres). Un code vide supprime le PIN : le Suivi Support est alors inaccessible.
+  const enregistrerPin = async (supprimer = false) => {
+    const pin = supprimer ? "" : pinSaisi.trim();
+    if (!supprimer && !/^\d{4,8}$/.test(pin)) { toast.error("Le code PIN doit comporter de 4 à 8 chiffres"); return; }
+    if (supprimer && !window.confirm("Supprimer le code PIN ? Le Suivi Support ne sera plus accessible sur les télés.")) return;
+    setSavingPin(true);
+    try {
+      const r = await apiClient.put("/admin/tv/pin", { pin });
+      setPinDefini(!!r.data?.defini); setPinSaisi("");
+      toast.success(r.data?.defini ? "Code PIN enregistré" : "Code PIN supprimé");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
+    finally { setSavingPin(false); }
   };
 
   const revoquer = async (ecran) => {
@@ -271,6 +291,25 @@ export default function EcransTvSection() {
           <button type="button" onClick={enregistrerPortes} disabled={savingPortes} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-portes-enregistrer">
             {savingPortes ? "Enregistrement…" : "Enregistrer les portes"}
           </button>
+        </div>
+      </div>
+      {/* Lot 317 — code PIN du « Suivi Support » (messagerie + demandes de support) sur les télés */}
+      <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-2" data-testid="tv-pin">
+        <p className="text-sm font-medium text-slate-700">Code PIN du « Suivi Support »</p>
+        <p className="text-xs text-slate-500">
+          Sur la télé, le planning des médecins reste libre ; la messagerie et les demandes de support ne s'ouvrent qu'après saisie de ce code (4 à 8 chiffres).
+          La télé se reverrouille après 5 minutes sans action. Le code est enregistré chiffré et n'est jamais envoyé aux télés.
+        </p>
+        <p className={`text-xs font-medium ${pinDefini ? "text-emerald-700" : "text-amber-700"}`} data-testid="tv-pin-etat">
+          {pinDefini ? "✔ Un code PIN est défini." : "⚠ Aucun code PIN : le Suivi Support est verrouillé sur toutes les télés."}
+        </p>
+        <div className="flex flex-wrap items-center gap-2 boutons-distincts">
+          <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={8} value={pinSaisi} onChange={(e) => setPinSaisi(e.target.value.replace(/\D/g, ""))}
+                 placeholder={pinDefini ? "Nouveau code" : "Code (4 à 8 chiffres)"} className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-sm tracking-widest" data-testid="tv-pin-saisi" />
+          <button type="button" onClick={() => enregistrerPin(false)} disabled={savingPin || !pinSaisi} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-pin-enregistrer">
+            {savingPin ? "Enregistrement…" : (pinDefini ? "Changer le code" : "Enregistrer le code")}
+          </button>
+          {pinDefini && <button type="button" onClick={() => enregistrerPin(true)} disabled={savingPin} className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm" data-testid="tv-pin-supprimer">Supprimer le code</button>}
         </div>
       </div>
       <p className="text-[11px] text-slate-500">

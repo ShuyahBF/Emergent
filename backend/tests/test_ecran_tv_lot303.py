@@ -59,6 +59,8 @@ def test_code_conserve_rdv_masques_et_agent():
     r = c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
     assert r.json()["ecran"]["code"] == d["code"]                                          # 1. le code reste visible dans la liste
     assert c.get("/api/admin/tv/ecrans").json()["ecrans"][0]["code"] == d["code"]
+    from tests.test_ecran_tv_lot289 import deverrouiller      # lot 317 : messages et support derrière le code PIN
+    deverrouiller(c)
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
     assert [m["id"] for m in f["messages"]] == ["a1", "a2"]                                # 4. la conversation de RDV n'apparaît pas
     assert len(f["fils"]) == 1 and f["non_lus_total"] == 1      # seul le non-lu de la conversation ordinaire est compté
@@ -301,3 +303,14 @@ def test_hall_perimetre_par_code_clinique_lot309():
     assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", json={"taille_heure": "geante"}).json()["taille_heure"] == "geante"
     assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", json={"taille_heure": "enorme"}).status_code == 400
     assert c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()["ecran"]["taille_heure"] == "geante"
+
+
+def test_hall_debut_et_nouveau_lot317():
+    """Lot 317 : chaque RDV porte son instant de début (pour le triangle rouge) et `nouveau` s'il a été créé il y a moins de 10 minutes."""
+    from routes.ecran_tv import forme_hall
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    docs = [{"medecin": "DR X", "patient": "KANE Fatimata", "is_rdv": 1, "start_at": "2026-10-26T10:20:00+00:00", "created_at": "2026-10-26T09:55:00+00:00"},
+            {"medecin": "DR X", "patient": "OUEDRAOGO Ali", "is_rdv": 1, "start_at": "2026-10-26T11:00:00+00:00", "created_at": "2026-10-25T08:00:00+00:00"}]
+    rdv = forme_hall(docs, {}, maintenant)["medecins"][0]["rdv"]
+    assert [r["nouveau"] for r in rdv] == [True, False]
+    assert rdv[0]["debut"].startswith("2026-10-26T10:20")

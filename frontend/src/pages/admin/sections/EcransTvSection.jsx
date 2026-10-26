@@ -29,24 +29,32 @@ export default function EcransTvSection() {
   const [medecinsConnus, setMedecinsConnus] = useState([]);
   const [savingPortes, setSavingPortes] = useState(false);
   const [envoi, setEnvoi] = useState(false);
+  const [erreurChargement, setErreurChargement] = useState("");
   const adresse = `${window.location.origin}/tv`;
 
   const charger = useCallback(async () => {
     setChargement(true);
-    try {
-      const [e, c, p] = await Promise.all([apiClient.get("/admin/tv/ecrans"), apiClient.get("/admin/clients"), apiClient.get("/admin/tv/portes")]);
-      setEcrans(e.data?.ecrans || []);
-      setPortes((p.data?.portes || []).map((l) => ({ ...l })));
-      setMedecinsConnus(p.data?.medecins_connus || []);
+    // Lot 302 : les trois lectures sont indépendantes. Si l'une échoue (ex. portes, clients),
+    // la liste des écrans appairés reste affichée ; seul le bloc concerné signale l'erreur.
+    const [e, c, p] = await Promise.allSettled([
+      apiClient.get("/admin/tv/ecrans"),
+      apiClient.get("/admin/clients"),
+      apiClient.get("/admin/tv/portes"),
+    ]);
+    const echecs = [];
+    if (e.status === "fulfilled") setEcrans(e.value.data?.ecrans || []); else echecs.push("écrans appairés");
+    if (p.status === "fulfilled") {
+      setPortes((p.value.data?.portes || []).map((l) => ({ ...l })));
+      setMedecinsConnus(p.value.data?.medecins_connus || []);
+    } else echecs.push("portes des médecins");
+    if (c.status === "fulfilled") {
       // Un seul choix par société (plusieurs comptes d'une même société partagent les mêmes messages)
       const parSociete = new Map();
-      (c.data || []).forEach((u) => { const nom = u.company || u.full_name || u.email; if (nom && !parSociete.has(nom.toLowerCase())) parSociete.set(nom.toLowerCase(), { id: u.id, nom }); });
+      (c.value.data || []).forEach((u) => { const nom = u.company || u.full_name || u.email; if (nom && !parSociete.has(nom.toLowerCase())) parSociete.set(nom.toLowerCase(), { id: u.id, nom }); });
       setClients(Array.from(parSociete.values()).sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr")));
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Chargement impossible");
-    } finally {
-      setChargement(false);
-    }
+    } else echecs.push("liste des clients");
+    setErreurChargement(echecs.length ? `Chargement impossible : ${echecs.join(", ")}. Rechargez la page.` : "");
+    setChargement(false);
   }, []);
   useEffect(() => { charger(); }, [charger]);
 
@@ -146,6 +154,12 @@ export default function EcransTvSection() {
 
       <div>
         <p className="text-sm font-medium text-slate-700 mb-2">Écrans appairés</p>
+        {erreurChargement && (
+          <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-center justify-between gap-2">
+            <span>{erreurChargement}</span>
+            <button type="button" onClick={charger} className="underline">Réessayer</button>
+          </div>
+        )}
         {chargement ? (
           <div className="flex items-center gap-2 text-slate-500 text-sm"><Loader2 className="h-4 w-4 animate-spin" />Chargement…</div>
         ) : ecrans.length === 0 ? (

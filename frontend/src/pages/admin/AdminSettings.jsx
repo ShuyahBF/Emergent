@@ -12,6 +12,7 @@ import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import PlanningWebhookSection from "@/pages/admin/sections/PlanningWebhookSection";
 import EcransTvSection from "@/pages/admin/sections/EcransTvSection";   // lot 289
+import NiveauxServiceSection from "@/pages/admin/sections/NiveauxServiceSection";   // lot 314
 import LiluvineReactionsSection from "@/pages/admin/sections/LiluvineReactionsSection";
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
@@ -1284,6 +1285,9 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="📺 Écrans TV (Smart TV)" anchorId="s-ecrans-tv">
         <EcransTvSection />
+      </Filterable>
+      <Filterable title="📅 Niveaux de service (disponibilité en image)" anchorId="s-niveaux-service">
+        <NiveauxServiceSection />
       </Filterable>
       <Filterable title="Liluvine Reactions & Ad Auto-Replies (fuzzy commands, templates FB)" anchorId="s-liluvine-reactions">
         <LiluvineReactionsSection />

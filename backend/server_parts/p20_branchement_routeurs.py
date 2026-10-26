@@ -617,7 +617,8 @@ from routes.calendrier_partage import attach_calendrier_partage_routes as _attac
 _attach_calendrier(api=api, db=db, get_current_user=get_current_user,
                    public_base_url=lambda: _public_base_url() or _PUBLIC_BASE_URL,
                    google_freebusy=gcal.freebusy, is_admin_like=_is_admin_or_superviseur,
-                   google_etat=lambda: gcal.ETAT_DERNIERE_SYNCHRO)
+                   google_etat=lambda: gcal.ETAT_DERNIERE_SYNCHRO,
+                   google_evenements=gcal.events_between)
 
 # Lot 292 — suivi des conversations liées aux rappels de RDV (onglet « Suivi des RDV » du Centre de Messagerie)
 from routes.planning_suivi_rdv import attach_planning_suivi_routes as _attach_suivi_rdv  # noqa: E402

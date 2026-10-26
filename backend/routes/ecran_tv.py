@@ -96,8 +96,20 @@ class EcranModif(BaseModel):
     modules: Optional[Dict[str, bool]] = None
 
 
-def setup_ecran_tv_routes(*, db, api, get_current_admin):
+def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_ids=None):
     """Monte les routes : publiques (/tv/…, protégées par le secret de la télé) et administrateur (/admin/tv/…)."""
+
+    async def _perimetre(client_id: str) -> List[str]:
+        """Identifiants dont les messages et tickets appartiennent à ce client : MÊME périmètre que le Centre de Messagerie
+        (le compte, son client rattaché, et les comptes de la même société). Lot 298 : avant, seul l'identifiant exact du compte
+        choisi était lu, donc l'écran restait vide quand les messages étaient rangés sous un autre compte de la même société."""
+        if resolve_visible_client_ids is None:
+            return [client_id]
+        compte = await db.users.find_one({"id": client_id}, {"_id": 0})
+        if not compte:
+            return [client_id]
+        ids = await resolve_visible_client_ids(compte)
+        return list(dict.fromkeys([client_id, *ids]))
 
     async def _reglages() -> Dict[str, Any]:
         return await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1, "tv_appairages": 1}) or {}
@@ -142,18 +154,18 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin):
         """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis)."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
-        client_id = ecran.get("client_id")
+        ids = await _perimetre(ecran.get("client_id"))
         flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules}, "maintenant": _maintenant().isoformat()}
         if modules["messagerie"]:
             docs = await db.whatsapp_messages.find(
-                {"client_id": client_id},
+                {"client_id": {"$in": ids}},
                 {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_name": 1, "from_profile_name": 1,
                  "phone_digits": 1, "from": 1, "to": 1, "received_at": 1, "sent_at": 1, "created_at": 1},
             ).sort("created_at", -1).to_list(MAX_MESSAGES)
             flux["messages"] = [forme_message(d) for d in reversed(docs)]   # du plus ancien au plus récent : le nouveau arrive en bas
         if modules["support"]:
             docs = await db.support_tickets.find(
-                {"client_id": client_id, "status": {"$in": list(STATUTS_OUVERTS)}},
+                {"client_id": {"$in": ids}, "status": {"$in": list(STATUTS_OUVERTS)}},
                 {"_id": 0, "id": 1, "number": 1, "motif": 1, "contact_name": 1, "status": 1, "opened_at": 1},
             ).sort("opened_at", -1).to_list(MAX_TICKETS)
             flux["support"] = [forme_ticket(d) for d in docs]

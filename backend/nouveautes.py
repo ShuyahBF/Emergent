@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "298", "date": "2026-10-26",
+        "titre": "📺 Écran TV : fin des zones vides",
+        "description": "L'écran ne lisait que les messages rangés sous le compte exact choisi à l'appairage ; or ils sont rangés sous le compte principal de la société. Il lit maintenant tout le périmètre de la société, comme le Centre de Messagerie. La liste des clients n'affiche plus qu'un choix par société. Aucune action : les écrans déjà appairés se remplissent seuls.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "297", "date": "2026-10-26",
         "titre": "📞 Appels WhatsApp : bon nom de contact, numéro affiché et diagnostic du son",
         "description": "Quand plusieurs contacts ont le même numéro, l'appel garde le nom du contact choisi (avant, il prenait celui de la première fiche trouvée, d'où « Diaboido » qui devenait « Dr GACKO »). Le numéro appelé s'affiche sous le nom. Le panneau d'appel indique aussi si la réponse de WhatsApp est arrivée et l'état du réseau, et propose « Copier le diagnostic du son » pour comprendre une absence de son.",

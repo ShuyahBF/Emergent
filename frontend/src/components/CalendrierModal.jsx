@@ -77,6 +77,19 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
     finally { setOccupe(false); }
   };
 
+  // Lot 322 : envoie TOUT DE SUITE au contact les 3 boutons « Avec contrat / Sans contrat / En express » (message interactif WhatsApp) ;
+  // un second appui confirme (l'envoi est immédiat et visible du contact)
+  const [confirmerBoutons, setConfirmerBoutons] = useState(false);
+  const envoyerBoutons = async () => {
+    if (!confirmerBoutons) { setConfirmerBoutons(true); setTimeout(() => setConfirmerBoutons(false), 6000); return; }
+    setConfirmerBoutons(false); setOccupe(true);
+    try {
+      await apiClient.post("/me/niveaux-service/boutons", { contact_id: contactId });
+      toast.success("Les 3 boutons ont été envoyés au contact");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Envoi des boutons impossible"); }
+    finally { setOccupe(false); }
+  };
+
   const semaine = (n) => setDepart((d) => new Date(d.getTime() + n * 7 * 86400000));
   // Période envoyée : la semaine commence le lundi ; « jour » et « 3 jours » commencent au jour choisi
   const plageEnvoi = () => ({ debut: jourIso(etendue === 7 ? lundi(depart) : depart), jours: etendue });
@@ -167,6 +180,13 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
                 title={niveaux?.configure ? "Joindre au message l'image des niveaux de service (contrat, standard, EXPRESS)" : "À régler d'abord : Paramètres → Niveaux de service (activer et renseigner les trois délais)"}
                 className="ml-auto inline-flex items-center gap-1 rounded-lg bg-amber-500 text-white px-3 py-1.5 text-xs hover:bg-amber-600 disabled:opacity-50">
                 ⚡ Niveaux de service
+              </button>
+            )}
+            {onPartagerNiveaux && contactId && (
+              <button type="button" onClick={envoyerBoutons} disabled={occupe || !niveaux?.configure} data-testid="calendrier-envoyer-boutons"
+                title={niveaux?.configure ? "Envoie tout de suite au contact 3 boutons WhatsApp : Avec contrat, Sans contrat, En express (le contact doit avoir écrit depuis moins de 24 h)" : "À régler d'abord : Paramètres → Niveaux de service"}
+                className={`rounded-lg px-3 py-1.5 text-xs text-white disabled:opacity-50 ${confirmerBoutons ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}`}>
+                {confirmerBoutons ? "Confirmer l'envoi ?" : "🔘 3 boutons"}
               </button>
             )}
             {onPartagerImage && (

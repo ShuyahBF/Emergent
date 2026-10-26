@@ -93,3 +93,49 @@ def test_clic_avec_contrat_valide_verifie_le_vrai_contrat():
         boutons.append(t); return {"ok": True}
     assert _run(traiter_clic(base, bouton_id="niv:contrat", chiffres="22670001122", destinataire="+22670001122", wa_send_text=envoyer, wa_send_boutons=prop))
     assert "est valide" in envoyes[0] and "CT-77" in envoyes[0] and "72 heures maximum" in envoyes[0] and not boutons
+
+
+# ---------- Lot 322 : envoi immédiat des 3 boutons depuis la fenêtre Calendrier ----------
+def _app_boutons(fenetre_ouverte=True, ok=True):
+    from datetime import datetime, timezone
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    from routes.niveaux_boutons import setup_niveaux_boutons_routes
+    base = AsyncMongoMockClient()["test_niv_322"]
+    _run(base.settings.insert_one({"_id": "global", "niveaux_service": {k: v for k, v in CONFIG.items() if k != "configure"}}))
+    _run(base.directory_contacts.insert_one({"id": "c1", "client_id": "u1", "whatsapp": "+22670001122", "name": "Awa"}))
+    if fenetre_ouverte:
+        _run(base.whatsapp_messages.insert_one({"direction": "inbound", "phone_digits": "22670001122", "created_at": datetime.now(timezone.utc).isoformat()}))
+    envoyes = []
+
+    async def envoyer(a, t, b_id, b_titre, **k):
+        envoyes.append((a, t, b_id, b_titre, k)); return {"ok": ok, "message_id": "w1", "error": None if ok else "Boom"}
+
+    async def visibles(user):
+        return ["u1"]
+
+    async def utilisateur():
+        return {"id": "u1", "email": "a@test"}
+    api = APIRouter(prefix="/api")
+    setup_niveaux_boutons_routes(db=base, api=api, get_current_user=utilisateur, resolve_visible_client_ids=visibles, wa_send_interactive_button=envoyer)
+    app = FastAPI(); app.include_router(api)
+    return TestClient(app), base, envoyes
+
+
+def test_envoi_des_3_boutons_au_contact():
+    c, base, envoyes = _app_boutons()
+    r = c.post("/api/me/niveaux-service/boutons", json={"contact_id": "c1"})
+    assert r.status_code == 200
+    a, texte, b_id, b_titre, k = envoyes[0]
+    assert a == "+22670001122" and b_titre == "Avec contrat" and [t for _, t in k["extra_buttons"]] == ["Sans contrat", "En express"]
+    assert "72 heures maximum" in texte and "2 heures" in texte
+    assert _run(base.whatsapp_messages.find_one({"ai_source": "niveaux_boutons_manuel"}))
+
+
+def test_boutons_refuses_fenetre_fermee_contact_inconnu_ou_whatsapp_en_erreur():
+    c, _, envoyes = _app_boutons(fenetre_ouverte=False)
+    assert c.post("/api/me/niveaux-service/boutons", json={"contact_id": "c1"}).status_code == 409 and not envoyes
+    c, _, _ = _app_boutons()
+    assert c.post("/api/me/niveaux-service/boutons", json={"contact_id": "inconnu"}).status_code == 404
+    c, _, _ = _app_boutons(ok=False)
+    assert c.post("/api/me/niveaux-service/boutons", json={"contact_id": "c1"}).status_code == 502

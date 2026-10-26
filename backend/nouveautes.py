@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "322", "date": "2026-10-27",
+        "titre": "🔘 Niveaux de service : bouton « 3 boutons » dans la fenêtre Calendrier",
+        "description": "Dans la fenêtre Calendrier d'un contact, le bouton « 🔘 3 boutons » envoie tout de suite au contact les boutons WhatsApp « Avec contrat », « Sans contrat » et « En express » (avec les délais réglés ici), sans passer par l'image. Un second appui confirme l'envoi ; le contact doit avoir écrit depuis moins de 24 h.",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "321", "date": "2026-10-27",
         "titre": "📱 Suivi du RDV par le patient : QR code sur l'écran du hall",
         "description": "À activer ici : un QR code s'affiche sur l'écran du hall. Le patient le scanne, saisit son téléphone et 2 lettres de ses initiales, et suit SON rendez-vous (médecin, heure, porte, personnes avant lui) de 3 h avant à 3 h après l'heure prévue. Aucune donnée d'un autre patient n'est visible.",

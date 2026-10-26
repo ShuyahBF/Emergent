@@ -133,3 +133,47 @@ async def traiter_clic(db, *, bouton_id: str, chiffres: str, destinataire: str, 
     except Exception:  # noqa: BLE001 — un clic non traité retombe dans l'accusé de réception habituel
         logger.warning("[niveaux_boutons] clic non traité", exc_info=True)
         return False
+
+
+def texte_menu(config: Dict[str, Any]) -> str:
+    """Message d'accueil des 3 boutons : les trois niveaux avec leur délai, puis l'invitation à choisir (1024 caractères au plus)."""
+    n = config["niveaux"]
+    lignes = ["Voici nos niveaux de prise en charge :",
+              f"• Avec contrat : {n['contrat']['delai']}",
+              f"• Sans contrat : {n['standard']['delai']}",
+              f"• En express : {n['express']['delai']}",
+              "", TEXTE_CHOIX]
+    return "\n".join(lignes)[:1024]
+
+
+def setup_niveaux_boutons_routes(*, db, api, get_current_user, resolve_visible_client_ids, wa_send_interactive_button):
+    """Lot 322 — « Niveaux de service » de la fenêtre Calendrier : envoie TOUT DE SUITE les 3 boutons au contact (en plus de l'image)."""
+    from fastapi import Body, Depends, HTTPException
+
+    @api.post("/me/niveaux-service/boutons", tags=["Portail Client"])
+    async def envoyer_boutons(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        config = normaliser_config(s.get("niveaux_service"))
+        if not config["configure"]:
+            raise HTTPException(status_code=400, detail="Réglez d'abord Paramètres → Niveaux de service (activer et renseigner les trois délais).")
+        visibles = await resolve_visible_client_ids(user)
+        contact = await db.directory_contacts.find_one({"id": str(payload.get("contact_id") or ""), "client_id": {"$in": visibles}},
+                                                       {"_id": 0, "id": 1, "client_id": 1, "whatsapp": 1, "phone": 1, "name": 1})
+        chiffres = re.sub(r"\D", "", str((contact or {}).get("whatsapp") or (contact or {}).get("phone") or ""))
+        if not contact or len(chiffres) < 6:
+            raise HTTPException(status_code=404, detail="Contact introuvable ou sans numéro WhatsApp")
+        from routes.accord_whatsapp import fenetre_ouverte
+        if not await fenetre_ouverte(db, chiffres, None):
+            raise HTTPException(status_code=409, detail="La fenêtre de 24 h est fermée : le contact doit d'abord vous écrire pour que des boutons puissent lui être envoyés.")
+        texte = texte_menu(config)
+        res = await wa_send_interactive_button(f"+{chiffres}", texte, BOUTONS[0][0], BOUTONS[0][1], extra_buttons=BOUTONS[1:])
+        ok = bool((res or {}).get("ok"))
+        maintenant = datetime.now(timezone.utc).isoformat()
+        await db.whatsapp_messages.insert_one({
+            "id": secrets.token_hex(12), "client_id": contact.get("client_id"), "direction": "outbound", "to": f"+{chiffres}", "phone_digits": chiffres,
+            "contact_id": contact.get("id"), "body": texte, "message_type": "interactive", "ai_generated": False, "ai_source": "niveaux_boutons_manuel",
+            "sender_label": user.get("full_name") or user.get("email"), "ok": ok, "wa_message_id": (res or {}).get("message_id"),
+            "message_id": (res or {}).get("message_id"), "wa_status": "sent" if ok else "failed", "created_at": maintenant, "sent_at": maintenant})
+        if not ok:
+            raise HTTPException(status_code=502, detail=f"WhatsApp a refusé l'envoi : {(res or {}).get('error') or 'erreur inconnue'}")
+        return {"ok": True}

@@ -9,7 +9,7 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Minimize2, Maximize2, Share2, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Minimize2, Maximize2, RefreshCw, Share2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import CalendrierSemaine from "@/components/CalendrierSemaine";
 
@@ -22,14 +22,28 @@ export default function CalendrierModal({ contactNom, onPartager, onClose }) {
   const [reduit, setReduit] = useState(false);
   const [bloc, setBloc] = useState({ jour: jourIso(new Date()), de: "09:00", a: "10:00", libelle: "" });
   const [occupe, setOccupe] = useState(false);
+  const [synchro, setSynchro] = useState(false);       // resynchronisation en cours (l'icône tourne)
 
   const charger = useCallback(async () => {
     try {
       const r = await apiClient.get("/me/calendrier/occupations", { params: { debut: jourIso(debut), jours: 7 } });
       setDonnees(r.data);
-    } catch (e) { toast.error(e?.response?.data?.detail || "Calendrier indisponible"); }
+      return r.data;
+    } catch (e) { toast.error(e?.response?.data?.detail || "Calendrier indisponible"); return null; }
   }, [debut]);
   useEffect(() => { charger(); }, [charger]);
+
+  // Lot 291 : à CHAQUE appui, le calendrier est relu auprès du compte Google puis on dit si Google a répondu
+  const resynchroniser = async () => {
+    setSynchro(true);
+    const d = await charger();
+    setSynchro(false);
+    if (!d) return;
+    const heure = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (!d.google) toast.success(`Calendrier actualisé à ${heure}`);
+    else if (d.google_etat?.ok) toast.success(`Calendrier resynchronisé avec Google à ${heure}`);
+    else toast.warning(`Google Calendar : ${d.google_etat?.erreur || "pas de réponse"}`);
+  };
 
   const semaine = (n) => setDebut((d) => new Date(d.getTime() + n * 7 * 86400000));
 
@@ -81,6 +95,11 @@ export default function CalendrierModal({ contactNom, onPartager, onClose }) {
             <button type="button" onClick={() => semaine(-1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
             <button type="button" onClick={() => setDebut(lundi(new Date()))} className="px-2 py-1 rounded border border-slate-300 text-xs hover:bg-slate-50">Cette semaine</button>
             <button type="button" onClick={() => semaine(1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={resynchroniser} disabled={synchro} data-testid="calendrier-resynchroniser"
+              title="Resynchroniser avec le compte Google (relit le calendrier à chaque appui)"
+              className="p-1.5 rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-60">
+              <RefreshCw className={`h-4 w-4 text-indigo-600 ${synchro ? "animate-spin" : ""}`} />
+            </button>
             <span className="text-xs text-slate-500">
               Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués)
             </span>

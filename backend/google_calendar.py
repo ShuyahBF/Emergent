@@ -203,19 +203,31 @@ async def create_event(
         return None
 
 
+# Lot 291 — résultat de la DERNIÈRE lecture de Google Calendar : l'écran « Calendrier » (bouton de resynchronisation)
+# peut ainsi dire si Google a répondu ou pourquoi il n'a pas répondu (au lieu d'afficher un calendrier vide sans explication).
+ETAT_DERNIERE_SYNCHRO: dict = {"ok": None, "erreur": "", "le": None}
+
+
+def _noter_synchro(ok: bool, erreur: str = "") -> None:
+    ETAT_DERNIERE_SYNCHRO.update({"ok": ok, "erreur": erreur, "le": datetime.now(timezone.utc).isoformat()})
+
+
 async def freebusy(start_iso: str, end_iso: str) -> list[dict]:
     """Return list of busy intervals from configured calendar."""
     service = await _build_service()
     if service is None:
+        _noter_synchro(False, "Google Calendar n'est pas connecté ou son autorisation a expiré : reconnectez-le dans Paramètres.")
         return []
     s = await _get_settings()
     calendar_id = s.get("google_calendar_email") or "primary"
     try:
         body = {"timeMin": start_iso, "timeMax": end_iso, "items": [{"id": calendar_id}]}
         res = await asyncio.to_thread(service.freebusy().query(body=body).execute)
+        _noter_synchro(True)
         return res.get("calendars", {}).get(calendar_id, {}).get("busy", [])
     except Exception as e:
         logger.error("GCal freebusy failed: %s", e)
+        _noter_synchro(False, f"Google n'a pas répondu : {str(e)[:160]}")
         return []
 
 

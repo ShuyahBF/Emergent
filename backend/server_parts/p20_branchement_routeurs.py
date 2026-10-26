@@ -616,7 +616,8 @@ _attach_voir_en_tant_que(
 from routes.calendrier_partage import attach_calendrier_partage_routes as _attach_calendrier  # noqa: E402
 _attach_calendrier(api=api, db=db, get_current_user=get_current_user,
                    public_base_url=lambda: _public_base_url() or _PUBLIC_BASE_URL,
-                   google_freebusy=gcal.freebusy, is_admin_like=_is_admin_or_superviseur)
+                   google_freebusy=gcal.freebusy, is_admin_like=_is_admin_or_superviseur,
+                   google_etat=lambda: gcal.ETAT_DERNIERE_SYNCHRO)
 
 # Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
 # la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.

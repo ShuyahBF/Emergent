@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "291", "date": "2026-10-26",
+        "titre": "🔄 Calendrier : resynchroniser avec le compte Google d'un appui",
+        "description": "Dans le calendrier ouvert depuis une discussion, une icône de resynchronisation (à côté des flèches de semaine) relit le calendrier Google à chaque appui et affiche l'heure de la mise à jour. Si Google ne répond pas (connexion expirée…), un message le dit au lieu de laisser croire que la semaine est libre. L'état de la connexion Google se contrôle dans cette rubrique.",
+        "rubrique": "🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)",
+    },
+    {
         "lot": "290", "date": "2026-10-26",
         "titre": "📞 Réponse aux reports de RDV : pictogramme au choix et numéros cliquables",
         "description": "Pour chaque client (et pour le message par défaut), une liste déroulante permet de choisir le pictogramme placé en tête du message (📞 ☎️ 🏥 🩺 📅 …). Les numéros à 8 chiffres écrits dans le message sont envoyés au format international (+226 78 26 79 00) : WhatsApp les rend cliquables et un appui ouvre le compositeur du téléphone. L'indicatif pays est réglable. Les boutons d'essai montrent le résultat exact.",

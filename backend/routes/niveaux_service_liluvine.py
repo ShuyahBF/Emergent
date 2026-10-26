@@ -45,9 +45,11 @@ def construire_bloc(config: Dict[str, Any], etat_contrat: Optional[str], forfait
                                         if contrat_valide else "pas de contrat valide : seul le niveau « standard » s'applique, plus l'EXPRESS s'il le souhaite."),
         "Si le contact demande une intervention, une assistance, ou signale une urgence :",
         "1) pose AU PLUS 3 questions courtes, une à la fois si possible : la nature du problème, son urgence (bloquant ou non), le poste ou le logiciel concerné ;",
-        "2) annonce le niveau qui lui correspond avec son délai exact ;",
-        "3) s'il est bloqué ou le demande, propose l'EXPRESS en disant clairement le délai et le tarif" + (
-            " (si le tarif est « à préciser », dis-le tel quel : il sera précisé avant l'intervention) ;" if texte_forfait(forfait) == A_PRECISER else " ;"),
+        "2) puis termine ta réponse par le marqueur [NIVEAUX] : trois boutons « Avec contrat », « Sans contrat » et « En express » seront affichés "
+        "au contact, et SA RÉPONSE aux boutons (niveau, délai, vérification du contrat, tarif) est donnée automatiquement : ne décris donc pas "
+        "les niveaux toi-même, invite simplement à choisir un service ;",
+        "3) si le contact écrit lui-même « avec contrat », « sans contrat » ou « express » au lieu de toucher un bouton, réponds avec les engagements ci-dessus" + (
+            " (tarif EXPRESS « à préciser » : dis-le tel quel, il sera précisé avant l'intervention) ;" if texte_forfait(forfait) == A_PRECISER else " ;"),
         "4) quand le contact ACCEPTE l'EXPRESS, remercie-le, confirme que le propriétaire est prévenu, et termine ta réponse par le marqueur "
         "[ESCALATE: EXPRESS accepté — <résumé de la demande en une phrase>].",
         "N'invente jamais de délai, de tarif ni d'heure de passage. Si le contact ne demande aucune intervention, ne parle pas des niveaux de service.",

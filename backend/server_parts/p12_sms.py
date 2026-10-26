@@ -2059,6 +2059,15 @@ async def whatsapp_webhook_incoming(request: Request):
                             except Exception:  # noqa: BLE001
                                 logger.warning("[accord_wa] bouton non traité", exc_info=True)
                             continue
+                        # Lot 320 — clic sur « Avec contrat » / « Sans contrat » / « En express » (niveaux de service)
+                        if btn_id.startswith("niv:"):
+                            from routes.niveaux_boutons import BOUTONS as _BTN_NIV, TEXTE_CHOIX as _TXT_NIV, traiter_clic as _clic_niv
+
+                            async def _boutons_niv(a_qui, texte):
+                                return await _wa_send_interactive_button(a_qui, texte, _BTN_NIV[0][0], _BTN_NIV[0][1], extra_buttons=_BTN_NIV[1:])
+                            if await _clic_niv(db, bouton_id=btn_id, chiffres=digits_only, destinataire=from_num,
+                                               wa_send_text=_wa_send_text, wa_send_boutons=_boutons_niv):
+                                continue
                         if btn_id.startswith("vidal_equiv:"):
                             try:
                                 parts = btn_id.split(":", 2)

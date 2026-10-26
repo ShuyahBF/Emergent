@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "320", "date": "2026-10-27",
+        "titre": "🔘 Niveaux de service : 3 boutons « Avec contrat », « Sans contrat », « En express »",
+        "description": "Quand un contact demande une intervention, Liluvine affiche trois boutons WhatsApp. « Avec contrat » vérifie le contrat du client et répond (valide : numéro, échéance, délai ; en retard ou absent : le dit et reproposer les autres services). « Sans contrat » donne le niveau standard, « En express » le délai et le tarif (forfait du client). Réglages dans cette rubrique.",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "319", "date": "2026-10-27",
         "titre": "📺 Écran TV : planning sur 3 jours ou la semaine après saisie du code PIN",
         "description": "Une fois le code PIN saisi, la télé propose Jour / 3 jours / Semaine sur le planning des médecins (RDV regroupés par jour, repère « maintenant » sur aujourd'hui) et un retour au planning depuis le Suivi Support (bouton ou touche Retour). Sans code PIN, le planning reste limité au jour.",

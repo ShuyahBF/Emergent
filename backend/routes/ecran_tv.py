@@ -176,10 +176,10 @@ def anonymiser_nom(nom: Any) -> str:
 
 
 def recu_du_patient(patient: Any) -> str:
-    """Lot 306 : numéro de reçu saisi après le téléphone dans le champ patient (« NOM : 25614545 : R-202660230 »), si le RDV n'a pas
-    de champ `numero_recu` (anciennes lignes)."""
-    parties = [p.strip() for p in str(patient or "").split(":")]
-    return parties[2] if len(parties) >= 3 else ""
+    """Numéro de reçu saisi après le téléphone dans le champ patient (« NOM : 25614545 : R-202660230 »), si le RDV n'a pas de champ
+    `numero_recu` (anciennes lignes). Même analyse que le webhook (lot 308)."""
+    from routes.planning import separer_patient_tel_recu
+    return separer_patient_tel_recu(str(patient or ""))[2]
 
 
 def masquer_tel_hall(tel: Any) -> str:

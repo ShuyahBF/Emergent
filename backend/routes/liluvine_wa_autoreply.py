@@ -1257,6 +1257,12 @@ async def autoreply_to_inbound(
         (settings_doc.get("liluvine_wa_mode_instructions") or "").strip()
         or DEFAULT_WA_MODE_INSTRUCTIONS
     )
+    # Lot 316 — niveaux de service (contrat / standard / EXPRESS) : questions, délais, tarif, prévenir le propriétaire (vide si non configuré)
+    try:
+        from routes import niveaux_service_liluvine as _nsl
+        express_bloc = await _nsl.bloc_pour_prompt(db, client_eff, etat_contrat_cl)
+    except Exception:  # noqa: BLE001
+        express_bloc = ""
     sys_text = (
         base_prompt
         + "\n\n[IMPORTANT — Mode auto-réponse WhatsApp]\n"
@@ -1267,6 +1273,7 @@ async def autoreply_to_inbound(
         + contact_tag
         + offre_bloc          # lot 163 : offre du client lié (vide si aucune)
         + consignes_conversation(bool(offre_bloc), settings_doc.get("liluvine_wa_consignes_conversation"))   # lots 179/184
+        + express_bloc        # lot 316 : niveaux de service et EXPRESS (vide si la rubrique n'est pas activée)
     )
     # Lot 59 — consignes propres à la ligne qui a reçu le message (ex. accueil VIP)
     try:

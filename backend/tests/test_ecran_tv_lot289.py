@@ -132,3 +132,49 @@ def test_fils_avec_noms_et_non_lus():
     assert gacko["nom"] == "Dr GACKO" and gacko["non_lus"] == 2 and gacko["dernier"] == "Merci"
     assert all(m["nom"] == "Dr GACKO" for m in f["messages"] if m["fil"] == "k1")
     assert "22607332313" not in str(f) and f["non_lus_total"] >= 2
+
+
+# ------------------------------------------------------------------------------------------------ lot 300 : hall
+def _doc(medecin, debut=None, ordre=None, type_evt=None, rdv=1, recu="2026-10-26T07:00:00+00:00", maj="2026-10-26T07:00:00+00:00"):
+    d = {"medecin": medecin, "is_rdv": rdv, "start_at": debut, "received_at": recu, "updated_at": maj, "numero_ordre": ordre}
+    if type_evt:
+        d["type_evenement"] = type_evt
+    return d
+
+
+def test_hall_prochain_patient_porte_et_etats():
+    from datetime import datetime, timezone
+    from routes.ecran_tv import forme_hall
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    docs = [
+        _doc("Dr X", "2026-10-26T10:30:00+00:00"),                                   # RDV à venir
+        _doc("Dr X", "2026-10-26T10:10:00+00:00", ordre=12),                         # RDV plus proche, avec numéro d'ordre
+        _doc("Dr X", "2026-10-26T09:30:00+00:00", ordre=9, type_evt="CST"),          # en consultation
+        _doc("Dr X", "2026-10-26T08:30:00+00:00", ordre=5, type_evt="RCU"),          # terminé
+        _doc("Dr X", "2026-10-26T08:00:00+00:00", ordre=3),                          # RDV passé depuis plus d'1 h : ignoré
+        _doc("Dr Y", None, ordre=21, rdv=0, recu="2026-10-26T09:40:00+00:00"),       # arrivée sans heure
+    ]
+    h = forme_hall(docs, {"dr x": "Bureau 3"}, maintenant)
+    x = next(m for m in h["medecins"] if m["medecin"] == "Dr X")
+    assert x["porte"] == "Bureau 3" and x["en_consultation"] == "N° 9" and x["vus"] == 1 and x["restants"] == 2
+    assert [p["libelle"] for p in x["prochains"]] == ["N° 12", "10:30"]
+    # Le patient attendu le plus tôt de toute la clinique : l'arrivée de Dr Y (09:40) précède le RDV de 10:10
+    assert h["prochain"] == {"medecin": "Dr Y", "porte": "", "libelle": "N° 21"}
+    assert "patient" not in str(h).lower()                                            # aucun nom de patient dans le flux
+
+
+def test_hall_flux_portes_et_type_evenement():
+    c, base = _app()
+    from datetime import datetime, timezone, timedelta
+    auj = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    _run(base.planning_appointments.insert_many([
+        {"id": "p1", "tenant_id": "cli-1", "medecin": "Dr X", "patient": "SECRET", "is_rdv": 1, "start_at": (auj + timedelta(days=0)).isoformat(),
+         "received_at": auj.isoformat(), "numero_ordre": 7}]))
+    adm = {"x-admin": "1"}
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    c.post("/api/admin/tv/appairer", headers=adm, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1", "modules": {"hall": True}})
+    assert c.put("/api/admin/tv/portes", headers=adm, json={"portes": [{"medecin": "dr x", "porte": "Bureau 3"}, {"medecin": "", "porte": "x"}]}).json()["portes"] == [{"medecin": "dr x", "porte": "Bureau 3"}]
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert "messages" not in f and "support" not in f
+    assert f["hall"]["medecins"][0]["porte"] == "Bureau 3" and "SECRET" not in str(f)
+    assert "Dr X" in c.get("/api/admin/tv/portes", headers=adm).json()["medecins_connus"]

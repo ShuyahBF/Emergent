@@ -34,7 +34,7 @@ FENETRE_FILS = 200               # messages récents examinés pour former les c
 JOURS_NON_LUS = 30               # les non-lus comptés remontent à 30 jours au plus
 MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
-MODULES = ("messagerie", "support")                 # contenus possibles (le hall viendra dans un prochain lot)
+MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
 
 
@@ -102,6 +102,85 @@ def forme_ticket(doc: Dict[str, Any]) -> Dict[str, Any]:
             "contact": str(doc.get("contact_name") or "")[:60], "statut": doc.get("status"), "date": doc.get("opened_at")}
 
 
+# ----------------------------------------------------------------------------------------------------------------------
+# Lot 300 — « Hall » : consultations du jour par médecin, prochain patient et numéro de porte (même source que le Planning des médecins)
+# ----------------------------------------------------------------------------------------------------------------------
+TYPES_ATTENTE = ("", "RDV", "PAT")          # patient encore en attente (pas de type = RDV ou arrivée reçue sans autre information)
+
+
+def _dt(iso: Any) -> Optional[datetime]:
+    try:
+        d = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def borne_jour(maintenant: datetime) -> tuple:
+    """Début et fin (UTC) de la journée de `maintenant` : même jour que dans le Planning des médecins (Burkina Faso = UTC)."""
+    j0 = maintenant.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return j0, j0 + timedelta(days=1)
+
+
+def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime) -> Dict[str, Any]:
+    """Consultations du jour par médecin. Aucun nom de patient : « N° 12 » (numéro d'ordre) ou l'heure du RDV.
+    - en consultation : type CST (le patient est reçu) ; terminés : type RCU (reçu édité) ;
+    - en attente : RDV (classés par heure) et arrivées sans heure (classées par heure d'arrivée) ;
+    - un RDV passé depuis plus d'une heure sans suite n'est plus annoncé comme « prochain ».
+    Renvoie {"medecins": [...], "prochain": {medecin, porte, libelle} | None}."""
+    limite_retard = maintenant - timedelta(hours=1)
+    par_med: Dict[str, Dict[str, Any]] = {}
+    for d in docs:
+        if str(d.get("status") or "").lower() in ("cancelled", "annule", "annulé"):
+            continue
+        nom = str(d.get("medecin") or "").strip() or "—"
+        fiche = par_med.setdefault(nom, {"medecin": nom, "porte": portes.get(nom.lower(), ""), "attente": [], "consultation": [], "vus": 0})
+        t = str(d.get("type_evenement") or "").upper()
+        no = d.get("numero_ordre")
+        debut = _dt(d.get("start_at")) if d.get("is_rdv", 1) != 0 else None
+        arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
+        libelle = f"N° {no}" if no not in (None, "") else (debut.strftime("%H:%M") if debut else "—")
+        if t == "RCU":
+            fiche["vus"] += 1
+        elif t == "CST":
+            fiche["consultation"].append({"libelle": libelle, "quand": _dt(d.get("updated_at")) or arrivee})
+        elif t in TYPES_ATTENTE:
+            quand = debut or arrivee
+            if debut and debut < limite_retard:
+                continue                                   # RDV manqué ou oublié : pas annoncé
+            fiche["attente"].append({"libelle": libelle, "heure": debut.strftime("%H:%M") if debut else None, "quand": quand})
+    medecins = []
+    for fiche in par_med.values():
+        fiche["attente"].sort(key=lambda x: x["quand"])
+        fiche["consultation"].sort(key=lambda x: x["quand"], reverse=True)
+        medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"],
+                         "en_consultation": fiche["consultation"][0]["libelle"] if fiche["consultation"] else None,
+                         "prochains": [{"libelle": x["libelle"], "heure": x["heure"]} for x in fiche["attente"][:3]],
+                         "restants": len(fiche["attente"]), "vus": fiche["vus"], "_premier": fiche["attente"][0]["quand"] if fiche["attente"] else None})
+    medecins.sort(key=lambda m: m["medecin"].lower())
+    en_attente = [m for m in medecins if m["_premier"] is not None]
+    prochain = None
+    if en_attente:
+        m = min(en_attente, key=lambda x: x["_premier"])
+        prochain = {"medecin": m["medecin"], "porte": m["porte"], "libelle": m["prochains"][0]["libelle"]}
+    for m in medecins:
+        m.pop("_premier", None)
+    return {"medecins": medecins, "prochain": prochain}
+
+
+def normaliser_portes(brut: Any) -> List[Dict[str, str]]:
+    """Table « médecin → porte / bureau » (ex. Dr OUEDRAOGO → « Bureau 3 ») : une ligne par médecin (sans casse), lignes vides retirées."""
+    par_nom: Dict[str, Dict[str, str]] = {}
+    for ligne in brut if isinstance(brut, list) else []:
+        if not isinstance(ligne, dict):
+            continue
+        medecin = str(ligne.get("medecin") or "").strip()
+        porte = str(ligne.get("porte") or "").strip()
+        if medecin and porte:
+            par_nom[medecin.lower()] = {"medecin": medecin[:80], "porte": porte[:30]}
+    return list(par_nom.values())
+
+
 def modules_valides(brut: Any) -> Dict[str, bool]:
     """Ne garde que les contenus connus ; absent = non."""
     brut = brut if isinstance(brut, dict) else {}
@@ -139,6 +218,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             return [client_id]
         ids = await resolve_visible_client_ids(compte)
         return list(dict.fromkeys([client_id, *ids]))
+
+    async def _reglages_portes() -> List[Dict[str, str]]:
+        s = await db.settings.find_one({"_id": "global"}, {"tv_portes": 1}) or {}
+        return normaliser_portes(s.get("tv_portes"))
 
     async def _reglages() -> Dict[str, Any]:
         return await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1, "tv_appairages": 1}) or {}
@@ -217,6 +300,18 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                 {"_id": 0, "id": 1, "number": 1, "motif": 1, "contact_name": 1, "status": 1, "opened_at": 1},
             ).sort("opened_at", -1).to_list(MAX_TICKETS)
             flux["support"] = [forme_ticket(d) for d in docs]
+        if modules["hall"]:
+            # Consultations du jour : UNE lecture des RDV et arrivées du jour pour tous les médecins, regroupées en mémoire
+            maintenant = _maintenant()
+            j0, j1 = borne_jour(maintenant)
+            docs = await db.planning_appointments.find(
+                {"tenant_id": {"$in": ids}, "$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}},
+                                                   {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]},
+                {"_id": 0, "medecin": 1, "is_rdv": 1, "start_at": 1, "received_at": 1, "created_at": 1, "updated_at": 1,
+                 "numero_ordre": 1, "type_evenement": 1, "status": 1},
+            ).to_list(2000)
+            r = await _reglages_portes()
+            flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant)
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():
@@ -228,6 +323,19 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
     async def admin_tv_liste(user: dict = Depends(get_current_admin)):
         s = await _reglages()
         return {"ecrans": [{k: v for k, v in e.items() if k != "empreinte"} for e in s.get("tv_ecrans") or []]}
+
+    @api.get("/admin/tv/portes", tags=["Admin — Écrans TV"])
+    async def admin_tv_portes(user: dict = Depends(get_current_admin)):
+        """Portes réglées + médecins vus dans le Planning (30 derniers jours) pour la liste déroulante de l'écran."""
+        depuis = (_maintenant() - timedelta(days=30)).isoformat()
+        medecins = await db.planning_appointments.distinct("medecin", {"received_at": {"$gte": depuis}})
+        return {"portes": await _reglages_portes(), "medecins_connus": sorted(m for m in medecins if m)}
+
+    @api.put("/admin/tv/portes", tags=["Admin — Écrans TV"])
+    async def admin_tv_portes_enregistrer(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        portes = normaliser_portes(corps.get("portes"))
+        await db.settings.update_one({"_id": "global"}, {"$set": {"tv_portes": portes}}, upsert=True)
+        return {"ok": True, "portes": portes}
 
     @api.post("/admin/tv/appairer", tags=["Admin — Écrans TV"])
     async def admin_tv_appairer(payload: EcranAppairage, user: dict = Depends(get_current_admin)):

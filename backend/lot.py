@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "299"
-LOT_LIBELLE = "Écran TV : conversations avec nom du contact et bulles de non-lus, bip à chaque nouveau message, fil en direct avec défilement automatique et barre de défilement"
+LOT = "300"
+LOT_LIBELLE = "Écran TV, hall : consultations du jour par médecin, prochain patient avec numéro d'ordre et porte, en consultation, à partir du Planning des médecins ; le webhook accepte le type d'évènement Biolog (RDV, PAT, CST, RCU)"

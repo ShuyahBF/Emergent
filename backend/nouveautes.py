@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "300", "date": "2026-10-26",
+        "titre": "🩺 Écran TV du hall : prochain patient et porte du médecin",
+        "description": "Nouveau contenu « Consultations du jour » pour l'écran TV : un grand bandeau « Prochain patient N° 12 → Bureau 3 » et, par médecin, le patient en consultation et les suivants (numéro d'ordre ou heure du RDV, jamais le nom). Les données sont celles du Planning des médecins. La porte de chaque médecin se règle dans cette rubrique (liste déroulante des médecins vus). Le webhook accepte maintenant le champ facultatif type_evenement (RDV, PAT, CST = en consultation, RCU = reçu édité, terminé) : tant qu'il n'est pas envoyé, tous les patients du jour sont considérés en attente.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "299", "date": "2026-10-26",
         "titre": "📺 Écran TV : conversations, non-lus, bip et défilement automatique",
         "description": "La zone Messagerie de l'écran TV affiche maintenant les conversations (nom du contact, dernier message, heure) avec une bulle rouge pour les messages non lus, et un fil en direct avec barre de défilement qui descend tout seul sur le dernier message. Un bip retentit à chaque nouveau message reçu : sur la télé, appuyer une fois sur OK pour activer le son (un bandeau le rappelle). Les numéros de téléphone ne sont jamais envoyés à la télé ; sans nom de contact, seuls les 4 derniers chiffres apparaissent.",

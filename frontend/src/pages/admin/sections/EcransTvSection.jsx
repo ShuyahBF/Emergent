@@ -10,6 +10,7 @@ import { Copy, Loader2, Tv, Trash2, Link2 } from "lucide-react";
 const CONTENUS = [
   { cle: "messagerie", libelle: "Messagerie (fil des messages)" },
   { cle: "support", libelle: "Demandes de support ouvertes" },
+  { cle: "hall", libelle: "Consultations du jour (hall : prochain patient, portes)" },
 ];
 
 // Date lisible « 24/10/2026 14:05 » ou « jamais »
@@ -22,15 +23,21 @@ export default function EcransTvSection() {
   const [code, setCode] = useState("");
   const [nom, setNom] = useState("");
   const [clientId, setClientId] = useState("");
-  const [modules, setModules] = useState({ messagerie: true, support: true });
+  const [modules, setModules] = useState({ messagerie: true, support: true, hall: false });
+  // Lot 300 : portes (bureaux) des médecins affichées dans le hall
+  const [portes, setPortes] = useState([]);                  // [{medecin, porte, autre}]
+  const [medecinsConnus, setMedecinsConnus] = useState([]);
+  const [savingPortes, setSavingPortes] = useState(false);
   const [envoi, setEnvoi] = useState(false);
   const adresse = `${window.location.origin}/tv`;
 
   const charger = useCallback(async () => {
     setChargement(true);
     try {
-      const [e, c] = await Promise.all([apiClient.get("/admin/tv/ecrans"), apiClient.get("/admin/clients")]);
+      const [e, c, p] = await Promise.all([apiClient.get("/admin/tv/ecrans"), apiClient.get("/admin/clients"), apiClient.get("/admin/tv/portes")]);
       setEcrans(e.data?.ecrans || []);
+      setPortes((p.data?.portes || []).map((l) => ({ ...l })));
+      setMedecinsConnus(p.data?.medecins_connus || []);
       // Un seul choix par société (plusieurs comptes d'une même société partagent les mêmes messages)
       const parSociete = new Map();
       (c.data || []).forEach((u) => { const nom = u.company || u.full_name || u.email; if (nom && !parSociete.has(nom.toLowerCase())) parSociete.set(nom.toLowerCase(), { id: u.id, nom }); });
@@ -61,6 +68,18 @@ export default function EcransTvSection() {
       setEnvoi(false);
     }
   };
+
+  const majPorte = (i, patch) => setPortes((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const enregistrerPortes = async () => {
+    setSavingPortes(true);
+    try {
+      await apiClient.put("/admin/tv/portes", { portes: portes.filter((l) => l.medecin?.trim() && l.porte?.trim()).map((l) => ({ medecin: l.medecin.trim(), porte: l.porte.trim() })) });
+      toast.success("Portes enregistrées");
+      charger();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
+    finally { setSavingPortes(false); }
+  };
+  const medecinsProposes = Array.from(new Set([...medecinsConnus, ...portes.map((l) => l.medecin).filter(Boolean)])).sort();
 
   const changerContenu = async (ecran, cle, valeur) => {
     const nouveaux = { ...ecran.modules, [cle]: valeur };
@@ -144,7 +163,7 @@ export default function EcransTvSection() {
                       <div className="flex flex-wrap gap-3">
                         {CONTENUS.map((c) => (
                           <label key={c.cle} className="flex items-center gap-1 text-xs">
-                            <input type="checkbox" checked={Boolean(e.modules?.[c.cle])} onChange={(ev) => changerContenu(e, c.cle, ev.target.checked)} />{c.cle === "messagerie" ? "Messagerie" : "Support"}
+                            <input type="checkbox" checked={Boolean(e.modules?.[c.cle])} onChange={(ev) => changerContenu(e, c.cle, ev.target.checked)} />{{ messagerie: "Messagerie", support: "Support", hall: "Hall" }[c.cle]}
                           </label>
                         ))}
                       </div>
@@ -157,6 +176,33 @@ export default function EcransTvSection() {
             </table>
           </div>
         )}
+      </div>
+      {/* Lot 300 — porte (bureau) de chaque médecin, affichée avec le prochain patient dans le hall */}
+      <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-2" data-testid="tv-portes">
+        <p className="text-sm font-medium text-slate-700">Portes des médecins (affichage du hall)</p>
+        <p className="text-xs text-slate-500">Le hall affiche « N° 12 → Bureau 3 » : le numéro d'ordre (jamais le nom du patient) et la porte du médecin. Les données viennent du Planning des médecins.</p>
+        {portes.map((l, i) => (
+          <div key={i} className="grid sm:grid-cols-[1fr_12rem_auto] gap-2" data-testid="tv-porte-ligne">
+            {l.autre || (l.medecin && !medecinsProposes.includes(l.medecin)) ? (
+              <input value={l.medecin} onChange={(e) => majPorte(i, { medecin: e.target.value })} placeholder="Nom du médecin" className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            ) : (
+              <select value={l.medecin} onChange={(e) => (e.target.value === "__autre__" ? majPorte(i, { autre: true, medecin: "" }) : majPorte(i, { medecin: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                <option value="">— Médecin —</option>
+                {medecinsProposes.map((m) => <option key={m} value={m}>{m}</option>)}
+                <option value="__autre__">Autre…</option>
+              </select>
+            )}
+            <input value={l.porte} onChange={(e) => majPorte(i, { porte: e.target.value })} maxLength={30} placeholder="Bureau 3" className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            <button type="button" onClick={() => setPortes((ls) => ls.filter((_, k) => k !== i))} title="Retirer" className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+        <div className="flex gap-2 boutons-distincts">
+          <button type="button" onClick={() => setPortes((ls) => [...ls, { medecin: "", porte: "" }])} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700" data-testid="tv-porte-ajouter">+ Ajouter un médecin</button>
+          <button type="button" onClick={enregistrerPortes} disabled={savingPortes} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-portes-enregistrer">
+            {savingPortes ? "Enregistrement…" : "Enregistrer les portes"}
+          </button>
+        </div>
       </div>
       <p className="text-[11px] text-slate-500">
         Compatible avec le navigateur d'une télé LG webOS (ou tout navigateur moderne). L'écran se rafraîchit toutes les 8 secondes ; si la liaison est perdue, il garde le dernier contenu et le signale en haut.

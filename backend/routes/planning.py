@@ -276,6 +276,9 @@ class PlanningConfigUpdate(BaseModel):
     report_repondre_tout: Optional[bool] = Field(None, description="Répondre à tout message après un rappel")
     report_defaut_emoji: Optional[str] = Field(None, description="Pictogramme du message par défaut (liste proposée)")
     report_indicatif: Optional[str] = Field(None, description="Indicatif pays ajouté aux numéros locaux (226 par défaut)")
+    # Lot 293 — nom du client cité dans les messages envoyés aux patients (rappel et réponse aux reports)
+    clients_noms: Optional[List[Dict[str, str]]] = Field(None, description="[{code_clinique, nom}] ex. CMCO → Clinique CMCO")
+    reminder_wa_variable_client: Optional[bool] = Field(None, description="Le modèle Meta a une 5e variable : le nom du client")
 
 
 class PlanningReportTest(BaseModel):
@@ -287,6 +290,7 @@ class PlanningReportTest(BaseModel):
     report_defaut: Optional[str] = None
     report_defaut_emoji: Optional[str] = None
     report_indicatif: Optional[str] = None
+    clients_noms: Optional[List[Dict[str, str]]] = None
 
 
 def attach_planning_routes(
@@ -359,6 +363,10 @@ def attach_planning_routes(
             "Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI"
         )
         modele_wa = (s.get("planning_reminder_wa_template") or "").strip()
+        # Lot 293 — nom du client qui envoie le rappel (ex. « Clinique CMCO »), pour que le patient sache de qui vient le message
+        from routes.planning_report_rdv import nom_client as _nom_client
+        cinq_variables = bool(s.get("planning_reminder_wa_variable_client"))
+        template_perso = (s.get("planning_reminder_template") or "").strip()
         langue_wa = (s.get("planning_reminder_wa_language") or "fr").strip() or "fr"
 
         query = {
@@ -385,20 +393,35 @@ def attach_planning_routes(
                     start_time = dt.strftime("%H:%M UTC")
                 except Exception:  # noqa: BLE001
                     start_time = start_iso[11:16] if len(start_iso) > 16 else start_iso
-                text = template.format(
+                client = _nom_client(s, rdv.get("code_clinique"))
+                modele_texte = template
+                if client and not template_perso:
+                    # Texte par défaut : le nom du client est cité en tête pour que le patient reconnaisse l'expéditeur
+                    modele_texte = ("Bonjour {patient}, rappel de {client} : votre rendez-vous avec {medecin} est prévu à {start_time}. "
+                                    "Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI")
+                text = modele_texte.format(
                     patient=rdv.get("patient") or "",
                     medecin=rdv.get("medecin") or "",
                     start_time=start_time,
                     motif=rdv.get("motif") or "consultation",
+                    client=client,
                 )
                 if modele_wa and wa_send_template:
                     # Modèle Meta : {{1}} patient · {{2}} médecin · {{3}} heure · {{4}} motif
-                    composants = [{"type": "body", "parameters": [
+                    # 5e variable (si le modèle Meta la prévoit) = nom du client ; sinon il est ajouté au nom du médecin
+                    # (« Dr Ki — Clinique CMCO ») : le modèle déjà approuvé par Meta reste utilisable tel quel.
+                    medecin_aff = (rdv.get("medecin") or "—")
+                    if client and not cinq_variables:
+                        medecin_aff = f"{medecin_aff} — {client}"
+                    parametres = [
                         {"type": "text", "text": (rdv.get("patient") or "—")[:60]},
-                        {"type": "text", "text": (rdv.get("medecin") or "—")[:60]},
+                        {"type": "text", "text": medecin_aff[:100]},
                         {"type": "text", "text": start_time or "—"},
                         {"type": "text", "text": (rdv.get("motif") or "consultation")[:120]},
-                    ]}]
+                    ]
+                    if cinq_variables:
+                        parametres.append({"type": "text", "text": (client or "—")[:80]})
+                    composants = [{"type": "body", "parameters": parametres}]
                     result = await wa_send_template(patient_phone, modele_wa, langue_wa, composants)
                 else:
                     result = await wa_send_text(patient_phone, text)
@@ -451,6 +474,8 @@ def attach_planning_routes(
             "report_reponses": s.get("planning_report_reponses") or [],
             "report_defaut": s.get("planning_report_defaut") or "",
             "report_repondre_tout": bool(s.get("planning_report_repondre_tout")),
+            "clients_noms": s.get("planning_clients_noms") or [],
+            "reminder_wa_variable_client": bool(s.get("planning_reminder_wa_variable_client")),
             "report_defaut_emoji": s.get("planning_report_defaut_emoji") or "",
             "report_indicatif": s.get("planning_report_indicatif") or "226",
             "report_emojis": list(__import__("routes.planning_report_rdv", fromlist=["EMOJIS"]).EMOJIS),
@@ -509,6 +534,11 @@ def attach_planning_routes(
             set_doc["planning_report_defaut"] = payload.report_defaut.strip()[:1000]
         if payload.report_repondre_tout is not None:
             set_doc["planning_report_repondre_tout"] = bool(payload.report_repondre_tout)
+        if payload.clients_noms is not None:
+            from routes.planning_report_rdv import normaliser_noms_clients
+            set_doc["planning_clients_noms"] = normaliser_noms_clients(payload.clients_noms)
+        if payload.reminder_wa_variable_client is not None:
+            set_doc["planning_reminder_wa_variable_client"] = bool(payload.reminder_wa_variable_client)
         if payload.report_defaut_emoji is not None:
             from routes.planning_report_rdv import emoji_valide
             set_doc["planning_report_defaut_emoji"] = emoji_valide(payload.report_defaut_emoji)
@@ -548,6 +578,7 @@ def attach_planning_routes(
             "planning_report_defaut": payload.report_defaut if payload.report_defaut is not None else (s.get("planning_report_defaut") or ""),
             "planning_report_defaut_emoji": payload.report_defaut_emoji if payload.report_defaut_emoji is not None else (s.get("planning_report_defaut_emoji") or ""),
             "planning_report_indicatif": payload.report_indicatif if payload.report_indicatif is not None else (s.get("planning_report_indicatif") or "226"),
+            "planning_clients_noms": payload.clients_noms if payload.clients_noms is not None else (s.get("planning_clients_noms") or []),
         }
         if payload.mode == "avec_ligne":
             code = (payload.code_client or "").strip() or (reglages["planning_report_reponses"][0]["code_clinique"]

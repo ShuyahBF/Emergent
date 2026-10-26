@@ -117,11 +117,33 @@ def composer(emoji: str, message: str, indicatif: str = INDICATIF_DEFAUT) -> str
     return f"{emoji} {corps}" if emoji else corps
 
 
-def remplir(message: str, rdv: Dict[str, Any]) -> str:
-    """Remplace {patient}, {medecin}, {code_clinique} ; un marqueur inconnu reste tel quel (jamais d'erreur)."""
+def normaliser_noms_clients(brut: Any) -> List[Dict[str, str]]:
+    """Table « code client → nom affiché aux patients » (ex. CMCO → « Clinique CMCO ») : code en majuscules, doublons retirés."""
+    par_code: Dict[str, str] = {}
+    for ligne in brut if isinstance(brut, list) else []:
+        if not isinstance(ligne, dict):
+            continue
+        code = str(ligne.get("code_clinique") or "").strip().upper()
+        nom = str(ligne.get("nom") or "").strip()
+        if code and nom:
+            par_code[code] = nom[:80]
+    return [{"code_clinique": c, "nom": n} for c, n in par_code.items()]
+
+
+def nom_client(reglages: Dict[str, Any], code_clinique: Optional[str]) -> str:
+    """Nom du client à citer dans les messages aux patients (vide si aucun nom n'est réglé pour ce code)."""
+    code = (code_clinique or "").strip().upper()
+    for ligne in normaliser_noms_clients(reglages.get("planning_clients_noms")):
+        if ligne["code_clinique"] == code:
+            return ligne["nom"]
+    return ""
+
+
+def remplir(message: str, rdv: Dict[str, Any], client: str = "") -> str:
+    """Remplace {patient}, {medecin}, {client}, {code_clinique} ; un marqueur inconnu reste tel quel (jamais d'erreur)."""
     valeurs = {"patient": rdv.get("patient") or "", "medecin": rdv.get("medecin") or "",
-               "code_clinique": rdv.get("code_clinique") or ""}
-    return re.sub(r"\{(patient|medecin|code_clinique)\}", lambda m: valeurs[m.group(1)], message)
+               "code_clinique": rdv.get("code_clinique") or "", "client": client}
+    return re.sub(r"\{(patient|medecin|code_clinique|client)\}", lambda m: valeurs[m.group(1)], message)
 
 
 async def rdv_rappele(db, phone_digits: str, maintenant: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
@@ -154,7 +176,7 @@ async def repondre_report_rdv(
     message = message_pour_clinique(reglages, rdv.get("code_clinique"))
     if not message:
         return None   # clinique sans message réglé et pas de message par défaut : Liluvine répond comme d'habitude
-    texte_reponse = remplir(message, rdv)
+    texte_reponse = remplir(message, rdv, nom_client(reglages, rdv.get("code_clinique")))
     await envoyer(numero_destinataire, texte_reponse)
     # Une seule réponse par RDV : les messages suivants du patient suivent le traitement habituel de Liluvine
     await db.planning_appointments.update_one(
@@ -176,4 +198,4 @@ def simuler_reponse(reglages: Dict[str, Any], code_client: Optional[str]) -> Dic
     message = message_pour_clinique(reglages, code)   # pictogramme en tête + numéros cliquables, comme l'envoi réel
     source = "ligne" if ligne else ("defaut" if message else "aucun")
     exemple = {"patient": "PATIENT TEST", "medecin": "DR TEST", "code_clinique": code}
-    return {"source": source, "message": remplir(message, exemple) if message else ""}
+    return {"source": source, "message": remplir(message, exemple, nom_client(reglages, code)) if message else ""}

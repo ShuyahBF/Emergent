@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "293", "date": "2026-10-26",
+        "titre": "🏷️ Rappels de RDV : le nom du client expéditeur est cité au patient",
+        "description": "Nouveau bloc « Nom du client cité dans les messages aux patients » : une ligne par code client (CMCO → « Clinique CMCO », SAWALI-2S → « SAWALI SMART SYSTEMS »). Le rappel de RDV commence alors par « rappel de Clinique CMCO » ; le marqueur {client} est utilisable dans vos textes et dans les réponses aux reports. Avec un modèle Meta, le nom est la 5e variable si vous cochez la case, sinon il est ajouté au médecin (« Dr X — Clinique CMCO »). Sans nom réglé pour un code, rien ne change. La liste des pictogrammes est aussi élargie pour ne plus être coupée.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "292", "date": "2026-10-26",
         "titre": "👀 Centre de Messagerie : onglet « Suivi des RDV »",
         "description": "Nouvel onglet à côté de « Contacts » : on choisit un compte (ex. CMCO) et une période dans des listes déroulantes, puis on suit comme dans une discussion les fils des patients qui ont reçu un rappel de RDV : leurs réponses, la réponse automatique de Liluvine, les badges « Report demandé », « Réponse auto » et « Rappel non remis ». Lecture seule, actualisée toutes les 30 secondes, réservée aux administrateurs et superviseurs. Les réponses automatiques se règlent dans cette rubrique.",

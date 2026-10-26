@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "292"
-LOT_LIBELLE = "Centre de Messagerie : onglet « Suivi des RDV » (choix d'un compte comme CMCO, fils de discussion des patients rappelés, signaux report demandé / réponse auto)"
+LOT = "293"
+LOT_LIBELLE = "Rappels de RDV : le nom du client expéditeur (ex. Clinique CMCO) est cité aux patients, réglé par code client ; liste des pictogrammes élargie"

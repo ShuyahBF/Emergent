@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play, Plus, Trash2, PhoneForwarded } from "lucide-react";
+import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play, Plus, Trash2, PhoneForwarded, Building2 } from "lucide-react";
 
 const DEFAULT_TEMPLATE = "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI";
 
@@ -13,7 +13,7 @@ const DEFAULT_TEMPLATE = "Bonjour {patient}, rappel : votre rendez-vous avec {me
 const EMOJIS = ["📞", "☎️", "🏥", "🩺", "📅", "🕒", "ℹ️", "⚠️", "🙏", "👋", "✅", "💬"];
 const SelectEmoji = ({ value, onChange, testid }) => (
   <select value={value || ""} onChange={(e) => onChange(e.target.value)} title="Pictogramme en tête du message"
-          className="px-2 py-2 border border-slate-300 rounded-lg text-lg" data-testid={testid}>
+          className="px-2 py-2 min-w-[7rem] border border-slate-300 rounded-lg text-base" data-testid={testid}>
     <option value="">Aucun</option>
     {EMOJIS.map((e) => <option key={e} value={e}>{e}</option>)}
   </select>
@@ -37,6 +37,10 @@ export default function PlanningWebhookSection() {
   const [reportTout, setReportTout] = useState(false);
   const [reportDefautEmoji, setReportDefautEmoji] = useState("");   // pictogramme du message par défaut
   const [reportIndicatif, setReportIndicatif] = useState("226");     // indicatif pays ajouté aux numéros locaux
+  // Lot 293 : nom du client cité aux patients (ex. CMCO → « Clinique CMCO ») et 5e variable du modèle Meta
+  const [clientsNoms, setClientsNoms] = useState([]);                 // [{code_clinique, nom, autre}]
+  const [variableClient, setVariableClient] = useState(false);
+  const [savingNoms, setSavingNoms] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   // Essai : numéro WhatsApp qui reçoit le message (mémorisé dans ce navigateur), client de la ligne essayée, essai en cours
   const [telEssai, setTelEssai] = useState(() => { try { return localStorage.getItem("planning_report_tel_essai") || ""; } catch { return ""; } });
@@ -57,6 +61,8 @@ export default function PlanningWebhookSection() {
       setReportTout(Boolean(c.data?.report_repondre_tout));
       setReportDefautEmoji(c.data?.report_defaut_emoji || "");
       setReportIndicatif(c.data?.report_indicatif || "226");
+      setClientsNoms((c.data?.clients_noms || []).map((l) => ({ ...l })));
+      setVariableClient(Boolean(c.data?.reminder_wa_variable_client));
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Impossible de charger la config");
     } finally {
@@ -93,8 +99,22 @@ export default function PlanningWebhookSection() {
   };
 
   // Lot 287 — codes proposés dans la liste déroulante : ceux déjà reçus par le webhook + ceux déjà réglés (jamais de perte à l'édition)
-  const codesProposes = Array.from(new Set([...(cfg?.codes_clinique_connus || []), ...reportLignes.map((l) => l.code_clinique).filter(Boolean)])).sort();
+  const codesProposes = Array.from(new Set([...(cfg?.codes_clinique_connus || []), ...reportLignes.map((l) => l.code_clinique).filter(Boolean), ...clientsNoms.map((l) => l.code_clinique).filter(Boolean)])).sort();
   const majLigne = (i, patch) => setReportLignes((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const majNom = (i, patch) => setClientsNoms((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const nomsPropres = () => clientsNoms.filter((l) => l.code_clinique?.trim() && l.nom?.trim()).map((l) => ({ code_clinique: l.code_clinique.trim(), nom: l.nom.trim() }));
+  const enregistrerNoms = async () => {
+    setSavingNoms(true);
+    try {
+      await apiClient.put("/admin/planning/config", { clients_noms: nomsPropres(), reminder_wa_variable_client: variableClient });
+      toast.success("Noms des clients enregistrés");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur sauvegarde");
+    } finally {
+      setSavingNoms(false);
+    }
+  };
   const enregistrerReport = async () => {
     setSavingReport(true);
     try {
@@ -125,6 +145,7 @@ export default function PlanningWebhookSection() {
         report_reponses: reportLignes.filter((l) => l.code_clinique?.trim() && l.message?.trim())
           .map((l) => ({ code_clinique: l.code_clinique.trim(), message: l.message.trim(), emoji: l.emoji || "" })),
         report_defaut: reportDefaut, report_defaut_emoji: reportDefautEmoji, report_indicatif: reportIndicatif,
+        clients_noms: nomsPropres(),
       });
       const d = r.data || {};
       if (d.envoye) toast.success(`Essai envoyé (${d.source === "ligne" ? `client ${d.code_client}` : "message par défaut"}) : ${d.message}`);
@@ -225,7 +246,8 @@ export default function PlanningWebhookSection() {
                   Placeholders : <code className="bg-slate-100 px-1 rounded">{"{patient}"}</code>,{" "}
                   <code className="bg-slate-100 px-1 rounded">{"{medecin}"}</code>,{" "}
                   <code className="bg-slate-100 px-1 rounded">{"{start_time}"}</code>,{" "}
-                  <code className="bg-slate-100 px-1 rounded">{"{motif}"}</code>.
+                  <code className="bg-slate-100 px-1 rounded">{"{motif}"}</code>,{" "}
+                  <code className="bg-slate-100 px-1 rounded">{"{client}"}</code> (nom réglé plus bas).
                 </p>
               </div>
             </div>
@@ -311,6 +333,61 @@ export default function PlanningWebhookSection() {
             </div>
           </div>
 
+          {/* Lot 293 — Nom du client cité aux patients : « rappel de Clinique CMCO » */}
+          <div className="pt-4 border-t border-slate-200 space-y-3" data-testid="planning-noms-bloc">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                <Building2 className="h-4 w-4 text-amber-700" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-slate-800">Nom du client cité dans les messages aux patients</h3>
+                <p className="text-xs text-slate-500">
+                  Pour qu'un patient reconnaisse l'expéditeur, le rappel de RDV indique le nom du client (ex. CMCO → « Clinique CMCO »,
+                  SAWALI-2S → « SAWALI SMART SYSTEMS »). Dans vos textes, le marqueur <code className="bg-slate-100 px-1 rounded">{"{client}"}</code> donne ce nom ;
+                  sans texte personnalisé, le texte par défaut commence par « rappel de &lt;client&gt; ». Sans nom réglé pour un code, rien n'est ajouté.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {clientsNoms.map((l, i) => (
+                <div key={i} className="grid sm:grid-cols-[11rem_1fr_auto] gap-2 items-start" data-testid="planning-nom-ligne">
+                  {l.autre || (l.code_clinique && !codesProposes.includes(l.code_clinique)) ? (
+                    <input value={l.code_clinique} onChange={(e) => majNom(i, { code_clinique: e.target.value })} placeholder="Code client"
+                           className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono" />
+                  ) : (
+                    <select value={l.code_clinique} onChange={(e) => (e.target.value === "__autre__" ? majNom(i, { autre: true, code_clinique: "" }) : majNom(i, { code_clinique: e.target.value }))}
+                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono">
+                      <option value="">— Client —</option>
+                      {codesProposes.map((c) => <option key={c} value={c}>{c}</option>)}
+                      <option value="__autre__">Autre…</option>
+                    </select>
+                  )}
+                  <input value={l.nom} onChange={(e) => majNom(i, { nom: e.target.value })} maxLength={80} placeholder="Clinique CMCO"
+                         className="px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="planning-nom-saisi" />
+                  <button type="button" onClick={() => setClientsNoms((ls) => ls.filter((_, k) => k !== i))} title="Retirer ce client"
+                          className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => setClientsNoms((ls) => [...ls, { code_clinique: "", nom: "" }])}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700"
+                      data-testid="planning-nom-ajouter">
+                <Plus className="h-4 w-4" /> Ajouter un client
+              </button>
+            </div>
+            <label className="flex items-start gap-2 text-xs text-slate-600">
+              <input type="checkbox" className="mt-0.5" checked={variableClient} onChange={(e) => setVariableClient(e.target.checked)} data-testid="planning-variable-client" />
+              <span>
+                Mon modèle Meta du rappel a une 5<sup>e</sup> variable pour le nom du client ({"{{5}}"}). Sinon (modèle à 4 variables déjà approuvé),
+                le nom est ajouté au médecin : « Dr X — Clinique CMCO ».
+              </span>
+            </label>
+            <button type="button" onClick={enregistrerNoms} disabled={savingNoms}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="planning-noms-save-btn">
+              {savingNoms ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+              Enregistrer les noms
+            </button>
+          </div>
+
           {/* Lot 287 — Réponse de Liluvine aux demandes de report, adaptée à la clinique (code_clinique) */}
           <div className="pt-4 border-t border-slate-200 space-y-3" data-testid="planning-report-bloc">
             <div className="flex items-start gap-3">
@@ -323,7 +400,8 @@ export default function PlanningWebhookSection() {
                   Quand un patient écrit dans les 24 h qui suivent son rappel, Liluvine retrouve son RDV (par son numéro), lit le code du client (champ
                   <code className="bg-slate-100 px-1 rounded mx-1">code_clinique</code>) et répond avec le message réglé pour ce client
                   (une seule fois par RDV). Marqueurs possibles : <code className="bg-slate-100 px-1 rounded">{"{patient}"}</code>,{" "}
-                  <code className="bg-slate-100 px-1 rounded">{"{medecin}"}</code>.
+                  <code className="bg-slate-100 px-1 rounded">{"{medecin}"}</code>,{" "}
+                  <code className="bg-slate-100 px-1 rounded">{"{client}"}</code>.
                 </p>
               </div>
             </div>
@@ -338,7 +416,7 @@ export default function PlanningWebhookSection() {
             )}
             <div className="space-y-2">
               {reportLignes.map((l, i) => (
-                <div key={i} className="grid sm:grid-cols-[11rem_5.5rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
+                <div key={i} className="grid sm:grid-cols-[11rem_7.5rem_1fr_auto] gap-2 items-start" data-testid="planning-report-ligne">
                   {/* Liste déroulante des codes connus ; « Autre… » ouvre une saisie libre */}
                   {l.autre || (l.code_clinique && !codesProposes.includes(l.code_clinique)) ? (
                     <input value={l.code_clinique} onChange={(e) => majLigne(i, { code_clinique: e.target.value })} placeholder="Code client"

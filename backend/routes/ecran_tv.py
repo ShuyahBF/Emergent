@@ -155,71 +155,66 @@ def borne_jour(maintenant: datetime) -> tuple:
 
 
 def anonymiser_nom(nom: Any) -> str:
-    """Lot 304 : affichage PUBLIC (hall) — « KANE Fatimata » → « K. F. » : seules les initiales sont montrées."""
-    mots = [m for m in str(nom or "").replace("-", " ").split() if m]
-    return " ".join(m[0].upper() + "." for m in mots[:3]) if mots else "—"
+    """Lot 305 : affichage PUBLIC (hall). Chaque mot garde ses 2 premiers caractères, les suivants deviennent « * » (la ponctuation
+    reste) ; un mot de 1 ou 2 lettres (initiale) reste entier. « GUYO. R. Paulin : 70001122 » → « GU**. R. Pa**** ».
+    Le téléphone collé au nom par le Planning (« NOM : 70001122 ») est retiré ici : il s'affiche à part, lui aussi masqué."""
+    texte = str(nom or "").split(" : ")[0]
+    mots = [m for m in texte.split() if m and not m.strip(".:;,-").isdigit()]
+    sortie = []
+    for mot in mots[:5]:
+        lettres = 0
+        res = ""
+        for ch in mot:
+            if ch.isalnum():
+                lettres += 1
+                res += ch if (lettres <= 2 or len([c for c in mot if c.isalnum()]) <= 2) else "*"
+            else:
+                res += ch                                 # ponctuation conservée (« . », « - », « ' »)
+        sortie.append(res)
+    return " ".join(sortie) if sortie else "—"
 
 
 def masquer_tel_hall(tel: Any) -> str:
-    """Lot 304 : téléphone d'un patient pour le hall — seuls les 2 derniers chiffres : « •• •• •• 22 »."""
+    """Lot 305 : téléphone pour le hall — 1er chiffre, étoiles, 2 derniers chiffres : « 70001122 » → « 7*****22 » (numéro national à 8 chiffres)."""
     c = "".join(ch for ch in str(tel or "") if ch.isdigit())
-    return f"•• •• •• {c[-2:]}" if len(c) >= 2 else ""
+    if len(c) >= 8:
+        c = c[-8:]
+    return f"{c[0]}{'*' * (len(c) - 3)}{c[-2:]}" if len(c) >= 4 else ""
 
 
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
                fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False) -> Dict[str, Any]:
-    """Consultations du jour par médecin. Aucun nom de patient complet : « N° 12 » (numéro d'ordre), l'heure du RDV, ou les initiales (lot 304).
-    - en consultation : type CST (le patient est reçu) ; terminés : type RCU (reçu édité) ;
-    - en attente : RDV (classés par heure) et arrivées sans heure (classées par heure d'arrivée) ;
-    - un RDV passé depuis plus d'une heure sans suite n'est plus annoncé comme « prochain ».
+    """Planning du jour par médecin (lot 305 : les RDV sont pris TELS QUELS, le champ `type_evenement` n'est plus utilisé).
+    Pour chaque médecin : ses RDV du jour classés par heure, chacun avec le patient ANONYMISÉ (« GU**. R. Pa**** »), son téléphone masqué
+    (« 7*****42 ») et le numéro de reçu s'il est transmis. `prochain_min` = minutes avant le prochain RDV non encore passé.
     Renvoie {"medecins": [...], "prochain": {medecin, porte, libelle} | None}."""
-    limite_retard = maintenant - timedelta(hours=1)
     par_med: Dict[str, Dict[str, Any]] = {}
     for d in docs:
         if str(d.get("status") or "").lower() in ("cancelled", "annule", "annulé"):
             continue
         nom = str(d.get("medecin") or "").strip() or "—"
-        fiche = par_med.setdefault(nom, {"medecin": nom, "porte": portes.get(nom.lower(), ""), "attente": [], "consultation": [], "vus": 0, "rdv": []})
-        t = str(d.get("type_evenement") or "").upper()
-        no = d.get("numero_ordre")
+        fiche = par_med.setdefault(nom, {"medecin": nom, "porte": portes.get(nom.lower(), ""), "rdv": []})
         debut = _dt(d.get("start_at")) if d.get("is_rdv", 1) != 0 else None
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
-        libelle = f"N° {no}" if no not in (None, "") else (debut.strftime("%H:%M") if debut else "—")
-        # Lot 304 : planning du jour du médecin, ANONYMISÉ (initiales et fin du téléphone seulement)
-        quand_rdv = debut or arrivee
-        etat = "termine" if t == "RCU" else "consultation" if t == "CST" else ("passe" if debut and debut < limite_retard else "attente")
-        fiche["rdv"].append({"heure": quand_rdv.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
-                             "etat": etat, "ordre": no if no not in (None, "") else None, "_q": quand_rdv})
-        if t == "RCU":
-            fiche["vus"] += 1
-        elif t == "CST":
-            fiche["consultation"].append({"libelle": libelle, "quand": _dt(d.get("updated_at")) or arrivee})
-        elif t in TYPES_ATTENTE:
-            quand = debut or arrivee
-            if debut and debut < limite_retard:
-                continue                                   # RDV manqué ou oublié : pas annoncé
-            fiche["attente"].append({"libelle": libelle, "heure": debut.strftime("%H:%M") if debut else None, "quand": quand})
+        quand = debut or arrivee
+        fiche["rdv"].append({"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
+                             "recu": str(d.get("numero_recu") or "").strip()[:30], "passe": quand < maintenant, "_q": quand})
     medecins = []
     for fiche in par_med.values():
-        fiche["attente"].sort(key=lambda x: x["quand"])
-        fiche["consultation"].sort(key=lambda x: x["quand"], reverse=True)
         fiche["rdv"].sort(key=lambda x: x["_q"])
-        a_venir = [x["_q"] for x in fiche["rdv"] if x["etat"] == "attente"]
-        prochain_min = int((a_venir[0] - maintenant).total_seconds() // 60) if a_venir else None
-        rdv = [{k: v for k, v in x.items() if k != "_q"} for x in fiche["rdv"]][:14]
-        extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # lot 303 : profession et photo du médecin
+        a_venir = [x["_q"] for x in fiche["rdv"] if not x["passe"]]
+        extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # profession et photo du médecin
         medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"], "profession": extra.get("profession", ""),
                          "a_photo": bool(extra.get("photo")), "photo": extra.get("photo", "") if avec_photos else "",
-                         "en_consultation": fiche["consultation"][0]["libelle"] if fiche["consultation"] else None,
-                         "prochains": [{"libelle": x["libelle"], "heure": x["heure"]} for x in fiche["attente"][:3]],
-                         "rdv": rdv, "prochain_min": prochain_min,
-                         "restants": len(fiche["attente"]), "vus": fiche["vus"], "_premier": fiche["attente"][0]["quand"] if fiche["attente"] else None})
+                         "rdv": [{k: v for k, v in x.items() if k != "_q"} for x in fiche["rdv"]][:14],
+                         "prochain_min": int((a_venir[0] - maintenant).total_seconds() // 60) if a_venir else None,
+                         "_premier": a_venir[0] if a_venir else None})
     medecins.sort(key=lambda m: m["medecin"].lower())
     en_attente = [m for m in medecins if m["_premier"] is not None]
     prochain = None
     if en_attente:
         m = min(en_attente, key=lambda x: x["_premier"])
-        prochain = {"medecin": m["medecin"], "porte": m["porte"], "libelle": m["prochains"][0]["libelle"]}
+        prochain = {"medecin": m["medecin"], "porte": m["porte"], "libelle": next(x["heure"] for x in m["rdv"] if not x["passe"])}
     for m in medecins:
         m.pop("_premier", None)
     return {"medecins": medecins, "prochain": prochain}
@@ -392,7 +387,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                 {"tenant_id": {"$in": ids}, "$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}},
                                                    {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]},
                 {"_id": 0, "medecin": 1, "is_rdv": 1, "start_at": 1, "received_at": 1, "created_at": 1, "updated_at": 1,
-                 "numero_ordre": 1, "type_evenement": 1, "status": 1, "patient": 1, "patient_phone": 1},
+                 "numero_ordre": 1, "status": 1, "patient": 1, "patient_phone": 1, "numero_recu": 1},
             ).to_list(2000)
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)

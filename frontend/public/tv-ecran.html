@@ -84,7 +84,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .ligne-rdv .tel{width:22vw;color:#94a3b8;font-size:3vh}
 .ligne-rdv .etat{width:20vw;text-align:right;font-size:2.8vh}
 .ligne-rdv.consult{background:#064e3b}
-.ligne-rdv.fini{opacity:.45}
+.ligne-rdv.fini{opacity:.5}
 .points{text-align:center;font-size:3vh;color:#475569;margin-top:1vh}
 .points b{color:#38bdf8}
 #erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
@@ -273,7 +273,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     // Lot 304 : écran par défaut = planning des médecins (si le contenu « Hall » est activé), sinon suivi
     var hallOn = !!m.hall, suiviOn = !!(m.messagerie || m.support);
     if (!mode || (mode === "planning" && !hallOn) || (mode === "suivi" && !suiviOn)) { mode = hallOn ? "planning" : "suivi"; }
-    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi (messages)" : "Planning des médecins") + "</span>" : "") +
+    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
       (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (mode === "suivi" && m.messagerie) {
@@ -314,13 +314,13 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       var hall = (flux && flux.hall) || { medecins: [], prochain: null }, liste = [], k2;
       for (i = 0; i < hall.medecins.length; i++) {
         var mm = hall.medecins[i], actif = false;
-        for (k2 = 0; k2 < mm.rdv.length; k2++) { if (mm.rdv[k2].etat === "attente" || mm.rdv[k2].etat === "consultation") { actif = true; } }
+        for (k2 = 0; k2 < mm.rdv.length; k2++) { if (!mm.rdv[k2].passe) { actif = true; } }   // lot 305 : seuls les RDV non encore passés comptent
         if (actif) { liste.push(mm); }
       }
       if (!liste.length) { for (i = 0; i < hall.medecins.length; i++) { if (hall.medecins[i].rdv.length) { liste.push(hall.medecins[i]); } } }
       // À l'approche d'un RDV (moins de 5 minutes) le médecin concerné passe à l'écran, une seule fois par RDV
       for (i = 0; i < liste.length; i++) {
-        var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + (liste[i].prochains[0] ? liste[i].prochains[0].libelle : "");
+        var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + liste[i].prochain_min + "|" + liste[i].rdv.length;
         if (pm !== null && pm >= 0 && pm <= 5 && !forces[cleU]) { forces[cleU] = true; idxMed = i; }
       }
       h += '<div class="plan">';
@@ -335,9 +335,10 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         h += '<div class="liste-rdv">';
         if (!md.rdv.length) { h += '<div class="vide">Aucun rendez-vous</div>'; }
         for (k2 = 0; k2 < md.rdv.length; k2++) {
-          var r = md.rdv[k2], libEtat = r.etat === "consultation" ? "En consultation" : r.etat === "termine" ? "Terminé" : r.etat === "passe" ? "Non venu" : "En attente";
-          h += '<div class="ligne-rdv' + (r.etat === "consultation" ? " consult" : (r.etat === "termine" || r.etat === "passe" ? " fini" : "")) + '"><span class="hr">' + esc(r.heure) + '</span><span class="qui">' + esc(r.qui) +
-            (r.ordre ? " · N° " + esc(r.ordre) : "") + '</span><span class="tel">' + esc(r.tel) + '</span><span class="etat">' + libEtat + "</span></div>";
+          var r = md.rdv[k2];
+          // Lot 305 : « Gu**. R. Pa**** | 7*****42 | R-2026302201 » (identité et téléphone anonymisés par le serveur ; le reçu n'apparaît que s'il est transmis)
+          h += '<div class="ligne-rdv' + (r.passe ? " fini" : "") + '"><span class="hr">' + esc(r.heure) + '</span><span class="qui">' + esc(r.qui) + " | " + esc(r.tel || "—") +
+            (r.recu ? " | " + esc(r.recu) : "") + "</span></div>";
         }
         h += "</div>";
         for (i = 0; i < liste.length; i++) { pts += (i === idxMed % liste.length ? "<b>●</b> " : "○ "); }

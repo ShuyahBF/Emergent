@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "305", "date": "2026-10-26",
+        "titre": "📺 Écran TV : planning anonymisé « identité | téléphone | reçu »",
+        "description": "Le planning du hall prend les RDV tels qu'ils arrivent du webhook (le type d'évènement n'est plus utilisé). Chaque ligne s'affiche « GU**. R. Pa**** | 7*****42 | R-2026302201 » : 2 premiers caractères de chaque mot du nom et du prénom, téléphone réduit au 1er chiffre et aux 2 derniers, puis le numéro de reçu s'il est transmis par le webhook (champ numero_recu). Le bouton de bascule s'appelle maintenant « Suivi Support ».",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "304", "date": "2026-10-26",
         "titre": "📺 Écran TV : planning des médecins en carrousel, bascule vers le suivi",
         "description": "Au démarrage, l'écran TV (contenu « Hall » coché) affiche le planning des médecins : encadré avec la photo, le nom, le titre et la porte du médecin, puis ses RDV du jour avec leur état. Le patient est anonymisé (initiales et deux derniers chiffres du téléphone), car l'écran est public. Le carrousel passe au médecin suivant toutes les minutes, et un médecin dont le RDV approche (moins de 5 minutes) passe à l'écran. Un bouton en haut de page (ou la touche rouge de la télécommande) bascule vers le suivi : messages et demandes de support ouvertes.",

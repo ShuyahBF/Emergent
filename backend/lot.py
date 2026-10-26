@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "304"
-LOT_LIBELLE = "Écran TV : planning des médecins en carrousel par défaut (photo, titre, RDV du jour anonymisés), bouton de bascule vers le suivi (messages et support)"
+LOT = "305"
+LOT_LIBELLE = "Écran TV : planning du hall pris tel quel (sans type d'évènement), ligne « identité | téléphone | reçu » anonymisée, bouton « Suivi Support »"

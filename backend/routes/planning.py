@@ -710,6 +710,8 @@ def attach_planning_routes(
         type_evenement = str(body.get("type_evenement") or body.get("type_evt") or body.get("TypeEvenement") or "").strip().upper()
         if type_evenement not in ("PAT", "RDV", "CST", "RCU"):
             type_evenement = ""
+        # Lot 305 — numéro de reçu (ex. « R-2026302201 »), facultatif : affiché en 3e colonne du planning de l'écran TV du hall
+        numero_recu = str(body.get("numero_recu") or body.get("recu") or body.get("num_recu") or body.get("receipt_number") or "").strip()[:30]
 
         # Résout le tenant_id : par défaut super-admin du système. Si medecin_email
         # correspond à un utilisateur tracked, on utilise SON tenant.
@@ -879,6 +881,8 @@ def attach_planning_routes(
             "correction_applied": correction_applied,
             "correction_reason": correction_reason,
         }
+        if numero_recu:
+            set_doc["numero_recu"] = numero_recu                 # lot 305 : ne remplace jamais une valeur existante par du vide
         if type_evenement:
             set_doc["type_evenement"] = type_evenement          # lot 300 : n'écrase jamais une valeur existante par du vide
         set_on_insert = {

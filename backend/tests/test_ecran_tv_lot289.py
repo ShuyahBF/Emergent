@@ -143,23 +143,21 @@ def _doc(medecin, debut=None, ordre=None, type_evt=None, rdv=1, recu="2026-10-26
 
 
 def test_hall_prochain_patient_porte_et_etats():
+    """Lot 305 : les RDV sont pris tels quels (type_evenement ignoré) ; le prochain RDV non passé donne le « prochain patient »."""
     from datetime import datetime, timezone
     from routes.ecran_tv import forme_hall
     maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
     docs = [
         _doc("Dr X", "2026-10-26T10:30:00+00:00"),                                   # RDV à venir
-        _doc("Dr X", "2026-10-26T10:10:00+00:00", ordre=12),                         # RDV plus proche, avec numéro d'ordre
-        _doc("Dr X", "2026-10-26T09:30:00+00:00", ordre=9, type_evt="CST"),          # en consultation
-        _doc("Dr X", "2026-10-26T08:30:00+00:00", ordre=5, type_evt="RCU"),          # terminé
-        _doc("Dr X", "2026-10-26T08:00:00+00:00", ordre=3),                          # RDV passé depuis plus d'1 h : ignoré
+        _doc("Dr X", "2026-10-26T10:10:00+00:00", ordre=12),                         # RDV plus proche
+        _doc("Dr X", "2026-10-26T09:30:00+00:00", ordre=9, type_evt="CST"),          # type ignoré : simple RDV déjà passé
         _doc("Dr Y", None, ordre=21, rdv=0, recu="2026-10-26T09:40:00+00:00"),       # arrivée sans heure
     ]
     h = forme_hall(docs, {"dr x": "Bureau 3"}, maintenant)
     x = next(m for m in h["medecins"] if m["medecin"] == "Dr X")
-    assert x["porte"] == "Bureau 3" and x["en_consultation"] == "N° 9" and x["vus"] == 1 and x["restants"] == 2
-    assert [p["libelle"] for p in x["prochains"]] == ["N° 12", "10:30"]
-    # Le patient attendu le plus tôt de toute la clinique : l'arrivée de Dr Y (09:40) précède le RDV de 10:10
-    assert h["prochain"] == {"medecin": "Dr Y", "porte": "", "libelle": "N° 21"}
+    assert x["porte"] == "Bureau 3" and x["prochain_min"] == 10
+    assert [(r["heure"], r["passe"]) for r in x["rdv"]] == [("09:30", True), ("10:10", False), ("10:30", False)]
+    assert h["prochain"] == {"medecin": "Dr X", "porte": "Bureau 3", "libelle": "10:10"}
     assert "patient" not in str(h).lower()                                            # aucun nom de patient dans le flux
 
 

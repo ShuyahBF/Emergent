@@ -160,3 +160,17 @@ def test_planning_du_jour_anonymise_pour_le_hall():
     assert m["prochain_min"] == 20                                                  # le type RCU est ignoré : le RDV reste « à venir »
     texte = str(m)
     assert "KANE" not in texte and "Fatimata" not in texte and "70001122" not in texte and "70003344" not in texte
+
+
+def test_recu_saisi_apres_le_telephone_dans_le_champ_patient():
+    """Lot 306 : « OUOBA Alphone :  25614545 : R-202660230 » → patient « OUOBA Alphone : 25614545 », téléphone, reçu."""
+    from routes.planning import separer_patient_tel_recu
+    assert separer_patient_tel_recu("OUOBA Alphone :  25614545 : R-202660230") == ("OUOBA Alphone : 25614545", "25614545", "R-202660230")
+    assert separer_patient_tel_recu("OUOBA JF 77000155") == ("OUOBA JF : 77000155", "77000155", "")            # sans reçu : inchangé
+    assert separer_patient_tel_recu("SOMDA") == ("SOMDA", None, "")
+    from routes.ecran_tv import forme_hall, recu_du_patient
+    assert recu_du_patient("OUOBA Alphone : 25614545 : R-202660230") == "R-202660230" and recu_du_patient("OUOBA : 25614545") == ""
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    m = forme_hall([{"medecin": "DR X", "patient": "OUOBA Alphone : 25614545 : R-202660230", "patient_phone": "25614545", "is_rdv": 1,
+                    "start_at": "2026-10-26T10:20:00+00:00"}], {}, maintenant)["medecins"][0]
+    assert (m["rdv"][0]["qui"], m["rdv"][0]["tel"], m["rdv"][0]["recu"]) == ("OU*** Al*****", "2*****45", "R-202660230")

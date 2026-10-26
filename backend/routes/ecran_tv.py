@@ -174,6 +174,13 @@ def anonymiser_nom(nom: Any) -> str:
     return " ".join(sortie) if sortie else "—"
 
 
+def recu_du_patient(patient: Any) -> str:
+    """Lot 306 : numéro de reçu saisi après le téléphone dans le champ patient (« NOM : 25614545 : R-202660230 »), si le RDV n'a pas
+    de champ `numero_recu` (anciennes lignes)."""
+    parties = [p.strip() for p in str(patient or "").split(":")]
+    return parties[2] if len(parties) >= 3 else ""
+
+
 def masquer_tel_hall(tel: Any) -> str:
     """Lot 305 : téléphone pour le hall — 1er chiffre, étoiles, 2 derniers chiffres : « 70001122 » → « 7*****22 » (numéro national à 8 chiffres)."""
     c = "".join(ch for ch in str(tel or "") if ch.isdigit())
@@ -198,7 +205,7 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
         quand = debut or arrivee
         fiche["rdv"].append({"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
-                             "recu": str(d.get("numero_recu") or "").strip()[:30], "passe": quand < maintenant, "_q": quand})
+                             "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30], "passe": quand < maintenant, "_q": quand})
     medecins = []
     for fiche in par_med.values():
         fiche["rdv"].sort(key=lambda x: x["_q"])

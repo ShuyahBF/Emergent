@@ -166,6 +166,23 @@ def separer_patient_telephone(patient: str) -> tuple:
     return f"{nom} : {tel}", tel
 
 
+# Lot 306 — « NOM Prénom : téléphone : reçu » (ex. « OUOBA Alphone :  25614545 : R-202660230 »)
+_NOM_TEL_RECU = re.compile(r"^(?P<nom>[^:]*?)\s*:\s*(?P<tel>\+?\d[\d .\-]{6,}\d)\s*:\s*(?P<recu>\S.*?)\s*$")
+
+
+def separer_patient_tel_recu(patient: str) -> tuple:
+    """Lot 306 — le champ patient peut porter le numéro de reçu après le téléphone : « OUOBA Alphone : 25614545 : R-202660230 ».
+    Retourne (patient normalisé « NOM : téléphone » SANS le reçu, téléphone, reçu). Le reçu est retiré du nom pour que la clé
+    d'idempotence reste stable (un RDV renvoyé plus tard avec son reçu met à jour la même ligne). Sans reçu : comportement du lot 42."""
+    texte = (patient or "").strip()
+    m = _NOM_TEL_RECU.match(texte)
+    if m and m.group("nom").strip(" ;,-–"):
+        tel = m.group("tel").strip()
+        return f"{m.group('nom').strip(' ;,-–')} : {tel}", tel, m.group("recu").strip()[:30]
+    nom, tel = separer_patient_telephone(texte)
+    return nom, tel, ""
+
+
 def _find_free_slot(
     existing_intervals: List[tuple],  # [(start_iso, end_iso), ...] sorted by start
     requested_start_iso: str,
@@ -676,7 +693,7 @@ def attach_planning_routes(
         # Iter43-fix24az-n — coordonnées patient pour les rappels WA 1h avant RDV
         patient_phone_raw = (body.get("patient_phone") or body.get("phone") or "").strip() or None
         # Lot 41 / 42 — « NOM 77000155 » → « NOM : 77000155 » ; numéro repris s'il manque
-        patient, tel_dans_nom = separer_patient_telephone(patient)
+        patient, tel_dans_nom, recu_dans_nom = separer_patient_tel_recu(patient)     # lot 306 : « NOM : tél : reçu »
         patient_phone_raw = patient_phone_raw or tel_dans_nom
         patient_email = (body.get("patient_email") or "").strip().lower() or None
         # Iter43-fix24az-z (2026-07-22) — Nouveaux champs pour gestion
@@ -881,6 +898,7 @@ def attach_planning_routes(
             "correction_applied": correction_applied,
             "correction_reason": correction_reason,
         }
+        numero_recu = numero_recu or recu_dans_nom                # lot 306 : reçu saisi après le téléphone dans le champ patient
         if numero_recu:
             set_doc["numero_recu"] = numero_recu                 # lot 305 : ne remplace jamais une valeur existante par du vide
         if type_evenement:

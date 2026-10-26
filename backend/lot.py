@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "305"
-LOT_LIBELLE = "Écran TV : planning du hall pris tel quel (sans type d'évènement), ligne « identité | téléphone | reçu » anonymisée, bouton « Suivi Support »"
+LOT = "306"
+LOT_LIBELLE = "Planning : le numéro de reçu saisi après le téléphone (« NOM : téléphone : reçu ») est reconnu et affiché sur l'écran TV du hall"

@@ -112,3 +112,23 @@ def test_perimetre_de_la_societe_comme_le_centre_de_messagerie():
     assert c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Bureau", "client_id": "sous-compte"}).status_code == 200
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
     assert [m["id"] for m in f["messages"]] == ["m1"] and [t["numero"] for t in f["support"]] == ["TKT-9"]
+
+
+def test_fils_avec_noms_et_non_lus():
+    """Lot 299 — l'écran reçoit les conversations (nom du contact, dernier message, non-lus) et les messages portent le nom du contact."""
+    c, base = _app()
+    _run(base.directory_contacts.insert_one({"id": "k1", "name": "Dr GACKO", "client_id": "cli-1"}))
+    _run(base.whatsapp_messages.insert_many([
+        {"id": "n1", "client_id": "cli-1", "contact_id": "k1", "direction": "inbound", "body": "Bonsoir", "phone_digits": "22607332313",
+         "created_at": "2026-10-26T11:00:00+00:00", "read_by_us_at": None},
+        {"id": "n2", "client_id": "cli-1", "contact_id": "k1", "direction": "inbound", "body": "Merci", "phone_digits": "22607332313",
+         "created_at": "2026-10-26T11:05:00+00:00", "read_by_us_at": None},
+        {"id": "n3", "client_id": "cli-1", "contact_id": "k1", "direction": "inbound", "body": "Déjà lu", "phone_digits": "22607332313",
+         "created_at": "2026-10-26T10:00:00+00:00", "read_by_us_at": "2026-10-26T10:01:00+00:00"}]))
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    c.post("/api/admin/tv/appairer", headers={"x-admin": "1"}, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    gacko = next(x for x in f["fils"] if x["cle"] == "k1")
+    assert gacko["nom"] == "Dr GACKO" and gacko["non_lus"] == 2 and gacko["dernier"] == "Merci"
+    assert all(m["nom"] == "Dr GACKO" for m in f["messages"] if m["fil"] == "k1")
+    assert "22607332313" not in str(f) and f["non_lus_total"] >= 2

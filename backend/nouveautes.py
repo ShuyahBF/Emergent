@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "292", "date": "2026-10-26",
+        "titre": "👀 Centre de Messagerie : onglet « Suivi des RDV »",
+        "description": "Nouvel onglet à côté de « Contacts » : on choisit un compte (ex. CMCO) et une période dans des listes déroulantes, puis on suit comme dans une discussion les fils des patients qui ont reçu un rappel de RDV : leurs réponses, la réponse automatique de Liluvine, les badges « Report demandé », « Réponse auto » et « Rappel non remis ». Lecture seule, actualisée toutes les 30 secondes, réservée aux administrateurs et superviseurs. Les réponses automatiques se règlent dans cette rubrique.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "291", "date": "2026-10-26",
         "titre": "🔄 Calendrier : resynchroniser avec le compte Google d'un appui",
         "description": "Dans le calendrier ouvert depuis une discussion, une icône de resynchronisation (à côté des flèches de semaine) relit le calendrier Google à chaque appui et affiche l'heure de la mise à jour. Si Google ne répond pas (connexion expirée…), un message le dit au lieu de laisser croire que la semaine est libre. L'état de la connexion Google se contrôle dans cette rubrique.",

@@ -619,6 +619,10 @@ _attach_calendrier(api=api, db=db, get_current_user=get_current_user,
                    google_freebusy=gcal.freebusy, is_admin_like=_is_admin_or_superviseur,
                    google_etat=lambda: gcal.ETAT_DERNIERE_SYNCHRO)
 
+# Lot 292 — suivi des conversations liées aux rappels de RDV (onglet « Suivi des RDV » du Centre de Messagerie)
+from routes.planning_suivi_rdv import attach_planning_suivi_routes as _attach_suivi_rdv  # noqa: E402
+_attach_suivi_rdv(api=api, db=db, get_current_user=get_current_user, is_admin_like=_is_admin_or_superviseur)
+
 # Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
 # la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.
 from routes.nouveautes_formulaires import attach_nouveautes_formulaires_routes as _attach_nouveautes_fs  # noqa: E402

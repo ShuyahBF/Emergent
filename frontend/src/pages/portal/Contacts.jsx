@@ -19,6 +19,7 @@ import {
 import { CalendarDays } from "lucide-react";                          // lot 41
 import { Phone, PhoneCall, Forward } from "lucide-react";              // lot 71.1 : pictogrammes de l'en-tête de conversation
 import CalendrierModal from "@/components/CalendrierModal";           // lot 41
+import SuiviRdv from "@/components/SuiviRdv";                         // lot 292 : onglet « Suivi des RDV »
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -156,7 +157,29 @@ function ContactsExportMenu() {
 }
 
 
+// Lot 292 — La page a maintenant deux onglets : « Contacts » (la page habituelle, inchangée) et « Suivi des RDV »
+// (conversations des patients rappelés, administrateurs et superviseurs seulement).
 export default function Contacts() {
+  const { user } = useAuth();
+  const [onglet, setOnglet] = useState("contacts");
+  const peutSuivre = user?.role === "admin" || user?.role === "superviseur";
+  if (!peutSuivre) return <ContactsListe />;
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b border-slate-200" role="tablist">
+        {[["contacts", "Contacts"], ["suivi", "Suivi des RDV"]].map(([k, libelle]) => (
+          <button key={k} type="button" role="tab" aria-selected={onglet === k} onClick={() => setOnglet(k)} data-testid={`messagerie-onglet-${k}`}
+                  className={`px-4 py-2 text-sm ${onglet === k ? "border-b-2 border-indigo-600 text-indigo-700 font-semibold" : "text-slate-500 hover:text-slate-700"}`}>
+            {libelle}
+          </button>
+        ))}
+      </div>
+      {onglet === "contacts" ? <ContactsListe /> : <SuiviRdv />}
+    </div>
+  );
+}
+
+function ContactsListe() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]); // roster used for company dropdown

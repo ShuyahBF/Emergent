@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "291"
-LOT_LIBELLE = "Calendrier de la discussion : pictogramme de resynchronisation avec le compte Google (relecture à chaque appui, avec message si Google ne répond pas)"
+LOT = "292"
+LOT_LIBELLE = "Centre de Messagerie : onglet « Suivi des RDV » (choix d'un compte comme CMCO, fils de discussion des patients rappelés, signaux report demandé / réponse auto)"

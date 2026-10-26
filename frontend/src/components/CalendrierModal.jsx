@@ -19,8 +19,9 @@ const jourIso = (d) => d.toISOString().slice(0, 10);
 const lundi = (d) => { const x = new Date(d); const n = (x.getDay() + 6) % 7; x.setDate(x.getDate() - n); return x; };
 
 // Lot 313 : `onPartagerImage(file)` (facultatif) — envoie les disponibilités sous forme d'IMAGE lisible d'un coup d'œil
-// Lot 314 : `onPartagerNiveaux(file)` (facultatif) — image « Niveaux de service » (contrat / standard / EXPRESS), la même pour tous les contacts
-export default function CalendrierModal({ contactNom, onPartager, onPartagerImage, onPartagerNiveaux, onClose }) {
+// Lot 314 : `onPartagerNiveaux(file)` (facultatif) — image « Niveaux de service » (contrat / standard / EXPRESS), les mêmes niveaux pour tous les contacts ;
+// lot 315 : `contactId` sert à lire le « Forfait par intervention » du client du contact (tarif EXPRESS, 0 = précisé avant l'intervention)
+export default function CalendrierModal({ contactNom, contactId, onPartager, onPartagerImage, onPartagerNiveaux, onClose }) {
   const [debut, setDebut] = useState(() => lundi(new Date()));
   const [donnees, setDonnees] = useState(null);
   const [reduit, setReduit] = useState(false);
@@ -59,7 +60,12 @@ export default function CalendrierModal({ contactNom, onPartager, onPartagerImag
     if (!niveaux?.configure) return;
     setOccupe(true);
     try {
-      const fichier = await genererImageNiveaux({ config: niveaux });
+      let forfaitExpress = null;
+      if (contactId) {
+        try { forfaitExpress = (await apiClient.post("/me/contact-forfait", { contact_id: contactId })).data?.forfait ?? null; }
+        catch { /* forfait inconnu : « Tarif précisé avant l'intervention » */ }
+      }
+      const fichier = await genererImageNiveaux({ config: niveaux, forfaitExpress });
       onPartagerNiveaux?.(fichier);
       toast.success("Image des niveaux de service jointe au message : relisez puis envoyez");
       onClose?.();

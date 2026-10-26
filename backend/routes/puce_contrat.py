@@ -361,7 +361,7 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
                               resolve_visible_client_ids: Callable[[dict], Awaitable[List[str]]]) -> Dict[str, Any]:
     """Branche la route du lot 120 (appelée depuis server_parts/p20). `resolve_visible_client_ids` = le périmètre du
     Centre de messagerie (server._resolve_visible_client_ids), injecté pour que les tests puissent le simuler."""
-    from fastapi import Depends
+    from fastapi import Body, Depends
 
     cache: Dict[str, Any] = {"lu_a": 0.0, "index": None}
 
@@ -408,6 +408,30 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
             seuil_defaut = SEUIL_RETARD_DEFAUT
         return {"settings": s, "domaines": domaines, "visibles_ids": visibles_ids,
                 "internes": ids_sa, "seuil_defaut": seuil_defaut}
+
+    @api.post("/me/contact-forfait", tags=["Portail Client"])
+    async def forfait_du_contact(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Lot 315 — « Forfait par intervention » (XOF) du client relié à un contact : sert au tarif de l'intervention EXPRESS dans l'image
+        « Niveaux de service ». Même périmètre et même rattachement contact → client que la puce de contrat. Réponse : {forfait} —
+        un nombre (0 = « à préciser avant l'intervention ») ou null si le contact n'est relié à aucun client (ou hors équipe SAWALI)."""
+        ctx = await _contexte(user)
+        if ctx is None:
+            return {"forfait": None}
+        contact = await db.directory_contacts.find_one(
+            {"id": str(payload.get("contact_id") or ""), "client_id": {"$in": ctx["visibles_ids"]}},
+            {"_id": 0, "id": 1, "email": 1, "phone": 1, "whatsapp": 1, "company": 1})
+        if not contact or not a_une_societe(contact):
+            return {"forfait": None}
+        index = await _index()
+        client, _critere = index.client_du_contact(contact)
+        if not client or est_interne(client, ctx["internes"], ctx["domaines"]):
+            return {"forfait": None}
+        principal = index.principal(client) or client
+        fiche = await db.users.find_one({"id": principal.get("id")}, {"_id": 0, "flat_rate": 1}) or {}
+        try:
+            return {"forfait": max(0.0, float(fiche.get("flat_rate") or 0))}
+        except (TypeError, ValueError):
+            return {"forfait": 0.0}
 
     @api.post("/me/contacts-contrats", tags=["Portail Client"])
     async def contrats_des_contacts(payload: DemandeContrats, user: dict = Depends(get_current_user)):

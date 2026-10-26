@@ -3215,7 +3215,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   <CalendarDays className="h-4 w-4" />
                 </button>
                 {calendrierOuvert && (
-                  <CalendrierModal contactNom={contact?.name} onClose={() => setCalendrierOuvert(false)}
+                  <CalendrierModal contactNom={contact?.name} contactId={contact?.id} onClose={() => setCalendrierOuvert(false)}
                     onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))}
                     // Lot 314 : l'image des niveaux de service (contrat / standard / EXPRESS) devient la pièce jointe du message
                     onPartagerNiveaux={(f) => {

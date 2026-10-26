@@ -83,10 +83,8 @@ export default function NiveauxServiceSection() {
               </label>
               {cle === "express" && (
                 <>
-                  <label className="text-xs text-slate-600">Tarif EXPRESS
-                    <input value={n.tarif || ""} maxLength={40} onChange={(e) => majNiveau(cle, { tarif: e.target.value })} placeholder="ex. 25 000 FCFA ou « sur devis »" className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" /></label>
                   <label className="flex items-center gap-2 text-xs text-slate-700 sm:pt-5">
-                    <input type="checkbox" checked={!!n.afficher_tarif} onChange={(e) => majNiveau(cle, { afficher_tarif: e.target.checked })} /> Afficher le tarif dans l'image (sinon : à traiter en conversation)
+                    <input type="checkbox" checked={!!n.afficher_tarif} onChange={(e) => majNiveau(cle, { afficher_tarif: e.target.checked })} /> Afficher le tarif EXPRESS dans l'image (sinon : à traiter en conversation)
                   </label>
                 </>
               )}
@@ -94,6 +92,10 @@ export default function NiveauxServiceSection() {
           </div>
         );
       })}
+      <p className="text-xs text-slate-500 rounded bg-amber-50 ring-1 ring-amber-200 px-3 py-2" data-testid="niveaux-tarif-info">
+        Tarif EXPRESS : il n'est pas saisi ici. C'est le « Forfait par intervention (XOF) » de la fiche du client (Clients → Tarification des interventions).
+        Forfait renseigné : le montant s'affiche ; forfait à 0 ou client inconnu : « Tarif précisé avant l'intervention ».
+      </p>
       <label className="block text-xs text-slate-600">Mention en bas de l'image
         <input value={config.mention} maxLength={120} onChange={(e) => maj({ mention: e.target.value })} className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" /></label>
       <div className="flex flex-wrap gap-2 boutons-distincts">

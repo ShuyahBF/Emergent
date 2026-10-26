@@ -5,7 +5,7 @@ l'environnement du client, de la connexion…). On annonce donc trois NIVEAUX av
   - « contrat »  : client sous contrat valide (puce verte du Centre de messagerie) — prise en charge prioritaire, ex. 72 heures maximum ;
   - « standard » : sans contrat — prise en charge selon la charge ;
   - « express »  : prestation payante — intervention immédiate, avec un tarif.
-Les réglages (Paramètres → « 📅 Niveaux de service ») sont gardés dans `settings.global.niveaux_service` (aucune nouvelle collection).
+Les réglages (Paramètres → « 📅 Niveaux de service »). Le tarif EXPRESS n'est PAS saisi ici : c'est le « Forfait par intervention » de la fiche du client (0 = à préciser avant l'intervention). sont gardés dans `settings.global.niveaux_service` (aucune nouvelle collection).
 La modale « Calendrier » de la discussion en tire une image à envoyer au contact (lib/niveauxImage.js).
 """
 from __future__ import annotations
@@ -39,7 +39,6 @@ def normaliser_config(brut: Any) -> Dict[str, Any]:
                         "description": _texte(n.get("description"), 80) or DESCRIPTIONS_DEFAUT[cle],
                         "delai": _texte(n.get("delai"), 40)}
     express = niveaux_brut.get("express") if isinstance(niveaux_brut.get("express"), dict) else {}
-    niveaux["express"]["tarif"] = _texte(express.get("tarif"), 40)
     niveaux["express"]["afficher_tarif"] = bool(express.get("afficher_tarif"))
     config = {"actif": bool(brut.get("actif")), "societe": _texte(brut.get("societe"), 60),
               "mention": _texte(brut.get("mention"), 120) or MENTION_DEFAUT, "niveaux": niveaux}

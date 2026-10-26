@@ -2,6 +2,7 @@
   Lot 314 — Image « Niveaux de service » à envoyer au contact par WhatsApp : la disponibilité vendue comme un ENGAGEMENT de prise en
   charge (contrat / standard / EXPRESS), pas comme un créneau horaire. Même image pour tous les contacts. Aucun titre d'évènement,
   aucun nom de client ; le tarif EXPRESS n'apparaît que si le propriétaire a coché « Afficher le tarif » (sinon il se traite en conversation).
+  Ce tarif est le « Forfait par intervention » de la fiche du client du contact ; à 0 ou inconnu : « Tarif précisé avant l'intervention ».
   - genererImageNiveaux()    : dessine l'image dans un canvas et renvoie un fichier PNG (File).
 */
 
@@ -23,7 +24,13 @@ function lignes(c, texte, largeurMax) {
   return sortie;
 }
 
-export async function genererImageNiveaux({ config }) {
+/** Texte du tarif EXPRESS (testé) : forfait du client en FCFA, ou « précisé avant l'intervention » s'il est à 0 / inconnu. */
+export function texteTarifExpress(forfait) {
+  const n = Number(forfait);
+  return Number.isFinite(n) && n > 0 ? `${Math.round(n).toLocaleString("fr-FR").replace(/\u202f/g, " ")} FCFA` : "Tarif précisé avant l'intervention";
+}
+
+export async function genererImageNiveaux({ config, forfaitExpress = null }) {
   const L = 1080, marge = 40, hauteurCarte = 270, ecart = 28, hautEntete = 190, hautPied = 130;
   const ordre = ["contrat", "standard", "express"];
   const H = hautEntete + ordre.length * (hauteurCarte + ecart) + hautPied;
@@ -47,10 +54,11 @@ export async function genererImageNiveaux({ config }) {
     lignes(c, n.description, L - 2 * marge - 72).slice(0, 2).forEach((t, k) => c.fillText(t, marge + 36, y + 124 + k * 38));
     // délai : en très gros, c'est l'information qui compte
     c.font = police(String(n.delai).length > 20 ? 42 : 64); c.fillStyle = col.bord;      // délai long (« Selon disponibilité… ») : plus petit pour tenir sur la carte
-    c.fillText(`⏱ ${n.delai}`, marge + 36, y + 224, L - 2 * marge - 72 - (cle === "express" && n.afficher_tarif && n.tarif ? 330 : 0));
-    if (cle === "express" && n.afficher_tarif && n.tarif) {
-      c.font = police(44); c.textAlign = "right"; c.fillStyle = col.texte;
-      c.fillText(n.tarif, L - marge - 36, y + 224, 310); c.textAlign = "left";
+    c.fillText(`⏱ ${n.delai}`, marge + 36, y + 224, L - 2 * marge - 72 - (cle === "express" && n.afficher_tarif ? 330 : 0));
+    if (cle === "express" && n.afficher_tarif) {
+      const tarif = texteTarifExpress(forfaitExpress);
+      c.font = police(tarif.length > 14 ? 28 : 44); c.textAlign = "right"; c.fillStyle = col.texte;
+      c.fillText(tarif, L - marge - 36, y + 224, 310); c.textAlign = "left";
     }
   });
 

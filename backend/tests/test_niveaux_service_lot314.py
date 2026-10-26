@@ -17,9 +17,9 @@ def test_config_vide_n_engage_personne():
 
 def test_configure_seulement_si_actif_et_trois_delais():
     brut = {"actif": True, "societe": "SAWALI SMART SYSTEMS", "niveaux": {
-        "contrat": {"delai": "2 heures"}, "standard": {"delai": "24 heures"}, "express": {"delai": "30 minutes", "tarif": "25 000 FCFA", "afficher_tarif": True}}}
+        "contrat": {"delai": "2 heures"}, "standard": {"delai": "24 heures"}, "express": {"delai": "30 minutes", "afficher_tarif": True}}}
     c = normaliser_config(brut)
-    assert c["configure"] is True and c["niveaux"]["express"]["tarif"] == "25 000 FCFA" and c["niveaux"]["express"]["afficher_tarif"] is True
+    assert c["configure"] is True and c["niveaux"]["express"]["afficher_tarif"] is True and "tarif" not in c["niveaux"]["express"]    # le tarif vient de la fiche du client
     brut["niveaux"]["standard"]["delai"] = ""
     assert normaliser_config(brut)["configure"] is False
     brut["niveaux"]["standard"]["delai"] = "24 heures"; brut["actif"] = False
@@ -47,7 +47,7 @@ def _client():
 
 def test_enregistrer_puis_lire_et_droits():
     c = _client()
-    corps = {"actif": True, "niveaux": {"contrat": {"delai": "2 heures"}, "standard": {"delai": "48 heures"}, "express": {"delai": "1 heure", "tarif": "30 000 FCFA"}}}
+    corps = {"actif": True, "niveaux": {"contrat": {"delai": "2 heures"}, "standard": {"delai": "48 heures"}, "express": {"delai": "1 heure"}}}
     assert c.put("/api/admin/niveaux-service", json=corps).status_code == 403                  # réservé à l'administrateur
     r = c.put("/api/admin/niveaux-service", headers={"x-admin": "1"}, json=corps).json()
     assert r["config"]["configure"] is True

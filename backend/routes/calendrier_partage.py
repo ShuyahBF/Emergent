@@ -77,6 +77,7 @@ def attach_calendrier_partage_routes(
     *, api, db, get_current_user, public_base_url: Callable[[], str],
     google_freebusy: Optional[Callable[[str, str], Awaitable[List[dict]]]] = None,
     is_admin_like: Callable[[dict], bool] = lambda u: u.get("role") in ("admin", "superviseur"),
+    google_etat: Optional[Callable[[], Dict[str, Any]]] = None,   # lot 291 : résultat de la dernière lecture de Google
 ) -> Dict[str, Any]:
 
     def _tenant(user: dict) -> str:
@@ -141,9 +142,14 @@ def attach_calendrier_partage_routes(
     @api.get("/me/calendrier/occupations", tags=["Calendrier"])
     async def lire(debut: Optional[str] = None, jours: int = 7, user: dict = Depends(get_current_user)):
         t0, t1 = _periode(debut, jours)
-        return {"debut": t0.isoformat(), "fin": t1.isoformat(), "horaires": await _horaires(),
-                "google": bool(is_admin_like(user) and google_freebusy is not None),
-                "occupations": await occupations(user, t0, t1, is_admin_like(user))}
+        horaires = await _horaires()
+        # Google est relu À CHAQUE appel (aucun cache) : le bouton « resynchroniser » de l'écran rappelle simplement cette route
+        occ = await occupations(user, t0, t1, is_admin_like(user))
+        avec_google = bool(is_admin_like(user) and google_freebusy is not None)
+        return {"debut": t0.isoformat(), "fin": t1.isoformat(), "horaires": horaires, "google": avec_google,
+                # Lot 291 : Google a-t-il répondu à cette lecture ? (None si le calendrier Google n'est pas concerné)
+                "google_etat": (dict(google_etat()) if (avec_google and google_etat) else None),
+                "occupations": occ}
 
     @api.post("/me/calendrier/creneaux", tags=["Calendrier"])
     async def bloquer(data: CreneauIn, user: dict = Depends(get_current_user)):

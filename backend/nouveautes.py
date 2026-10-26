@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "299", "date": "2026-10-26",
+        "titre": "📺 Écran TV : conversations, non-lus, bip et défilement automatique",
+        "description": "La zone Messagerie de l'écran TV affiche maintenant les conversations (nom du contact, dernier message, heure) avec une bulle rouge pour les messages non lus, et un fil en direct avec barre de défilement qui descend tout seul sur le dernier message. Un bip retentit à chaque nouveau message reçu : sur la télé, appuyer une fois sur OK pour activer le son (un bandeau le rappelle). Les numéros de téléphone ne sont jamais envoyés à la télé ; sans nom de contact, seuls les 4 derniers chiffres apparaissent.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "298", "date": "2026-10-26",
         "titre": "📺 Écran TV : fin des zones vides",
         "description": "L'écran ne lisait que les messages rangés sous le compte exact choisi à l'appairage ; or ils sont rangés sous le compte principal de la société. Il lit maintenant tout le périmètre de la société, comme le Centre de Messagerie. La liste des clients n'affiche plus qu'un choix par société. Aucune action : les écrans déjà appairés se remplissent seuls.",

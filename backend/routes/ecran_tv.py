@@ -28,7 +28,10 @@ logger = logging.getLogger("sawali.ecran_tv")
 
 VALIDITE_CODE_MIN = 15           # un code d'appairage n'est valable que 15 minutes
 MAX_APPAIRAGES = 20              # codes en attente conservés au plus
-MAX_MESSAGES = 30                # messages renvoyés à la télé
+MAX_MESSAGES = 30                # messages renvoyés à la télé (fil en direct)
+MAX_FILS = 12                    # conversations renvoyées à la télé
+FENETRE_FILS = 200               # messages récents examinés pour former les conversations
+JOURS_NON_LUS = 30               # les non-lus comptés remontent à 30 jours au plus
 MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support")                 # contenus possibles (le hall viendra dans un prochain lot)
@@ -55,6 +58,32 @@ def masquer_numero(chiffres: str) -> str:
     return f"•••• {c[-4:]}" if len(c) >= 4 else "Contact"
 
 
+def cle_fil(doc: Dict[str, Any]) -> str:
+    """Clé d'une conversation : la fiche contact si elle existe, sinon une empreinte des 8 derniers chiffres du numéro."""
+    if doc.get("contact_id"):
+        return str(doc["contact_id"])
+    chiffres = "".join(c for c in str(doc.get("phone_digits") or doc.get("from") or doc.get("to") or "") if c.isdigit())
+    # Jamais de chiffres du numéro dans le flux envoyé à la télé : on n'expose qu'une empreinte
+    return "t" + hashlib.sha1(chiffres[-8:].encode("utf-8")).hexdigest()[:10] if chiffres else "inconnu"
+
+
+def forme_fils(docs: List[Dict[str, Any]], non_lus: Dict[str, int], noms: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Conversations à afficher : nom du contact (sinon numéro masqué), dernier message, heure et nombre de messages NON LUS.
+    `docs` : messages récents, du plus récent au plus ancien. `non_lus` : clé de conversation → nombre de non-lus."""
+    fils: Dict[str, Dict[str, Any]] = {}
+    for d in docs:
+        cle = cle_fil(d)
+        if cle in fils:
+            continue                                             # le premier rencontré est le plus récent
+        m = forme_message(d)
+        nom = d.get("contact_name") or noms.get(cle) or d.get("from_profile_name") or masquer_numero(d.get("phone_digits") or d.get("from") or d.get("to"))
+        fils[cle] = {"cle": cle, "nom": str(nom)[:60], "dernier": m["texte"][:100], "sens": m["sens"], "date": m["date"], "non_lus": 0}
+    for cle, n in non_lus.items():
+        if cle in fils:
+            fils[cle]["non_lus"] = n
+    return list(fils.values())[:MAX_FILS]
+
+
 def forme_message(doc: Dict[str, Any]) -> Dict[str, Any]:
     """Message prêt à afficher : jamais de numéro complet, texte raccourci, libellé pour image/vocal/document."""
     corps = str(doc.get("body") or "").strip()
@@ -63,7 +92,7 @@ def forme_message(doc: Dict[str, Any]) -> Dict[str, Any]:
         corps = {"image": "📷 Image", "audio": "🎤 Message vocal", "voice": "🎤 Message vocal", "document": "📄 Document",
                  "video": "🎬 Vidéo", "sticker": "🙂 Autocollant", "location": "📍 Position"}.get(type_msg, "…")
     nom = doc.get("contact_name") or doc.get("from_profile_name") or masquer_numero(doc.get("phone_digits") or doc.get("from") or doc.get("to"))
-    return {"id": doc.get("id"), "sens": "entrant" if doc.get("direction") == "inbound" else "sortant",
+    return {"id": doc.get("id"), "sens": "entrant" if doc.get("direction") == "inbound" else "sortant", "fil": cle_fil(doc),
             "nom": str(nom)[:60], "texte": corps[:240], "date": doc.get("received_at") or doc.get("sent_at") or doc.get("created_at")}
 
 
@@ -159,10 +188,29 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         if modules["messagerie"]:
             docs = await db.whatsapp_messages.find(
                 {"client_id": {"$in": ids}},
-                {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_name": 1, "from_profile_name": 1,
+                {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_id": 1, "contact_name": 1, "from_profile_name": 1,
                  "phone_digits": 1, "from": 1, "to": 1, "received_at": 1, "sent_at": 1, "created_at": 1},
-            ).sort("created_at", -1).to_list(MAX_MESSAGES)
-            flux["messages"] = [forme_message(d) for d in reversed(docs)]   # du plus ancien au plus récent : le nouveau arrive en bas
+            ).sort("created_at", -1).to_list(FENETRE_FILS)
+            # Noms des contacts : celui du message, sinon la fiche du carnet (UNE lecture pour tous les contacts concernés)
+            ids_contacts = list({d["contact_id"] for d in docs if d.get("contact_id") and not d.get("contact_name")})
+            noms = {}
+            if ids_contacts:
+                async for c in db.directory_contacts.find({"id": {"$in": ids_contacts}}, {"_id": 0, "id": 1, "name": 1}):
+                    noms[c["id"]] = c.get("name") or ""
+            for d in docs:
+                if not d.get("contact_name") and noms.get(d.get("contact_id")):
+                    d["contact_name"] = noms[d["contact_id"]]
+            # Non-lus par conversation (même critère que le Centre de Messagerie : entrant, « read_by_us_at » vide), UNE agrégation
+            depuis = (_maintenant() - timedelta(days=JOURS_NON_LUS)).isoformat()
+            non_lus: Dict[str, int] = {}
+            async for d in db.whatsapp_messages.find(
+                    {"client_id": {"$in": ids}, "direction": "inbound", "read_by_us_at": None, "created_at": {"$gte": depuis}},
+                    {"_id": 0, "contact_id": 1, "phone_digits": 1, "from": 1}).limit(5000):
+                cle = cle_fil(d)
+                non_lus[cle] = non_lus.get(cle, 0) + 1
+            flux["fils"] = forme_fils(docs, non_lus, {})
+            flux["non_lus_total"] = sum(non_lus.values())
+            flux["messages"] = [forme_message(d) for d in reversed(docs[:MAX_MESSAGES])]   # du plus ancien au plus récent : le nouveau arrive en bas
         if modules["support"]:
             docs = await db.support_tickets.find(
                 {"client_id": {"$in": ids}, "status": {"$in": list(STATUTS_OUVERTS)}},

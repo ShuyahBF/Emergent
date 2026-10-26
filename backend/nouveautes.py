@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "321", "date": "2026-10-27",
+        "titre": "📱 Suivi du RDV par le patient : QR code sur l'écran du hall",
+        "description": "À activer ici : un QR code s'affiche sur l'écran du hall. Le patient le scanne, saisit son téléphone et 2 lettres de ses initiales, et suit SON rendez-vous (médecin, heure, porte, personnes avant lui) de 3 h avant à 3 h après l'heure prévue. Aucune donnée d'un autre patient n'est visible.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "320", "date": "2026-10-27",
         "titre": "🔘 Niveaux de service : 3 boutons « Avec contrat », « Sans contrat », « En express »",
         "description": "Quand un contact demande une intervention, Liluvine affiche trois boutons WhatsApp. « Avec contrat » vérifie le contrat du client et répond (valide : numéro, échéance, délai ; en retard ou absent : le dit et reproposer les autres services). « Sans contrat » donne le niveau standard, « En express » le délai et le tarif (forfait du client). Réglages dans cette rubrique.",

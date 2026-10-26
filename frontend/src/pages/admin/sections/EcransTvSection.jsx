@@ -3,7 +3,7 @@
  * contenus, voir quand chaque écran a été vu pour la dernière fois, le modifier ou le révoquer.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { apiClient } from "@/lib/api";
+import { apiClient, API } from "@/lib/api";
 import { toast } from "sonner";
 import { Copy, Loader2, Tv, Trash2, Link2 } from "lucide-react";
 
@@ -33,6 +33,8 @@ export default function EcransTvSection() {
   const [pinDefini, setPinDefini] = useState(false);
   const [pinSaisi, setPinSaisi] = useState("");
   const [savingPin, setSavingPin] = useState(false);
+  // Lot 321 : suivi du RDV par le patient (QR code sur l'écran du hall)
+  const [suiviActif, setSuiviActif] = useState(false);
   const [erreurChargement, setErreurChargement] = useState("");
   const adresse = `${window.location.origin}/tv`;
 
@@ -40,13 +42,15 @@ export default function EcransTvSection() {
     setChargement(true);
     // Lot 302 : les trois lectures sont indépendantes. Si l'une échoue (ex. portes, clients),
     // la liste des écrans appairés reste affichée ; seul le bloc concerné signale l'erreur.
-    const [e, c, p, n] = await Promise.allSettled([
+    const [e, c, p, n, sv] = await Promise.allSettled([
       apiClient.get("/admin/tv/ecrans"),
       apiClient.get("/admin/clients"),
       apiClient.get("/admin/tv/portes"),
       apiClient.get("/admin/tv/pin"),
+      apiClient.get("/admin/suivi-rdv"),
     ]);
     if (n.status === "fulfilled") setPinDefini(!!n.value.data?.defini);
+    if (sv.status === "fulfilled") setSuiviActif(!!sv.value.data?.actif);
     const echecs = [];
     if (e.status === "fulfilled") setEcrans(e.value.data?.ecrans || []); else echecs.push("écrans appairés");
     if (p.status === "fulfilled") {
@@ -146,6 +150,13 @@ export default function EcransTvSection() {
       toast.success(r.data?.defini ? "Code PIN enregistré" : "Code PIN supprimé");
     } catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
     finally { setSavingPin(false); }
+  };
+
+  // Lot 321 : activer / couper le suivi du RDV par le patient (éteint par défaut)
+  const changerSuivi = async (valeur) => {
+    setSuiviActif(valeur);
+    try { await apiClient.put("/admin/suivi-rdv", { actif: valeur }); toast.success(valeur ? "Suivi du RDV activé : le QR code s'affiche sur l'écran du hall" : "Suivi du RDV désactivé"); }
+    catch (err) { setSuiviActif(!valeur); toast.error(err?.response?.data?.detail || "Modification impossible"); }
   };
 
   const revoquer = async (ecran) => {
@@ -311,6 +322,23 @@ export default function EcransTvSection() {
           </button>
           {pinDefini && <button type="button" onClick={() => enregistrerPin(true)} disabled={savingPin} className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm" data-testid="tv-pin-supprimer">Supprimer le code</button>}
         </div>
+      </div>
+      {/* Lot 321 — suivi du rendez-vous par le patient : QR code affiché sur l'écran du hall */}
+      <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-2" data-testid="tv-suivi-rdv">
+        <p className="text-sm font-medium text-slate-700">Suivi du RDV par le patient (QR code)</p>
+        <p className="text-xs text-slate-500">
+          Le QR code s'affiche sur l'écran du hall. Le patient le scanne et saisit son numéro de téléphone et 2 lettres de ses initiales : il voit seulement SON rendez-vous
+          (médecin, heure, porte, nombre de personnes avant lui), de 3 h avant à 3 h après l'heure du RDV. Aucun nom ni numéro d'un autre patient n'est affiché.
+        </p>
+        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={suiviActif} onChange={(e) => changerSuivi(e.target.checked)} data-testid="tv-suivi-actif" /> Activer le suivi du RDV par le patient
+        </label>
+        {suiviActif && (
+          <div className="flex items-center gap-3">
+            <img src={`${API}/suivi-rdv/qr.png?base=${encodeURIComponent(window.location.origin)}`} alt="QR code du suivi de RDV" className="h-28 w-28 rounded bg-white p-1 ring-1 ring-slate-300" />
+            <a href={`${window.location.origin}/suivi-rdv`} target="_blank" rel="noreferrer" className="text-xs text-sky-700 underline break-all">{window.location.origin}/suivi-rdv</a>
+          </div>
+        )}
       </div>
       <p className="text-[11px] text-slate-500">
         Compatible avec le navigateur d'une télé LG webOS (ou tout navigateur moderne). L'écran se rafraîchit toutes les 8 secondes ; si la liaison est perdue, il garde le dernier contenu et le signale en haut.

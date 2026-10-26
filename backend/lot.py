@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "320"
-LOT_LIBELLE = "Niveaux de service par boutons WhatsApp (Avec contrat / Sans contrat / En express) : Liluvine vérifie le contrat du client et répond avec ses infos."
+LOT = "321"
+LOT_LIBELLE = "Suivi du RDV par le patient : QR code sur l'écran du hall, page /suivi-rdv (téléphone + 2 initiales, de 3 h avant à 3 h après le RDV)."

@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, Depends, Header, HTTPException
+from fastapi import Body, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.ecran_tv")
@@ -262,8 +262,9 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         return ecran
 
     @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default="")):
-        """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis)."""
+    async def tv_flux(x_tv_secret: str = Header(default=""), fil: str = Query("", max_length=40)):
+        """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
+        `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
         ids = await _perimetre(ecran.get("client_id"))
@@ -273,7 +274,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                 {"client_id": {"$in": ids}},
                 {"_id": 0, "id": 1, "direction": 1, "body": 1, "message_type": 1, "contact_id": 1, "contact_name": 1, "from_profile_name": 1,
                  "phone_digits": 1, "from": 1, "to": 1, "received_at": 1, "sent_at": 1, "created_at": 1},
-            ).sort("created_at", -1).to_list(FENETRE_FILS)
+            ).sort("created_at", -1).to_list(600 if fil else FENETRE_FILS)
             # Noms des contacts : celui du message, sinon la fiche du carnet (UNE lecture pour tous les contacts concernés)
             ids_contacts = list({d["contact_id"] for d in docs if d.get("contact_id") and not d.get("contact_name")})
             noms = {}
@@ -291,9 +292,12 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                     {"_id": 0, "contact_id": 1, "phone_digits": 1, "from": 1}).limit(5000):
                 cle = cle_fil(d)
                 non_lus[cle] = non_lus.get(cle, 0) + 1
-            flux["fils"] = forme_fils(docs, non_lus, {})
+            flux["fils"] = forme_fils(docs[:FENETRE_FILS], non_lus, {})
             flux["non_lus_total"] = sum(non_lus.values())
-            flux["messages"] = [forme_message(d) for d in reversed(docs[:MAX_MESSAGES])]   # du plus ancien au plus récent : le nouveau arrive en bas
+            # Fil en direct : tous les messages récents, ou ceux de la conversation choisie sur la télé (lot 301)
+            retenus = [d for d in docs if cle_fil(d) == fil] if fil else docs
+            flux["fil_choisi"] = fil or None
+            flux["messages"] = [forme_message(d) for d in reversed(retenus[:MAX_MESSAGES])]   # du plus ancien au plus récent : le nouveau arrive en bas
         if modules["support"]:
             docs = await db.support_tickets.find(
                 {"client_id": {"$in": ids}, "status": {"$in": list(STATUTS_OUVERTS)}},

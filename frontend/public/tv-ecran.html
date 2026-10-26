@@ -22,9 +22,11 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .col+.col{border-left:2px solid #1e3a5f}
 .titre{font-size:3.2vh;color:#7dd3fc;margin-bottom:1.5vh}
 .fil{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;min-height:0}
-.bulle{max-width:82%;margin-top:1.4vh;padding:1.4vh 1.6vw;border-radius:2vh;font-size:3.1vh;line-height:1.3;word-wrap:break-word}
-.entrant{-webkit-align-self:flex-start;align-self:flex-start;background:#1f2a44}
-.sortant{-webkit-align-self:flex-end;align-self:flex-end;background:#0f5d4f}
+.rang{display:block;margin-top:1.4vh}
+.rang.droite{text-align:right}
+.bulle{display:inline-block;box-sizing:border-box;max-width:82%;padding:1.4vh 1.6vw;border-radius:2vh;font-size:3.1vh;line-height:1.3;word-wrap:break-word;text-align:left}
+.entrant{background:#1f2a44}
+.sortant{background:#0f5d4f}
 .nom{font-size:2.2vh;color:#94a3b8;margin-bottom:.4vh}
 .nouveau{-webkit-animation:arrivee .7s ease-out;animation:arrivee .7s ease-out}
 @-webkit-keyframes arrivee{from{opacity:0;-webkit-transform:translateY(5vh)}to{opacity:1;-webkit-transform:none}}
@@ -37,13 +39,18 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .aide{font-size:3.4vh;color:#cbd5e1;max-width:80vw;line-height:1.5}
 .msgzone{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;min-height:0}
 .listefils{width:36%;overflow:hidden;padding-right:1.2vw;border-right:2px solid #1e3a5f;margin-right:1.2vw}
-.fil1{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;padding:1.1vh .8vw;border-radius:1.2vh;margin-bottom:.8vh;background:#16203a}
+.fil1{cursor:pointer;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;padding:1.1vh .8vw;border-radius:1.2vh;margin-bottom:.8vh;background:#16203a}
 .fil1 .corps1{-webkit-flex:1;flex:1;min-width:0}
 .fil1 .n{font-size:2.8vh;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fil1 .d{font-size:2.2vh;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fil1 .h{font-size:2vh;color:#94a3b8;margin-left:.6vw}
+.fil1.curs{outline:.5vh solid #fbbf24}
+.fil1.choisi{background:#1d4ed8}
+.barre-fil{background:#1d4ed8;border-radius:1.2vh;padding:1vh 1.2vw;font-size:2.4vh;margin-bottom:1vh;cursor:pointer}
+.astuce{font-size:2vh;color:#64748b;margin-bottom:1vh}
 .pastille{min-width:3.6vh;height:3.6vh;line-height:3.6vh;border-radius:1.8vh;background:#ef4444;color:#fff;text-align:center;font-size:2.3vh;font-weight:bold;margin-left:.8vw;padding:0 .5vh}
-.direct{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;min-width:0;overflow-y:scroll}
+.zone-direct{-webkit-flex:1;flex:1;min-width:0;position:relative}
+.direct{position:absolute;left:0;right:0;bottom:0;display:block;overflow-y:scroll;padding-right:1vw}
 .direct::-webkit-scrollbar,.listefils::-webkit-scrollbar{width:1.4vh}
 .direct::-webkit-scrollbar-track{background:#111b30}
 .direct::-webkit-scrollbar-thumb{background:#38bdf8;border-radius:.7vh}
@@ -66,7 +73,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 (function () {
   var CLE = "sawali_tv_secret", API = "/api";
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
-  var ctxSon = null, sonActif = false;
+  var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   var racine = document.getElementById("racine"), zoneErreur = document.getElementById("erreur");
 
   // Toute erreur est affichée en bas de l'écran (diagnostic sur la télé, sans console)
@@ -136,6 +143,32 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   document.addEventListener("keydown", activerSon, false);
   document.addEventListener("touchstart", activerSon, false);
 
+  // ---------- Choix d'une conversation (clic de la télécommande pointeur, ou flèches + OK) ----------
+  function choisirFil(cle) {
+    filChoisi = (cle === filChoisi) ? "" : cle;     // un second clic sur la même conversation revient à « tout afficher »
+    vus = {}; dejaCharge = false;                    // le contenu change : pas d'animation ni de bip pour l'affichage initial
+    charger();
+  }
+  racine.addEventListener("click", function (e) {
+    var n = e.target;
+    while (n && n !== racine) {
+      if (n.getAttribute && n.getAttribute("data-cle")) { choisirFil(n.getAttribute("data-cle")); return; }
+      if (n.getAttribute && n.getAttribute("data-tout")) { if (filChoisi) { choisirFil(filChoisi); } return; }
+      n = n.parentNode;
+    }
+  }, false);
+  document.addEventListener("keydown", function (e) {
+    var k = e.keyCode;
+    if (k === 40 || k === 38) {                       // flèche bas / haut : parcourt les conversations
+      if (dernierFils.length) { curseur = k === 40 ? Math.min(dernierFils.length - 1, curseur + 1) : Math.max(0, curseur - 1); dessiner(); }
+      e.preventDefault();
+    } else if (k === 13) {                            // OK : ouvre la conversation sous le curseur
+      if (curseur >= 0 && dernierFils[curseur]) { choisirFil(dernierFils[curseur].cle); }
+    } else if (k === 27 || k === 461 || k === 10009 || k === 8) {   // Échap / Retour (LG, Samsung) : tout afficher
+      if (filChoisi) { choisirFil(filChoisi); }
+    }
+  }, false);
+
   // ---------- Phase « code » ----------
   function afficherCode() {
     racine.innerHTML = '<div class="centre"><b style="font-size:5vh">SAWALI — Écran TV</b><div class="code">' + esc(code || "······") +
@@ -168,7 +201,12 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     var jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
     // Position de défilement du fil en direct avant le redessin : on reste en bas s'il y était ou si un message arrive
     var ancien = document.getElementById("direct"), etaitEnBas = !ancien || (ancien.scrollHeight - ancien.scrollTop - ancien.clientHeight < 80), ancienHaut = ancien ? ancien.scrollTop : 0;
+    dernierFils = fils;
     for (i = 0; i < msgs.length; i++) { if (dejaCharge && !vus[msgs[i].id]) { if (msgs[i].sens === "entrant") { nouveauEntrant = true; } } }
+    // Un nouveau non-lu dans une AUTRE conversation que celle affichée déclenche aussi le bip
+    var nl = (flux && flux.non_lus_total) || 0;
+    if (dejaCharge && dernierNonLus >= 0 && nl > dernierNonLus) { nouveauEntrant = true; }
+    dernierNonLus = nl;
     h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' +
       (sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
@@ -176,19 +214,26 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
         (flux && flux.non_lus_total ? ' <span class="pastille" style="display:inline-block">' + flux.non_lus_total + "</span>" : "") + '</div><div class="msgzone">';
       // Conversations : nom du contact, dernier message, bulle rouge = messages non lus
-      h += '<div class="listefils">';
+      h += '<div class="listefils"><div class="astuce">Cliquez sur une conversation (ou flèches + OK)</div>';
       if (!fils.length) { h += '<div class="vide">Aucune conversation</div>'; }
       for (i = 0; i < fils.length; i++) {
-        h += '<div class="fil1"><div class="corps1"><div class="n">' + esc(fils[i].nom) + '</div><div class="d">' + (fils[i].sens === "sortant" ? "↗ " : "") + esc(fils[i].dernier) + '</div></div><span class="h">' + heure(fils[i].date) + "</span>" +
+        h += '<div class="fil1' + (i === curseur ? " curs" : "") + (fils[i].cle === filChoisi ? " choisi" : "") + '" data-cle="' + esc(fils[i].cle) + '" tabindex="0"><div class="corps1"><div class="n">' + esc(fils[i].nom) + '</div><div class="d">' + (fils[i].sens === "sortant" ? "↗ " : "") + esc(fils[i].dernier) + '</div></div><span class="h">' + heure(fils[i].date) + "</span>" +
           (fils[i].non_lus ? '<span class="pastille">' + fils[i].non_lus + "</span>" : "") + "</div>";
       }
-      h += '</div><div class="direct" id="direct"><div style="-webkit-flex:1;flex:1"></div>';
+      h += '</div><div class="zone-direct">';
+      if (filChoisi) {
+        var nomFil = "";
+        for (i = 0; i < fils.length; i++) { if (fils[i].cle === filChoisi) { nomFil = fils[i].nom; } }
+        // La barre reste fixe au-dessus du fil (hors de la zone qui défile)
+        h += '<div class="barre-fil" data-tout="1" style="position:absolute;top:0;left:0;right:1vw;height:9vh;box-sizing:border-box;margin:0;overflow:hidden">💬 ' + esc(nomFil || "Conversation") + " — cliquez ici ou touche Retour pour tout afficher</div>";
+      }
+      h += '<div class="direct" id="direct" style="top:' + (filChoisi ? "10.5vh" : "0") + '">';
       if (!msgs.length) { h += '<div class="vide">Aucun message récent</div>'; }
       for (i = 0; i < msgs.length; i++) {
         var g = msgs[i], nouveau = dejaCharge && !vus[g.id];
-        h += '<div class="bulle ' + (g.sens === "entrant" ? "entrant" : "sortant") + (nouveau ? " nouveau" : "") + '"><div class="nom">' + esc(g.nom) + " · " + heure(g.date) + "</div>" + esc(g.texte) + "</div>";
+        h += '<div class="rang ' + (g.sens === "entrant" ? "" : "droite") + '"><div class="bulle ' + (g.sens === "entrant" ? "entrant" : "sortant") + (nouveau ? " nouveau" : "") + '"><div class="nom">' + esc(g.nom) + " · " + heure(g.date) + "</div>" + esc(g.texte) + "</div></div>";
       }
-      h += "</div></div></div>";
+      h += "</div></div></div></div>";
     }
     if (m.support) {
       h += '<div class="col"><div class="titre">🛟 Demandes de support ouvertes</div>';
@@ -224,7 +269,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   }
   function charger() {
     if (phase !== "flux") { return; }
-    appeler("GET", "/tv/flux", lire(), null, function (st, d) {
+    appeler("GET", "/tv/flux" + (filChoisi ? "?fil=" + encodeURIComponent(filChoisi) : ""), lire(), null, function (st, d) {
       if (phase !== "flux") { return; }
       if (st === 401) { ecrire(""); flux = null; demarrerAppairage(); return; }
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }

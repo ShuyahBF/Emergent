@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "315"
-LOT_LIBELLE = "Niveaux de service : le tarif EXPRESS est le « Forfait par intervention » de la fiche du client (0 = précisé avant l'intervention)"
+LOT = "316"
+LOT_LIBELLE = "Liluvine gère les demandes d'intervention : questions au contact, niveau applicable (contrat / standard), proposition EXPRESS avec délai et forfait du client, propriétaire prévenu à l'acceptation"

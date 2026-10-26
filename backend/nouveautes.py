@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "316", "date": "2026-10-27",
+        "titre": "⚡ Liluvine gère les demandes d'intervention (contrat, standard, EXPRESS)",
+        "description": "Quand un contact demande une intervention ou signale une urgence, Liluvine pose au plus 3 questions courtes (nature du problème, urgence, poste ou logiciel), annonce le niveau qui lui correspond avec le délai réglé dans cette rubrique (contrat valide ou non), propose l'EXPRESS avec son délai et son tarif (le « Forfait par intervention » de la fiche du client ; à 0 : « à préciser avant l'intervention »), et quand le contact accepte, vous prévient par la notification WhatsApp d'escalade déjà réglée. Elle n'annonce jamais d'autre délai ni d'autre prix. Tant que la rubrique n'est pas activée avec ses trois délais, Liluvine se comporte comme avant.",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "315", "date": "2026-10-27",
         "titre": "⚡ Niveaux de service : tarif EXPRESS = forfait du client",
         "description": "Le tarif de l'intervention EXPRESS n'est plus saisi dans la rubrique : c'est le « Forfait par intervention (XOF) » de la fiche du client du contact (Clients → Tarification des interventions). Si l'option « Afficher le tarif EXPRESS dans l'image » est cochée, l'image affiche ce forfait (ex. 25 000 FCFA) ; s'il est à 0, ou si le contact n'est relié à aucun client, elle affiche « Tarif précisé avant l'intervention ».",

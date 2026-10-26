@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "301"
-LOT_LIBELLE = "Écran TV : fil en direct sans chevauchement des bulles (vieux moteurs web), choix d'une conversation au clic ou aux flèches + OK, bip aussi pour une autre conversation"
+LOT = "302"
+LOT_LIBELLE = "Écrans TV : la liste des écrans appairés s'affiche même si les portes ou la liste des clients ne se chargent pas (message d'erreur et bouton Réessayer)"

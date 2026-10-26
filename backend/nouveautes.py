@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "302", "date": "2026-10-26",
+        "titre": "📺 Écrans TV : la liste des écrans appairés ne disparaît plus",
+        "description": "Un écran appairé n'était jamais supprimé, mais la liste restait vide quand un des chargements (portes des médecins, clients) échouait, par exemple pendant une mise à jour du serveur. Les chargements sont maintenant indépendants : la liste s'affiche toujours, et en cas de souci un message orange indique quoi, avec un bouton Réessayer.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "301", "date": "2026-10-26",
         "titre": "📺 Écran TV : corrections d'affichage et choix d'une conversation",
         "description": "Sur une vraie télé LG, les bulles du fil en direct se chevauchaient : l'affichage est refait avec une mise en page que les vieux navigateurs de télé gèrent correctement. Pour lire une conversation, cliquez dessus dans la liste de gauche (télécommande pointeur) ou utilisez les flèches haut/bas puis OK ; la touche Retour (ou un clic sur la barre bleue) revient à tous les messages. Un nouveau message dans une autre conversation fait toujours retentir le bip.",

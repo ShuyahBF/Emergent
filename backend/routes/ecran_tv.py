@@ -332,7 +332,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
     async def admin_tv_portes(user: dict = Depends(get_current_admin)):
         """Portes réglées + médecins vus dans le Planning (30 derniers jours) pour la liste déroulante de l'écran."""
         depuis = (_maintenant() - timedelta(days=30)).isoformat()
-        medecins = await db.planning_appointments.distinct("medecin", {"received_at": {"$gte": depuis}})
+        try:
+            medecins = await db.planning_appointments.distinct("medecin", {"received_at": {"$gte": depuis}})
+        except Exception:  # la liste des médecins est un confort : jamais d'erreur 500 pour elle
+            medecins = []
         return {"portes": await _reglages_portes(), "medecins_connus": sorted(m for m in medecins if m)}
 
     @api.put("/admin/tv/portes", tags=["Admin — Écrans TV"])

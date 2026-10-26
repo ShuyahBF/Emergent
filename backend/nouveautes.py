@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "296", "date": "2026-10-26",
+        "titre": "🔊 Appels WhatsApp : choix du haut-parleur et témoin du son reçu",
+        "description": "Pendant un appel, le panneau affiche si du son arrive réellement de WhatsApp (octets reçus et niveau) et propose une liste déroulante des haut-parleurs du PC avec un bouton « Tester » (bip d'une seconde sur la sortie choisie). Le choix est mémorisé dans le navigateur. Si le son reçu reste à zéro, le problème vient de la liaison ; s'il arrive mais reste inaudible, il vient de la sortie audio. Choix de la sortie possible sous Chrome et Edge.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "295", "date": "2026-10-26",
         "titre": "📺 Écran TV : fin de l'écran blanc sur les Smart TV",
         "description": "L'adresse /tv ouvre désormais une page autonome écrite en JavaScript ancien (sans l'application SAWALI complète), que le navigateur d'une télé LG webOS ou autre sait lire. Même fonctionnement : code d'appairage à saisir dans cette rubrique, puis fil de messagerie et demandes de support. Si quelque chose bloque, l'erreur s'affiche en rouge en bas de l'écran de la télé au lieu d'un écran blanc. Si la télé affichait déjà un écran blanc, la recharger (ou vider son cache).",

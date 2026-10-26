@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "324", "date": "2026-10-27",
+        "titre": "🔒 Écran TV : patients toujours masqués, détail en clair seulement dans SAWALI",
+        "description": "Même après la connexion administrateur, la télé du hall n'affiche jamais les noms et téléphones des patients en clair (« GU**. R. Pa**** | 7*****42 »). Le détail complet se consulte dans SAWALI (menu Planning), sur téléphone ou PC, connecté en administrateur.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "323", "date": "2026-10-27",
         "titre": "🔑 Écran TV : connexion administrateur approuvée depuis SAWALI",
         "description": "Sur la télé, « Suivi Support » puis « Connexion administrateur » affiche un code de 6 caractères : saisissez-le ici (« Approuver une télé ») avec votre compte SAWALI déjà connecté. La télé s'ouvre 10 minutes en mode administrateur : Suivi Support, messagerie, planning sur 3 jours ou la semaine, patients en clair. Aucun mot de passe n'est tapé sur la télé.",

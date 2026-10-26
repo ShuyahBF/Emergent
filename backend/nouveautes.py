@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "294", "date": "2026-10-26",
+        "titre": "⚠ Réponse aux reports : alerte quand {client} n'a pas de nom réglé",
+        "description": "Si un message utilise {client} alors qu'aucun nom n'est réglé pour ce code dans le bloc « Nom du client cité dans les messages aux patients », l'écran affiche une alerte sous la ligne et le bouton d'essai prévient après l'envoi, au lieu de laisser un trou dans le message (« Clinique . »). Rappel : si le nom réglé contient déjà « Clinique », écrire « de {client} » et non « de la Clinique {client} ».",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "293", "date": "2026-10-26",
         "titre": "🏷️ Rappels de RDV : le nom du client expéditeur est cité au patient",
         "description": "Nouveau bloc « Nom du client cité dans les messages aux patients » : une ligne par code client (CMCO → « Clinique CMCO », SAWALI-2S → « SAWALI SMART SYSTEMS »). Le rappel de RDV commence alors par « rappel de Clinique CMCO » ; le marqueur {client} est utilisable dans vos textes et dans les réponses aux reports. Avec un modèle Meta, le nom est la 5e variable si vous cochez la case, sinon il est ajouté au médecin (« Dr X — Clinique CMCO »). Sans nom réglé pour un code, rien ne change. La liste des pictogrammes est aussi élargie pour ne plus être coupée.",

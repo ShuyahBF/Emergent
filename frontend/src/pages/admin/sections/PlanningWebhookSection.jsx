@@ -150,6 +150,8 @@ export default function PlanningWebhookSection() {
       const d = r.data || {};
       if (d.envoye) toast.success(`Essai envoyé (${d.source === "ligne" ? `client ${d.code_client}` : "message par défaut"}) : ${d.message}`);
       else toast.warning(d.detail || "Essai non envoyé");
+      // Lot 294 : {client} utilisé mais aucun nom réglé pour ce code
+      if (d.avertissement) toast.warning(d.avertissement, { duration: 12000 });
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur d'essai");
     } finally {
@@ -435,6 +437,13 @@ export default function PlanningWebhookSection() {
                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
                   <button type="button" onClick={() => setReportLignes((ls) => ls.filter((_, k) => k !== i))} title="Retirer ce client"
                           className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+                  {/* Lot 294 : {client} sans nom réglé = trou dans le message */}
+                  {l.message?.includes("{client}") && l.code_clinique && !clientsNoms.some((n) => n.code_clinique?.trim().toUpperCase() === l.code_clinique.trim().toUpperCase() && n.nom?.trim()) && (
+                    <p className="sm:col-span-4 text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1" data-testid="planning-report-client-vide">
+                      ⚠ Aucun nom réglé pour « {l.code_clinique} » : {"{client}"} restera vide. Renseignez-le dans le bloc « Nom du client cité dans les messages aux patients » (plus haut), puis « Enregistrer les noms ».
+                      Si le nom contient déjà « Clinique » (ex. « Clinique CMCO »), écrivez « de {"{client}"} » et non « de la Clinique {"{client}"} ».
+                    </p>
+                  )}
                 </div>
               ))}
               <button type="button" onClick={() => setReportLignes((ls) => [...ls, { code_clinique: "", message: "" }])}

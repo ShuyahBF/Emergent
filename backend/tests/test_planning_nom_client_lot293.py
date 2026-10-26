@@ -70,3 +70,44 @@ def test_rappel_modele_meta_5e_variable_ou_ajout_au_medecin():
         boucle.run_until_complete(scenario())
     finally:
         boucle.close()
+
+
+def test_essai_signale_un_client_sans_nom_et_utilise_le_nom_saisi_a_l_ecran():
+    """Lot 294 — le bouton d'essai prévient quand {client} reste vide, et prend en compte les noms non enregistrés."""
+    import httpx
+    from fastapi import APIRouter, FastAPI
+    from routes.planning import attach_planning_routes
+
+    async def scenario():
+        envois = []
+
+        async def envoyer_texte(to, texte):
+            envois.append(texte)
+            return {"ok": True, "message_id": "t"}
+
+        db = mongomock_motor.AsyncMongoMockClient()["t_essai"]
+        api = APIRouter(prefix="/api")
+
+        async def admin():
+            return {"id": "a"}
+
+        attach_planning_routes(api=api, db=db, get_current_user=admin, get_current_admin=admin, _is_admin_or_superviseur=lambda u: True,
+                               _resolve_visible_client_ids=None, _is_super_admin=lambda u: True, _public_base_url=lambda r: "",
+                               wa_send_text=envoyer_texte)
+        app = FastAPI()
+        app.include_router(api)
+        lignes = [{"code_clinique": "CMCO", "message": "Bonjour {patient} de {client}. Appelez 78267900.", "emoji": "✅"}]
+        corps = {"mode": "avec_ligne", "telephone": "+22607332313", "code_client": "CMCO", "report_reponses": lignes}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+            r = (await c.post("/api/admin/planning/report/test", json=corps)).json()
+            assert r["envoye"] and "{client}" in r["avertissement"]
+            assert envois[-1] == "[ESSAI] ✅ Bonjour PATIENT TEST de . Appelez +226 78 26 79 00."
+            r2 = (await c.post("/api/admin/planning/report/test",
+                               json={**corps, "clients_noms": [{"code_clinique": "cmco", "nom": "Clinique CMCO"}]})).json()
+            assert r2["avertissement"] is None and r2["message"] == "✅ Bonjour PATIENT TEST de Clinique CMCO. Appelez +226 78 26 79 00."
+
+    boucle = asyncio.new_event_loop()
+    try:
+        boucle.run_until_complete(scenario())
+    finally:
+        boucle.close()

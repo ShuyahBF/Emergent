@@ -595,7 +595,13 @@ def attach_planning_routes(
             raise HTTPException(status_code=400, detail=f"Le client « {code} » n'a pas de ligne réglée")
         res = await wa_send_text(payload.telephone, "[ESSAI] " + sim["message"])
         ok = bool(res and res.get("ok"))
-        return {"ok": ok, "envoye": ok, "source": sim["source"], "code_client": code, "message": sim["message"],
+        # Lot 294 — {client} utilisé dans le message mais aucun nom réglé pour ce code : on le dit au lieu de laisser un trou
+        from routes.planning_report_rdv import message_pour_clinique, nom_client
+        avertissement = None
+        if "{client}" in message_pour_clinique(reglages, code) and not nom_client(reglages, code):
+            avertissement = (f"Le message contient {{client}} mais aucun nom n'est réglé pour « {code} » : "
+                             "renseignez-le dans le bloc « Nom du client cité dans les messages aux patients », puis « Enregistrer les noms ».")
+        return {"ok": ok, "envoye": ok, "source": sim["source"], "code_client": code, "message": sim["message"], "avertissement": avertissement,
                 "detail": None if ok else ((res or {}).get("error") or "Envoi refusé par WhatsApp (le destinataire doit avoir écrit dans les 24 h)")}
 
     @api.post("/admin/planning/reminders/run", tags=["Admin — Planning"])

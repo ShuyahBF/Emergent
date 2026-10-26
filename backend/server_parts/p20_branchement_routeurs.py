@@ -624,6 +624,11 @@ from routes.planning_suivi_rdv import attach_planning_suivi_routes as _attach_su
 _attach_suivi_rdv(api=api, db=db, get_current_user=get_current_user, is_admin_like=_is_admin_or_superviseur,
                   resolve_visible_client_ids=_resolve_visible_client_ids)
 
+# Lot 309 — Avancer / Reculer dans les listes du jour d'un médecin (avec RDV, sans RDV) : curseur « en consultation » affiché sur l'écran TV
+from routes.planning_avancement import attach_planning_avancement_routes as _attach_avancement  # noqa: E402
+_attach_avancement(api=api, db=db, get_current_user=get_current_user, is_admin_like=_is_admin_or_superviseur,
+                   is_super_admin=_is_super_admin, resolve_visible_client_ids=_resolve_visible_client_ids)
+
 # Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
 # la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.
 from routes.nouveautes_formulaires import attach_nouveautes_formulaires_routes as _attach_nouveautes_fs  # noqa: E402

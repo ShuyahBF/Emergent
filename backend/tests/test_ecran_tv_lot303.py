@@ -196,3 +196,108 @@ def test_patient_nom_puis_telephone_puis_recu_lot308():
     assert f("KANE Sali Marie : +226 70 00 11 22 : R-1") == ("KANE Sali Marie : +226 70 00 11 22", "+226 70 00 11 22", "R-1")
     assert f("DABRE SAFOURA ; 70369266 ; R-20263") == ("DABRE SAFOURA : 70369266", "70369266", "R-20263")
     assert f("OUOBA JF 77000155") == ("OUOBA JF : 77000155", "77000155", "") and f("SOMDA") == ("SOMDA", None, "")
+
+
+def test_avancer_reculer_dans_une_liste_lot309():
+    """Lot 309 : le curseur « en consultation » avance et recule dans une liste (avec RDV ou sans RDV)."""
+    from routes.planning_avancement import calculer_avancement as c
+    assert c([None, None, None], "avant") == {0: "en_cours"}                                  # premier appel : le 1er patient
+    assert c(["en_cours", None, None], "avant") == {0: "fait", 1: "en_cours"}                  # on passe au suivant
+    assert c(["fait", "en_cours", None], "arriere") == {1: None, 0: "en_cours"}                # on rappelle le précédent
+    assert c([None, None], "arriere") == {}                                                    # rien avant le début
+    assert c(["fait", "en_cours"], "avant") == {1: "fait"}                                     # fin de liste : plus personne en cours
+    assert c(["fait", "fait"], "arriere") == {1: "en_cours"}                                   # retour depuis la fin de liste
+    assert c([], "avant") == {}
+
+
+def _app_planning():
+    db = AsyncMongoMockClient()["test_avancement_309"]
+    auj = datetime.now(timezone.utc).replace(hour=8, minute=0, second=0, microsecond=0)
+    jour = auj.strftime("%y%m%d")
+    _run(db.users.insert_many([{"id": "med-1", "email": "m1@x"}, {"id": "med-2", "email": "m2@x"}]))
+    _run(db.planning_appointments.insert_many([
+        {"id": "r1", "tenant_id": "t", "medecin_id": "med-1", "is_rdv": 1, "start_at": (auj + timedelta(hours=1)).isoformat(), "patient": "A"},
+        {"id": "r2", "tenant_id": "t", "medecin_id": "med-1", "is_rdv": 1, "start_at": (auj + timedelta(hours=2)).isoformat(), "patient": "B"},
+        {"id": "w1", "tenant_id": "t", "medecin_id": "med-1", "is_rdv": 0, "walk_in_list": f"{jour}:med-1", "numero_ordre": 1, "patient": "C"},
+        {"id": "w2", "tenant_id": "t", "medecin_id": "med-1", "is_rdv": 0, "walk_in_list": f"{jour}:med-1", "numero_ordre": 2, "patient": "D"},
+        {"id": "x1", "tenant_id": "t", "medecin_id": "med-2", "is_rdv": 1, "start_at": (auj + timedelta(hours=1)).isoformat(), "patient": "AUTRE MEDECIN"},
+    ]))
+    from routes.planning_avancement import attach_planning_avancement_routes
+
+    async def utilisateur(request: Request):
+        return {"id": request.headers.get("x-id", "med-1"), "email": "m1@x", "role": "client", "tracked_role": "Secrétaire médicale" if request.headers.get("x-role") == "secretaire" else "Médecin"}
+
+    async def visibles(user):
+        return ["t"]
+
+    api = APIRouter(prefix="/api")
+    attach_planning_avancement_routes(api=api, db=db, get_current_user=utilisateur, is_admin_like=lambda u: False,
+                                      is_super_admin=lambda u: False, resolve_visible_client_ids=visibles)
+    app = FastAPI()
+    app.include_router(api)
+    return TestClient(app), db, auj.strftime("%Y-%m-%d")
+
+
+def test_endpoint_avancer_ses_deux_listes_seulement():
+    c, db, jour = _app_planning()
+    # liste avec RDV : on avance deux fois, puis on recule
+    r = c.post("/api/me/planning/avancer", json={"liste": "rdv", "sens": "avant", "date": jour}).json()
+    assert [(e["id"], e["etat_consult"]) for e in r["etats"]] == [("r1", "en_cours"), ("r2", None)]
+    c.post("/api/me/planning/avancer", json={"liste": "rdv", "sens": "avant", "date": jour})
+    assert _run(db.planning_appointments.find_one({"id": "r1"}))["etat_consult"] == "fait"
+    assert _run(db.planning_appointments.find_one({"id": "r2"}))["etat_consult"] == "en_cours"
+    c.post("/api/me/planning/avancer", json={"liste": "rdv", "sens": "arriere", "date": jour})
+    assert _run(db.planning_appointments.find_one({"id": "r1"}))["etat_consult"] == "en_cours"
+    assert "etat_consult" not in _run(db.planning_appointments.find_one({"id": "r2"}))
+    # la liste sans RDV est indépendante ; l'autre médecin n'est jamais touché
+    c.post("/api/me/planning/avancer", json={"liste": "sans_rdv", "sens": "avant", "date": jour})
+    assert _run(db.planning_appointments.find_one({"id": "w1"}))["etat_consult"] == "en_cours"
+    assert "etat_consult" not in _run(db.planning_appointments.find_one({"id": "x1"}))
+    # droits : une secrétaire médicale ne pilote pas les listes du médecin
+    assert c.post("/api/me/planning/avancer", headers={"x-role": "secretaire"}, json={"liste": "rdv", "sens": "avant", "date": jour}).status_code == 403
+    assert c.post("/api/me/planning/avancer", json={"liste": "autre", "sens": "avant", "date": jour}).status_code == 400
+
+
+def test_hall_deux_listes_et_curseur_lot309():
+    from routes.ecran_tv import forme_hall
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    docs = [{"medecin": "DR X", "patient": "A Un", "is_rdv": 1, "start_at": "2026-10-26T09:00:00+00:00", "etat_consult": "fait"},
+            {"medecin": "DR X", "patient": "B Deux", "is_rdv": 1, "start_at": "2026-10-26T10:30:00+00:00", "etat_consult": "en_cours"},
+            {"medecin": "DR X", "patient": "C Trois", "is_rdv": 1, "start_at": "2026-10-26T11:00:00+00:00"},
+            {"medecin": "DR X", "patient": "D Quatre", "is_rdv": 0, "numero_ordre": 2, "received_at": "2026-10-26T08:00:00+00:00"},
+            {"medecin": "DR X", "patient": "E Cinq", "is_rdv": 0, "numero_ordre": 1, "received_at": "2026-10-26T07:00:00+00:00", "etat_consult": "en_cours"}]
+    m = forme_hall(docs, {}, maintenant)["medecins"][0]
+    assert [(r["heure"], r["etat"]) for r in m["rdv"]] == [("09:00", "fait"), ("10:30", "en_cours"), ("11:00", "attente")]
+    assert [(r["ordre"], r["etat"]) for r in m["sans_rdv"]] == [(1, "en_cours"), (2, "attente")]
+    assert m["prochain_min"] == 60                                           # le patient « en cours » n'est plus « le prochain »
+    assert [r["passe"] for r in m["rdv"]] == [True, False, False]
+
+
+def test_hall_perimetre_par_code_clinique_lot309():
+    """Les RDV de médecins rangés sous un autre compte mais de la même clinique (même code) s'affichent aussi ; une autre clinique non."""
+    db = AsyncMongoMockClient()["test_tv_309"]
+    _run(db.users.insert_one({"id": "cli-1", "company": "Clinique A"}))
+    auj = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    _run(db.planning_appointments.insert_many([
+        {"id": "p1", "tenant_id": "cli-1", "code_clinique": "CMCO", "medecin": "DR UN", "patient": "A", "is_rdv": 1, "start_at": auj.isoformat()},
+        {"id": "p2", "tenant_id": "autre-compte", "code_clinique": "CMCO", "medecin": "DR DEUX", "patient": "B", "is_rdv": 1, "start_at": auj.isoformat()},
+        {"id": "p3", "tenant_id": "autre-client", "code_clinique": "AUTRE", "medecin": "DR TROIS", "patient": "C", "is_rdv": 1, "start_at": auj.isoformat()},
+    ]))
+
+    async def admin(request: Request):
+        return {"email": "admin@test"}
+
+    api = APIRouter(prefix="/api")
+    setup_ecran_tv_routes(db=db, api=api, get_current_admin=admin)
+    app = FastAPI()
+    app.include_router(api)
+    c = TestClient(app)
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Hall", "client_id": "cli-1", "modules": {"hall": True}})
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
+    assert sorted(m["medecin"] for m in f["hall"]["medecins"]) == ["DR DEUX", "DR UN"]
+    assert f["ecran"]["taille_heure"] == "grande"                                              # valeur par défaut
+    ecran_id = c.get("/api/admin/tv/ecrans").json()["ecrans"][0]["id"]
+    assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", json={"taille_heure": "geante"}).json()["taille_heure"] == "geante"
+    assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", json={"taille_heure": "enorme"}).status_code == 400
+    assert c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()["ecran"]["taille_heure"] == "geante"

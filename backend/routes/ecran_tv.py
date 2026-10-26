@@ -37,7 +37,8 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "307"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "309"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 JOURS_RDV_MASQUES = 3            # lot 303 : les patients rappelés pour un RDV depuis 3 jours n'apparaissent pas dans les conversations
 
 
@@ -192,34 +193,55 @@ def masquer_tel_hall(tel: Any) -> str:
 
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
                fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False) -> Dict[str, Any]:
-    """Planning du jour par médecin (lot 305 : les RDV sont pris TELS QUELS, le champ `type_evenement` n'est plus utilisé).
-    Pour chaque médecin : ses RDV du jour classés par heure, chacun avec le patient ANONYMISÉ (« GU**. R. Pa**** »), son téléphone masqué
-    (« 7*****42 ») et le numéro de reçu s'il est transmis. `prochain_min` = minutes avant le prochain RDV non encore passé.
-    Renvoie {"medecins": [...], "prochain": {medecin, porte, libelle} | None}."""
+    """Planning du jour par médecin (RDV pris tels quels ; le champ `type_evenement` n'est pas utilisé).
+    Deux listes par médecin (lot 309) : `rdv` (avec rendez-vous, classés par heure) et `sans_rdv` (consultations sans RDV, classées par
+    numéro d'ordre, mises à jour par le secrétariat médical). Chaque ligne : patient ANONYMISÉ (« GU**. R. Pa**** »), téléphone masqué
+    (« 7*****42 »), reçu s'il est transmis, et `etat` = « en_cours » / « fait » / « attente » (curseur Avancer / Reculer du médecin).
+    `prochain_min` = minutes avant le prochain RDV en attente. Renvoie {"medecins": [...], "prochain": {medecin, porte, libelle} | None}."""
     par_med: Dict[str, Dict[str, Any]] = {}
     for d in docs:
         if str(d.get("status") or "").lower() in ("cancelled", "annule", "annulé"):
             continue
         nom = str(d.get("medecin") or "").strip() or "—"
-        fiche = par_med.setdefault(nom, {"medecin": nom, "porte": portes.get(nom.lower(), ""), "rdv": []})
-        debut = _dt(d.get("start_at")) if d.get("is_rdv", 1) != 0 else None
+        fiche = par_med.setdefault(nom, {"medecin": nom, "porte": portes.get(nom.lower(), ""), "rdv": [], "sans_rdv": []})
+        sans = d.get("is_rdv", 1) == 0
+        debut = None if sans else _dt(d.get("start_at"))
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
         quand = debut or arrivee
-        fiche["rdv"].append({"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
-                             "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30], "passe": quand < maintenant, "_q": quand})
+        ligne = {"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
+                 "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30],
+                 "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand}
+        fiche["sans_rdv" if sans else "rdv"].append(ligne)
+
+    def finir(lignes: List[Dict[str, Any]], par_numero: bool) -> List[Dict[str, Any]]:
+        """Classe la liste, fixe l'état de chaque ligne ; si le médecin n'utilise pas encore Avancer/Reculer, l'heure passée estompe la ligne."""
+        lignes.sort(key=(lambda x: int(x["ordre"] or 0)) if par_numero else (lambda x: x["_q"]))
+        utilise = any(x["curseur"] for x in lignes)
+        for x in lignes:
+            x["etat"] = x["curseur"] or "attente"
+            x["passe"] = (x["curseur"] == "fait") if utilise else (False if par_numero else x["passe"])
+        return lignes
+
     medecins = []
     for fiche in par_med.values():
-        fiche["rdv"].sort(key=lambda x: x["_q"])
-        a_venir = [x["_q"] for x in fiche["rdv"] if not x["passe"]]
+        rdv, sans_rdv = finir(fiche["rdv"], False), finir(fiche["sans_rdv"], True)
+        a_venir = [x["_q"] for x in rdv if not x["passe"] and x["etat"] != "en_cours"]
         extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # profession et photo du médecin
+        propre = lambda lst: [{k: v for k, v in x.items() if k not in ("_q", "curseur")} for x in lst][:14]
         medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"], "profession": extra.get("profession", ""),
                          "a_photo": bool(extra.get("photo")), "photo": extra.get("photo", "") if avec_photos else "",
-                         "rdv": [{**{k: v for k, v in x.items() if k != "_q"}, "etat": "termine" if x["passe"] else "attente"} for x in fiche["rdv"]][:14],
-                         # Compatibilité : une télé qui a gardé en cache une ancienne version de la page lit encore ces champs (lot 307)
-                         "prochains": [{"libelle": x["heure"], "heure": x["heure"]} for x in fiche["rdv"] if not x["passe"]][:3],
-                         "en_consultation": None, "restants": len([x for x in fiche["rdv"] if not x["passe"]]), "vus": 0,
+                         "rdv": [{**x, "etat_ancien": "termine" if x["passe"] else "attente"} for x in propre(rdv)],
+                         "sans_rdv": propre(sans_rdv),
                          "prochain_min": int((a_venir[0] - maintenant).total_seconds() // 60) if a_venir else None,
+                         # Compatibilité : une télé qui a gardé en cache une ancienne page lit encore ces champs
+                         "prochains": [{"libelle": x["heure"], "heure": x["heure"]} for x in rdv if not x["passe"]][:3],
+                         "en_consultation": None, "restants": len([x for x in rdv if not x["passe"]]), "vus": 0,
                          "_premier": a_venir[0] if a_venir else None})
+    for m in medecins:
+        for x in m["rdv"]:
+            ancien = x.pop("etat_ancien")
+            if x["etat"] == "attente":
+                x["etat"] = ancien                                   # anciennes pages : « termine » / « attente »
     medecins.sort(key=lambda m: m["medecin"].lower())
     en_attente = [m for m in medecins if m["_premier"] is not None]
     prochain = None
@@ -257,6 +279,11 @@ def normaliser_portes(brut: Any) -> List[Dict[str, str]]:
     return list(par_nom.values())
 
 
+def taille_heure_valide(valeur: Any) -> str:
+    """Taille de l'heure sur l'écran du hall ; absente ou inconnue : « grande » (le hall est lu de loin)."""
+    return valeur if valeur in TAILLES_HEURE else "grande"
+
+
 def modules_valides(brut: Any) -> Dict[str, bool]:
     """Ne garde que les contenus connus ; absent = non."""
     brut = brut if isinstance(brut, dict) else {}
@@ -278,6 +305,7 @@ class EcranModif(BaseModel):
     nom: Optional[str] = Field(None, max_length=60)
     client_id: Optional[str] = Field(None, max_length=64)
     modules: Optional[Dict[str, bool]] = None
+    taille_heure: Optional[str] = Field(None, max_length=20)
 
 
 def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_ids=None):
@@ -344,7 +372,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
         ids = await _perimetre(ecran.get("client_id"))
-        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules}, "maintenant": _maintenant().isoformat(),
+        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure"))}, "maintenant": _maintenant().isoformat(),
                                 "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
         if modules["messagerie"]:
             docs = await db.whatsapp_messages.find(
@@ -395,11 +423,17 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             # Consultations du jour : UNE lecture des RDV et arrivées du jour pour tous les médecins, regroupées en mémoire
             maintenant = _maintenant()
             j0, j1 = borne_jour(maintenant)
+            # Lot 309 : les RDV d'une même clinique peuvent être rangés sous plusieurs comptes (médecins rattachés différemment) :
+            # on prend aussi tous ceux qui portent le MÊME code clinique (ex. CMCO) que les RDV du périmètre de l'écran.
+            codes = [c for c in await db.planning_appointments.distinct("code_clinique", {"tenant_id": {"$in": ids}}) if c and c != "manual"]
+            perimetre = {"$or": [{"tenant_id": {"$in": ids}}, {"code_clinique": {"$in": codes}}]} if codes else {"tenant_id": {"$in": ids}}
+            jour_q = {"$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}},
+                              {"is_rdv": 0, "walk_in_list": {"$regex": f"^{j0.strftime('%y%m%d')}:"}},
+                              {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]}
             docs = await db.planning_appointments.find(
-                {"tenant_id": {"$in": ids}, "$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}},
-                                                   {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]},
+                {"$and": [perimetre, jour_q]},
                 {"_id": 0, "medecin": 1, "is_rdv": 1, "start_at": 1, "received_at": 1, "created_at": 1, "updated_at": 1,
-                 "numero_ordre": 1, "status": 1, "patient": 1, "patient_phone": 1, "numero_recu": 1},
+                 "numero_ordre": 1, "status": 1, "patient": 1, "patient_phone": 1, "numero_recu": 1, "etat_consult": 1},
             ).to_list(2000)
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
@@ -465,6 +499,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             champs["tv_ecrans.$.client_nom"] = client.get("company") or client.get("full_name") or ""
         if payload.modules is not None:
             champs["tv_ecrans.$.modules"] = modules_valides(payload.modules)
+        if payload.taille_heure is not None:
+            if payload.taille_heure not in TAILLES_HEURE:
+                raise HTTPException(status_code=400, detail="Taille inconnue : " + ", ".join(TAILLES_HEURE))
+            champs["tv_ecrans.$.taille_heure"] = payload.taille_heure
         if not champs:
             return {"ok": True}
         res = await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran_id}, {"$set": champs})
@@ -473,7 +511,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         # Lot 303 : on renvoie ce qui est réellement enregistré (l'écran d'administration s'aligne dessus)
         s2 = await _reglages()
         ecran = next((e for e in s2.get("tv_ecrans") or [] if e.get("id") == ecran_id), {})
-        return {"ok": True, "modules": modules_valides(ecran.get("modules"))}
+        return {"ok": True, "modules": modules_valides(ecran.get("modules")), "taille_heure": taille_heure_valide(ecran.get("taille_heure"))}
 
     @api.delete("/admin/tv/ecrans/{ecran_id}", tags=["Admin — Écrans TV"])
     async def admin_tv_revoquer(ecran_id: str, user: dict = Depends(get_current_admin)):

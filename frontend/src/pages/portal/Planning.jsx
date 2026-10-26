@@ -308,6 +308,26 @@ export default function Planning() {
     return [...past, ...upcoming, ...walkIns];
   }, [positioned, walkIns]);
 
+  // Lot 309 — curseur « en consultation » des deux listes du jour (avec RDV : par heure ; sans RDV : par numéro d'ordre)
+  const [avancement, setAvancement] = useState(false);
+  const listeRdv = useMemo(() => [...positioned].sort((x, y) => x.startMin - y.startMin), [positioned]);
+  const etatLabel = (liste) => {
+    const cur = liste.find((a) => a.etat_consult === "en_cours");
+    const faits = liste.filter((a) => a.etat_consult === "fait").length;
+    return { cur, faits, total: liste.length };
+  };
+  const avancer = async (liste, sens) => {
+    setAvancement(true);
+    try {
+      await apiClient.post("/me/planning/avancer", { liste, sens, date: selectedDate, medecin_id: isMedecin ? undefined : selectedMedecinId });
+      await fetchAppointments();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Action impossible");
+    } finally { setAvancement(false); }
+  };
+  // L'avancement est proposé au médecin (ses listes) et aux administrateurs (médecin choisi)
+  const peutAvancer = isMedecin || (!!me && (me.role === "admin" || me.role === "superviseur") && !!selectedMedecinId);
+
   // Slots verticaux
   const slots = useMemo(() => {
     const out = [];
@@ -566,6 +586,36 @@ export default function Planning() {
         </div>
       </div>
 
+      {/* Lot 309 — Avancer / Reculer dans les deux listes du jour : le patient « en consultation » s'affiche sur l'écran TV du hall */}
+      {peutAvancer && (
+        <div className="grid md:grid-cols-2 gap-3" data-testid="planning-avancement">
+          {[["rdv", "Liste du jour avec rendez-vous", listeRdv], ["sans_rdv", "Liste du jour sans rendez-vous", walkIns]].map(([cle, titre, liste]) => {
+            const { cur, faits, total } = etatLabel(liste);
+            return (
+              <div key={cle} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2" data-testid={`planning-avancement-${cle}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-700">{titre}</h3>
+                  <span className="text-xs text-slate-500">{faits} terminé{faits > 1 ? "s" : ""} sur {total}</span>
+                </div>
+                <div className="text-sm text-slate-700 min-h-[1.5rem]">
+                  {cur ? <>En consultation : <b>{cle === "sans_rdv" ? `N° ${cur.numero_ordre ?? "?"}` : formatTime(cur.start_at)}</b> — {cur.patient}</> : <span className="text-slate-400">Aucun patient en consultation</span>}
+                </div>
+                <div className="flex gap-2 boutons-distincts">
+                  <button type="button" disabled={avancement || total === 0} onClick={() => avancer(cle, "arriere")}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm disabled:opacity-50" data-testid={`planning-reculer-${cle}`}>
+                    <ChevronLeft className="h-4 w-4" /> Reculer
+                  </button>
+                  <button type="button" disabled={avancement || total === 0} onClick={() => avancer(cle, "avant")}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid={`planning-avancer-${cle}`}>
+                    Avancer <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Liste RDV sous le calendrier */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden" data-testid="planning-list">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
@@ -602,7 +652,11 @@ export default function Planning() {
                           <span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"} data-testid={`planning-list-patient-${a.id}`}>
                             {a.patient}
                           </span>
-                          {a.isPast && (
+                          {a.etat_consult === "en_cours" ? (
+                            <span className="text-[10px] uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 ml-1" data-testid={`planning-badge-encours-${a.id}`}>
+                              En consultation
+                            </span>
+                          ) : (a.etat_consult === "fait" || (a.isPast && !a.etat_consult)) && (
                             <span className="text-[10px] uppercase tracking-wide text-slate-400 border border-slate-200 rounded px-1 py-0.5 ml-1">
                               Terminé
                             </span>

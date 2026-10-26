@@ -119,6 +119,15 @@ export default function EcransTvSection() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible : le contenu n'a pas été enregistré"); charger(); }
   };
 
+  // Lot 309 : taille de l'heure sur l'écran du hall (liste finie → liste déroulante)
+  const changerTaille = async (ecran, valeur) => {
+    setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, taille_heure: valeur } : e)));
+    try {
+      await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, { taille_heure: valeur });
+      toast.success("Taille de l'heure enregistrée");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible"); charger(); }
+  };
+
   const revoquer = async (ecran) => {
     if (!window.confirm(`Révoquer l'écran « ${ecran.nom} » ? La télé redemandera un code.`)) return;
     try { await apiClient.delete(`/admin/tv/ecrans/${ecran.id}`); toast.success("Écran révoqué"); charger(); } catch (err) { toast.error(err?.response?.data?.detail || "Révocation impossible"); }
@@ -191,7 +200,7 @@ export default function EcransTvSection() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-testid="tv-liste">
-              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Code d'appairage</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
+              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Code d'appairage</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">Taille de l'heure (hall)</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
               <tbody>
                 {ecrans.map((e) => (
                   <tr key={e.id} className="border-t border-slate-100">
@@ -206,6 +215,14 @@ export default function EcransTvSection() {
                           </label>
                         ))}
                       </div>
+                    </td>
+                    <td className="pr-3">
+                      <select value={e.taille_heure || "grande"} onChange={(ev) => changerTaille(e, ev.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-xs" data-testid="tv-taille-heure">
+                        <option value="normale">Normale</option>
+                        <option value="grande">Grande</option>
+                        <option value="tres_grande">Très grande</option>
+                        <option value="geante">Géante</option>
+                      </select>
                     </td>
                     <td className="pr-3 text-xs text-slate-600">{dateLisible(e.vu_le)}</td>
                     <td className="text-right"><button type="button" onClick={() => revoquer(e)} title="Révoquer cet écran" className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></td>

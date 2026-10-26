@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "290", "date": "2026-10-26",
+        "titre": "📞 Réponse aux reports de RDV : pictogramme au choix et numéros cliquables",
+        "description": "Pour chaque client (et pour le message par défaut), une liste déroulante permet de choisir le pictogramme placé en tête du message (📞 ☎️ 🏥 🩺 📅 …). Les numéros à 8 chiffres écrits dans le message sont envoyés au format international (+226 78 26 79 00) : WhatsApp les rend cliquables et un appui ouvre le compositeur du téléphone. L'indicatif pays est réglable. Les boutons d'essai montrent le résultat exact.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "289", "date": "2026-10-24",
         "titre": "📺 Écrans TV : messagerie et demandes de support sur une Smart TV",
         "description": "Ouvrez l'adresse /tv dans le navigateur d'une télé (LG webOS ou autre) : un code s'affiche ; saisissez-le dans Paramètres → « Écrans TV », choisissez le client et les contenus. La télé montre alors, sans aucun bouton, le fil des messages (les nouveaux s'animent) et les demandes de support ouvertes ; les numéros de téléphone sont masqués. Chaque écran se modifie ou se révoque à tout moment. L'affichage du hall (programme des médecins, prochain patient) viendra dans un prochain lot.",

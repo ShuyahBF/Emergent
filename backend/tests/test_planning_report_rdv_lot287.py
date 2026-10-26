@@ -31,8 +31,8 @@ def test_numeros_compares_sur_les_8_derniers_chiffres():
 
 
 def test_message_par_clinique_sans_casse_et_repli_sur_le_defaut():
-    assert "78267900" in message_pour_clinique(REGLAGES, "CMC")
-    assert "70000000" in message_pour_clinique(REGLAGES, "cmco")
+    assert "78 26 79 00" in message_pour_clinique(REGLAGES, "CMC")
+    assert "70 00 00 00" in message_pour_clinique(REGLAGES, "cmco")
     assert message_pour_clinique(REGLAGES, "AUTRE") == ""
     assert message_pour_clinique({**REGLAGES, "planning_report_defaut": "Appelez l'accueil."}, "AUTRE") == "Appelez l'accueil."
 
@@ -40,7 +40,7 @@ def test_message_par_clinique_sans_casse_et_repli_sur_le_defaut():
 def test_normalisation_retire_les_lignes_vides_et_les_doublons():
     liste = normaliser_reponses([{"code_clinique": " cmc ", "message": "a"}, {"code_clinique": "CMC", "message": "b"},
                                  {"code_clinique": "", "message": "x"}, {"code_clinique": "Z", "message": ""}, "bizarre"])
-    assert liste == [{"code_clinique": "CMC", "message": "b"}]
+    assert liste == [{"code_clinique": "CMC", "message": "b", "emoji": ""}]
 
 
 def test_remplir_ne_plante_jamais_sur_un_marqueur_inconnu():
@@ -73,7 +73,7 @@ def _lancer(db, texte, reglages=REGLAGES, tel="22670001122"):
 def test_reponse_specifique_a_la_clinique_puis_une_seule_fois():
     db = _base([_rdv("CMC")])
     res, envoyes = _lancer(db, "Je veux reporter mon RDV")
-    assert res["code_clinique"] == "CMC" and "78267900" in envoyes[0][1]
+    assert res["code_clinique"] == "CMC" and "+226 78 26 79 00" in envoyes[0][1]
     res2, envoyes2 = _lancer(db, "Je veux reporter mon RDV")   # déjà répondu pour ce RDV
     assert res2 is None and envoyes2 == []
 
@@ -81,7 +81,7 @@ def test_reponse_specifique_a_la_clinique_puis_une_seule_fois():
 def test_cmco_a_son_propre_message():
     db = _base([_rdv("CMCO")])
     _, envoyes = _lancer(db, "décaler svp")
-    assert envoyes[0][1] == "Bonjour KANE, appelez le 70000000."
+    assert envoyes[0][1] == "Bonjour KANE, appelez le +226 70 00 00 00."
 
 
 def test_rien_si_inactif_message_banal_rappel_trop_ancien_ou_autre_numero():
@@ -100,7 +100,21 @@ def test_repondre_a_tout_message_si_demande():
 def test_simulation_pour_les_boutons_d_essai():
     from routes.planning_report_rdv import CODE_ESSAI_SANS_LIGNE, simuler_reponse
     avec = simuler_reponse(REGLAGES, "CMCO")
-    assert avec["source"] == "ligne" and avec["message"] == "Bonjour PATIENT TEST, appelez le 70000000."
+    assert avec["source"] == "ligne" and avec["message"] == "Bonjour PATIENT TEST, appelez le +226 70 00 00 00."
     assert simuler_reponse(REGLAGES, CODE_ESSAI_SANS_LIGNE) == {"source": "aucun", "message": ""}
     sans = simuler_reponse({**REGLAGES, "planning_report_defaut": "Appelez {patient}"}, CODE_ESSAI_SANS_LIGNE)
     assert sans == {"source": "defaut", "message": "Appelez PATIENT TEST"}
+
+
+def test_pictogramme_en_tete_et_numeros_cliquables():
+    from routes.planning_report_rdv import emoji_valide, lier_numeros, normaliser_reponses
+    reglages = {"planning_report_reponses": [{"code_clinique": "cmc", "message": "Appelez 78267900/70463624.", "emoji": "📞"}],
+                "planning_report_defaut": "Appelez l'accueil.", "planning_report_defaut_emoji": "🙏"}
+    assert message_pour_clinique(reglages, "CMC") == "📞 Appelez +226 78 26 79 00/+226 70 46 36 24."
+    assert message_pour_clinique(reglages, "AUTRE") == "🙏 Appelez l'accueil."
+    # Un pictogramme hors de la liste proposée est refusé (aucun pictogramme)
+    assert emoji_valide("💣") == "" and emoji_valide("📞") == "📞"
+    assert normaliser_reponses([{"code_clinique": "A", "message": "m", "emoji": "💣"}])[0]["emoji"] == ""
+    # Numéros déjà internationaux et longs identifiants laissés tels quels ; indicatif réglable
+    assert lier_numeros("+226 70 00 11 22 et +22670001122 et 123456789012") == "+226 70 00 11 22 et +22670001122 et 123456789012"
+    assert lier_numeros("70001122", "225") == "+225 70 00 11 22"

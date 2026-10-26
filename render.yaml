@@ -228,6 +228,11 @@ services:
       # les webhooks et les quelques appels relatifs (/api/health, /api/version).
       - key: REACT_APP_BACKEND_URL
         value: https://api.sawalismartsystems.com
+    # Lot 307 : la page des écrans TV n'est jamais gardée en cache par les télés (elles gardaient d'anciennes versions)
+    headers:
+      - path: /tv-ecran.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
     routes:
       # 1) Toute l'API est relayée au backend (mêmes adresses qu'avant pour les webhooks).
       #    À ajuster si Render attribue une autre adresse au backend.

@@ -174,3 +174,15 @@ def test_recu_saisi_apres_le_telephone_dans_le_champ_patient():
     m = forme_hall([{"medecin": "DR X", "patient": "OUOBA Alphone : 25614545 : R-202660230", "patient_phone": "25614545", "is_rdv": 1,
                     "start_at": "2026-10-26T10:20:00+00:00"}], {}, maintenant)["medecins"][0]
     assert (m["rdv"][0]["qui"], m["rdv"][0]["tel"], m["rdv"][0]["recu"]) == ("OU*** Al*****", "2*****45", "R-202660230")
+
+
+def test_compatibilite_ancienne_page_et_version_de_page():
+    """Lot 307 : une télé qui garde une ancienne page en cache lit encore `prochains`/`etat` (pas d'erreur), et le flux annonce la version de la page."""
+    from routes.ecran_tv import PAGE_TV_VERSION, forme_hall
+    maintenant = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    docs = [{"medecin": "DR X", "patient": "KANE Sali", "is_rdv": 1, "start_at": "2026-10-26T10:20:00+00:00"},
+            {"medecin": "DR X", "patient": "SOMDA", "is_rdv": 1, "start_at": "2026-10-26T09:00:00+00:00"}]
+    m = forme_hall(docs, {}, maintenant)["medecins"][0]
+    assert m["prochains"][0]["libelle"] == "10:20" and [r["etat"] for r in m["rdv"]] == ["termine", "attente"]
+    html = open("../frontend/public/tv-ecran.html", encoding="utf-8").read()
+    assert f'VERSION_PAGE = "{PAGE_TV_VERSION}"' in html            # la page et le serveur annoncent la même version

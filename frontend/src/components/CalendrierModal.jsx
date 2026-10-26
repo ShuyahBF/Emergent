@@ -7,7 +7,7 @@
     détail) et place le message dans la zone de saisie de la conversation (onPartager).
   API : /me/calendrier/* (backend/routes/calendrier_partage.py).
 */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CalendarDays, ChevronLeft, ChevronRight, Image as ImageIcon, Loader2, Minimize2, Maximize2, RefreshCw, Share2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
@@ -22,7 +22,11 @@ const lundi = (d) => { const x = new Date(d); const n = (x.getDay() + 6) % 7; x.
 // Lot 314 : `onPartagerNiveaux(file)` (facultatif) — image « Niveaux de service » (contrat / standard / EXPRESS), les mêmes niveaux pour tous les contacts ;
 // lot 315 : `contactId` sert à lire le « Forfait par intervention » du client du contact (tarif EXPRESS, 0 = précisé avant l'intervention)
 export default function CalendrierModal({ contactNom, contactId, onPartager, onPartagerImage, onPartagerNiveaux, onClose }) {
-  const [debut, setDebut] = useState(() => lundi(new Date()));
+  // Lot 318 : `depart` = jour choisi (aujourd'hui par défaut) ; la grille affiche la semaine qui le contient ;
+  // `etendue` = ce qui est ENVOYÉ au contact : 1 (le jour), 3 (3 jours à partir du jour) ou 7 (la semaine)
+  const [depart, setDepart] = useState(() => new Date());
+  const [etendue, setEtendue] = useState(7);
+  const debut = useMemo(() => lundi(depart), [depart]);
   const [donnees, setDonnees] = useState(null);
   const [reduit, setReduit] = useState(false);
   const [bloc, setBloc] = useState({ jour: jourIso(new Date()), de: "09:00", a: "10:00", libelle: "" });
@@ -73,7 +77,9 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
     finally { setOccupe(false); }
   };
 
-  const semaine = (n) => setDebut((d) => new Date(d.getTime() + n * 7 * 86400000));
+  const semaine = (n) => setDepart((d) => new Date(d.getTime() + n * 7 * 86400000));
+  // Période envoyée : la semaine commence le lundi ; « jour » et « 3 jours » commencent au jour choisi
+  const plageEnvoi = () => ({ debut: jourIso(etendue === 7 ? lundi(depart) : depart), jours: etendue });
 
   const bloquer = async () => {
     setOccupe(true);
@@ -98,7 +104,10 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
     if (!donnees) return;
     setOccupe(true);
     try {
-      const fichier = await genererImageDisponibilites({ debut: donnees.debut, jours: 7, horaires: donnees.horaires, occupations: donnees.occupations });
+      // Lot 318 : on relit les occupations de la période choisie (jour, 3 jours ou semaine) : elle peut dépasser la semaine affichée
+      const plage = plageEnvoi();
+      const r = await apiClient.get("/me/calendrier/occupations", { params: plage });
+      const fichier = await genererImageDisponibilites({ debut: r.data.debut, jours: plage.jours, horaires: r.data.horaires, occupations: r.data.occupations });
       onPartagerImage?.(fichier);
       toast.success("Image des disponibilités jointe au message : relisez puis envoyez");
       onClose?.();
@@ -109,7 +118,7 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
   const partager = async () => {
     setOccupe(true);
     try {
-      const r = await apiClient.post("/me/calendrier/partages", { debut: jourIso(debut), jours: 14 });
+      const r = await apiClient.post("/me/calendrier/partages", { debut: plageEnvoi().debut, jours: etendue === 7 ? 14 : etendue });
       onPartager?.(r.data.texte);
       toast.success("Lien de disponibilités ajouté au message : relisez puis envoyez");
       onClose?.();
@@ -134,13 +143,22 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
         <div className="p-3 space-y-3 max-h-[75vh] overflow-y-auto">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => semaine(-1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setDebut(lundi(new Date()))} className="px-2 py-1 rounded border border-slate-300 text-xs hover:bg-slate-50">Cette semaine</button>
+            <button type="button" onClick={() => setDepart(new Date())} className="px-2 py-1 rounded border border-slate-300 text-xs hover:bg-slate-50">Aujourd'hui</button>
             <button type="button" onClick={() => semaine(1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
             <button type="button" onClick={resynchroniser} disabled={synchro} data-testid="calendrier-resynchroniser"
               title="Resynchroniser avec le compte Google (relit le calendrier à chaque appui)"
               className="p-1.5 rounded border border-slate-300 hover:bg-slate-50 disabled:opacity-60">
               <RefreshCw className={`h-4 w-4 text-indigo-600 ${synchro ? "animate-spin" : ""}`} />
             </button>
+            <input type="date" value={jourIso(depart)} onChange={(e) => e.target.value && setDepart(new Date(`${e.target.value}T12:00:00`))}
+              title="Jour de départ de l'envoi" className="rounded border border-slate-300 px-1.5 py-1 text-xs" data-testid="calendrier-depart" />
+            {/* Lot 318 : étendue de l'envoi (liste finie → choix unique) */}
+            <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs" role="group" aria-label="Étendue de l'envoi" data-testid="calendrier-etendue">
+              {[[1, "Jour"], [3, "3 jours"], [7, "Semaine"]].map(([n, lib]) => (
+                <button key={n} type="button" onClick={() => setEtendue(n)} aria-pressed={etendue === n} data-testid={`calendrier-etendue-${n}`}
+                  className={`px-2.5 py-1 ${etendue === n ? "bg-indigo-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>{lib}</button>
+              ))}
+            </div>
             <span className="text-xs text-slate-500">
               Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués)
             </span>

@@ -27,3 +27,13 @@ test("journée complète : aucun créneau libre", () => {
 test("journée libre : un seul créneau sur toute l'ouverture", () => {
   expect(calculerLibres(jour, [], 420, 1140)).toEqual([[420, 1140]]);
 });
+
+// Lot 318 : libellé de la période envoyée (un jour, 3 jours ou la semaine)
+import { libellePeriode } from "./calendrierImage";
+test("libellePeriode : jour, 3 jours, semaine", () => {
+  const fr = (d) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const t0 = new Date(2026, 9, 29), t2 = new Date(2026, 9, 31), t6 = new Date(2026, 10, 4);
+  expect(libellePeriode(t0, t0, 1, fr)).toBe("Jeudi 29/10");
+  expect(libellePeriode(t0, t2, 3, fr)).toBe("Du 29/10 au 31/10");
+  expect(libellePeriode(t0, t6, 7, fr)).toBe("Semaine du 29/10 au 04/11");
+});

@@ -48,12 +48,21 @@ export function calculerLibres(jour, occupations, ouv, fer) {
 
 export const texteLibres = (libres) => (libres.length ? libres.map(([d, f]) => `${hhmm(d)} – ${hhmm(f)}`).join("   ·   ") : "Complet");
 
+/** Libellé de la période : « Jeudi 29/10 », « Du 29/10 au 31/10 » ou « Semaine du … au … » */
+export function libellePeriode(t0, fin, jours, fr) {
+  if (jours === 1) return `${["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"][t0.getDay()]} ${fr(t0)}`;
+  if (jours <= 3) return `Du ${fr(t0)} au ${fr(fin)}`;
+  return `Semaine du ${fr(t0)} au ${fr(fin)}`;
+}
+
 /** Dessine l'image (PNG) des disponibilités de la semaine et la renvoie sous forme de fichier. */
 export async function genererImageDisponibilites({ debut, jours = 7, horaires, occupations = [], titre = "Mes disponibilités" }) {
   const ouv = heureNum(horaires?.ouverture, 7 * 60), fer = heureNum(horaires?.fermeture, 19 * 60);
   const ouvres = horaires?.jours_ouvres?.length ? horaires.jours_ouvres : [1, 2, 3, 4, 5, 6];   // 1 = lundi … 6 = samedi (0 = dimanche)
   const t0 = new Date(debut);
   const colonnes = Array.from({ length: jours }, (_, i) => new Date(t0.getTime() + i * 86400000)).filter((j) => ouvres.includes(j.getDay()));
+  // Lot 318 : période choisie = 1 jour, 3 jours ou la semaine ; si tous les jours sont fermés (ex. un dimanche), pas d'image
+  if (!colonnes.length) throw new Error("Aucun jour ouvré sur cette période (dimanche ?) : choisissez un autre jour");
 
   const L = 1080, marge = 36, hauteurLigne = 168, hautEntete = 190, hautPied = 140;
   const H = hautEntete + colonnes.length * hauteurLigne + hautPied;
@@ -68,7 +77,8 @@ export async function genererImageDisponibilites({ debut, jours = 7, horaires, o
   c.fillStyle = "#ffffff"; c.font = police(54); c.fillText(titre, marge, 70);
   const fin = new Date(t0.getTime() + (jours - 1) * 86400000);
   const fr = (d) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
-  c.font = police(34, false); c.fillText(`Semaine du ${fr(t0)} au ${fr(fin)}`, marge, 118);
+  c.font = police(34, false);
+  c.fillText(libellePeriode(t0, fin, jours, fr), marge, 118);
   c.fillStyle = "#334155"; c.font = police(30, false);
   c.fillText("Vert = libre · Gris = déjà occupé", marge, 176);
 

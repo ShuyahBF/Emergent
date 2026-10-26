@@ -148,6 +148,7 @@ import SurveyEditor from "@/pages/portal/SurveyEditor";
 import SurveyResults from "@/pages/portal/SurveyResults";
 import PublicSurvey from "@/pages/public/PublicSurvey";
 import Disponibilites from "@/pages/public/Disponibilites";   // lot 41
+import SuiviRdv from "@/pages/public/SuiviRdv";   // lot 321 : suivi du RDV par le patient (QR du hall)
 import PortfolioInvoices from "@/pages/portal/PortfolioInvoices";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
@@ -332,6 +333,7 @@ export default function App() {
           <Route path="/s/:token" element={<PublicSurvey />} />
           {/* Lot 41 — disponibilités partagées depuis une discussion WhatsApp */}
           <Route path="/disponibilites/:jeton" element={<Disponibilites />} />
+          <Route path="/suivi-rdv" element={<SuiviRdv />} />
           <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
           <Route path="/requete/:jeton" element={<PublicRequete />} />   {/* lot 86.1 */}
           <Route path="/officine/ordonnance/:jeton" element={<OfficineOrdonnance />} />   {/* lot 57 : page publique de l'officine */}

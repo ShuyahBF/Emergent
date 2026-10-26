@@ -106,6 +106,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .ligne-rdv.nouveau{-webkit-animation:clign 1s infinite;animation:clign 1s infinite;border:.4vh solid #f59e0b}
 .ligne-rdv .neuf{background:#f59e0b;color:#111;font-weight:bold;border-radius:1vh;padding:.2vh .8vw;margin-left:1vw;font-size:2.6vh}
 /* Suivi Support : clavier du code PIN */
+.qr-pat{margin-left:auto;text-align:center;font-size:2.2vh;color:#cbd5e1;-webkit-flex:none;flex:none;padding-left:2vw}
+.qr-pat img{width:17vh;height:17vh;background:#fff;padding:.8vh;border-radius:1vh;display:block;margin:0 auto .5vh}
 .hor{display:inline-block;margin-right:.8vw;font-size:2.4vh}
 .hor span{display:inline-block;cursor:pointer;background:#1e293b;border-radius:1.2vh;padding:.5vh 1vw;margin-left:.4vw}
 .hor span.on{background:#38bdf8;color:#04243a;font-weight:bold}
@@ -125,7 +127,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "319";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "321";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   var horizon = 1, jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
@@ -425,7 +427,9 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         h += '<div class="carte-med">' + (photosMed[md.medecin] ? '<img class="photo-g" src="' + photosMed[md.medecin] + '" alt="">' : '<div class="photo-g sans-photo">🩺</div>') +
           '<div><div class="nom-g">' + esc(md.medecin) + '</div>' + (md.profession ? '<div class="titre-g">' + esc(md.profession) + "</div>" : "") +
           (md.porte ? '<span class="porte-g">' + esc(md.porte) + "</span>" : "") +
-          (md.prochain_min !== null && md.prochain_min >= 0 && md.prochain_min <= 30 ? '<span class="bientot">Prochain RDV dans ' + md.prochain_min + " min</span>" : "") + "</div></div>";
+          (md.prochain_min !== null && md.prochain_min >= 0 && md.prochain_min <= 30 ? '<span class="bientot">Prochain RDV dans ' + md.prochain_min + " min</span>" : "") + "</div>" +
+          // lot 321 : QR « suivre mon rendez-vous sur mon téléphone » (service activé dans Paramètres → Écrans TV)
+          (flux.suivi_rdv ? '<div class="qr-pat"><img src="' + API + "/suivi-rdv/qr.png?base=" + encodeURIComponent(window.location.origin) + '" alt=""><div>Suivez votre RDV<br>sur votre téléphone</div></div>' : "") + "</div>";
         var lstR = md.rdv || [], lstS = md.sans_rdv || [];
         // Une ligne : « heure (ou N°) | identité anonymisée | téléphone masqué | reçu » ; vert = en consultation, estompée = déjà passé
         var ligneHtml = function (r, sans) {

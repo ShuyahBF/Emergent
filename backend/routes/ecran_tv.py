@@ -37,7 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "319"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "321"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
@@ -497,6 +497,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
                                       fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon)
             flux["hall"]["horizon"] = horizon
+            # Lot 321 : QR « suivre mon RDV » sur l'écran du hall (si le service est activé dans les Paramètres)
+            flux["suivi_rdv"] = bool(((await db.settings.find_one({"_id": "global"}, {"suivi_rdv": 1})) or {}).get("suivi_rdv", {}).get("actif"))
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():

@@ -344,6 +344,8 @@ _setup_garde_routes(db=db, api=api, get_current_admin=get_current_admin)
 # Lot 289 — Écrans TV (Smart TV) : appairage par code, flux de messages et de demandes de support.
 from routes.ecran_tv import setup_ecran_tv_routes as _setup_ecran_tv_routes  # noqa: E402
 _setup_ecran_tv_routes(db=db, api=api, get_current_admin=get_current_admin, resolve_visible_client_ids=_resolve_visible_client_ids)
+from routes.suivi_rdv import setup_suivi_rdv_routes as _setup_suivi_rdv_routes  # noqa: E402  (lot 321 : suivi du RDV par le patient, QR du hall)
+_setup_suivi_rdv_routes(db=db, api=api, get_current_admin=get_current_admin)
 from routes.liluvine_wa_requests import setup_liluvine_wa_requests_routes as _setup_wa_req_routes  # noqa: E402
 from auth import get_current_admin_or_moderator  # noqa: E402
 _setup_wa_req_routes(db=db, api=api, get_user_with_roles=get_current_admin_or_moderator)

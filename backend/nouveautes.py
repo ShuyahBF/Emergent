@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "301", "date": "2026-10-26",
+        "titre": "📺 Écran TV : corrections d'affichage et choix d'une conversation",
+        "description": "Sur une vraie télé LG, les bulles du fil en direct se chevauchaient : l'affichage est refait avec une mise en page que les vieux navigateurs de télé gèrent correctement. Pour lire une conversation, cliquez dessus dans la liste de gauche (télécommande pointeur) ou utilisez les flèches haut/bas puis OK ; la touche Retour (ou un clic sur la barre bleue) revient à tous les messages. Un nouveau message dans une autre conversation fait toujours retentir le bip.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "300", "date": "2026-10-26",
         "titre": "🩺 Écran TV du hall : prochain patient et porte du médecin",
         "description": "Nouveau contenu « Consultations du jour » pour l'écran TV : un grand bandeau « Prochain patient N° 12 → Bureau 3 » et, par médecin, le patient en consultation et les suivants (numéro d'ordre ou heure du RDV, jamais le nom). Les données sont celles du Planning des médecins. La porte de chaque médecin se règle dans cette rubrique (liste déroulante des médecins vus). Le webhook accepte maintenant le champ facultatif type_evenement (RDV, PAT, CST = en consultation, RCU = reçu édité, terminé) : tant qu'il n'est pas envoyé, tous les patients du jour sont considérés en attente.",

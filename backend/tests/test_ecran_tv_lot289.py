@@ -178,3 +178,17 @@ def test_hall_flux_portes_et_type_evenement():
     assert "messages" not in f and "support" not in f
     assert f["hall"]["medecins"][0]["porte"] == "Bureau 3" and "SECRET" not in str(f)
     assert "Dr X" in c.get("/api/admin/tv/portes", headers=adm).json()["medecins_connus"]
+
+
+def test_conversation_choisie_sur_la_tele():
+    """Lot 301 — `fil` limite le fil en direct à une conversation (clic sur la télé) ; la liste des conversations reste complète."""
+    c, base = _app()
+    _run(base.whatsapp_messages.insert_many([
+        {"id": "a1", "client_id": "cli-1", "contact_id": "kA", "contact_name": "Alice", "direction": "inbound", "body": "Salut", "created_at": "2026-10-26T11:00:00+00:00"},
+        {"id": "b1", "client_id": "cli-1", "contact_id": "kB", "contact_name": "Bob", "direction": "inbound", "body": "Coucou", "created_at": "2026-10-26T11:01:00+00:00"},
+        {"id": "a2", "client_id": "cli-1", "contact_id": "kA", "contact_name": "Alice", "direction": "outbound", "body": "Re", "created_at": "2026-10-26T11:02:00+00:00"}]))
+    d = c.post("/api/tv/appairage", json={"secret": SECRET}).json()
+    c.post("/api/admin/tv/appairer", headers={"x-admin": "1"}, json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"})
+    f = c.get("/api/tv/flux", params={"fil": "kA"}, headers={"x-tv-secret": SECRET}).json()
+    assert [m["id"] for m in f["messages"]] == ["a1", "a2"] and f["fil_choisi"] == "kA"
+    assert {x["cle"] for x in f["fils"]} >= {"kA", "kB"}

@@ -106,6 +106,9 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .ligne-rdv.nouveau{-webkit-animation:clign 1s infinite;animation:clign 1s infinite;border:.4vh solid #f59e0b}
 .ligne-rdv .neuf{background:#f59e0b;color:#111;font-weight:bold;border-radius:1vh;padding:.2vh .8vw;margin-left:1vw;font-size:2.6vh}
 /* Suivi Support : clavier du code PIN */
+.hor{display:inline-block;margin-right:.8vw;font-size:2.4vh}
+.hor span{display:inline-block;cursor:pointer;background:#1e293b;border-radius:1.2vh;padding:.5vh 1vw;margin-left:.4vw}
+.hor span.on{background:#38bdf8;color:#04243a;font-weight:bold}
 .pin-boite{margin:auto;text-align:center;padding:3vh 3vw}
 .pin-boite .t-pin{font-size:5vh;font-weight:bold}
 .pin-boite .points-pin{font-size:6vh;letter-spacing:1.5vw;min-height:8vh;color:#38bdf8}
@@ -122,8 +125,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "317";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
-  var jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "319";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var horizon = 1, jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
@@ -268,6 +271,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     var n = e.target;
     derniere = new Date().getTime();
     while (n && n !== racine) {
+      if (n.getAttribute && n.getAttribute("data-horizon")) { horizon = parseInt(n.getAttribute("data-horizon"), 10) || 1; charger(); if (flux) { dessiner(); } return; }
       if (n.getAttribute && n.getAttribute("data-touche")) { toucherPin(n.getAttribute("data-touche")); return; }
       if (n.getAttribute && n.getAttribute("data-cle")) { choisirFil(n.getAttribute("data-cle")); return; }
       if (n.getAttribute && n.getAttribute("data-bascule")) { basculer(); return; }
@@ -292,8 +296,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       if (curseur >= 0 && dernierFils[curseur]) { choisirFil(dernierFils[curseur].cle); }
     } else if (k === 403 || k === 66) {               // touche rouge de la télécommande LG (ou B) : bascule planning / suivi
       basculer();
-    } else if (k === 27 || k === 461 || k === 10009 || k === 8) {   // Échap / Retour (LG, Samsung) : tout afficher
-      if (filChoisi) { choisirFil(filChoisi); }
+    } else if (k === 27 || k === 461 || k === 10009 || k === 8) {   // Échap / Retour (LG, Samsung) : tout afficher ; lot 319 : sans conversation ouverte, retour au planning
+      if (filChoisi) { choisirFil(filChoisi); } else if (mode === "suivi" && flux && flux.ecran && flux.ecran.modules && flux.ecran.modules.hall) { basculer(); }
     }
   }, false);
 
@@ -325,6 +329,17 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   // ---------- Phase « flux » ----------
   // Lot 317 : repère « maintenant » (heure du serveur UTC convertie à l'heure locale de la télé)
   function maintHtml(d) { return '<div class="maint"><span class="tri"></span><span class="trait"></span><span class="h-now">' + heure(d.toISOString()) + "</span></div>"; }
+  // Lot 319 : horizon du planning (jour / 3 jours / semaine), proposé seulement quand le code PIN a été saisi
+  function horizonHtml() {
+    var t = [[1, "Jour"], [3, "3 jours"], [7, "Semaine"]], i, g = "";
+    for (i = 0; i < t.length; i++) { g += '<span class="' + (horizon === t[i][0] ? "on" : "") + '" data-horizon="' + t[i][0] + '" tabindex="0">' + t[i][1] + "</span>"; }
+    return g;
+  }
+  function libJour(iso) {
+    var p = String(iso || "").split("-"), d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    var noms = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    return isNaN(d.getTime()) ? "" : noms[d.getDay()] + " " + ("0" + d.getDate()).slice(-2) + "/" + ("0" + (d.getMonth() + 1)).slice(-2);
+  }
   function dessiner() {
     var m = (flux && flux.ecran && flux.ecran.modules) || {}, h = "", i, msgs = (flux && flux.messages) || [], sup = (flux && flux.support) || [], fils = (flux && flux.fils) || [];
     var maintenant = new Date(new Date().getTime() + decalage), nouveauEntrant = false;   // lot 317 : heure corrigée sur l'horloge UTC du serveur
@@ -342,7 +357,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     // Lot 304 : écran par défaut = planning des médecins (si le contenu « Hall » est activé), sinon suivi
     var hallOn = !!m.hall, suiviOn = !!(m.messagerie || m.support);
     if (!mode || (mode === "planning" && !hallOn) || (mode === "suivi" && !suiviOn)) { mode = hallOn ? "planning" : "suivi"; }
-    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
+    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (mode === "planning" && hallOn && flux && flux.ecran && flux.ecran.suivi_ouvert ? '<span class="hor">' + horizonHtml() + "</span>" : "") + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
       (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (mode === "suivi" && verrouille()) { h += padHtml(); }
@@ -401,7 +416,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         var pm = liste[i].prochain_min, cleU = liste[i].medecin + "|" + liste[i].prochain_min + "|" + (liste[i].rdv || []).length;
         if (pm !== null && pm >= 0 && pm <= 5 && !forces[cleU]) { forces[cleU] = true; idxMed = i; }
       }
-      h += '<div class="plan t-' + esc((flux && flux.ecran && flux.ecran.taille_heure) || "grande") + '">';
+      // lot 319 : sur 3 jours / la semaine, l'heure est réduite à la taille « normale » pour que plus de lignes tiennent à l'écran
+      h += '<div class="plan t-' + (((hall.horizon || 1) > 1) ? "normale" : esc((flux && flux.ecran && flux.ecran.taille_heure) || "grande")) + '">';
       if (!liste.length) {
         h += '<div class="centre"><div class="vide">Aucun rendez-vous prévu aujourd\'hui</div></div>';
       } else {
@@ -421,10 +437,13 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         if (lstR.length) {
           h += "<div>" + (lstS.length ? '<div class="sous-titre">Avec rendez-vous</div>' : "");
           // Lot 317 : les RDV déjà passés disparaissent ; le triangle rouge se place avant le premier RDV encore à venir
-          var posee = false, nowT = maintenant.getTime(), dT;
+          var posee = false, nowT = maintenant.getTime(), dT, jourPrec = "", auj = hall.jour || "", multi = (hall.horizon || 1) > 1;
           for (k2 = 0; k2 < lstR.length; k2++) {
             if (lstR[k2].passe && lstR[k2].etat !== "en_cours") { continue; }
             dT = lstR[k2].debut ? new Date(lstR[k2].debut).getTime() : NaN;
+            // lot 319 : un autre jour que le jour courant → le repère « maintenant » se place avant ce jour, puis un titre par jour
+            if (!posee && multi && auj && lstR[k2].jour && lstR[k2].jour !== auj) { h += maintHtml(maintenant); posee = true; }
+            if (multi && lstR[k2].jour && lstR[k2].jour !== jourPrec) { jourPrec = lstR[k2].jour; h += '<div class="sous-titre">' + esc(libJour(jourPrec)) + (jourPrec === auj ? " — aujourd'hui" : "") + "</div>"; }
             if (!posee && lstR[k2].etat !== "en_cours" && !isNaN(dT) && dT > nowT) { h += maintHtml(maintenant); posee = true; }
             h += ligneHtml(lstR[k2], false);
           }
@@ -454,7 +473,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     if (phase !== "flux") { return; }
     var avecPhotos = (nbFlux % 75 === 0);   // les photos (lourdes) ne sont demandées qu'au premier appel puis de temps en temps
     nbFlux++;
-    appeler("GET", "/tv/flux?photos=" + (avecPhotos ? "1" : "0") + (filChoisi ? "&fil=" + encodeURIComponent(filChoisi) : ""), lire(), null, function (st, d) {
+    appeler("GET", "/tv/flux?photos=" + (avecPhotos ? "1" : "0") + (filChoisi ? "&fil=" + encodeURIComponent(filChoisi) : "") + (horizon > 1 ? "&jours=" + horizon : ""), lire(), null, function (st, d) {
       if (phase !== "flux") { return; }
       if (st === 200 && d && d.hall && avecPhotos) {
         var q; photosMed = {};
@@ -479,7 +498,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         var sv = new Date(d.maintenant).getTime();
         if (!isNaN(sv)) { decalage = sv - new Date().getTime(); }
       }
-      if (st === 200 && d && d.ecran && !d.ecran.suivi_ouvert) { jeton = ""; }     // jeton expiré côté serveur : on reverrouille
+      if (st === 200 && d && d.ecran && !d.ecran.suivi_ouvert) { jeton = ""; horizon = 1; }     // jeton expiré côté serveur : on reverrouille
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
       if (flux) { dessiner(); }
     });

@@ -28,6 +28,8 @@ def test_code_lisible_sans_caracteres_ambigus():
         c = nouveau_code()
         assert len(c) == 6 and not set(c) & set("ILO01")
 
+from routes.ecran_tv import PAGE_TV_VERSION
+
 
 def deverrouiller(c, admin=None):
     """Lot 317 : messages et support ne sortent qu'avec le jeton du code PIN — définit le code (1234), le saisit comme la télé, mémorise le jeton."""
@@ -242,4 +244,23 @@ def test_lot317_flux_hall_expose_debut_et_nouveau():
     """Le planning du hall reste libre (sans PIN) et chaque RDV porte `debut` (instant) et `nouveau` (créé depuis moins de 10 min)."""
     c, _ = _tele_appairee()
     f = c.get("/api/tv/flux", headers={"x-tv-secret": SECRET}).json()
-    assert f["page"] == "317" and f["maintenant"] and f["ecran"]["suivi_ouvert"] is False
+    assert f["page"] == PAGE_TV_VERSION and f["maintenant"] and f["ecran"]["suivi_ouvert"] is False
+
+
+def test_lot319_horizon_3_ou_7_jours_reserve_au_code_pin():
+    """Sans code PIN déverrouillé l'horizon reste 1 jour ; déverrouillée, la télé reçoit les RDV des jours suivants (champ `jour`)."""
+    from datetime import datetime, timedelta, timezone
+    c, base = _tele_appairee()
+    tv = {"x-tv-secret": SECRET}
+    ecran_id = c.get("/api/admin/tv/ecrans", headers={"x-admin": "1"}).json()["ecrans"][0]["id"]
+    assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", headers={"x-admin": "1"}, json={"modules": {"messagerie": True, "support": True, "hall": True}}).status_code == 200
+    auj = datetime.now(timezone.utc).replace(hour=23, minute=0, second=0, microsecond=0)
+    _run(base.planning_appointments.insert_many([
+        {"id": "h1", "tenant_id": "cli-1", "medecin": "DR X", "is_rdv": 1, "patient": "KANE Ali", "start_at": (auj - timedelta(hours=3)).isoformat()},
+        {"id": "h2", "tenant_id": "cli-1", "medecin": "DR X", "is_rdv": 1, "patient": "DIALLO Awa", "start_at": (auj + timedelta(days=2)).isoformat()}]))
+    assert c.get("/api/tv/flux?jours=7", headers=tv).json()["hall"]["horizon"] == 1       # verrouillée : un jour seulement
+    deverrouiller(c)
+    f1 = c.get("/api/tv/flux?jours=1", headers=tv).json()["hall"]
+    f7 = c.get("/api/tv/flux?jours=7", headers=tv).json()["hall"]
+    assert len(f1["medecins"][0]["rdv"]) == 1 and f1["horizon"] == 1
+    assert len(f7["medecins"][0]["rdv"]) == 2 and f7["horizon"] == 7 and f7["jour"] and f7["medecins"][0]["rdv"][1]["jour"] != f7["jour"]

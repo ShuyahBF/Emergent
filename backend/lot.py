@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "318"
-LOT_LIBELLE = "Calendrier WhatsApp : dimanches grisés ; envoi au choix du jour, de 3 jours ou de la semaine (image et lien)."
+LOT = "319"
+LOT_LIBELLE = "Écran TV : après le code PIN, planning des médecins sur 3 jours ou la semaine (regroupé par jour) et retour au planning depuis le Suivi Support."

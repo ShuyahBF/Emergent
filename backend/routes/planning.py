@@ -358,6 +358,10 @@ def attach_planning_routes(
             await db.planning_appointments.create_index("tenant_id")
             await db.planning_appointments.create_index("reminder_sent_at")   # lot 287 : recherche des RDV récemment rappelés
             await db.planning_appointments.create_index([("tenant_id", 1), ("start_at", 1)])
+            # Lot 326 : la tâche des rappels (chaque minute) cherche les RDV d'une fenêtre de 10 minutes : sans cet index elle parcourait ~1200 RDV à chaque passage
+            await db.planning_appointments.create_index("start_at")
+            # Lot 326 : journal d'activité par client et par date (conseil du Performance Advisor Atlas)
+            await db.activity_events.create_index([("client_id", 1), ("ts", 1)])
             await db.planning_appointments.create_index([("tenant_id", 1), ("medecin_id", 1), ("start_at", 1)])
             await db.planning_appointments.create_index(
                 [("tenant_id", 1), ("code_clinique", 1), ("medecin", 1), ("patient", 1), ("start_at", 1)],

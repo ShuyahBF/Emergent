@@ -95,7 +95,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api";
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "307";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
   var ctxSon = null, sonActif = false, filChoisi = "", curseur = -1, dernierNonLus = -1, dernierFils = [];
   // Lot 303 — non-lus déjà « vus » sur cette télé, par conversation (gardés dans la télé : survit au rechargement de la page)
@@ -368,6 +368,17 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         var r2; for (r2 = 0; r2 < d.hall.medecins.length; r2++) { if (d.hall.medecins[r2].a_photo && !photosMed[d.hall.medecins[r2].medecin]) { nbFlux = 0; } }
       }
       if (st === 401) { ecrire(""); flux = null; demarrerAppairage(); return; }
+      // Lot 307 : le serveur annonce la version de la page ; si la télé a gardé une ancienne page en cache, elle se recharge
+      // toute seule (adresse avec ?v= pour contourner le cache ; au plus 2 tentatives, pour ne jamais boucler)
+      if (st === 200 && d && d.page && d.page !== VERSION_PAGE) {
+        var essais = 0;
+        try { essais = parseInt(sessionStorage.getItem("sawali_tv_rech") || "0", 10) || 0; } catch (e) {}
+        if (essais < 2) {
+          try { sessionStorage.setItem("sawali_tv_rech", String(essais + 1)); } catch (e) {}
+          window.location.replace("/tv-ecran.html?v=" + encodeURIComponent(d.page) + "&t=" + new Date().getTime());
+          return;
+        }
+      }
       if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
       if (flux) { dessiner(); }
     });

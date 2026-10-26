@@ -37,6 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
+PAGE_TV_VERSION = "307"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 JOURS_RDV_MASQUES = 3            # lot 303 : les patients rappelés pour un RDV depuis 3 jours n'apparaissent pas dans les conversations
 
 
@@ -213,7 +214,10 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # profession et photo du médecin
         medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"], "profession": extra.get("profession", ""),
                          "a_photo": bool(extra.get("photo")), "photo": extra.get("photo", "") if avec_photos else "",
-                         "rdv": [{k: v for k, v in x.items() if k != "_q"} for x in fiche["rdv"]][:14],
+                         "rdv": [{**{k: v for k, v in x.items() if k != "_q"}, "etat": "termine" if x["passe"] else "attente"} for x in fiche["rdv"]][:14],
+                         # Compatibilité : une télé qui a gardé en cache une ancienne version de la page lit encore ces champs (lot 307)
+                         "prochains": [{"libelle": x["heure"], "heure": x["heure"]} for x in fiche["rdv"] if not x["passe"]][:3],
+                         "en_consultation": None, "restants": len([x for x in fiche["rdv"] if not x["passe"]]), "vus": 0,
                          "prochain_min": int((a_venir[0] - maintenant).total_seconds() // 60) if a_venir else None,
                          "_premier": a_venir[0] if a_venir else None})
     medecins.sort(key=lambda m: m["medecin"].lower())
@@ -340,7 +344,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
         ids = await _perimetre(ecran.get("client_id"))
-        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules}, "maintenant": _maintenant().isoformat()}
+        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules}, "maintenant": _maintenant().isoformat(),
+                                "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
         if modules["messagerie"]:
             docs = await db.whatsapp_messages.find(
                 {"client_id": {"$in": ids}},

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "307", "date": "2026-10-26",
+        "titre": "📺 Écran TV : mise à jour automatique de la page",
+        "description": "Certaines télés gardaient en mémoire une ancienne version de la page et affichaient un bandeau rouge d'erreur après une mise à jour. Le serveur reste maintenant compatible avec l'ancienne page, et la page se recharge toute seule dès qu'une nouvelle version existe (au plus 2 tentatives). Si une télé garde malgré tout l'ancien affichage, rouvrez l'adresse /tv ou videz les données du navigateur de la télé.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "306", "date": "2026-10-26",
         "titre": "📺 Écran TV : reçu saisi après le téléphone",
         "description": "Dans le champ patient du Planning, le numéro de reçu se saisit après le téléphone, séparé par « : » (ex. « OUOBA Alphone : 25614545 : R-202660230 »). SAWALI en tire le téléphone et le reçu, garde « NOM : téléphone » comme patient, et l'écran TV du hall affiche « OU*** Al***** | 2*****45 | R-202660230 ». Un RDV renvoyé plus tard avec son reçu met à jour la même ligne, sans doublon.",

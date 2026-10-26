@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "326", "date": "2026-10-27",
+        "titre": "🗄️ Base de données : 2 index ajoutés (rappels de RDV, journal d'activité)",
+        "description": "Conseils du Performance Advisor Atlas appliqués : la tâche des rappels de RDV (chaque minute) n'examine plus ~1200 rendez-vous à chaque passage, et le journal d'activité par client est indexé. Taille ajoutée : moins de 1 Mo. Les autres conseils (WhatsApp) n'ont pas été retenus : gain trop faible pour leur coût.",
+        "rubrique": "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)",
+    },
+    {
         "lot": "325", "date": "2026-10-27",
         "titre": "📅 Planning consultations : vue sur 3 jours ou la semaine (téléphone et PC)",
         "description": "Dans le menu Planning consultations, un choix Jour / 3 jours / Semaine affiche les rendez-vous groupés par jour, avec les noms et téléphones des patients en clair (réservé au portail connecté ; la télé du hall reste masquée). La liste se rafraîchit toute seule. Rubrique liée : Écrans TV.",

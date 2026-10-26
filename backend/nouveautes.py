@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "297", "date": "2026-10-26",
+        "titre": "📞 Appels WhatsApp : bon nom de contact, numéro affiché et diagnostic du son",
+        "description": "Quand plusieurs contacts ont le même numéro, l'appel garde le nom du contact choisi (avant, il prenait celui de la première fiche trouvée, d'où « Diaboido » qui devenait « Dr GACKO »). Le numéro appelé s'affiche sous le nom. Le panneau d'appel indique aussi si la réponse de WhatsApp est arrivée et l'état du réseau, et propose « Copier le diagnostic du son » pour comprendre une absence de son.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "296", "date": "2026-10-26",
         "titre": "🔊 Appels WhatsApp : choix du haut-parleur et témoin du son reçu",
         "description": "Pendant un appel, le panneau affiche si du son arrive réellement de WhatsApp (octets reçus et niveau) et propose une liste déroulante des haut-parleurs du PC avec un bouton « Tester » (bip d'une seconde sur la sortie choisie). Le choix est mémorisé dans le navigateur. Si le son reçu reste à zéro, le problème vient de la liaison ; s'il arrive mais reste inaudible, il vient de la sortie audio. Choix de la sortie possible sous Chrome et Edge.",

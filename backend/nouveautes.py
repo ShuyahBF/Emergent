@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "315", "date": "2026-10-27",
+        "titre": "⚡ Niveaux de service : tarif EXPRESS = forfait du client",
+        "description": "Le tarif de l'intervention EXPRESS n'est plus saisi dans la rubrique : c'est le « Forfait par intervention (XOF) » de la fiche du client du contact (Clients → Tarification des interventions). Si l'option « Afficher le tarif EXPRESS dans l'image » est cochée, l'image affiche ce forfait (ex. 25 000 FCFA) ; s'il est à 0, ou si le contact n'est relié à aucun client, elle affiche « Tarif précisé avant l'intervention ».",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "314", "date": "2026-10-27",
         "titre": "⚡ Niveaux de service : la disponibilité vendue comme un engagement",
         "description": "Nouvelle rubrique de réglage : trois niveaux (client sous contrat, client sans contrat, EXPRESS payant) avec un délai de prise en charge choisi dans une liste (dont « 72 heures maximum » réservé aux clients sous contrat valide, « Selon disponibilité (sans engagement) » pour les autres ; « Autre… » pour une valeur libre), le tarif EXPRESS (affiché dans l'image ou gardé pour la conversation) et une mention de bas de page (« sous réserve de disponibilité »). Aperçu de l'image dans la rubrique. Dans le calendrier d'une discussion WhatsApp, le bouton « ⚡ Niveaux de service » joint au message la même image pour tous les contacts. Aucun engagement par défaut : le bouton reste inactif tant que la fonction n'est pas activée et que les trois délais ne sont pas renseignés.",

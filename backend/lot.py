@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "314"
-LOT_LIBELLE = "Niveaux de service : la disponibilité vendue comme un engagement de prise en charge (contrat / standard / EXPRESS), réglée dans les Paramètres et envoyée en image au contact"
+LOT = "315"
+LOT_LIBELLE = "Niveaux de service : le tarif EXPRESS est le « Forfait par intervention » de la fiche du client (0 = précisé avant l'intervention)"

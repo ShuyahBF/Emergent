@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "310"
-LOT_LIBELLE = "Calendrier : les évènements Google marqués « Disponible » s'affichent (avec leur titre) sans bloquer de créneau"
+LOT = "311"
+LOT_LIBELLE = "Calendrier partagé au contact : les évènements Google « Disponible » comptent comme occupés (sans titre)"

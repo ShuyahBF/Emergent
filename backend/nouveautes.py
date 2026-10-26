@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "311", "date": "2026-10-27",
+        "titre": "📅 Calendrier partagé : le programme complet, sans titres",
+        "description": "Le lien de disponibilités envoyé au contact (WhatsApp) affiche maintenant aussi vos évènements Google marqués « Disponible » comme créneaux occupés. Seuls début et fin sont transmis : aucun titre, aucun nom de client ne sort de SAWALI. Le calendrier de votre écran, lui, continue d'afficher les titres et distingue les évènements « Disponible » (pointillé).",
+        "rubrique": "🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)",
+    },
+    {
         "lot": "310", "date": "2026-10-27",
         "titre": "📅 Calendrier : les évènements Google « Disponible » s'affichent",
         "description": "Dans le calendrier ouvert depuis une discussion, SAWALI lit maintenant les évènements de Google un par un : leur titre s'affiche, et ceux marqués « Disponible » (libres dans Google, comme les rendez-vous de démonstration) apparaissent en teinte claire à bord pointillé, sans bloquer le créneau. Le lien de disponibilités partagé au contact ne change pas : il montre seulement « occupé », sans titre ni évènement libre. Si Google ne répond pas pour la lecture détaillée, l'ancienne lecture « occupé » est utilisée.",

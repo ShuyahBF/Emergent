@@ -207,7 +207,9 @@ def attach_calendrier_partage_routes(
             raise HTTPException(status_code=404, detail="Lien expiré ou inconnu")
         t0, t1 = _periode(debut or p["debut"], p["jours"])
         proprietaire = {"id": p["user_id"], "client_id": p["tenant_id"]}
-        blocs = await occupations(proprietaire, t0, t1, p.get("avec_google"))
+        # Lot 311 : les évènements Google marqués « Disponible » comptent aussi comme « occupé » dans le lien partagé (le programme du
+        # propriétaire est affiché en entier) ; `fusionner` ne garde que début et fin : ni titre, ni nom de client ne sortent d'ici.
+        blocs = await occupations(proprietaire, t0, t1, p.get("avec_google"), avec_libres=True)
         return {"titre": p.get("titre"), "debut": t0.isoformat(), "fin": t1.isoformat(),
                 "horaires": await _horaires(), "occupations": fusionner(blocs), "expire_le": p["expire_le"]}
 

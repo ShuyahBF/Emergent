@@ -27,6 +27,13 @@ const ecrireSortie = (v) => { try { if (v) localStorage.setItem(CLE_SORTIE, v); 
 // Le choix de la sortie (setSinkId) n'existe que sur Chrome, Edge et Opera ; Firefox et Safari utilisent la sortie par défaut du système
 const sortieChoisissable = () => typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
+// Lot 297 — numéro lisible : « 22607332313 » → « +226 07 33 23 13 » (indicatif 226 + 8 chiffres), sinon « +chiffres »
+const numeroLisible = (tel) => {
+  const c = String(tel || "").replace(/\D/g, "");
+  if (c.length === 11 && c.startsWith("226")) return `+226 ${c.slice(3).replace(/(\d{2})(?=\d)/g, "$1 ")}`;
+  return c ? `+${c}` : "";
+};
+
 // Joue un bip de 1 s SUR la sortie choisie (vide = sortie par défaut) pour vérifier que le haut-parleur répond
 async function bipTest(idSortie) {
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -108,6 +115,8 @@ export default function AppelsWhatsApp() {
   const [sorties, setSorties] = useState([]);         // Lot 296 — haut-parleurs disponibles [{deviceId, label}]
   const [sortieId, setSortieId] = useState(lireSortie());   // Lot 296 — haut-parleur choisi ("" = celui du système)
   const [recu, setRecu] = useState(null);             // Lot 296 — son réellement reçu de WhatsApp {octets, niveau}
+  const [etatIce, setEtatIce] = useState("");         // Lot 297 — état du transport réseau (ICE) du son
+  const [reponseRecue, setReponseRecue] = useState(false);   // Lot 297 — réponse de WhatsApp appliquée (appel sortant)
   const pcRef = useRef(null);                          // connexion WebRTC
   const micRef = useRef(null);                         // flux du micro
   const audioRef = useRef(null);                       // lecteur du son du correspondant
@@ -121,6 +130,8 @@ export default function AppelsWhatsApp() {
     micRef.current?.getTracks().forEach((t) => t.stop());
     micRef.current = null;
     setMuet(false);
+    setEtatIce("");
+    setReponseRecue(false);
     setEtatSon("");
     setSonBloque(false);
   }, []);
@@ -140,12 +151,14 @@ export default function AppelsWhatsApp() {
       if (!lecteur) return;
       const flux = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
       if (lecteur.srcObject !== flux) lecteur.srcObject = flux;
+      lecteur.muted = false; lecteur.volume = 1;   // lot 297 : lecteur jamais coupé
       // Lot 296 : haut-parleur choisi par l'utilisateur
       if (lireSortie() && lecteur.setSinkId) lecteur.setSinkId(lireSortie()).catch(() => { /* sortie disparue : celle du système */ });
       lecteur.play().then(() => setSonBloque(false)).catch(() => setSonBloque(true));
     };
     // Lot 94 — état de la liaison audio affiché dans le panneau de l'appel (aide au diagnostic)
     pc.onconnectionstatechange = () => setEtatSon(pc.connectionState);
+    pc.oniceconnectionstatechange = () => setEtatIce(pc.iceConnectionState);   // lot 297 : diagnostic réseau
     pcRef.current = pc;
     return pc;
   }, []);
@@ -191,6 +204,28 @@ export default function AppelsWhatsApp() {
     }, 1000);
     return () => clearInterval(t);
   }, [appel]);
+
+  // Lot 297 — « Copier le diagnostic » : tout ce qu'il faut pour comprendre une absence de son (états réseau, octets envoyés et reçus,
+  // paire réseau choisie, état du lecteur audio, haut-parleur) ; aucune donnée de conversation
+  const copierDiagnostic = async () => {
+    const pc = pcRef.current;
+    const d = { quand: new Date().toISOString(), navigateur: navigator.userAgent, appel: appel ? { direction: appel.direction, statut: appel.statut } : null,
+      connexion: pc?.connectionState, ice: pc?.iceConnectionState, signalisation: pc?.signalingState, reponse_whatsapp_appliquee: Boolean(pc?.remoteDescription),
+      lecteur: audioRef.current ? { en_pause: audioRef.current.paused, coupe: audioRef.current.muted, volume: audioRef.current.volume, etat: audioRef.current.readyState, a_un_flux: Boolean(audioRef.current.srcObject) } : null,
+      sortie_choisie: sortieId || "défaut", nb_sorties: sorties.length, micro_actif: Boolean(micRef.current?.getAudioTracks()[0]?.enabled), stats: {} };
+    try {
+      const stats = await pc.getStats();
+      stats.forEach((r) => {
+        if (r.type === "inbound-rtp" && r.kind === "audio") d.stats.recu = { octets: r.bytesReceived, paquets: r.packetsReceived, perdus: r.packetsLost, niveau: r.audioLevel, energie: r.totalAudioEnergy };
+        if (r.type === "outbound-rtp" && r.kind === "audio") d.stats.envoye = { octets: r.bytesSent, paquets: r.packetsSent };
+        if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) d.stats.paire = { local: r.localCandidateId, distant: r.remoteCandidateId, rtt: r.currentRoundTripTime };
+        if (r.type === "transport") d.stats.dtls = r.dtlsState;
+      });
+    } catch { d.stats.erreur = "statistiques indisponibles"; }
+    const texte = JSON.stringify(d, null, 2);
+    try { await navigator.clipboard.writeText(texte); toast.success("Diagnostic copié : collez-le dans votre message."); }
+    catch { window.prompt("Copiez ce diagnostic (Ctrl+C) :", texte); }
+  };
 
   // Interrogation régulière : appels qui sonnent + état de mon appel
   useEffect(() => {
@@ -240,6 +275,7 @@ export default function AppelsWhatsApp() {
         const r = await apiClient.get(`/me/wa-appels/${encodeURIComponent(appel.id)}`);
         if (actif && r.data?.sdp_reponse && pcRef.current && !pcRef.current.remoteDescription) {
           await pcRef.current.setRemoteDescription({ type: "answer", sdp: r.data.sdp_reponse });
+          setReponseRecue(true);   // lot 297 : la réponse de WhatsApp est appliquée
         }
       } catch (err) {
         // Lot 94 — réponse SDP refusée par le navigateur : signalée (avant, l'erreur était muette)
@@ -338,7 +374,7 @@ export default function AppelsWhatsApp() {
         const offre = await pc.createOffer({ offerToReceiveAudio: true });
         await pc.setLocalDescription(offre);
         await attendreIce(pc);
-        const r = await apiClient.post("/me/wa-appels/appeler", { telephone, contact_id: contactId, sdp: pc.localDescription.sdp });
+        const r = await apiClient.post("/me/wa-appels/appeler", { telephone, contact_id: contactId, nom, sdp: pc.localDescription.sdp });
         setAppel({ id: r.data.id, direction: "sortant", statut: "appel", contact_nom: nom || telephone, telephone });
       } catch (err) {
         fermerMedia();
@@ -422,6 +458,8 @@ export default function AppelsWhatsApp() {
             </span>
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{appel.contact_nom}</p>
+              {/* Lot 297 : numéro appelé sous le nom */}
+              {appel.telephone && <p className="text-[11px] text-slate-400" data-testid="appel-numero">{numeroLisible(appel.telephone)}</p>}
               <p className="text-xs text-slate-300">
                 {appel.statut === "en_cours" ? `En ligne · ${dureeLisible(secondes)}` : (LIBELLES_STATUT[appel.statut] || "Connexion…")}
               </p>
@@ -432,6 +470,13 @@ export default function AppelsWhatsApp() {
                      disconnected: "Son : coupé (réseau)", failed: "Son : échec de la liaison audio", closed: "Son : fermé" }[etatSon] || ""}
                 </p>
               )}
+              {/* Lot 297 : étapes de la liaison, pour situer une absence de son */}
+              {appel.direction === "sortant" && (
+                <p className={`text-[11px] ${reponseRecue ? "text-emerald-300" : "text-slate-400"}`} data-testid="appel-reponse-whatsapp">
+                  {reponseRecue ? "Réponse de WhatsApp : reçue" : "Réponse de WhatsApp : en attente (le correspondant n'a pas encore décroché)"}
+                </p>
+              )}
+              {etatIce && <p className="text-[11px] text-slate-400">Réseau : {etatIce}</p>}
             </div>
             {appel.ligne && <PastilleLigneWa libelle={appel.ligne.libelle} fond={appel.ligne.fond} texte={appel.ligne.texte} />}
           </div>
@@ -466,6 +511,7 @@ export default function AppelsWhatsApp() {
             ) : (
               <p className="text-slate-400">Ce navigateur utilise toujours la sortie audio du système (choix possible sous Chrome ou Edge).</p>
             )}
+            <button type="button" onClick={copierDiagnostic} className="text-slate-400 underline hover:text-slate-200" data-testid="appel-copier-diagnostic">Copier le diagnostic du son</button>
           </div>
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={basculerMicro}

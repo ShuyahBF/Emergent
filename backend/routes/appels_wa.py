@@ -531,12 +531,19 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
         call_id = ((rep.get("calls") or [{}])[0] or {}).get("id")
         if not call_id:
             raise HTTPException(status_code=502, detail="Meta n'a pas renvoyé d'identifiant d'appel")
-        contact = await _contact_du_numero(db, tel)
+        # Lot 297 — le contact APPELÉ est celui choisi par l'utilisateur (contact_id). Avant, la fiche était cherchée par le numéro et,
+        # quand plusieurs contacts partagent le même numéro (ex. Bibi, Dr GACKO, Diaboido), la première trouvée donnait son nom à l'appel.
+        contact = None
+        if payload.get("contact_id"):
+            contact = await db.directory_contacts.find_one(
+                {"id": payload["contact_id"]}, {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_ligne": 1, "whatsapp": 1, "phone": 1})
+        if not contact:
+            contact = await _contact_du_numero(db, tel)
         await db.wa_appels.insert_one({
             "id": call_id, "direction": "sortant", "statut": "appel",
             "numero_id": numero, "ligne_cle": cle_de_numero(s, numero), "telephone": tel,
             "contact_id": payload.get("contact_id") or (contact or {}).get("id"),
-            "contact_nom": (contact or {}).get("name") or f"+{tel}",
+            "contact_nom": (contact or {}).get("name") or str(payload.get("nom") or "").strip()[:80] or f"+{tel}",
             "client_id": (contact or {}).get("client_id") or user.get("client_id") or user["id"],
             "agent_id": user["id"], "decroche_par_nom": user.get("full_name") or user.get("email"),
             "created_at": _maintenant(), "maj": _maintenant(),

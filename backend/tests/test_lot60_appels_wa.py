@@ -219,3 +219,15 @@ def test_appels_non_repondus_titre_onglet(env):
     assert c.post("/api/me/wa-appels/wacid.N3/decrocher", json={"sdp": SDP}, headers={"X-User": "agent-a"}).status_code == 200
     lancer(aw.traiter_webhook_appels(db, fin_appel("wacid.N3", 40)))
     assert c.get("/api/me/wa-appels/non-repondus", headers={"X-User": "sup"}).json()["total"] == 0
+
+
+def test_lot297_le_contact_choisi_donne_son_nom_a_l_appel(env):
+    """Trois contacts partagent le même numéro : l'appel porte le nom du contact CHOISI, pas de la première fiche trouvée par le numéro."""
+    db, c = env["db"], env["client"]
+    lancer(db.directory_contacts.insert_many([
+        {"id": "d1", "client_id": "sawali", "name": "Dr GACKO", "whatsapp": "22607332313", "phone": "22607332313"},
+        {"id": "d2", "client_id": "sawali", "name": "Diaboido", "whatsapp": "+22607332313", "phone": "+22607332313"}]))
+    r = c.post("/api/me/wa-appels/appeler", json={"telephone": "+22607332313", "contact_id": "d2", "sdp": SDP}, headers={"X-User": "agent-a"})
+    assert r.status_code == 200
+    appel = lancer(db.wa_appels.find_one({"id": "wacid.SORTANT"}))
+    assert appel["contact_nom"] == "Diaboido" and appel["contact_id"] == "d2"

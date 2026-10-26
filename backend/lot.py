@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "296"
-LOT_LIBELLE = "Appels WhatsApp : choix du haut-parleur, bip de test et témoin du son réellement reçu de WhatsApp dans le panneau d'appel"
+LOT = "297"
+LOT_LIBELLE = "Appels WhatsApp : le nom du contact appelé ne change plus (plusieurs contacts au même numéro), numéro affiché sous le nom, étapes de la liaison et diagnostic du son copiable"

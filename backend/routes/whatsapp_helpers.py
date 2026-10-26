@@ -784,6 +784,7 @@ def attach_whatsapp_helpers(
         button_id: str,
         button_title: str,
         tenant_id: Optional[str] = None,
+        extra_buttons: Optional[List[tuple]] = None,
     ) -> dict:
         """Send a free-form WhatsApp interactive message with a single reply
         button (Cloud API type=interactive/button). Unlike a template button,
@@ -811,10 +812,11 @@ def attach_whatsapp_helpers(
                 "type": "button",
                 "body": {"text": _wa_neutralize_underscores((body_text or "")[:1024])},
                 "action": {
+                    # Lot 320 : `extra_buttons` [(id, titre), …] ajoute jusqu'à 2 boutons (WhatsApp en admet 3 au plus)
                     "buttons": [{
                         "type": "reply",
-                        "reply": {"id": (button_id or "")[:256], "title": (button_title or "")[:20]},
-                    }],
+                        "reply": {"id": (bid or "")[:256], "title": (btitle or "")[:20]},
+                    } for bid, btitle in [(button_id, button_title)] + list(extra_buttons or [])[:2]],
                 },
             },
         }

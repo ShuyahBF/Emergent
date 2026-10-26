@@ -1373,6 +1373,13 @@ async def autoreply_to_inbound(
             )
     except Exception:  # noqa: BLE001
         logger.exception("[wa_autoreply] escalation hook failed")
+    # Lot 320 — marqueur [NIVEAUX] : retiré du texte ; les 3 boutons « Avec contrat / Sans contrat / En express » suivent la réponse
+    afficher_niveaux = False
+    try:
+        from routes.niveaux_boutons import retirer_marqueur as _retirer_niveaux
+        reply, afficher_niveaux = _retirer_niveaux(reply)
+    except Exception:  # noqa: BLE001
+        logger.exception("[wa_autoreply] marqueur niveaux ignoré")
     # If after stripping the marker the reply is empty, fall back to a
     # safe "we'll get back to you" message and still consider it a success.
     if not reply.strip():
@@ -1459,6 +1466,13 @@ async def autoreply_to_inbound(
                                   reply_to_message_id=quote_mid)
     if not send_res.get("ok"):
         return {"ok": False, "reason": f"send_failed: {send_res.get('error')}", "send": send_res}
+    if afficher_niveaux and wa_send_interactive_button is not None:
+        try:
+            from routes.niveaux_boutons import BOUTONS as _BTN_NIV, TEXTE_CHOIX as _TXT_NIV
+            await wa_send_interactive_button(inbound_doc.get("from") or f"+{phone_digits}", _TXT_NIV, _BTN_NIV[0][0], _BTN_NIV[0][1],
+                                             extra_buttons=_BTN_NIV[1:])
+        except Exception:  # noqa: BLE001 — les boutons sont un confort : la réponse est déjà partie
+            logger.warning("[wa_autoreply] boutons des niveaux non envoyés", exc_info=True)
 
     # Quota tracking
     tokens = max(int((len(sys_text) + len(text) + len(final_text)) / 4), 1)

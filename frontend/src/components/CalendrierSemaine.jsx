@@ -29,6 +29,8 @@ export default function CalendrierSemaine({ debut, jours = 7, horaires, occupati
   const t0 = new Date(debut);
   const colonnes = Array.from({ length: jours }, (_, i) => new Date(t0.getTime() + i * 86400000));
   const hauteurHeure = 36;                               // px par heure
+  // Lot 318 : le dimanche est grisé (en-tête et colonne) : jour de repos, rien à proposer ce jour-là
+  const estDimanche = (j) => j.getDay() === 0;
 
   // Blocs d'un jour, placés en % de la plage horaire affichée
   const blocsDuJour = (jour) => {
@@ -48,7 +50,7 @@ export default function CalendrierSemaine({ debut, jours = 7, horaires, occupati
       <div className="grid min-w-[560px]" style={{ gridTemplateColumns: `44px repeat(${jours}, minmax(70px, 1fr))` }}>
         <div />
         {colonnes.map((j) => (
-          <div key={j.toISOString()} className="text-center text-[11px] font-semibold text-slate-600 pb-1 border-b border-slate-200">
+          <div key={j.toISOString()} className={`text-center text-[11px] font-semibold pb-1 border-b border-slate-200 ${estDimanche(j) ? "bg-slate-300 text-slate-500" : "text-slate-600"}`} data-testid={estDimanche(j) ? "calendrier-dimanche" : undefined}>
             {j.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}
           </div>
         ))}
@@ -58,7 +60,7 @@ export default function CalendrierSemaine({ debut, jours = 7, horaires, occupati
           ))}
         </div>
         {colonnes.map((j) => (
-          <div key={j.toISOString()} className="relative border-l border-slate-100" style={{ height: heures.length * hauteurHeure }}>
+          <div key={j.toISOString()} className={`relative border-l border-slate-100 ${estDimanche(j) ? "bg-slate-300/70" : ""}`} style={{ height: heures.length * hauteurHeure }}>
             {heures.map((h) => <div key={h} className="border-b border-slate-100" style={{ height: hauteurHeure }} />)}
             {blocsDuJour(j).map((o, i) => {
               const [libSource, couleur] = SOURCES[o.source] || ["Occupé", "bg-slate-400/80"];

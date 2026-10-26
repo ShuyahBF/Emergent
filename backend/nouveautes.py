@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "318", "date": "2026-10-27",
+        "titre": "📅 Calendrier : dimanches grisés, envoi du jour, de 3 jours ou de la semaine",
+        "description": "Dans la fenêtre Calendrier de la discussion WhatsApp, les dimanches sont grisés. Un choix Jour / 3 jours / Semaine (et un jour de départ) détermine ce qui part au contact, en image comme en lien. Un dimanche seul ne génère pas d'image.",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "317", "date": "2026-10-27",
         "titre": "📺 Écran TV : triangle rouge « maintenant », RDV neufs clignotants, Suivi Support par code PIN",
         "description": "Sur /tv, un triangle rouge suit l'heure du serveur (UTC) le long des RDV, les RDV déjà passés disparaissent, un RDV nouvellement positionné clignote et fait passer son médecin à l'écran. Le Suivi Support (messagerie, demandes) ne s'ouvre qu'avec le code PIN réglé dans cette rubrique ; rouvrez /tv sur la télé.",

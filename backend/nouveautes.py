@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "312", "date": "2026-10-27",
+        "titre": "📅 Calendrier : tous les évènements Google, affichés comme le lien partagé",
+        "description": "Dans le calendrier de la discussion, les évènements Google marqués « Disponible » ne sont plus en pointillé : ils s'affichent grisés comme tous les autres, exactement comme dans le lien de disponibilités partagé au contact (même ensemble d'évènements, même si les rendez-vous fictifs occupent de la place ou si certains titres sont coupés). Le titre reste visible sur votre écran ; le lien partagé n'affiche toujours que « Occupé ».",
+        "rubrique": "🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)",
+    },
+    {
         "lot": "311", "date": "2026-10-27",
         "titre": "📅 Calendrier partagé : le programme complet, sans titres",
         "description": "Le lien de disponibilités envoyé au contact (WhatsApp) affiche maintenant aussi vos évènements Google marqués « Disponible » comme créneaux occupés. Seuls début et fin sont transmis : aucun titre, aucun nom de client ne sort de SAWALI. Le calendrier de votre écran, lui, continue d'afficher les titres et distingue les évènements « Disponible » (pointillé).",

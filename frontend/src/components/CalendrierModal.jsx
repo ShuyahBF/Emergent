@@ -101,7 +101,7 @@ export default function CalendrierModal({ contactNom, onPartager, onClose }) {
               <RefreshCw className={`h-4 w-4 text-indigo-600 ${synchro ? "animate-spin" : ""}`} />
             </button>
             <span className="text-xs text-slate-500">
-              Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués){donnees?.google ? " · pointillé = évènement Google « Disponible » (ne bloque pas)" : ""}
+              Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués)
             </span>
             <button type="button" onClick={partager} disabled={occupe || !onPartager} data-testid="calendrier-partager"
               className="ml-auto inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs hover:bg-emerald-700 disabled:opacity-50">

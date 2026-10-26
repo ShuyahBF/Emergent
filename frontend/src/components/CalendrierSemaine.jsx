@@ -11,8 +11,9 @@ const SOURCES = {
   planning: ["Planning", "bg-slate-500/80"],
   google: ["Google Calendar", "bg-slate-600/70"],
   manuel: ["Bloqué", "bg-slate-700/70"],
-  // Lot 310 : évènement Google marqué « Disponible » — affiché mais ne bloque aucun créneau (teinte claire, bord pointillé)
-  google_libre: ["Disponible (Google)", "bg-teal-100 text-teal-900 border border-dashed border-teal-500"],
+  // Lot 312 : un évènement Google marqué « Disponible » s'affiche EXACTEMENT comme les autres (grisé, comme dans le lien partagé au contact) ;
+  // seule l'infobulle rappelle qu'il est marqué « Disponible » dans Google.
+  google_libre: ["Google Calendar (marqué Disponible)", "bg-slate-600/70"],
 };
 
 const heure = (hhmm, defaut) => {
@@ -64,7 +65,7 @@ export default function CalendrierSemaine({ debut, jours = 7, horaires, occupati
               const plage = `${o.d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} – ${o.f.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
               return (
                 <button key={i} type="button" disabled={!onBloc || o.source !== "manuel"} onClick={() => onBloc?.(o)}
-                  className={`absolute left-0.5 right-0.5 rounded px-1 text-left text-[10px] leading-tight overflow-hidden ${details ? `${couleur} ${o.source === "google_libre" ? "" : "text-white"}` : "bg-slate-400/80 text-white"} ${o.source === "manuel" && onBloc ? "cursor-pointer hover:ring-2 hover:ring-rose-400" : "cursor-default"}`}
+                  className={`absolute left-0.5 right-0.5 rounded px-1 text-left text-[10px] leading-tight overflow-hidden ${details ? `${couleur} text-white` : "bg-slate-400/80 text-white"} ${o.source === "manuel" && onBloc ? "cursor-pointer hover:ring-2 hover:ring-rose-400" : "cursor-default"}`}
                   style={{ top: o.top, height: o.haut }}
                   title={details ? `${libSource} · ${o.libelle || ""} · ${plage}${o.source === "manuel" && onBloc ? " (cliquer pour libérer)" : ""}` : `Occupé · ${plage}`}>
                   {details ? (o.libelle || libSource) : "Occupé"}

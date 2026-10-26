@@ -1,0 +1,157 @@
+<!doctype html>
+<!--
+  Lot 295 — Écran TV (Smart TV, navigateur de télé) : page AUTONOME, écrite en JavaScript ancien (ES5, sans React ni bundle),
+  pour fonctionner même sur le vieux moteur web d'une télé (webOS, Tizen…) où l'application SAWALI complète reste blanche.
+  Adresse : /tv (redirigée ici) ou directement /tv-ecran.html.
+  Fonctionnement identique au lot 289 : code d'appairage à saisir dans Paramètres → « Écrans TV », puis fil de la messagerie
+  et demandes de support du client choisi. Les appels passent par /api (même adresse que le site, relayée vers le serveur).
+  Toute erreur est AFFICHÉE en bas de l'écran (au lieu d'un écran blanc) pour faciliter le diagnostic.
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAWALI — Écran TV</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;overflow:hidden}
+#racine{position:fixed;top:0;left:0;right:0;bottom:0;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column}
+.entete{display:-webkit-flex;display:flex;-webkit-justify-content:space-between;justify-content:space-between;-webkit-align-items:center;align-items:center;padding:1.2vh 2.5vw;background:#111b30;border-bottom:2px solid #1e3a5f;font-size:3vh}
+.entete b{font-size:3.4vh}
+.corps{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;min-height:0}
+.col{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;min-width:0;padding:2vh 2vw}
+.col+.col{border-left:2px solid #1e3a5f}
+.titre{font-size:3.2vh;color:#7dd3fc;margin-bottom:1.5vh}
+.fil{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-justify-content:flex-end;justify-content:flex-end;overflow:hidden}
+.bulle{max-width:82%;margin-top:1.4vh;padding:1.4vh 1.6vw;border-radius:2vh;font-size:3.1vh;line-height:1.3;word-wrap:break-word}
+.entrant{-webkit-align-self:flex-start;align-self:flex-start;background:#1f2a44}
+.sortant{-webkit-align-self:flex-end;align-self:flex-end;background:#0f5d4f}
+.nom{font-size:2.2vh;color:#94a3b8;margin-bottom:.4vh}
+.nouveau{-webkit-animation:arrivee .7s ease-out;animation:arrivee .7s ease-out}
+@-webkit-keyframes arrivee{from{opacity:0;-webkit-transform:translateY(5vh)}to{opacity:1;-webkit-transform:none}}
+@keyframes arrivee{from{opacity:0;transform:translateY(5vh)}to{opacity:1;transform:none}}
+.ticket{background:#1c2540;border-left:1vh solid #f59e0b;border-radius:1.2vh;padding:1.4vh 1.4vw;margin-bottom:1.4vh;font-size:3vh}
+.ticket small{display:block;color:#94a3b8;font-size:2.2vh;margin-top:.4vh}
+.vide{color:#64748b;font-size:3vh;margin-top:4vh;text-align:center}
+.centre{-webkit-flex:1;flex:1;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;text-align:center;padding:4vh}
+.code{font-size:16vh;letter-spacing:.3em;font-weight:bold;color:#38bdf8;margin:3vh 0;font-family:Consolas,"Courier New",monospace}
+.aide{font-size:3.4vh;color:#cbd5e1;max-width:80vw;line-height:1.5}
+#erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
+</style>
+</head>
+<body>
+<div id="racine"><div class="centre"><div class="aide">Chargement de l'écran SAWALI…</div></div></div>
+<div id="erreur"></div>
+<script>
+(function () {
+  var CLE = "sawali_tv_secret", API = "/api";
+  var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
+  var racine = document.getElementById("racine"), zoneErreur = document.getElementById("erreur");
+
+  // Toute erreur est affichée en bas de l'écran (diagnostic sur la télé, sans console)
+  function montrerErreur(m) { zoneErreur.style.display = "block"; zoneErreur.innerHTML = esc(String(m)).substring(0, 300); }
+  window.onerror = function (msg, src, ligne) { montrerErreur("Erreur : " + msg + " (ligne " + ligne + ")"); };
+
+  function esc(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function lire() { try { return localStorage.getItem(CLE) || secretMem; } catch (e) { return secretMem; } }
+  function ecrire(v) { secretMem = v; try { if (v) { localStorage.setItem(CLE, v); } else { localStorage.removeItem(CLE); } } catch (e) {} }
+  function fabriquer() {
+    var s = "", i, h = "0123456789abcdef", b;
+    for (i = 0; i < 48; i++) {
+      if (window.crypto && window.crypto.getRandomValues) { b = window.crypto.getRandomValues(new Uint8Array(1))[0] % 16; }
+      else { b = Math.floor(Math.random() * 16); }
+      s += h.charAt(b);
+    }
+    return s;
+  }
+  function heure(iso) { var d = new Date(iso); if (isNaN(d.getTime())) { return ""; } return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
+  function jourHeure(iso) { var d = new Date(iso); if (isNaN(d.getTime())) { return ""; } return ("0" + d.getDate()).slice(-2) + "/" + ("0" + (d.getMonth() + 1)).slice(-2) + " " + heure(iso); }
+
+  // Appel au serveur (XMLHttpRequest : le plus compatible) ; rappel(statut, objet)
+  function appeler(methode, chemin, secret, corps, rappel) {
+    var x = new XMLHttpRequest();
+    x.open(methode, API + chemin, true);
+    x.timeout = 15000;
+    if (secret) { x.setRequestHeader("X-Tv-Secret", secret); }
+    if (corps) { x.setRequestHeader("Content-Type", "application/json"); }
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) { return; }
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      rappel(x.status, d);
+    };
+    x.ontimeout = function () { rappel(0, null); };
+    x.send(corps ? JSON.stringify(corps) : null);
+  }
+
+  // ---------- Phase « code » ----------
+  function afficherCode() {
+    racine.innerHTML = '<div class="centre"><b style="font-size:5vh">SAWALI — Écran TV</b><div class="code">' + esc(code || "······") +
+      '</div><div class="aide">Dans SAWALI, ouvrez Paramètres → « Écrans TV », saisissez ce code, choisissez le client et les contenus à afficher. Cet écran démarrera aussitôt.</div></div>';
+  }
+  function demarrerAppairage() {
+    phase = "code"; code = ""; afficherCode();
+    var secret = fabriquer();
+    appeler("POST", "/tv/appairage", null, { secret: secret }, function (st, d) {
+      if (phase !== "code") { return; }
+      if (st !== 200 || !d) { montrerErreur("Serveur injoignable (code " + st + ") — nouvel essai dans 10 s"); setTimeout(demarrerAppairage, 10000); return; }
+      zoneErreur.style.display = "none";
+      code = d.code; afficherCode();
+      var attendre = function () {
+        if (phase !== "code") { return; }
+        appeler("GET", "/tv/appairage/" + d.appairage_id, secret, null, function (s2, e) {
+          if (e && e.etat === "ok") { ecrire(secret); demarrerFlux(); return; }
+          if (e && e.etat === "expire") { demarrerAppairage(); return; }
+          setTimeout(attendre, 4000);
+        });
+      };
+      setTimeout(attendre, 4000);
+    });
+  }
+
+  // ---------- Phase « flux » ----------
+  function dessiner() {
+    var m = (flux && flux.ecran && flux.ecran.modules) || {}, h = "", i, msgs = (flux && flux.messages) || [], sup = (flux && flux.support) || [];
+    var maintenant = new Date();
+    var jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") +
+      jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
+    if (m.messagerie) {
+      h += '<div class="col" style="-webkit-flex:' + (m.support ? 1.5 : 1) + ';flex:' + (m.support ? 1.5 : 1) + '"><div class="titre">💬 Messagerie</div><div class="fil">';
+      if (!msgs.length) { h += '<div class="vide">Aucun message récent</div>'; }
+      for (i = Math.max(0, msgs.length - 8); i < msgs.length; i++) {
+        var g = msgs[i], nouveau = dejaCharge && !vus[g.id];
+        h += '<div class="bulle ' + (g.sens === "entrant" ? "entrant" : "sortant") + (nouveau ? " nouveau" : "") + '"><div class="nom">' + esc(g.nom) + " · " + heure(g.date) + "</div>" + esc(g.texte) + "</div>";
+      }
+      h += "</div></div>";
+    }
+    if (m.support) {
+      h += '<div class="col"><div class="titre">🛟 Demandes de support ouvertes</div>';
+      if (!sup.length) { h += '<div class="vide">Aucune demande en cours</div>'; }
+      for (i = 0; i < sup.length && i < 6; i++) {
+        h += '<div class="ticket"><b>' + esc(sup[i].numero) + "</b> — " + esc(sup[i].motif) + "<small>" + (sup[i].contact ? esc(sup[i].contact) + " · " : "") + jourHeure(sup[i].date) + "</small></div>";
+      }
+      h += "</div>";
+    }
+    if (!m.messagerie && !m.support) { h += '<div class="centre"><div class="vide">Aucun contenu choisi pour cet écran</div></div>'; }
+    racine.innerHTML = h + "</div>";
+    for (i = 0; i < msgs.length; i++) { vus[msgs[i].id] = true; }
+    dejaCharge = true;
+  }
+  function charger() {
+    if (phase !== "flux") { return; }
+    appeler("GET", "/tv/flux", lire(), null, function (st, d) {
+      if (phase !== "flux") { return; }
+      if (st === 401) { ecrire(""); flux = null; demarrerAppairage(); return; }
+      if (st === 200 && d) { flux = d; hors = false; zoneErreur.style.display = "none"; } else { hors = true; }
+      if (flux) { dessiner(); }
+    });
+  }
+  function demarrerFlux() { phase = "flux"; dejaCharge = false; vus = {}; charger(); }
+
+  // Départ : télé déjà appairée → contenu ; sinon code
+  if (lire()) { demarrerFlux(); } else { demarrerAppairage(); }
+  setInterval(charger, 8000);
+})();
+</script>
+</body>
+</html>

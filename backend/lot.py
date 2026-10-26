@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "294"
-LOT_LIBELLE = "Réponse aux reports : avertissement quand {client} est utilisé sans nom réglé (essai et écran de réglage)"
+LOT = "295"
+LOT_LIBELLE = "Écran TV : page autonome en JavaScript ancien (compatible vieilles Smart TV, fin de l'écran blanc), erreurs affichées à l'écran"

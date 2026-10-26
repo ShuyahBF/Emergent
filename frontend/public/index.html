@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="en">
     <head>
+        <!-- Lot 295 : l'adresse /tv ouvre la page autonome de l'écran TV (ancien JavaScript, sans l'application complète) ;
+             ce petit script s'exécute AVANT le gros bundle, donc même sur une télé dont le moteur web ne sait pas lire l'application -->
+        <script>(function(){var p=location.pathname.replace(/\/+$/,"");if(p==="/tv"){location.replace("/tv-ecran.html");}})();</script>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#0b233b" />

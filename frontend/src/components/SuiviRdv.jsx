@@ -11,7 +11,10 @@ import { Bot, Loader2, RefreshCw } from "lucide-react";
 const heureCourte = (iso) => { try { return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 const LIBELLES_JOURS = { 1: "Dernières 24 h", 3: "3 derniers jours", 7: "7 derniers jours", 14: "14 derniers jours", 30: "30 derniers jours" };
 
-export default function SuiviRdv() {
+// Lot 303 : `portail` = vrai pour un médecin / le secrétariat médical : mêmes écrans, lecture seule, limités à leurs patients
+// (pas de choix du compte : le serveur applique leur périmètre).
+export default function SuiviRdv({ portail = false }) {
+  const base = portail ? "/me/planning/suivi" : "/admin/planning/suivi";
   const [comptes, setComptes] = useState([]);
   const [joursChoix, setJoursChoix] = useState([1, 3, 7, 14, 30]);
   const [code, setCode] = useState("");              // "" = tous les comptes
@@ -23,6 +26,7 @@ export default function SuiviRdv() {
   const bas = useRef(null);
 
   useEffect(() => {
+    if (portail) return;
     apiClient.get("/admin/planning/suivi/comptes")
       .then((r) => { setComptes(r.data?.comptes || []); if (r.data?.jours_choix) setJoursChoix(r.data.jours_choix); })
       .catch((e) => toast.error(e?.response?.data?.detail || "Comptes indisponibles"));
@@ -31,19 +35,19 @@ export default function SuiviRdv() {
   const chargerFils = useCallback(async () => {
     setSynchro(true);
     try {
-      const r = await apiClient.get("/admin/planning/suivi/fils", { params: { code, jours } });
+      const r = await apiClient.get(`${base}/fils`, { params: { code, jours } });
       setFils(r.data?.fils || []);
     } catch (e) { toast.error(e?.response?.data?.detail || "Suivi indisponible"); }
     finally { setSynchro(false); }
-  }, [code, jours]);
+  }, [code, jours, base]);
 
   const chargerFil = useCallback(async () => {
     if (!choisi) return;
     try {
-      const r = await apiClient.get("/admin/planning/suivi/fil", { params: { telephone: choisi.telephone, jours } });
+      const r = await apiClient.get(`${base}/fil`, { params: { telephone: choisi.telephone, jours } });
       setMessages(r.data?.messages || []);
     } catch (e) { toast.error(e?.response?.data?.detail || "Conversation indisponible"); }
-  }, [choisi, jours]);
+  }, [choisi, jours, base]);
 
   useEffect(() => { setChoisi(null); setMessages(null); chargerFils(); }, [chargerFils]);
   useEffect(() => { setMessages(null); chargerFil(); }, [chargerFil]);
@@ -57,13 +61,13 @@ export default function SuiviRdv() {
   return (
     <div className="space-y-3" data-testid="suivi-rdv">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-slate-600">Compte
+        {!portail && <label className="text-xs text-slate-600">Compte
           <select value={code} onChange={(e) => setCode(e.target.value)} data-testid="suivi-compte"
                   className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono min-w-[12rem]">
             <option value="">Tous les comptes</option>
             {comptes.map((c) => <option key={c.code} value={c.code}>{c.code} ({c.rappels} rappel{c.rappels > 1 ? "s" : ""})</option>)}
           </select>
-        </label>
+        </label>}
         <label className="text-xs text-slate-600">Période
           <select value={jours} onChange={(e) => setJours(Number(e.target.value))} data-testid="suivi-jours"
                   className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm">

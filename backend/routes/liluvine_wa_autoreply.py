@@ -1432,6 +1432,7 @@ async def autoreply_to_inbound(
     # l'IA qui a exécuté le prompt système et rédigé le texte. Les commandes
     # `!...` ne passent JAMAIS ici (interceptées plus haut, avant should_autoreply).
     persona_signature = None
+    matched_agent = None      # lot 303 : défini avant le try (le prénom est enregistré avec le message pour l'écran TV)
     try:
         from routes.liluvine_agents import get_agents, match_agent_for_message, build_signature
         agents = await get_agents(db)
@@ -1547,6 +1548,7 @@ async def autoreply_to_inbound(
             "ai_generated": True,
             "ai_source": "liluvine_pro_autoreply",
             "ai_session_id": session_id,
+            "agent_ia": (matched_agent or {}).get("prenom") or "Liluvine",   # lot 303 : pastille de l'agent sur l'écran TV
             "reply_to_wa_message_id": quote_mid,
             "contact_id": (contact or {}).get("id"),
         }

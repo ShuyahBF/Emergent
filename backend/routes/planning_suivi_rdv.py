@@ -75,7 +75,10 @@ def resume_fil(rdv: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str,
             "dernier": ({"sens": dernier["sens"], "texte": dernier["texte"][:140], "date": dernier["date"]} if dernier else None)}
 
 
-def attach_planning_suivi_routes(*, api, db, get_current_user, is_admin_like: Callable[[dict], bool]):
+ROLES_LECTURE_SEULE = ("Médecin", "Secrétaire médicale")     # lot 303 : utilisateurs suivis autorisés (lecture seule, leur périmètre)
+
+
+def attach_planning_suivi_routes(*, api, db, get_current_user, is_admin_like: Callable[[dict], bool], resolve_visible_client_ids=None):
     async def _admin(user: dict = Depends(get_current_user)) -> dict:
         if not is_admin_like(user):
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
@@ -97,11 +100,13 @@ def attach_planning_suivi_routes(*, api, db, get_current_user, is_admin_like: Ca
         return {"comptes": [{"code": l["_id"], "rappels": l["rappels"], "dernier_rappel": l["dernier"]} for l in lignes],
                 "jours_choix": list(JOURS_CHOIX)}
 
-    @api.get("/admin/planning/suivi/fils", tags=["Admin — Suivi RDV"])
-    async def suivi_fils(code: str = Query("", max_length=40), jours: int = 7, user: dict = Depends(_admin)):
-        """Fils de discussion des patients rappelés dans la période (code vide = tous les comptes)."""
+    async def _calcul_fils(code: str, jours: int, perimetre: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fils de discussion des patients rappelés dans la période (code vide = tous les comptes).
+        `perimetre` : filtre supplémentaire sur les RDV (utilisateurs à lecture seule : leur société, et leur propre nom pour un médecin)."""
         depuis = _depuis(jours)
         filtre: Dict[str, Any] = {"reminder_sent_at": {"$gte": depuis}}
+        if perimetre:
+            filtre.update(perimetre)
         if code.strip():
             filtre["code_clinique"] = {"$regex": f"^{__import__('re').escape(code.strip())}$", "$options": "i"}
         rdvs = await db.planning_appointments.find(
@@ -129,22 +134,27 @@ def attach_planning_suivi_routes(*, api, db, get_current_user, is_admin_like: Ca
         fils.sort(key=lambda f: (f["dernier"] or {}).get("date") or f["rappel_le"] or "", reverse=True)
         return {"fils": fils, "jours": jours if jours in JOURS_CHOIX else 7, "code": code.strip()}
 
-    @api.get("/admin/planning/suivi/fil", tags=["Admin — Suivi RDV"])
-    async def suivi_fil(telephone: str = Query(..., max_length=32), jours: int = 7, user: dict = Depends(_admin)):
-        """Conversation complète d'un patient (rappel inclus) : messages du patient, de Liluvine et du rappel."""
+    async def _calcul_fil(telephone: str, jours: int, perimetre: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Conversation complète d'un patient (rappel inclus) : messages du patient, de Liluvine et du rappel.
+        Avec un `perimetre`, le numéro doit correspondre à un rappel de ce périmètre (sinon 404 : aucun autre patient n'est lisible)."""
         cle = derniers8(telephone)
         if not cle:
             raise HTTPException(status_code=400, detail="Numéro invalide")
         depuis = _depuis(jours)
+        filtre_rdv: Dict[str, Any] = {"reminder_sent_at": {"$gte": depuis}}
+        if perimetre:
+            filtre_rdv.update(perimetre)
+        rdvs = await db.planning_appointments.find(
+            filtre_rdv, {"_id": 0, "patient_phone": 1, "patient": 1, "medecin": 1, "start_at": 1,
+                         "reminder_sent_at": 1, "reminder_status": 1, "code_clinique": 1},
+        ).sort("reminder_sent_at", 1).to_list(600)
+        if perimetre and not any(derniers8(r.get("patient_phone")) == cle for r in rdvs):
+            raise HTTPException(status_code=404, detail="Conversation introuvable")
         docs = await db.whatsapp_messages.find(
             {"phone_digits": {"$in": variantes_numero(telephone)}, "created_at": {"$gte": depuis}},
             {"_id": 0}).sort("created_at", 1).to_list(MAX_MESSAGES_FIL)
         messages = [forme_message(d) for d in docs]
         # Rappel : si le message du rappel n'est pas dans le fil (non journalisé), on l'ajoute pour que le fil soit complet
-        rdvs = await db.planning_appointments.find(
-            {"reminder_sent_at": {"$gte": depuis}}, {"_id": 0, "patient_phone": 1, "patient": 1, "medecin": 1, "start_at": 1,
-                                                    "reminder_sent_at": 1, "reminder_status": 1, "code_clinique": 1},
-        ).sort("reminder_sent_at", 1).to_list(600)
         for r in rdvs:
             if derniers8(r.get("patient_phone")) != cle:
                 continue
@@ -157,5 +167,42 @@ def attach_planning_suivi_routes(*, api, db, get_current_user, is_admin_like: Ca
                                  "liluvine": True, "commande": "rappel_rdv", "texte": f"🔔 Rappel de RDV envoyé — {r.get('medecin') or ''}".strip()})
         messages.sort(key=lambda m: str(m.get("date") or ""))
         return {"telephone": telephone, "messages": messages[-MAX_MESSAGES_FIL:]}
+
+    @api.get("/admin/planning/suivi/fils", tags=["Admin — Suivi RDV"])
+    async def suivi_fils(code: str = Query("", max_length=40), jours: int = 7, user: dict = Depends(_admin)):
+        return await _calcul_fils(code, jours)
+
+    @api.get("/admin/planning/suivi/fil", tags=["Admin — Suivi RDV"])
+    async def suivi_fil(telephone: str = Query(..., max_length=32), jours: int = 7, user: dict = Depends(_admin)):
+        return await _calcul_fil(telephone, jours)
+
+    # ---------------- Lot 303 : « Réponses WA aux RDV » pour les médecins et le secrétariat médical (lecture seule) ----------------
+    async def _perimetre_utilisateur(user: dict) -> Optional[Dict[str, Any]]:
+        """Périmètre des RDV lisibles : administrateurs = tout (None) ; médecin = SES patients ; secrétaire médicale = ceux de sa société.
+        Tout autre profil : 403."""
+        if is_admin_like(user):
+            return None
+        role = user.get("tracked_role") or ""
+        if role not in ROLES_LECTURE_SEULE:
+            raise HTTPException(status_code=403, detail="Réservé aux médecins et au secrétariat médical")
+        ids = [user.get("client_id"), user.get("parent_client_id"), user.get("id")]
+        if resolve_visible_client_ids is not None:
+            try:
+                ids = list(await resolve_visible_client_ids(user)) + ids
+            except Exception:  # noqa: BLE001 — périmètre de repli : le compte lui-même
+                logger.warning("[suivi_rdv] périmètre société indisponible", exc_info=True)
+        perimetre: Dict[str, Any] = {"tenant_id": {"$in": [i for i in dict.fromkeys(ids) if i]}}
+        if role == "Médecin":
+            # Un médecin ne voit QUE ses patients (même règle que le Planning)
+            perimetre["$or"] = [{"medecin_id": user.get("id")}, {"medecin_email": user.get("email")}]
+        return perimetre
+
+    @api.get("/me/planning/suivi/fils", tags=["Portail Client — Suivi RDV"])
+    async def mes_suivi_fils(jours: int = 7, user: dict = Depends(get_current_user)):
+        return await _calcul_fils("", jours, await _perimetre_utilisateur(user))
+
+    @api.get("/me/planning/suivi/fil", tags=["Portail Client — Suivi RDV"])
+    async def mon_suivi_fil(telephone: str = Query(..., max_length=32), jours: int = 7, user: dict = Depends(get_current_user)):
+        return await _calcul_fil(telephone, jours, await _perimetre_utilisateur(user))
 
     return {}

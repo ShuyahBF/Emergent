@@ -77,11 +77,30 @@ export default function EcransTvSection() {
     }
   };
 
+  // Lot 303 : photo du médecin — l'image choisie est réduite (160 px, JPEG) dans le navigateur avant d'être enregistrée
+  const choisirPhoto = (i, fichier) => {
+    if (!fichier) return;
+    if (!/^image\//.test(fichier.type)) { toast.error("Choisissez un fichier image"); return; }
+    const lecteur = new FileReader();
+    lecteur.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const cote = Math.min(img.width, img.height), taille = 160;
+        const toile = document.createElement("canvas");
+        toile.width = taille; toile.height = taille;
+        toile.getContext("2d").drawImage(img, (img.width - cote) / 2, (img.height - cote) / 2, cote, cote, 0, 0, taille, taille);
+        majPorte(i, { photo: toile.toDataURL("image/jpeg", 0.8) });
+      };
+      img.onerror = () => toast.error("Image illisible");
+      img.src = lecteur.result;
+    };
+    lecteur.readAsDataURL(fichier);
+  };
   const majPorte = (i, patch) => setPortes((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const enregistrerPortes = async () => {
     setSavingPortes(true);
     try {
-      await apiClient.put("/admin/tv/portes", { portes: portes.filter((l) => l.medecin?.trim() && l.porte?.trim()).map((l) => ({ medecin: l.medecin.trim(), porte: l.porte.trim() })) });
+      await apiClient.put("/admin/tv/portes", { portes: portes.filter((l) => l.medecin?.trim() && (l.porte?.trim() || l.profession?.trim() || l.photo)).map((l) => ({ medecin: l.medecin.trim(), porte: l.porte.trim(), profession: (l.profession || "").trim(), photo: l.photo || "" })) });
       toast.success("Portes enregistrées");
       charger();
     } catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
@@ -92,7 +111,12 @@ export default function EcransTvSection() {
   const changerContenu = async (ecran, cle, valeur) => {
     const nouveaux = { ...ecran.modules, [cle]: valeur };
     setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, modules: nouveaux } : e)));
-    try { await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, { modules: nouveaux }); } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible"); charger(); }
+    try {
+      // Lot 303 : on affiche ce que le serveur a réellement enregistré, avec une confirmation visible
+      const r = await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, { modules: nouveaux });
+      if (r.data?.modules) setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, modules: r.data.modules } : e)));
+      toast.success("Contenus de l'écran enregistrés");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible : le contenu n'a pas été enregistré"); charger(); }
   };
 
   const revoquer = async (ecran) => {
@@ -167,11 +191,12 @@ export default function EcransTvSection() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-testid="tv-liste">
-              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
+              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Code d'appairage</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
               <tbody>
                 {ecrans.map((e) => (
                   <tr key={e.id} className="border-t border-slate-100">
                     <td className="py-2 pr-3 font-medium">{e.nom}</td>
+                    <td className="pr-3 font-mono tracking-widest text-xs" title="Code saisi lors de l'appairage">{e.code || <span className="text-slate-400" title="Écran appairé avant le lot 303 : code non conservé">—</span>}</td>
                     <td className="pr-3">{e.client_nom || e.client_id}</td>
                     <td className="pr-3">
                       <div className="flex flex-wrap gap-3">
@@ -209,6 +234,19 @@ export default function EcransTvSection() {
             )}
             <input value={l.porte} onChange={(e) => majPorte(i, { porte: e.target.value })} maxLength={30} placeholder="Bureau 3" className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
             <button type="button" onClick={() => setPortes((ls) => ls.filter((_, k) => k !== i))} title="Retirer" className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+            {/* Lot 303 : profession et photo du médecin, affichées dans le hall */}
+            <div className="sm:col-span-3 flex flex-wrap items-center gap-2 -mt-1 mb-1">
+              {l.photo
+                ? <img src={l.photo} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-slate-300" />
+                : <span className="h-10 w-10 rounded-full bg-slate-200 text-slate-400 text-xs flex items-center justify-center">photo</span>}
+              <label className="text-xs px-2 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 cursor-pointer">
+                {l.photo ? "Changer la photo" : "Charger la photo"}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { choisirPhoto(i, e.target.files?.[0]); e.target.value = ""; }} />
+              </label>
+              {l.photo && <button type="button" onClick={() => majPorte(i, { photo: "" })} className="text-xs text-rose-600 hover:underline">Retirer la photo</button>}
+              <input value={l.profession || ""} onChange={(e) => majPorte(i, { profession: e.target.value })} maxLength={60} placeholder="Profession (ex. Médecin généraliste)"
+                     className="flex-1 min-w-[12rem] px-3 py-1.5 border border-slate-300 rounded-lg text-sm" data-testid="tv-porte-profession" />
+            </div>
           </div>
         ))}
         <div className="flex gap-2 boutons-distincts">

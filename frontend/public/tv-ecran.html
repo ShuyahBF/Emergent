@@ -48,6 +48,14 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 .direct::-webkit-scrollbar-track{background:#111b30}
 .direct::-webkit-scrollbar-thumb{background:#38bdf8;border-radius:.7vh}
 .badgeson{background:#f59e0b;color:#111;border-radius:1vh;padding:.3vh 1vw;font-size:2.2vh;margin-right:1vw}
+.prochain{background:#064e3b;border:.5vh solid #34d399;border-radius:2vh;padding:2vh 2vw;margin-bottom:2vh;text-align:center}
+.prochain small{display:block;font-size:2.6vh;color:#a7f3d0}
+.prochain b{display:block;font-size:7vh;margin-top:.6vh}
+.med{background:#16203a;border-radius:1.4vh;padding:1.4vh 1.4vw;margin-bottom:1.2vh}
+.med .t{display:-webkit-flex;display:flex;-webkit-justify-content:space-between;justify-content:space-between;-webkit-align-items:center;align-items:center;font-size:3.2vh;font-weight:bold}
+.med .porte{background:#38bdf8;color:#04243a;border-radius:1vh;padding:.3vh 1.2vw;font-size:2.8vh}
+.med .l{font-size:2.6vh;color:#cbd5e1;margin-top:.6vh}
+.med .enc{color:#fbbf24}
 #erreur{position:fixed;left:0;right:0;bottom:0;background:#7f1d1d;color:#fff;font-size:2vh;padding:.8vh 1.5vw;display:none}
 </style>
 </head>
@@ -162,7 +170,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     var ancien = document.getElementById("direct"), etaitEnBas = !ancien || (ancien.scrollHeight - ancien.scrollTop - ancien.clientHeight < 80), ancienHaut = ancien ? ancien.scrollTop : 0;
     for (i = 0; i < msgs.length; i++) { if (dejaCharge && !vus[msgs[i].id]) { if (msgs[i].sens === "entrant") { nouveauEntrant = true; } } }
     h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' +
-      (sonActif ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
+      (sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (m.messagerie) {
       h += '<div class="col" style="-webkit-flex:' + (m.support ? 2 : 1) + ';flex:' + (m.support ? 2 : 1) + '"><div class="titre">💬 Messagerie' +
@@ -190,7 +198,23 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
       h += "</div>";
     }
-    if (!m.messagerie && !m.support) { h += '<div class="centre"><div class="vide">Aucun contenu choisi pour cet écran</div></div>'; }
+    if (m.hall) {
+      var hall = (flux && flux.hall) || { medecins: [], prochain: null };
+      h += '<div class="col"><div class="titre">🩺 Consultations du jour</div>';
+      if (hall.prochain) {
+        h += '<div class="prochain"><small>Prochain patient</small><b>' + esc(hall.prochain.libelle) + (hall.prochain.porte ? " → " + esc(hall.prochain.porte) : "") + '</b><small>' + esc(hall.prochain.medecin) + "</small></div>";
+      }
+      if (!hall.medecins.length) { h += '<div class="vide">Aucune consultation aujourd\'hui</div>'; }
+      for (i = 0; i < hall.medecins.length; i++) {
+        var md = hall.medecins[i], suiv = [], k;
+        for (k = 0; k < md.prochains.length; k++) { suiv.push(esc(md.prochains[k].libelle)); }
+        h += '<div class="med"><div class="t"><span>' + esc(md.medecin) + "</span>" + (md.porte ? '<span class="porte">' + esc(md.porte) + "</span>" : "") + "</div>" +
+          (md.en_consultation ? '<div class="l enc">En consultation : ' + esc(md.en_consultation) + "</div>" : "") +
+          '<div class="l">' + (suiv.length ? "Suivants : " + suiv.join(" · ") : "Aucun patient en attente") + (md.restants > 3 ? " · " + md.restants + " en attente" : "") + "</div></div>";
+      }
+      h += "</div>";
+    }
+    if (!m.messagerie && !m.support && !m.hall) { h += '<div class="centre"><div class="vide">Aucun contenu choisi pour cet écran</div></div>'; }
     racine.innerHTML = h + "</div>";
     var el = document.getElementById("direct");
     if (el) { el.scrollTop = (etaitEnBas || nouveauEntrant) ? el.scrollHeight : ancienHaut; }   // défilement automatique vers le dernier message

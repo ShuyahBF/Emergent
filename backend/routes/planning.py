@@ -705,6 +705,11 @@ def attach_planning_routes(
             except (TypeError, ValueError):
                 numero_ordre = None
         domaine = (body.get("domaine") or body.get("specialite") or "").strip().lower() or None
+        # Lot 300 — type d'évènement de la file Biolog (« EvènementFILE.TypeEvènement ») : PAT autre évènement patient, RDV rendez-vous,
+        # CST consultation (le patient est reçu), RCU édition d'un reçu (consultation terminée). Optionnel ; sert à l'écran TV du hall.
+        type_evenement = str(body.get("type_evenement") or body.get("type_evt") or body.get("TypeEvenement") or "").strip().upper()
+        if type_evenement not in ("PAT", "RDV", "CST", "RCU"):
+            type_evenement = ""
 
         # Résout le tenant_id : par défaut super-admin du système. Si medecin_email
         # correspond à un utilisateur tracked, on utilise SON tenant.
@@ -874,6 +879,8 @@ def attach_planning_routes(
             "correction_applied": correction_applied,
             "correction_reason": correction_reason,
         }
+        if type_evenement:
+            set_doc["type_evenement"] = type_evenement          # lot 300 : n'écrase jamais une valeur existante par du vide
         set_on_insert = {
             "id": str(uuid.uuid4()),
             "tenant_id": tenant_id,

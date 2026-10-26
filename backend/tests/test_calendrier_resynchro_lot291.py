@@ -89,7 +89,8 @@ def test_google_evenements_en_echec_retombe_sur_freebusy():
     assert [(o["source"], o["libelle"]) for o in r["occupations"]] == [("google", "Google Calendar")]
 
 
-def test_lien_public_reste_occupe_sans_detail_ni_libre():
+def test_lien_public_montre_aussi_les_evenements_libres_comme_occupes_sans_detail():
+    """Lot 311 : le lien partagé affiche le programme complet (évènements « Disponible » inclus) en « occupé », sans titre."""
     async def freebusy(a, b):
         return [{"start": "2026-10-27T11:30:00+00:00", "end": "2026-10-27T14:00:00+00:00"}]
 
@@ -99,6 +100,7 @@ def test_lien_public_reste_occupe_sans_detail_ni_libre():
     c = _client310(freebusy, evenements)
     lien = c.post("/api/me/calendrier/partages", json={"debut": "2026-10-26", "jours": 7}).json()["url"]
     pub = c.get(f"/api/public/calendrier/{lien.rsplit('/', 1)[1]}", params={"debut": "2026-10-26"}).json()
-    texte = str(pub["occupations"])
-    assert "Génération" not in texte and "Suivi" not in texte and "libre" not in texte      # ni titre ni évènement libre
-    assert len(pub["occupations"]) == 1
+    assert [(o["debut"][11:16], o["fin"][11:16]) for o in pub["occupations"]] == [("09:15", "09:45"), ("11:30", "14:00")]
+    texte = str(pub)
+    assert "Génération" not in texte and "Suivi" not in texte and "libre" not in texte      # ni titre ni indication « libre »
+    assert set(pub["occupations"][0]) == {"debut", "fin"}

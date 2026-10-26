@@ -231,6 +231,39 @@ async def freebusy(start_iso: str, end_iso: str) -> list[dict]:
         return []
 
 
+async def events_between(start_iso: str, end_iso: str) -> Optional[list[dict]]:
+    """Lot 310 — évènements du calendrier configuré entre deux dates, AVEC leur titre et leur statut « occupé / disponible ».
+    Contrairement à `freebusy`, Google renvoie ici aussi les évènements marqués « Disponible » (libres).
+    Retourne [{start, end, summary, libre}] (évènements « toute la journée » ignorés) ; None si l'appel échoue
+    (l'appelant retombe alors sur `freebusy`)."""
+    service = await _build_service()
+    if service is None:
+        return None
+    s = await _get_settings()
+    calendar_id = s.get("google_calendar_email") or "primary"
+    try:
+        sortie: list[dict] = []
+        jeton = None
+        while True:
+            res = await asyncio.to_thread(service.events().list(
+                calendarId=calendar_id, timeMin=start_iso, timeMax=end_iso, singleEvents=True, orderBy="startTime",
+                maxResults=250, pageToken=jeton).execute)
+            for ev in res.get("items", []) or []:
+                deb, fin = (ev.get("start") or {}).get("dateTime"), (ev.get("end") or {}).get("dateTime")
+                if ev.get("status") == "cancelled" or not deb or not fin:
+                    continue
+                sortie.append({"start": deb, "end": fin, "summary": ev.get("summary") or "(sans titre)",
+                               "libre": ev.get("transparency") == "transparent"})
+            jeton = res.get("nextPageToken")
+            if not jeton or len(sortie) > 1000:
+                break
+        _noter_synchro(True)
+        return sortie
+    except Exception as e:
+        logger.error("GCal events.list failed: %s", e)
+        return None
+
+
 # Iter43-fix24ao (2026-06-17) — Diagnostic helper used by the admin
 # "Tester connexion" button. Lists the N next upcoming events on the
 # configured calendar to confirm OAuth + API access work end-to-end.

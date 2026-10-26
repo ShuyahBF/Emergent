@@ -78,6 +78,7 @@ def attach_calendrier_partage_routes(
     google_freebusy: Optional[Callable[[str, str], Awaitable[List[dict]]]] = None,
     is_admin_like: Callable[[dict], bool] = lambda u: u.get("role") in ("admin", "superviseur"),
     google_etat: Optional[Callable[[], Dict[str, Any]]] = None,   # lot 291 : résultat de la dernière lecture de Google
+    google_evenements: Optional[Callable[[str, str], Awaitable[Optional[List[dict]]]]] = None,   # lot 310 : évènements Google avec titre et statut libre
 ) -> Dict[str, Any]:
 
     def _tenant(user: dict) -> str:
@@ -98,8 +99,10 @@ def attach_calendrier_partage_routes(
         return {"ouverture": s.get("business_open_time") or "07:00", "fermeture": s.get("business_close_time") or "19:00",
                 "jours_ouvres": s.get("business_days") or [1, 2, 3, 4, 5, 6]}
 
-    async def occupations(user: dict, t0: datetime, t1: datetime, avec_google: bool) -> List[dict]:
-        """Blocs occupés {debut, fin, source, libelle} entre t0 et t1."""
+    async def occupations(user: dict, t0: datetime, t1: datetime, avec_google: bool, avec_libres: bool = False) -> List[dict]:
+        """Blocs occupés {debut, fin, source, libelle} entre t0 et t1.
+        Lot 310 : avec `avec_libres` (écran du propriétaire seulement), Google est lu évènement par évènement : titre affiché, et les
+        évènements marqués « Disponible » ressortent en source « google_libre » (ils ne bloquent rien). Le lien public reste « occupé » sans détail."""
         tid, a, b = _tenant(user), t0.isoformat(), t1.isoformat()
         blocs: List[dict] = []
         # 1. Rendez-vous du portail (scheduled_at + durée)
@@ -123,7 +126,19 @@ def attach_calendrier_partage_routes(
                 blocs.append({"debut": debut, "fin": fin, "source": "planning",
                               "libelle": " · ".join(x for x in (p.get("medecin"), p.get("patient")) if x) or "Planning"})
         # 3. Google Calendar de la plateforme (Admin / Superviseur)
-        if avec_google and google_freebusy is not None:
+        evenements = None
+        if avec_google and avec_libres and google_evenements is not None:
+            try:
+                evenements = await google_evenements(a, b)
+            except Exception:  # noqa: BLE001 — on retombe sur la lecture « occupé / libre » classique
+                evenements = None
+        if evenements is not None:
+            for g in evenements:
+                debut, fin = _iso(g.get("start")), _iso(g.get("end"))
+                if debut and fin:
+                    blocs.append({"debut": debut, "fin": fin, "source": "google_libre" if g.get("libre") else "google",
+                                  "libelle": g.get("summary") or "Google Calendar"})
+        elif avec_google and google_freebusy is not None:
             try:
                 for g in await google_freebusy(a, b) or []:
                     debut, fin = _iso(g.get("start")), _iso(g.get("end"))
@@ -144,7 +159,7 @@ def attach_calendrier_partage_routes(
         t0, t1 = _periode(debut, jours)
         horaires = await _horaires()
         # Google est relu À CHAQUE appel (aucun cache) : le bouton « resynchroniser » de l'écran rappelle simplement cette route
-        occ = await occupations(user, t0, t1, is_admin_like(user))
+        occ = await occupations(user, t0, t1, is_admin_like(user), avec_libres=True)
         avec_google = bool(is_admin_like(user) and google_freebusy is not None)
         return {"debut": t0.isoformat(), "fin": t1.isoformat(), "horaires": horaires, "google": avec_google,
                 # Lot 291 : Google a-t-il répondu à cette lecture ? (None si le calendrier Google n'est pas concerné)

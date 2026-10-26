@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "309"
-LOT_LIBELLE = "Écran TV du hall : heure en grand (taille paramétrable), tous les médecins de la clinique, listes avec et sans RDV ; Planning : Avancer / Reculer dans les listes du jour"
+LOT = "310"
+LOT_LIBELLE = "Calendrier : les évènements Google marqués « Disponible » s'affichent (avec leur titre) sans bloquer de créneau"

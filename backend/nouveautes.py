@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "310", "date": "2026-10-27",
+        "titre": "📅 Calendrier : les évènements Google « Disponible » s'affichent",
+        "description": "Dans le calendrier ouvert depuis une discussion, SAWALI lit maintenant les évènements de Google un par un : leur titre s'affiche, et ceux marqués « Disponible » (libres dans Google, comme les rendez-vous de démonstration) apparaissent en teinte claire à bord pointillé, sans bloquer le créneau. Le lien de disponibilités partagé au contact ne change pas : il montre seulement « occupé », sans titre ni évènement libre. Si Google ne répond pas pour la lecture détaillée, l'ancienne lecture « occupé » est utilisée.",
+        "rubrique": "🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)",
+    },
+    {
         "lot": "309", "date": "2026-10-27",
         "titre": "📺 Hall : heure en grand, tous les médecins, listes avec et sans RDV",
         "description": "Écran TV du hall : l'heure s'affiche en grand (liste « Taille de l'heure » par écran : normale, grande, très grande, géante). Tous les médecins de la clinique y figurent (les RDV rangés sous un autre compte mais portant le même code clinique sont repris). Chaque médecin montre ses deux listes du jour : avec rendez-vous et sans rendez-vous (par numéro d'ordre). Dans le Planning, le médecin dispose de boutons Reculer / Avancer sur chaque liste : le patient en consultation s'affiche en vert sur la télé.",

@@ -43,3 +43,62 @@ def test_google_muet_l_ecran_peut_expliquer_pourquoi():
 
     r = _client(freebusy, etat).get("/api/me/calendrier/occupations", params={"debut": "2026-10-26"}).json()
     assert r["google_etat"]["ok"] is False and "jeton expiré" in r["google_etat"]["erreur"] and r["occupations"] == []
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Lot 310 — évènements Google marqués « Disponible » : visibles (avec titre) sur l'écran du propriétaire, jamais sur le lien public
+# ----------------------------------------------------------------------------------------------------------------------
+def _client310(freebusy, evenements):
+    base = AsyncMongoMockClient()["test_cal_310"]
+
+    async def utilisateur():
+        return {"id": "u1", "role": "admin", "client_id": "c1"}
+
+    api = APIRouter(prefix="/api")
+    attach_calendrier_partage_routes(api=api, db=base, get_current_user=utilisateur, public_base_url=lambda: "https://x",
+                                     google_freebusy=freebusy, is_admin_like=lambda u: True, google_etat=lambda: {"ok": True, "erreur": "", "le": None},
+                                     google_evenements=evenements)
+    app = FastAPI()
+    app.include_router(api)
+    return TestClient(app)
+
+
+EVT = [{"start": "2026-10-27T09:15:00+00:00", "end": "2026-10-27T09:45:00+00:00", "summary": "Suivi de déploiement", "libre": True},
+       {"start": "2026-10-27T11:30:00+00:00", "end": "2026-10-27T14:00:00+00:00", "summary": "Génération Etat", "libre": False}]
+
+
+def test_evenements_libres_visibles_avec_titre_mais_non_bloquants():
+    async def freebusy(a, b):
+        return [{"start": "2026-10-27T11:30:00+00:00", "end": "2026-10-27T14:00:00+00:00"}]
+
+    async def evenements(a, b):
+        return EVT
+
+    r = _client310(freebusy, evenements).get("/api/me/calendrier/occupations", params={"debut": "2026-10-26", "jours": 7}).json()
+    assert [(o["source"], o["libelle"]) for o in r["occupations"]] == [("google_libre", "Suivi de déploiement"), ("google", "Génération Etat")]
+
+
+def test_google_evenements_en_echec_retombe_sur_freebusy():
+    async def freebusy(a, b):
+        return [{"start": "2026-10-27T11:30:00+00:00", "end": "2026-10-27T14:00:00+00:00"}]
+
+    async def evenements(a, b):
+        return None                                                          # l'appel détaillé a échoué
+
+    r = _client310(freebusy, evenements).get("/api/me/calendrier/occupations", params={"debut": "2026-10-26", "jours": 7}).json()
+    assert [(o["source"], o["libelle"]) for o in r["occupations"]] == [("google", "Google Calendar")]
+
+
+def test_lien_public_reste_occupe_sans_detail_ni_libre():
+    async def freebusy(a, b):
+        return [{"start": "2026-10-27T11:30:00+00:00", "end": "2026-10-27T14:00:00+00:00"}]
+
+    async def evenements(a, b):
+        return EVT
+
+    c = _client310(freebusy, evenements)
+    lien = c.post("/api/me/calendrier/partages", json={"debut": "2026-10-26", "jours": 7}).json()["url"]
+    pub = c.get(f"/api/public/calendrier/{lien.rsplit('/', 1)[1]}", params={"debut": "2026-10-26"}).json()
+    texte = str(pub["occupations"])
+    assert "Génération" not in texte and "Suivi" not in texte and "libre" not in texte      # ni titre ni évènement libre
+    assert len(pub["occupations"]) == 1

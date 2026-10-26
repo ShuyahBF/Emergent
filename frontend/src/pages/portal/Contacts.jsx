@@ -3217,6 +3217,11 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 {calendrierOuvert && (
                   <CalendrierModal contactNom={contact?.name} onClose={() => setCalendrierOuvert(false)}
                     onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))}
+                    // Lot 314 : l'image des niveaux de service (contrat / standard / EXPRESS) devient la pièce jointe du message
+                    onPartagerNiveaux={(f) => {
+                      setPendingFile({ file: f, kind: "image", previewUrl: URL.createObjectURL(f) });
+                      setText((x) => x || "Voici nos niveaux de prise en charge. Répondez à ce message pour demander une intervention.");
+                    }}
                     // Lot 313 : l'image des disponibilités devient la pièce jointe du message (légende modifiable avant « Envoyer »)
                     onPartagerImage={(f) => {
                       setPendingFile({ file: f, kind: "image", previewUrl: URL.createObjectURL(f) });

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "314", "date": "2026-10-27",
+        "titre": "⚡ Niveaux de service : la disponibilité vendue comme un engagement",
+        "description": "Nouvelle rubrique de réglage : trois niveaux (client sous contrat, client sans contrat, EXPRESS payant) avec un délai de prise en charge choisi dans une liste (dont « 72 heures maximum » réservé aux clients sous contrat valide, « Selon disponibilité (sans engagement) » pour les autres ; « Autre… » pour une valeur libre), le tarif EXPRESS (affiché dans l'image ou gardé pour la conversation) et une mention de bas de page (« sous réserve de disponibilité »). Aperçu de l'image dans la rubrique. Dans le calendrier d'une discussion WhatsApp, le bouton « ⚡ Niveaux de service » joint au message la même image pour tous les contacts. Aucun engagement par défaut : le bouton reste inactif tant que la fonction n'est pas activée et que les trois délais ne sont pas renseignés.",
+        "rubrique": "📅 Niveaux de service (disponibilité en image)",
+    },
+    {
         "lot": "313", "date": "2026-10-27",
         "titre": "📅 Disponibilités envoyées en image (lisibles d'un coup d'œil)",
         "description": "Dans le calendrier ouvert depuis une discussion WhatsApp, le bouton « Envoyer en image » joint au message une image de la semaine : un jour par ligne, barre verte (libre) et grise (occupé), et les créneaux libres écrits en gros caractères (ex. « 07h00 – 09h15 · 09h45 – 10h30 »). Plus besoin d'ouvrir un lien : l'image se lit directement dans la conversation, sans titre ni nom de client. La légende reste modifiable avant « Envoyer ». Le bouton « Partager le lien » reste disponible.",

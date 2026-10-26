@@ -13,12 +13,14 @@ import { CalendarDays, ChevronLeft, ChevronRight, Image as ImageIcon, Loader2, M
 import { apiClient } from "@/lib/api";
 import CalendrierSemaine from "@/components/CalendrierSemaine";
 import { genererImageDisponibilites } from "@/lib/calendrierImage";
+import { genererImageNiveaux } from "@/lib/niveauxImage";
 
 const jourIso = (d) => d.toISOString().slice(0, 10);
 const lundi = (d) => { const x = new Date(d); const n = (x.getDay() + 6) % 7; x.setDate(x.getDate() - n); return x; };
 
 // Lot 313 : `onPartagerImage(file)` (facultatif) — envoie les disponibilités sous forme d'IMAGE lisible d'un coup d'œil
-export default function CalendrierModal({ contactNom, onPartager, onPartagerImage, onClose }) {
+// Lot 314 : `onPartagerNiveaux(file)` (facultatif) — image « Niveaux de service » (contrat / standard / EXPRESS), la même pour tous les contacts
+export default function CalendrierModal({ contactNom, onPartager, onPartagerImage, onPartagerNiveaux, onClose }) {
   const [debut, setDebut] = useState(() => lundi(new Date()));
   const [donnees, setDonnees] = useState(null);
   const [reduit, setReduit] = useState(false);
@@ -45,6 +47,24 @@ export default function CalendrierModal({ contactNom, onPartager, onPartagerImag
     if (!d.google) toast.success(`Calendrier actualisé à ${heure}`);
     else if (d.google_etat?.ok) toast.success(`Calendrier resynchronisé avec Google à ${heure}`);
     else toast.warning(`Google Calendar : ${d.google_etat?.erreur || "pas de réponse"}`);
+  };
+
+  // Lot 314 : réglages des niveaux de service (Paramètres → « Niveaux de service »)
+  const [niveaux, setNiveaux] = useState(null);
+  useEffect(() => {
+    if (!onPartagerNiveaux) return;
+    apiClient.get("/me/niveaux-service").then((r) => setNiveaux(r.data)).catch(() => setNiveaux(null));
+  }, [onPartagerNiveaux]);
+  const partagerNiveaux = async () => {
+    if (!niveaux?.configure) return;
+    setOccupe(true);
+    try {
+      const fichier = await genererImageNiveaux({ config: niveaux });
+      onPartagerNiveaux?.(fichier);
+      toast.success("Image des niveaux de service jointe au message : relisez puis envoyez");
+      onClose?.();
+    } catch (e) { toast.error(e?.message || "Image impossible à générer"); }
+    finally { setOccupe(false); }
   };
 
   const semaine = (n) => setDebut((d) => new Date(d.getTime() + n * 7 * 86400000));
@@ -118,10 +138,17 @@ export default function CalendrierModal({ contactNom, onPartager, onPartagerImag
             <span className="text-xs text-slate-500">
               Grisé = occupé (rendez-vous, planning{donnees?.google ? ", Google Calendar" : ""}, créneaux bloqués)
             </span>
+            {onPartagerNiveaux && (
+              <button type="button" onClick={partagerNiveaux} disabled={occupe || !niveaux?.configure} data-testid="calendrier-partager-niveaux"
+                title={niveaux?.configure ? "Joindre au message l'image des niveaux de service (contrat, standard, EXPRESS)" : "À régler d'abord : Paramètres → Niveaux de service (activer et renseigner les trois délais)"}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg bg-amber-500 text-white px-3 py-1.5 text-xs hover:bg-amber-600 disabled:opacity-50">
+                ⚡ Niveaux de service
+              </button>
+            )}
             {onPartagerImage && (
               <button type="button" onClick={partagerImage} disabled={occupe || !donnees} data-testid="calendrier-partager-image"
                 title="Joindre au message une image des créneaux libres (plus lisible qu'un lien)"
-                className="ml-auto inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700 disabled:opacity-50">
+                className={`${onPartagerNiveaux ? "" : "ml-auto "}inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700 disabled:opacity-50`}>
                 <ImageIcon className="h-3.5 w-3.5" /> Envoyer en image
               </button>
             )}

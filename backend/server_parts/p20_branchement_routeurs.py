@@ -630,6 +630,10 @@ from routes.planning_avancement import attach_planning_avancement_routes as _att
 _attach_avancement(api=api, db=db, get_current_user=get_current_user, is_admin_like=_is_admin_or_superviseur,
                    is_super_admin=_is_super_admin, resolve_visible_client_ids=_resolve_visible_client_ids)
 
+# Lot 314 — niveaux de service (contrat / standard / EXPRESS) : la disponibilité vendue comme un engagement, envoyée en image
+from routes.niveaux_service import setup_niveaux_service_routes as _setup_niveaux_service  # noqa: E402
+_setup_niveaux_service(db=db, api=api, get_current_user=get_current_user, get_current_admin=get_current_admin)
+
 # Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
 # la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.
 from routes.nouveautes_formulaires import attach_nouveautes_formulaires_routes as _attach_nouveautes_fs  # noqa: E402

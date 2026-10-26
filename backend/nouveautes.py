@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "319", "date": "2026-10-27",
+        "titre": "📺 Écran TV : planning sur 3 jours ou la semaine après saisie du code PIN",
+        "description": "Une fois le code PIN saisi, la télé propose Jour / 3 jours / Semaine sur le planning des médecins (RDV regroupés par jour, repère « maintenant » sur aujourd'hui) et un retour au planning depuis le Suivi Support (bouton ou touche Retour). Sans code PIN, le planning reste limité au jour.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "318", "date": "2026-10-27",
         "titre": "📅 Calendrier : dimanches grisés, envoi du jour, de 3 jours ou de la semaine",
         "description": "Dans la fenêtre Calendrier de la discussion WhatsApp, les dimanches sont grisés. Un choix Jour / 3 jours / Semaine (et un jour de départ) détermine ce qui part au contact, en image comme en lien. Un dimanche seul ne génère pas d'image.",

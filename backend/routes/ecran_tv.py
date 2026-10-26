@@ -37,7 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "317"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "319"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
@@ -207,7 +207,7 @@ def masquer_tel_hall(tel: Any) -> str:
 
 
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
-               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False) -> Dict[str, Any]:
+               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14) -> Dict[str, Any]:
     """Planning du jour par médecin (RDV pris tels quels ; le champ `type_evenement` n'est pas utilisé).
     Deux listes par médecin (lot 309) : `rdv` (avec rendez-vous, classés par heure) et `sans_rdv` (consultations sans RDV, classées par
     numéro d'ordre, mises à jour par le secrétariat médical). Chaque ligne : patient ANONYMISÉ (« GU**. R. Pa**** »), téléphone masqué
@@ -228,6 +228,7 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
                  "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand,
                  # lot 317 : début exact (UTC) pour que la télé masque le RDV à son heure ; « nouveau » = créé depuis moins de 10 minutes (clignote)
                  "debut": debut.isoformat() if debut else None,
+                 "jour": quand.strftime("%Y-%m-%d"),               # lot 319 : jour du RDV (la télé regroupe par jour quand l'horizon est de 3 jours ou d'une semaine)
                  "nouveau": bool(_dt(d.get("created_at")) and maintenant - _dt(d.get("created_at")) < timedelta(minutes=NOUVEAU_RDV_MIN))}
         fiche["sans_rdv" if sans else "rdv"].append(ligne)
 
@@ -245,7 +246,7 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         rdv, sans_rdv = finir(fiche["rdv"], False), finir(fiche["sans_rdv"], True)
         a_venir = [x["_q"] for x in rdv if not x["passe"] and x["etat"] != "en_cours"]
         extra = (fiches or {}).get(fiche["medecin"].lower()) or {}          # profession et photo du médecin
-        propre = lambda lst: [{k: v for k, v in x.items() if k not in ("_q", "curseur")} for x in lst][:14]
+        propre = lambda lst: [{k: v for k, v in x.items() if k not in ("_q", "curseur")} for x in lst][:limite]
         medecins.append({"medecin": fiche["medecin"], "porte": fiche["porte"], "profession": extra.get("profession", ""),
                          "a_photo": bool(extra.get("photo")), "photo": extra.get("photo", "") if avec_photos else "",
                          "rdv": [{**x, "etat_ancien": "termine" if x["passe"] else "attente"} for x in propre(rdv)],
@@ -268,7 +269,7 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         prochain = {"medecin": m["medecin"], "porte": m["porte"], "libelle": next(x["heure"] for x in m["rdv"] if not x["passe"])}
     for m in medecins:
         m.pop("_premier", None)
-    return {"medecins": medecins, "prochain": prochain}
+    return {"medecins": medecins, "prochain": prochain, "jour": maintenant.strftime("%Y-%m-%d")}
 
 
 MAX_PHOTO = 60000        # taille maximale (caractères) de la photo d'un médecin, enregistrée en « data:image » réduite par l'écran d'administration
@@ -411,7 +412,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         return {"jeton": jeton, "valide_minutes": DEVERROU_MIN}
 
     @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0)):
+    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
         """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
         `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
@@ -476,11 +477,14 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             # Consultations du jour : UNE lecture des RDV et arrivées du jour pour tous les médecins, regroupées en mémoire
             maintenant = _maintenant()
             j0, j1 = borne_jour(maintenant)
+            # Lot 319 : horizon du planning = 1 jour (défaut, libre), 3 jours ou 7 jours — réservé à une télé déverrouillée par le code PIN
+            horizon = jours if (jours in (3, 7) and suivi_ouvert) else 1
+            j_fin = j1 + timedelta(days=horizon - 1)      # fin de la période des RDV ; les consultations sans RDV restent celles d'aujourd'hui
             # Lot 309 : les RDV d'une même clinique peuvent être rangés sous plusieurs comptes (médecins rattachés différemment) :
             # on prend aussi tous ceux qui portent le MÊME code clinique (ex. CMCO) que les RDV du périmètre de l'écran.
             codes = [c for c in await db.planning_appointments.distinct("code_clinique", {"tenant_id": {"$in": ids}}) if c and c != "manual"]
             perimetre = {"$or": [{"tenant_id": {"$in": ids}}, {"code_clinique": {"$in": codes}}]} if codes else {"tenant_id": {"$in": ids}}
-            jour_q = {"$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}},
+            jour_q = {"$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j_fin.isoformat()}},
                               {"is_rdv": 0, "walk_in_list": {"$regex": f"^{j0.strftime('%y%m%d')}:"}},
                               {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]}
             docs = await db.planning_appointments.find(
@@ -491,7 +495,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
-                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos))
+                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon)
+            flux["hall"]["horizon"] = horizon
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():

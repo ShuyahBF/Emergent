@@ -43,6 +43,9 @@ async def on_startup():
     await db.documents.create_index("client_id")
     await db.contents.create_index("slug", unique=True)
     await db.api_traces.create_index("created_at")
+    # Lot 330 : chat interne (support Loois, plateformes, messages non lus) — tous les filtres commencent par client_id ; sans index, chaque
+    # requête relisait toute la collection (rapport Query Shape d'Atlas : ~36 000 requêtes en 3 jours). Idempotent, moins de 1 Mo.
+    await db.internal_chat_messages.create_index([("client_id", 1), ("created_at", -1)])
     await db.api_traces.create_index("status")
     # Visit tracking — hot path, queried by date + page
     await db.visits.create_index("datetime")

@@ -30,7 +30,7 @@ import {
   X, Maximize, Minimize, Monitor, Eye, EyeOff, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
   Timer, Film, ArrowDownToLine, PenLine, Send, Handshake, Plug, TimerOff, ShieldX, CheckCircle2, WifiOff,
   RotateCcw, Lock, UserX, Power, KeyRound, Ban, PanelRightOpen, PanelRightClose, Scaling, Upload, ServerCog,
-  Ticket, Circle, ShieldAlert, Cpu, Loader2, ZoomIn, PanelTop, PanelLeft,
+  Ticket, Circle, ShieldAlert, Cpu, Loader2, ZoomIn, PanelTop, PanelLeft, ClipboardCopy,
 } from "lucide-react";
 import ClavierVirtuel from "@/components/controleDistance/ClavierVirtuel";
 import VoletPoste from "@/components/controleDistance/VoletPoste";
@@ -331,6 +331,32 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   }, []);
 
   // ---- Lot 135 : messages JSON du poste ----
+  // ---- Lot 332 : presse-papiers du POSTE → presse-papiers du technicien ----
+  // Le texte copié sur le poste arrive tout seul. Un navigateur peut refuser d'écrire dans le presse-papiers sans geste de l'utilisateur
+  // (Firefox, onglet en arrière-plan) : le texte est alors gardé en attente et copié dès le prochain clic ou la prochaine touche sur l'écran du poste.
+  const presseEnAttenteRef = useRef(null);
+  const copierPressePapiersDuPoste = useCallback((texte) => {
+    const n = texte.length;
+    const resume = `${n} caractère${n > 1 ? "s" : ""}`;
+    const ecrire = navigator.clipboard?.writeText ? navigator.clipboard.writeText(texte) : Promise.reject(new Error("indisponible"));
+    ecrire.then(
+      () => { presseEnAttenteRef.current = null; toast.success(`Presse-papiers du poste copié (${resume})`, { id: "presse-papiers-poste" }); },
+      () => {
+        presseEnAttenteRef.current = texte;
+        toast.info(`Texte du poste reçu (${resume}) : cliquez sur l'écran du poste pour le copier dans votre presse-papiers`, { id: "presse-papiers-poste", duration: 8000 });
+      },
+    );
+  }, []);
+  // Geste de l'utilisateur (clic ou touche sur l'écran du poste) : on termine la copie restée en attente
+  const terminerCopieEnAttente = useCallback(() => {
+    const texte = presseEnAttenteRef.current;
+    if (texte === null) return;
+    presseEnAttenteRef.current = null;
+    navigator.clipboard?.writeText(texte).then(() => toast.success("Presse-papiers du poste copié", { id: "presse-papiers-poste" }), () => {
+      toast.error("Le navigateur refuse l'accès à votre presse-papiers : autorisez-le dans les réglages du site", { id: "presse-papiers-poste" });
+    });
+  }, []);
+
   const traiterMessage = useCallback((m) => {
     if (m.type === "pret") { setMode(m.mode); setEtat("attente_poste"); }
     else if (m.type === "debut") {
@@ -353,9 +379,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
         mesuresRef.current?.latences.push(latence);
       }
     }
-    else if (m.type === "presse_papiers" && typeof m.texte === "string") {
-      navigator.clipboard?.writeText(m.texte).then(() => toast.info("Presse-papiers du poste copié"), () => {});
-    }
+    else if (m.type === "presse_papiers" && typeof m.texte === "string") copierPressePapiersDuPoste(m.texte);
     else if (m.type === "infos_poste") setInfos(m);
     else if (m.type === "perf") setPerf(m);
     else if (m.type === "bureau") setBureau(m);
@@ -426,7 +450,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     else if (m.type === "refuse") toast.warning(m.detail || "Commande refusée");
     else if (m.type === "erreur") { signalerEchec(m.detail || "Erreur du poste"); }
     else if (m.type === "fin") { setMotifFin(m.motif || ""); setEtat("terminee"); }
-  }, [signalerEchec, majTransfert, posteId]);
+  }, [signalerEchec, majTransfert, posteId, copierPressePapiersDuPoste]);
 
   // ---- Connexion au relais avec le jeton à usage unique ----
   const connecter = useCallback((sid, jeton) => {
@@ -604,6 +628,13 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
       const texte = await navigator.clipboard.readText();
       if (texte) { envoyer({ type: "texte", texte }); toast.success("Texte envoyé au poste"); }
     } catch { toast.error("Le navigateur n'autorise pas la lecture du presse-papiers"); }
+  };
+
+  // Lot 332 : demander le presse-papiers du poste (bouton), au cas où la copie automatique n'a rien envoyé
+  const demanderPressePapiers = () => {
+    if (!peutAgir) { toast.warning("Presse-papiers du poste : prise en main en mode « Contrôler » seulement"); return; }
+    envoyer({ type: "presse_papiers_demander" });
+    toast.info("Lecture du presse-papiers du poste…", { id: "presse-papiers-poste" });
   };
 
   // ---- Lot 135 : fichiers déposés sur l'écran du poste → envoyés au poste ----
@@ -839,6 +870,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             </button>
             <button type="button" className={picto("bg-cyan-500")} onClick={() => envoyer({ type: "image_complete" })} title="Rafraîchir l'écran complet"><RefreshCw className="h-4 w-4" /></button>
             <button type="button" className={picto("bg-violet-500")} disabled={!peutAgir} onClick={collerTexte} title="Coller votre presse-papiers sur le poste"><ClipboardPaste className="h-4 w-4" /></button>
+            <button type="button" className={picto("bg-cyan-500")} disabled={!peutAgir} onClick={demanderPressePapiers} title="Copier le presse-papiers du poste dans le vôtre" data-testid="controle-distance-copier-poste"><ClipboardCopy className="h-4 w-4" /></button>
             <button type="button" className={picto(clavierOuvert ? "bg-fuchsia-500 ring-2 ring-white" : "bg-fuchsia-700")} disabled={!peutAgir}
                     onClick={() => setClavierOuvert((v) => !v)} title="Clavier virtuel (touches de fonction, Windows, raccourcis)"><Keyboard className="h-4 w-4" /></button>
             <button type="button" className={picto("bg-pink-500")} disabled={!peutAgir} onClick={() => combinaison(["ControlLeft", "ShiftLeft", "Escape"])} title="Gestionnaire des tâches (Ctrl+Maj+Échap)"><Activity className="h-4 w-4" /></button>
@@ -1120,11 +1152,11 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
               className={`${zoomVue > 100 ? "h-full w-full" : "max-h-full max-w-full"} rounded-lg bg-black shadow-2xl shadow-black/60 ring-1 ring-white/10 outline-none ${etat === "active" ? "" : "hidden"} ${peutAgir ? "cursor-crosshair" : "cursor-default"}`}
               style={{ objectFit: "contain" }}
               onMouseMove={souris("deplacer")}
-              onMouseDown={souris("bas")}
+              onMouseDown={(ev) => { terminerCopieEnAttente(); souris("bas")(ev); }}
               onMouseUp={souris("haut")}
               onWheel={molette}
               onContextMenu={(e) => e.preventDefault()}
-              onKeyDown={clavier("bas")}
+              onKeyDown={(ev) => { terminerCopieEnAttente(); clavier("bas")(ev); }}
               onKeyUp={clavier("haut")}
               data-testid="controle-distance-ecran"
             />

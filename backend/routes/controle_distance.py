@@ -89,6 +89,7 @@ DUREE_MAX_S = outils.DUREE_MAX_S   # une session dure 4 heures, prolongeable (lo
 TAILLE_MAX_TRAME = 2 * 1024 * 1024   # 2 Mo par trame binaire (une tuile JPEG est bien plus petite)
 # Commandes du technicien qui AGISSENT sur le poste : refusées en mode « voir seulement »
 COMMANDES_ENTREE = {"souris", "clavier", "presse_papiers", "texte", "maintenance",   # lot 140 : maintenance du disque
+                    "presse_papiers_demander",   # lot 332 : le technicien réclame le presse-papiers du poste (mode « contrôler » seulement)
                     # Lot 135 : système, blocage des entrées, fichiers
                     "systeme", "bloquer_entrees", "fichier_debut", "fichier_fin", "fichier_annuler",
                     "fichiers_lister", "fichier_demander", "fichier_arreter"}   # lot 284 : arrêter l'envoi d'un fichier par le poste
@@ -242,8 +243,13 @@ def action_journal(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def message_poste_autorise(message: Dict[str, Any]) -> bool:
-    return str(message.get("type") or "") in MESSAGES_POSTE
+def message_poste_autorise(message: Dict[str, Any], mode: str = "controler") -> bool:
+    """Le message du poste est-il relayé au technicien ? Lot 332 : le presse-papiers du poste (texte copié, parfois confidentiel) n'est
+    JAMAIS relayé en mode « voir seulement » : même si un poste modifié l'envoyait, le serveur l'écarte."""
+    type_ = str(message.get("type") or "")
+    if type_ == "presse_papiers" and mode != "controler":
+        return False
+    return type_ in MESSAGES_POSTE
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1123,7 +1129,7 @@ def creer_routeur(*, db, get_current_user: Callable[..., Awaitable[Dict[str, Any
                     else:
                         await websocket.send_json({"type": "refuse", "detail": "Mode « voir seulement » : "
                                                                               "commande non transmise"})
-                elif message_poste_autorise(message):
+                elif message_poste_autorise(message, mode):
                     await relais.envoyer_json(sid, "technicien", message)
                     # Lot 140 : maintenance du disque terminée → gardée dans la session, puis inscrite dans l'intervention
                     tache = tache_depuis_etat(message, iso(maintenant())) if message.get("type") == "maintenance_etat" else None

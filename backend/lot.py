@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "331"
-LOT_LIBELLE = "Contrôle à distance : clavier du technicien respecté, pixels parasites corrigés, vue zoomée et barre en haut, transferts fiabilisés (mémoire du serveur libérée après les sauvegardes)."
+LOT = "332"
+LOT_LIBELLE = "Contrôle à distance : presse-papiers du poste copié chez le technicien (copie automatique + bouton). Lot 331 : clavier du technicien respecté, pixels parasites corrigés, vue zoomée et barre en haut, transferts fiabilisés (mémoire du serveur libérée après les sauvegardes)."

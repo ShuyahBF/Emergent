@@ -201,39 +201,6 @@ def setup_suivi_rdv_routes(*, db, api, get_current_admin):
             raise HTTPException(status_code=400, detail="Adresse de site non autorisée")
         return Response(content=png_qr(f"{site}/suivi-rdv"), media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
 
-    @api.get("/admin/suivi-rdv/apercu", tags=["Admin — Suivi RDV patient"])
-    async def admin_suivi_apercu(jours: int = Query(1), user: dict = Depends(get_current_admin)):
-        """Lot 327 — Page « /suivi-rdv » en mode ADMINISTRATEUR : le téléphone de l'admin joue le rôle d'une télé de contrôle.
-        Tous les rendez-vous du jour (ou des 3 prochains jours / de la semaine) en CLAIR (nom, téléphone), sans fenêtre de 3 h, même si le
-        service patient est éteint. Chaque ligne porte aussi la phrase que verrait le patient (`message`), pour contrôler l'affichage."""
-        horizon = jours if jours in (1, 3, 7) else 1
-        maintenant = datetime.now(timezone.utc)
-        j0 = maintenant.replace(hour=0, minute=0, second=0, microsecond=0)           # même découpage « jour » que le Planning (Burkina = UTC)
-        docs = await db.planning_appointments.find(
-            {"start_at": {"$gte": j0.isoformat(), "$lt": (j0 + timedelta(days=horizon)).isoformat()}, "is_rdv": {"$ne": 0}},
-            {"_id": 0, "id": 1, "medecin": 1, "start_at": 1, "status": 1, "patient": 1, "patient_phone": 1, "etat_consult": 1, "motif": 1}).to_list(3000)
-        reglages = await db.settings.find_one({"_id": "global"}, {"tv_portes": 1}) or {}
-        portes = {str(p.get("medecin") or "").lower(): str(p.get("porte") or "") for p in (reglages.get("tv_portes") or [])}
-        valides = [d for d in docs if _dt(d.get("start_at"))]
-        lignes = []
-        for d in sorted(valides, key=lambda x: (_dt(x["start_at"]), str(x.get("medecin") or ""))):
-            debut = _dt(d["start_at"])
-            medecin = str(d.get("medecin") or "").strip() or "—"
-            annule = str(d.get("status") or "").lower() in ANNULES
-            # « personnes avant » : mêmes médecin et jour, rendez-vous non annulés (comme pour le patient)
-            memes = [x for x in valides if str(x.get("medecin") or "").strip() == (medecin if medecin != "—" else "")
-                     and _dt(x["start_at"]).date() == debut.date() and str(x.get("status") or "").lower() not in ANNULES]
-            etat = "annule" if annule else ("en_cours" if d.get("etat_consult") == "en_cours" else ("fait" if d.get("etat_consult") == "fait" else "attente"))
-            devant = 0 if annule else personnes_devant(d, memes, maintenant)
-            porte = portes.get(medecin.lower(), "")
-            heure = debut.strftime("%H:%M")
-            lignes.append({"id": d.get("id"), "jour": debut.strftime("%Y-%m-%d"), "heure": heure, "medecin": medecin, "porte": porte,
-                           "patient": str(d.get("patient") or "").split(":")[0].strip() or "—", "telephone": str(d.get("patient_phone") or ""),
-                           "motif": str(d.get("motif") or ""), "etat": etat, "devant": devant,
-                           "message": "" if annule else message_patient(etat, devant, heure, medecin, porte),
-                           "dans_fenetre": (not annule) and dans_la_fenetre(debut, maintenant)})
-        return {"jours": horizon, "maintenant": maintenant.isoformat(), "service_patient_actif": await _actif(), "rdv": lignes}
-
     @api.get("/admin/suivi-rdv", tags=["Admin — Suivi RDV patient"])
     async def admin_suivi_lire(user: dict = Depends(get_current_admin)):
         return {"actif": await _actif(), "avant_h": AVANT_H, "apres_h": APRES_H}

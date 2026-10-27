@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "328", "date": "2026-10-27",
+        "titre": "📺 /suivi-rdv en administrateur : le même écran que la télé, en clair",
+        "description": "Connecté à SAWALI, /suivi-rdv ouvre désormais l'écran de la télé sur votre téléphone : un médecin à la fois avec sa photo, sa spécialité et sa porte, Jour / 3 jours / Semaine, et l'option Suivi Support (messagerie et demandes de support). Noms et téléphones des patients en clair, sans code PIN ni limite de durée.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "327", "date": "2026-10-27",
         "titre": "🛡️ Suivi des RDV : la page des patients en mode administrateur",
         "description": "Connecté à SAWALI en administrateur, ouvrez /suivi-rdv : vous voyez tous les rendez-vous en clair (nom, téléphone) sans limite de durée, sur 1 jour, 3 jours ou la semaine, avec la phrase que lit chaque patient. Votre téléphone sert de télé de contrôle. Bouton dans la rubrique Écrans TV.",

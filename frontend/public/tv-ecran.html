@@ -105,6 +105,20 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 @keyframes clign{0%,100%{background:#16203a}50%{background:#b45309}}
 .ligne-rdv.nouveau{-webkit-animation:clign 1s infinite;animation:clign 1s infinite;border:.4vh solid #f59e0b}
 .ligne-rdv .neuf{background:#f59e0b;color:#111;font-weight:bold;border-radius:1vh;padding:.2vh .8vw;margin-left:1vw;font-size:2.6vh}
+/* Lot 328 : lien de retour vers SAWALI (mode administrateur) et affichage sur téléphone tenu en hauteur (une télé est toujours en largeur) */
+.retour-sawali{color:#7dd3fc;text-decoration:none;font-size:.7em;margin-right:1vw}
+@media (max-aspect-ratio:1/1){
+  .deux-col{display:block}.deux-col>div{padding-right:0}
+  .carte-med{padding:1.2vh 3vw}.carte-med .photo-g{width:11vh;height:11vh;border-radius:5.5vh;margin-right:3vw}
+  .carte-med .nom-g{font-size:3.4vh}.carte-med .titre-g{font-size:2.4vh}.carte-med .porte-g,.carte-med .bientot{font-size:2.2vh}
+  .plan{padding:1.5vh 3vw}.ligne-rdv{font-size:2.2vh;padding:1vh 2.4vw}.ligne-rdv .hr,.ligne-rdv .qui{font-size:2.4vh!important;width:auto!important;margin-right:2vw}
+  .qr-pat{display:none}
+  .entete{display:block;font-size:2.1vh;padding:1vh 3vw}.entete b{display:block;font-size:2.7vh}.entete>span{display:block;margin-top:.6vh}
+  .entete .hor,.entete .bascule,.entete .badgeson{font-size:2.1vh!important}
+  .corps{display:block;overflow-y:auto}.col{display:block;padding:1.5vh 3vw}.col+.col{border-left:0;border-top:2px solid #1e3a5f}
+  .titre{font-size:2.6vh}.msgzone{display:block}.listefils{width:auto;border-right:0;margin-right:0;padding-right:0;max-height:28vh;overflow-y:auto}
+  .zone-direct{height:45vh}.bulle{font-size:2.3vh}.ticket{font-size:2.3vh}.fil1 .n{font-size:2.4vh}.fil1 .d{font-size:2vh}.vide{font-size:2.4vh}
+}
 /* Suivi Support : clavier du code PIN */
 .qr-pat{margin-left:auto;text-align:center;font-size:2.2vh;color:#cbd5e1;-webkit-flex:none;flex:none;padding-left:2vw}
 .qr-pat img{width:17vh;height:17vh;background:#fff;padding:.8vh;border-radius:1vh;display:block;margin:0 auto .5vh}
@@ -127,7 +141,10 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <div id="erreur"></div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "324";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "328";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  // Lot 328 : « /tv-ecran.html?admin=1 » = page /suivi-rdv en mode ADMINISTRATEUR : même rendu que la télé, mais connecté avec le compte SAWALI
+  // (jeton du site), sans appairage ni code PIN, patients en clair. Le téléphone de l'admin joue le rôle d'une télé de contrôle.
+  var ADMIN = /[?&]admin=1/.test(window.location.search);
   var adminCode = "", adminExpire = 0, adminTimer = null;   // lot 323 : connexion administrateur approuvée depuis SAWALI (code affiché sur la télé)
   var horizon = 1, jeton = "", pinSaisie = "", pinMsg = "", pinEnvoi = false, derniere = new Date().getTime(), decalage = 0;   // lot 317 : jeton du code PIN (mémoire seulement), saisie en cours, décalage horloge télé ↔ serveur UTC
   var secretMem = "", dejaCharge = false, vus = {}, flux = null, hors = false, phase = "", code = "";
@@ -151,7 +168,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   window.onerror = function (msg, src, ligne) { montrerErreur("Erreur : " + msg + " (ligne " + ligne + ")"); };
 
   function esc(t) { return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-  function lire() { try { return localStorage.getItem(CLE) || secretMem; } catch (e) { return secretMem; } }
+  function lire() { if (ADMIN) { return "admin"; } try { return localStorage.getItem(CLE) || secretMem; } catch (e) { return secretMem; } }
   function ecrire(v) { secretMem = v; try { if (v) { localStorage.setItem(CLE, v); } else { localStorage.removeItem(CLE); } } catch (e) {} }
   function fabriquer() {
     var s = "", i, h = "0123456789abcdef", b;
@@ -168,9 +185,12 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   // Appel au serveur (XMLHttpRequest : le plus compatible) ; rappel(statut, objet)
   function appeler(methode, chemin, secret, corps, rappel) {
     var x = new XMLHttpRequest();
+    // Lot 328 : en mode administrateur, le flux vient de /admin/suivi-rdv/flux et l'appel est authentifié par le jeton de connexion à SAWALI
+    if (ADMIN && chemin.indexOf("/tv/flux") === 0) { chemin = "/admin/suivi-rdv/flux" + chemin.substring(8); }
     x.open(methode, API + chemin, true);
     x.timeout = 15000;
-    if (secret) { x.setRequestHeader("X-Tv-Secret", secret); }
+    if (ADMIN) { try { x.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("sawali_token") || "")); } catch (e) {} }
+    else if (secret) { x.setRequestHeader("X-Tv-Secret", secret); }
     if (jeton) { x.setRequestHeader("X-Tv-Deverrou", jeton); }
     if (corps) { x.setRequestHeader("Content-Type", "application/json"); }
     x.onreadystatechange = function () {
@@ -387,7 +407,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     // Lot 304 : écran par défaut = planning des médecins (si le contenu « Hall » est activé), sinon suivi
     var hallOn = !!m.hall, suiviOn = !!(m.messagerie || m.support);
     if (!mode || (mode === "planning" && !hallOn) || (mode === "suivi" && !suiviOn)) { mode = hallOn ? "planning" : "suivi"; }
-    h += '<div class="entete"><b>' + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (mode === "planning" && hallOn && flux && flux.ecran && flux.ecran.suivi_ouvert ? '<span class="hor">' + horizonHtml() + "</span>" : "") + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
+    h += '<div class="entete"><b>' + (ADMIN ? '<a class="retour-sawali" href="/">← SAWALI</a> ' : "") + esc((flux && flux.ecran && flux.ecran.nom) || "SAWALI") + '</b><span>' + (mode === "planning" && hallOn && flux && flux.ecran && flux.ecran.suivi_ouvert ? '<span class="hor">' + horizonHtml() + "</span>" : "") + (hallOn && suiviOn ? '<span class="bascule" data-bascule="1" tabindex="0">⇄ ' + (mode === "planning" ? "Suivi Support" : "Planning des médecins") + "</span>" : "") +
       (mode !== "suivi" || sonActif || !m.messagerie ? "" : '<span class="badgeson">🔕 Appuyez sur OK pour activer le son</span>') +
       (flux && flux.ecran && flux.ecran.admin ? '<span class="hor"><span class="on">🔓 Administrateur</span></span>' : "") + (hors ? "⚠ connexion perdue — dernier contenu affiché · " : "") + jours[maintenant.getDay()] + " " + jourHeure(maintenant.toISOString()) + '</span></div><div class="corps">';
     if (mode === "suivi" && verrouille()) { h += padHtml(); }
@@ -514,6 +534,10 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         // une photo vient d'être ajoutée côté administration : on la demande au prochain appel
         var r2; for (r2 = 0; r2 < d.hall.medecins.length; r2++) { if (d.hall.medecins[r2].a_photo && !photosMed[d.hall.medecins[r2].medecin]) { nbFlux = 0; } }
       }
+      if (ADMIN && (st === 401 || st === 403)) {      // lot 328 : pas connecté en administrateur → connexion SAWALI
+        if (st === 401) { window.location.href = "/login"; } else { montrerErreur("Accès réservé aux administrateurs de SAWALI."); }
+        return;
+      }
       if (st === 401) { ecrire(""); flux = null; demarrerAppairage(); return; }
       // Lot 307 : le serveur annonce la version de la page ; si la télé a gardé une ancienne page en cache, elle se recharge
       // toute seule (adresse avec ?v= pour contourner le cache ; au plus 2 tentatives, pour ne jamais boucler)
@@ -522,7 +546,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
         try { essais = parseInt(sessionStorage.getItem("sawali_tv_rech") || "0", 10) || 0; } catch (e) {}
         if (essais < 2) {
           try { sessionStorage.setItem("sawali_tv_rech", String(essais + 1)); } catch (e) {}
-          window.location.replace("/tv-ecran.html?v=" + encodeURIComponent(d.page) + "&t=" + new Date().getTime());
+          window.location.replace("/tv-ecran.html?" + (ADMIN ? "admin=1&" : "") + "v=" + encodeURIComponent(d.page) + "&t=" + new Date().getTime());
           return;
         }
       }
@@ -539,7 +563,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   function demarrerFlux() { phase = "flux"; dejaCharge = false; vus = {}; charger(); }
 
   // Départ : télé déjà appairée → contenu ; sinon code
-  if (lire()) { demarrerFlux(); } else { demarrerAppairage(); }
+  if (ADMIN || lire()) { demarrerFlux(); } else { demarrerAppairage(); }
   setInterval(charger, 8000);
   // Lot 317 : le triangle rouge avance avec l'heure (redessin toutes les 20 s) ; le Suivi Support se reverrouille après 5 min sans action
   setInterval(function () {

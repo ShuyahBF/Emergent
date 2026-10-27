@@ -37,7 +37,7 @@ MAX_TICKETS = 12                 # demandes de support renvoyées
 ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # sans I, L, O, 0, 1 : lisible de loin sur une télé
 MODULES = ("messagerie", "support", "hall")         # contenus possibles ; « hall » = consultations du jour (lot 300)
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
-PAGE_TV_VERSION = "324"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
+PAGE_TV_VERSION = "328"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
@@ -208,11 +208,12 @@ def masquer_tel_hall(tel: Any) -> str:
 
 
 def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: datetime,
-               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14) -> Dict[str, Any]:
+               fiches: Optional[Dict[str, Dict[str, Any]]] = None, avec_photos: bool = False, limite: int = 14, clair: bool = False) -> Dict[str, Any]:
     """Planning du jour par médecin (RDV pris tels quels ; le champ `type_evenement` n'est pas utilisé).
     Deux listes par médecin (lot 309) : `rdv` (avec rendez-vous, classés par heure) et `sans_rdv` (consultations sans RDV, classées par
     numéro d'ordre, mises à jour par le secrétariat médical). Chaque ligne : patient ANONYMISÉ (« GU**. R. Pa**** »), téléphone masqué
     (« 7*****42 »), reçu s'il est transmis, et `etat` = « en_cours » / « fait » / « attente » (curseur Avancer / Reculer du médecin).
+    Lot 328 : `clair=True` (administrateur connecté, page /suivi-rdv) = nom et téléphone COMPLETS ; jamais pour la télé du hall.
     `prochain_min` = minutes avant le prochain RDV en attente. Renvoie {"medecins": [...], "prochain": {medecin, porte, libelle} | None}."""
     par_med: Dict[str, Dict[str, Any]] = {}
     for d in docs:
@@ -224,7 +225,9 @@ def forme_hall(docs: List[Dict[str, Any]], portes: Dict[str, str], maintenant: d
         debut = None if sans else _dt(d.get("start_at"))
         arrivee = _dt(d.get("received_at")) or _dt(d.get("created_at")) or maintenant
         quand = debut or arrivee
-        ligne = {"heure": quand.strftime("%H:%M"), "qui": anonymiser_nom(d.get("patient")), "tel": masquer_tel_hall(d.get("patient_phone")),
+        qui = (str(d.get("patient") or "").split(":")[0].strip() or "—") if clair else anonymiser_nom(d.get("patient"))
+        tel = str(d.get("patient_phone") or "") if clair else masquer_tel_hall(d.get("patient_phone"))
+        ligne = {"heure": quand.strftime("%H:%M"), "qui": qui, "tel": tel,
                  "recu": (str(d.get("numero_recu") or "").strip() or recu_du_patient(d.get("patient")))[:30],
                  "ordre": d.get("numero_ordre"), "curseur": d.get("etat_consult") or "", "passe": quand < maintenant, "_q": quand,
                  # lot 317 : début exact (UTC) pour que la télé masque le RDV à son heure ; « nouveau » = créé depuis moins de 10 minutes (clignote)
@@ -427,26 +430,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             "tv_ecrans.$.admin_demande": {"code": code, "hash": empreinte(jeton), "expire": expire}}})
         return {"code": code, "valide_minutes": APPROBATION_MIN}
 
-    @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
-        """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
-        `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
-        ecran = await _ecran_de_la_tele(x_tv_secret)
-        modules = modules_valides(ecran.get("modules"))
-        ids = await _perimetre(ecran.get("client_id"))
-        # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)
-        pin_defini = bool(((await _reglages()).get("tv_pin") or {}).get("hash"))
-        suivi_possible = bool(modules["messagerie"] or modules["support"])      # lot 323 : possible aussi sans PIN (connexion administrateur)
-        suivi_ouvert = bool(suivi_possible and x_tv_deverrou and ecran.get("deverrou_hash") == empreinte(x_tv_deverrou)
-                            and (ecran.get("deverrou_expire") or "") > _maintenant().isoformat())
-        # Lot 323 : session ouverte par un ADMINISTRATEUR (approbation depuis SAWALI). Lot 324 : les patients restent TOUJOURS masqués sur la télé ;
-        # le détail en clair se consulte seulement dans SAWALI (Planning), connecté en administrateur.
-        admin_ouvert = bool(suivi_ouvert and ecran.get("deverrou_admin"))
-        modules_servis = {**modules, "messagerie": modules["messagerie"] and suivi_ouvert, "support": modules["support"] and suivi_ouvert}
-        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
-                                          "suivi_possible": suivi_possible, "suivi_ouvert": suivi_ouvert, "pin_defini": pin_defini, "admin": admin_ouvert},
-                                "maintenant": _maintenant().isoformat(),
-                                "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
+    async def _contenu_flux(flux: Dict[str, Any], modules: Dict[str, bool], modules_servis: Dict[str, bool], ids: List[str], suivi_ouvert: bool,
+                            fil: str, photos: int, jours: int, clair: bool = False) -> Dict[str, Any]:
+        """Messagerie, demandes de support et planning du hall d'un flux. Partagé par la télé (`/tv/flux`, patients anonymisés) et par la page
+        administrateur `/suivi-rdv` (lot 328 : `clair=True`, rendu identique à la télé mais noms et téléphones complets)."""
         if modules_servis["messagerie"]:
             docs = await db.whatsapp_messages.find(
                 {"client_id": {"$in": ids}},
@@ -503,6 +490,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             # on prend aussi tous ceux qui portent le MÊME code clinique (ex. CMCO) que les RDV du périmètre de l'écran.
             codes = [c for c in await db.planning_appointments.distinct("code_clinique", {"tenant_id": {"$in": ids}}) if c and c != "manual"]
             perimetre = {"$or": [{"tenant_id": {"$in": ids}}, {"code_clinique": {"$in": codes}}]} if codes else {"tenant_id": {"$in": ids}}
+            if clair:
+                perimetre = {}                                   # lot 328 : l'administrateur de SAWALI voit les RDV de toutes les cliniques
             jour_q = {"$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j_fin.isoformat()}},
                               {"is_rdv": 0, "walk_in_list": {"$regex": f"^{j0.strftime('%y%m%d')}:"}},
                               {"is_rdv": 0, "received_at": {"$gte": j0.isoformat(), "$lt": j1.isoformat()}}]}
@@ -514,15 +503,50 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
-                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon)
+                                      fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon, clair=clair)
             flux["hall"]["horizon"] = horizon
             # Lot 321 : QR « suivre mon RDV » sur l'écran du hall (si le service est activé dans les Paramètres)
             flux["suivi_rdv"] = bool(((await db.settings.find_one({"_id": "global"}, {"suivi_rdv": 1})) or {}).get("suivi_rdv", {}).get("actif"))
+        return flux
+
+    @api.get("/tv/flux", tags=["Écran TV"])
+    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
+        """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
+        `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
+        ecran = await _ecran_de_la_tele(x_tv_secret)
+        modules = modules_valides(ecran.get("modules"))
+        ids = await _perimetre(ecran.get("client_id"))
+        # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)
+        pin_defini = bool(((await _reglages()).get("tv_pin") or {}).get("hash"))
+        suivi_possible = bool(modules["messagerie"] or modules["support"])      # lot 323 : possible aussi sans PIN (connexion administrateur)
+        suivi_ouvert = bool(suivi_possible and x_tv_deverrou and ecran.get("deverrou_hash") == empreinte(x_tv_deverrou)
+                            and (ecran.get("deverrou_expire") or "") > _maintenant().isoformat())
+        # Lot 323 : session ouverte par un ADMINISTRATEUR (approbation depuis SAWALI). Lot 324 : les patients restent TOUJOURS masqués sur la télé ;
+        # le détail en clair se consulte seulement dans SAWALI (Planning), connecté en administrateur.
+        admin_ouvert = bool(suivi_ouvert and ecran.get("deverrou_admin"))
+        modules_servis = {**modules, "messagerie": modules["messagerie"] and suivi_ouvert, "support": modules["support"] and suivi_ouvert}
+        flux: Dict[str, Any] = {"ecran": {"nom": ecran.get("nom"), "modules": modules, "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
+                                          "suivi_possible": suivi_possible, "suivi_ouvert": suivi_ouvert, "pin_defini": pin_defini, "admin": admin_ouvert},
+                                "maintenant": _maintenant().isoformat(),
+                                "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
+        await _contenu_flux(flux, modules, modules_servis, ids, suivi_ouvert, fil, photos, jours)
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():
             await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran["id"]}, {"$set": {"tv_ecrans.$.vu_le": _maintenant().isoformat()}})
         return flux
+
+    @api.get("/admin/suivi-rdv/flux", tags=["Admin — Suivi RDV patient"])
+    async def admin_suivi_flux(fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1), user: dict = Depends(get_current_admin)):
+        """Lot 328 — Page « /suivi-rdv » en mode ADMINISTRATEUR : le téléphone de l'admin joue le rôle d'une télé de contrôle. MÊME contenu et même
+        rendu que la télé (planning par médecin avec photo, Suivi Support : messagerie et demandes de support), mais noms et téléphones des
+        patients en CLAIR, sans code PIN ni limite de durée, et sans exiger que le service patient soit activé."""
+        modules = {m: True for m in MODULES}
+        ids = await _perimetre(str(user.get("id") or ""))
+        flux: Dict[str, Any] = {"ecran": {"nom": "Suivi des RDV — Administrateur", "modules": modules, "taille_heure": "grande", "suivi_possible": True,
+                                          "suivi_ouvert": True, "pin_defini": True, "admin": True},
+                                "maintenant": _maintenant().isoformat(), "page": PAGE_TV_VERSION}
+        return await _contenu_flux(flux, modules, modules, ids, True, fil, photos, jours, clair=True)
 
     # ---------------- Côté administrateur ----------------
     @api.get("/admin/tv/ecrans", tags=["Admin — Écrans TV"])

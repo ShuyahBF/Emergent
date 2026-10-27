@@ -30,12 +30,12 @@ import {
   X, Maximize, Minimize, Monitor, Eye, EyeOff, MousePointer2, ClipboardPaste, RefreshCw, Keyboard, Activity, Gauge,
   Timer, Film, ArrowDownToLine, PenLine, Send, Handshake, Plug, TimerOff, ShieldX, CheckCircle2, WifiOff,
   RotateCcw, Lock, UserX, Power, KeyRound, Ban, PanelRightOpen, PanelRightClose, Scaling, Upload, ServerCog,
-  Ticket, Circle, ShieldAlert, Cpu, Loader2,
+  Ticket, Circle, ShieldAlert, Cpu, Loader2, ZoomIn, PanelTop, PanelLeft,
 } from "lucide-react";
 import ClavierVirtuel from "@/components/controleDistance/ClavierVirtuel";
 import VoletPoste from "@/components/controleDistance/VoletPoste";
 import {
-  TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN, TAILLE_MAX_FICHIER, envoyerFichier, lireTrameFichier, telecharger,
+  TRAME_TUILE, TRAME_FICHIER_VERS_TECHNICIEN, TAILLE_MAX_FICHIER, envoyerFichier, lireTrameFichier, telecharger, messageClavier,
   mesuresFinales, ACTIONS_SYSTEME, ACTIONS_MAINTENANCE, registrePostes, tailleLisible,
 } from "@/components/controleDistance/outils";
 // Lot 281 : reprise et historique des transferts de fichiers
@@ -107,6 +107,22 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const [ticket, setTicket] = useState("");
   // Lot 135 — affichage et outils
   const [echelle, setEchelle] = useState(100);
+  // Lot 331 — confort de lecture : barre d'actions en haut ou à gauche, zoom de la vue (100 / 125 / 150 %) ; choix gardés dans ce navigateur
+  const lireReglage = (cle, defaut) => { try { return localStorage.getItem(cle) ?? defaut; } catch { return defaut; } };
+  const [barreHaut, setBarreHautEtat] = useState(() => lireReglage("sawali_cd_barre", "gauche") === "haut");
+  const [zoomVue, setZoomVueEtat] = useState(() => Number(lireReglage("sawali_cd_zoom", "100")) || 100);
+  const zoneRef = useRef(null);                           // zone d'affichage (mesurée pour calculer la taille de la vue zoomée)
+  const [tailleZone, setTailleZone] = useState({ l: 0, h: 0 });
+  useEffect(() => {
+    const el = zoneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setTailleZone({ l: el.clientWidth - 8, h: el.clientHeight - 8 }));   // 8 px = marge intérieure
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const definirReglage = (cle, valeur) => { try { localStorage.setItem(cle, String(valeur)); } catch { /* navigateur sans stockage : réglage non gardé */ } };
+  const setBarreHaut = (haut) => { setBarreHautEtat(haut); definirReglage("sawali_cd_barre", haut ? "haut" : "gauche"); };
+  const setZoomVue = (z) => { setZoomVueEtat(z); definirReglage("sawali_cd_zoom", z); };
   const [clavierOuvert, setClavierOuvert] = useState(false);
   const [voletOuvert, setVoletOuvert] = useState(false);
   const [ongletVolet, setOngletVolet] = useState("poste");
@@ -244,30 +260,58 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   }, [etat, arreterVideo, envoyerMesures, memoriserDernierChemin]);
 
   // ---- Dessin d'une tuile JPEG reçue du poste ----
-  const dessinerTuile = useCallback(async (tampon) => {
+  // Lot 331 — PIXELS PARASITES : le décodage JPEG (createImageBitmap) est asynchrone ; une tuile ancienne, plus lente à décoder, pouvait être
+  // dessinée APRÈS la tuile plus récente de la même zone et recouvrir la bonne image jusqu'au prochain rafraîchissement forcé. Maintenant le
+  // décodage se fait en parallèle (rapide) mais le DESSIN suit l'ordre d'arrivée (chaîne de promesses `ordreDessinRef`).
+  const ordreDessinRef = useRef(Promise.resolve());
+  const dessinerTuile = useCallback((tampon) => {
     const vue = new DataView(tampon);
     if (vue.byteLength < 11 || vue.getUint8(0) !== TRAME_TUILE) return;
     const x = vue.getUint16(3, true), y = vue.getUint16(5, true);
-    const jpeg = new Blob([tampon.slice(11)], { type: "image/jpeg" });
     const canvas = canvasRef.current;
     if (!canvas) return;
-    try {
-      const image = await createImageBitmap(jpeg);
-      // Le canvas prend la taille de l'écran du poste (annoncée par « ecrans » ou déduite des tuiles)
-      if (canvas.width < x + image.width) canvas.width = x + image.width;
-      if (canvas.height < y + image.height) canvas.height = y + image.height;
-      canvas.getContext("2d").drawImage(image, x, y);
-      image.close();
-    } catch { /* tuile illisible : ignorée */ }
-    compteurRef.current.images += 1;
-    compteurRef.current.octets += tampon.byteLength;
-    // Lot 135 : délai de la première image et volume reçu (mesures de fin de session)
-    const m = mesuresRef.current;
-    if (m) {
-      m.octetsTotal += tampon.byteLength;
-      if (m.premiereImageMs === null && m.tDebut) m.premiereImageMs = performance.now() - m.tDebut;
-    }
+    // Suivi pour le rafraîchissement automatique de l'image (voir plus bas) : une tuile reçue = l'écran a bougé
+    suiviImageRef.current.derniere = performance.now();
+    if (!suiviImageRef.current.attenteComplet) suiviImageRef.current.depuisComplet += 1;
+    const decodage = createImageBitmap(new Blob([tampon.slice(11)], { type: "image/jpeg" })).catch(() => null);   // tuile illisible : ignorée
+    ordreDessinRef.current = ordreDessinRef.current.then(async () => {
+      const image = await decodage;
+      if (image && canvasRef.current) {
+        // Le canvas prend la taille de l'écran du poste (annoncée par « ecrans » ou déduite des tuiles)
+        if (canvas.width < x + image.width) canvas.width = x + image.width;
+        if (canvas.height < y + image.height) canvas.height = y + image.height;
+        canvas.getContext("2d").drawImage(image, x, y);
+      }
+      image?.close();
+      compteurRef.current.images += 1;
+      compteurRef.current.octets += tampon.byteLength;
+      // Lot 135 : délai de la première image et volume reçu (mesures de fin de session)
+      const m = mesuresRef.current;
+      if (m) {
+        m.octetsTotal += tampon.byteLength;
+        if (m.premiereImageMs === null && m.tDebut) m.premiereImageMs = performance.now() - m.tDebut;
+      }
+    });
   }, []);
+
+  // Lot 331 — RAFRAÎCHISSEMENT AUTOMATIQUE : dès que l'écran du poste se calme (2,5 s sans nouvelle tuile) après avoir bougé, on redemande UNE
+  // image complète (au plus toutes les 10 s) : les derniers pixels parasites disparaissent sans que le technicien ait à forcer le rafraîchissement.
+  const suiviImageRef = useRef({ derniere: 0, depuisComplet: 0, attenteComplet: false, dernierComplet: 0 });
+  useEffect(() => {
+    if (etat !== "active") return undefined;
+    const t = setInterval(() => {
+      const s = suiviImageRef.current, maintenant = performance.now();
+      if (s.attenteComplet) {
+        if (maintenant - s.derniere > 1500) s.attenteComplet = false;     // l'image complète est arrivée en entier
+        return;
+      }
+      if (s.depuisComplet > 0 && maintenant - s.derniere > 2500 && maintenant - s.dernierComplet > 10000) {
+        envoyer({ type: "image_complete" });
+        s.attenteComplet = true; s.depuisComplet = 0; s.dernierComplet = maintenant;
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [etat, envoyer]);
 
   // ---- Lot 135 : morceau d'un fichier envoyé par le poste (trame de type 3) ----
   // Lot 281 : les morceaux s'ajoutent au « partiel » gardé en mémoire (reprise possible si la liaison tombe)
@@ -508,9 +552,12 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const position = (ev) => {
     const canvas = canvasRef.current;
     const r = canvas.getBoundingClientRect();
+    // Lot 331 : en vue zoomée le canvas peut être plus grand que l'image (object-fit: contain) : on se repère sur l'image réellement affichée
+    const e = Math.min(r.width / canvas.width, r.height / canvas.height);
+    const l = canvas.width * e, h = canvas.height * e;
     return {
-      x: Math.round(((ev.clientX - r.left) / r.width) * canvas.width),
-      y: Math.round(((ev.clientY - r.top) / r.height) * canvas.height),
+      x: Math.round(((ev.clientX - (r.left + (r.width - l) / 2)) / l) * canvas.width),
+      y: Math.round(((ev.clientY - (r.top + (r.height - h) / 2)) / h) * canvas.height),
     };
   };
   const peutAgir = etat === "active" && mode === "controler";
@@ -537,7 +584,12 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
   const clavier = (action) => (ev) => {
     if (!peutAgir) return;
     ev.preventDefault();
-    envoyer({ type: "clavier", action, code: ev.code, touche: ev.key });
+    // Lot 331 : c'est le caractère tapé sur VOTRE clavier (AZERTY…) qui part, pas la position de la touche (voir messageClavier)
+    const message = messageClavier(action, {
+      key: ev.key, code: ev.code, ctrlKey: ev.ctrlKey, altKey: ev.altKey, metaKey: ev.metaKey,
+      altGraph: Boolean(ev.getModifierState && ev.getModifierState("AltGraph")),
+    });
+    if (message) envoyer(message);
   };
 
   // Combinaison envoyée en un geste (Ctrl+Alt+Suppr passe par le menu des actions système)
@@ -593,6 +645,12 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     if (ok === "repli") ok = await lancer(false);   // ancien Loois sans reprise : on recommence depuis le début
     if (ok === "annule") return false;              // lot 284 : la ligne est déjà marquée « annulé » par annulerTransfert
     if (!ok) majTransfert(uid, { erreur: "connexion interrompue", interrompu: true, reprenable: true });
+    // Lot 331 : tout est parti du navigateur, mais le fichier n'est terminé que lorsque le POSTE le confirme (« fichier_recu »). Sans confirmation
+    // au bout de 2 minutes, la ligne passe en « interrompu » avec le bouton Reprendre (le poste garde le fichier partiel) au lieu de rester à 100 %.
+    if (ok === true) {
+      setTimeout(() => majTransfert(uid, (x) => (x.fini || x.erreur ? {} : {
+        erreur: "le poste n'a pas confirmé la fin du fichier (reprise possible)", interrompu: true, reprenable: Boolean(x.fichier) })), 120000);
+    }
     return Boolean(ok);
   }, [majTransfert]);
 
@@ -746,6 +804,96 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
     ? `absolute inset-0 flex flex-col overflow-hidden ${visible ? "" : "invisible pointer-events-none"}`
     : "fixed inset-0 z-[90] flex flex-col overflow-hidden";
 
+  // Lot 331 : barre d'actions (pictogrammes) — à gauche (verticale, comme avant) ou EN HAUT (horizontale) au choix du technicien
+  const barreActions = (
+    <>
+      {/* ---- Barre d'actions latérale (pictogrammes ronds et colorés, lot 142 : à gauche de l'écran du poste) ---- */}
+      {/* Lot 142 : barre latérale GAUCHE (verticale, défilante si l'écran est bas) : l'écran du poste gagne toute la largeur du bandeau */}
+      <div className={barreHaut ? "relative z-20 mx-2 mt-1 shrink-0" : "relative z-20 my-2 ml-2 flex min-h-0 shrink-0 flex-col"}>
+      <div className={`flex items-center gap-1.5 rounded-2xl bg-white/5 p-1.5 ring-1 ring-white/10 backdrop-blur [scrollbar-width:none] ${barreHaut ? "flex-row flex-wrap justify-center" : "min-h-0 flex-col overflow-y-auto"}`}>
+        {etat === "active" && ecrans.length > 1 && ecrans.map((e) => (
+          <button key={e.index} type="button" title={`Écran ${e.index + 1} (${e.largeur}×${e.hauteur})`}
+                  onClick={() => { setEcranActif(e.index); envoyer({ type: "choix_ecran", index: e.index }); }}
+                  className={picto(e.index === ecranActif ? "bg-indigo-500 ring-2 ring-white" : "bg-indigo-900")}>
+            <Monitor className="h-4 w-4" />
+            <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-white text-[9px] font-bold text-indigo-700">{e.index + 1}</span>
+          </button>
+        ))}
+        {etat === "active" && (
+          <>
+            <button type="button" className={picto(niveau[2])} onClick={qualiteSuivante} title={`${niveau[1]} — cliquer pour changer`}><Gauge className="h-4 w-4" /></button>
+            <button type="button" className={picto(echelle === 100 ? "bg-teal-600" : "bg-amber-600")} onClick={echelleSuivante}
+                    title={`${(ECHELLES.find((e) => e[0] === echelle) || ECHELLES[0])[1]} — cliquer pour changer`}>
+              <Scaling className="h-4 w-4" />
+              {echelle !== 100 && <span className="absolute -bottom-1 -right-1 rounded-full bg-white px-1 text-[8px] font-bold text-amber-700">{echelle}</span>}
+            </button>
+            {/* Lot 331 : loupe (100 → 125 → 150 %) pour mieux lire l'écran du poste ; barre d'actions en haut ou à gauche */}
+            <button type="button" className={picto(zoomVue === 100 ? "bg-teal-700" : "bg-amber-600")} onClick={() => { const z = zoomVue === 100 ? 125 : zoomVue === 125 ? 150 : 100; setZoomVue(z); toast.info(z === 100 ? "Vue ajustée à la fenêtre" : `Vue agrandie à ${z} % (faites défiler pour voir le reste)`); }}
+                    title={`Loupe : ${zoomVue} % — cliquer pour changer (100 / 125 / 150 %)`}>
+              <ZoomIn className="h-4 w-4" />
+              {zoomVue !== 100 && <span className="absolute -bottom-1 -right-1 rounded-full bg-white px-1 text-[8px] font-bold text-amber-700">{zoomVue}</span>}
+            </button>
+            <button type="button" className={picto("bg-slate-600")} onClick={() => setBarreHaut(!barreHaut)}
+                    title={barreHaut ? "Remettre la barre d'actions à gauche" : "Placer la barre d'actions en haut (écran plus haut)"}>
+              {barreHaut ? <PanelLeft className="h-4 w-4" /> : <PanelTop className="h-4 w-4" />}
+            </button>
+            <button type="button" className={picto("bg-cyan-500")} onClick={() => envoyer({ type: "image_complete" })} title="Rafraîchir l'écran complet"><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" className={picto("bg-violet-500")} disabled={!peutAgir} onClick={collerTexte} title="Coller votre presse-papiers sur le poste"><ClipboardPaste className="h-4 w-4" /></button>
+            <button type="button" className={picto(clavierOuvert ? "bg-fuchsia-500 ring-2 ring-white" : "bg-fuchsia-700")} disabled={!peutAgir}
+                    onClick={() => setClavierOuvert((v) => !v)} title="Clavier virtuel (touches de fonction, Windows, raccourcis)"><Keyboard className="h-4 w-4" /></button>
+            <button type="button" className={picto("bg-pink-500")} disabled={!peutAgir} onClick={() => combinaison(["ControlLeft", "ShiftLeft", "Escape"])} title="Gestionnaire des tâches (Ctrl+Maj+Échap)"><Activity className="h-4 w-4" /></button>
+            <button type="button" className={picto("bg-blue-600")} disabled={!peutAgir} onClick={() => combinaison(["MetaLeft"])} title="Touche Windows"><IconeWindows /></button>
+            <button type="button" className={picto(entreesBloquees ? "bg-orange-500 ring-2 ring-white" : "bg-orange-700")} disabled={!peutAgir}
+                    onClick={basculerBlocage} title={entreesBloquees ? "Débloquer le clavier et la souris du poste" : "Bloquer le clavier et la souris du poste"}>
+              <Ban className="h-4 w-4" />
+            </button>
+            <button type="button" className={picto("bg-emerald-700")} disabled={!peutAgir || !fiche?.identifiants?.enregistre}
+                    onClick={() => envoyer({ type: "identifiants_windows" })}
+                    title={fiche?.identifiants?.enregistre ? `Saisir l'identifiant Windows mémorisé (${fiche.identifiants.utilisateur || "mot de passe"})` : "Aucun identifiant Windows mémorisé"}>
+              <KeyRound className="h-4 w-4" />
+            </button>
+            <button type="button" className={picto("bg-red-700")} disabled={!peutAgir} onClick={() => setMenuSysteme((v) => !v)} title="Actions système : Ctrl+Alt+Suppr, verrouiller, déconnecter, redémarrer, éteindre">
+              <Power className="h-4 w-4" />
+            </button>
+          </>
+        )}
+        <button type="button" className={picto("bg-slate-600")} onClick={() => setIdentifiantsOuvert(true)} title="Identifiant Windows mémorisé pour ce poste">
+          <Lock className="h-4 w-4" />
+        </button>
+        <button type="button" className={picto(voletOuvert ? "bg-sky-600 ring-2 ring-white" : "bg-slate-600")} onClick={() => setVoletOuvert((v) => !v)}
+                title={voletOuvert ? "Replier le volet" : "Caractéristiques, performances, chat et fichiers du poste"}>
+          {voletOuvert ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+        </button>
+        <button type="button" className={picto("bg-slate-600")} onClick={basculerPleinEcran} title={pleinEcran ? "Quitter le plein écran" : "Plein écran"}>
+          {pleinEcran ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </button>
+        <button type="button" className={picto("bg-rose-600")} onClick={fermer} title="Arrêter la prise en main et fermer" data-testid="controle-distance-fermer">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+        {/* Menu des actions système (confirmation ensuite) */}
+        {menuSysteme && peutAgir && (
+          <div className={`absolute z-30 w-64 overflow-hidden rounded-xl bg-slate-900 shadow-2xl ring-1 ring-white/15 ${barreHaut ? "right-0 top-full mt-2" : "left-full top-0 ml-2"}`}>
+            {Object.entries(ACTIONS_SYSTEME).map(([action, a]) => (
+              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmation(action); }}
+                      className={`block w-full px-3 py-2 text-left text-xs hover:bg-white/10 ${a.danger ? "text-rose-300" : "text-slate-100"}`}>
+                {a.titre}
+              </button>
+            ))}
+            {/* Lot 140 : maintenance du disque (outils Windows seulement) */}
+            <div className="border-t border-white/10 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Maintenance du disque</div>
+            {Object.entries(ACTIONS_MAINTENANCE).map(([action, a]) => (
+              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmationMaint({ action, volume: "C:" }); }}
+                      className="block w-full px-3 py-2 text-left text-xs text-slate-100 hover:bg-white/10">
+                {a.titre}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div ref={cadreRef} className={`${racine} bg-[radial-gradient(ellipse_at_top,_#1e3a8a_0%,_#0f172a_45%,_#020617_100%)] text-slate-100`} data-testid="controle-distance">
       {/* ---- Échec de connexion : boîte de dialogue persistante, propre à l'onglet ---- */}
@@ -832,86 +980,14 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
 
       {/* ---- Zone d'affichage + volet repliable ---- */}
       <div className="flex min-h-0 flex-1">
-      {/* ---- Barre d'actions latérale (pictogrammes ronds et colorés, lot 142 : à gauche de l'écran du poste) ---- */}
-      {/* Lot 142 : barre latérale GAUCHE (verticale, défilante si l'écran est bas) : l'écran du poste gagne toute la largeur du bandeau */}
-      <div className="relative z-20 my-2 ml-2 flex min-h-0 shrink-0 flex-col">
-      <div className="flex min-h-0 flex-col items-center gap-1.5 overflow-y-auto rounded-2xl bg-white/5 p-1.5 ring-1 ring-white/10 backdrop-blur [scrollbar-width:none]">
-        {etat === "active" && ecrans.length > 1 && ecrans.map((e) => (
-          <button key={e.index} type="button" title={`Écran ${e.index + 1} (${e.largeur}×${e.hauteur})`}
-                  onClick={() => { setEcranActif(e.index); envoyer({ type: "choix_ecran", index: e.index }); }}
-                  className={picto(e.index === ecranActif ? "bg-indigo-500 ring-2 ring-white" : "bg-indigo-900")}>
-            <Monitor className="h-4 w-4" />
-            <span className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-white text-[9px] font-bold text-indigo-700">{e.index + 1}</span>
-          </button>
-        ))}
-        {etat === "active" && (
-          <>
-            <button type="button" className={picto(niveau[2])} onClick={qualiteSuivante} title={`${niveau[1]} — cliquer pour changer`}><Gauge className="h-4 w-4" /></button>
-            <button type="button" className={picto(echelle === 100 ? "bg-teal-600" : "bg-amber-600")} onClick={echelleSuivante}
-                    title={`${(ECHELLES.find((e) => e[0] === echelle) || ECHELLES[0])[1]} — cliquer pour changer`}>
-              <Scaling className="h-4 w-4" />
-              {echelle !== 100 && <span className="absolute -bottom-1 -right-1 rounded-full bg-white px-1 text-[8px] font-bold text-amber-700">{echelle}</span>}
-            </button>
-            <button type="button" className={picto("bg-cyan-500")} onClick={() => envoyer({ type: "image_complete" })} title="Rafraîchir l'écran complet"><RefreshCw className="h-4 w-4" /></button>
-            <button type="button" className={picto("bg-violet-500")} disabled={!peutAgir} onClick={collerTexte} title="Coller votre presse-papiers sur le poste"><ClipboardPaste className="h-4 w-4" /></button>
-            <button type="button" className={picto(clavierOuvert ? "bg-fuchsia-500 ring-2 ring-white" : "bg-fuchsia-700")} disabled={!peutAgir}
-                    onClick={() => setClavierOuvert((v) => !v)} title="Clavier virtuel (touches de fonction, Windows, raccourcis)"><Keyboard className="h-4 w-4" /></button>
-            <button type="button" className={picto("bg-pink-500")} disabled={!peutAgir} onClick={() => combinaison(["ControlLeft", "ShiftLeft", "Escape"])} title="Gestionnaire des tâches (Ctrl+Maj+Échap)"><Activity className="h-4 w-4" /></button>
-            <button type="button" className={picto("bg-blue-600")} disabled={!peutAgir} onClick={() => combinaison(["MetaLeft"])} title="Touche Windows"><IconeWindows /></button>
-            <button type="button" className={picto(entreesBloquees ? "bg-orange-500 ring-2 ring-white" : "bg-orange-700")} disabled={!peutAgir}
-                    onClick={basculerBlocage} title={entreesBloquees ? "Débloquer le clavier et la souris du poste" : "Bloquer le clavier et la souris du poste"}>
-              <Ban className="h-4 w-4" />
-            </button>
-            <button type="button" className={picto("bg-emerald-700")} disabled={!peutAgir || !fiche?.identifiants?.enregistre}
-                    onClick={() => envoyer({ type: "identifiants_windows" })}
-                    title={fiche?.identifiants?.enregistre ? `Saisir l'identifiant Windows mémorisé (${fiche.identifiants.utilisateur || "mot de passe"})` : "Aucun identifiant Windows mémorisé"}>
-              <KeyRound className="h-4 w-4" />
-            </button>
-            <button type="button" className={picto("bg-red-700")} disabled={!peutAgir} onClick={() => setMenuSysteme((v) => !v)} title="Actions système : Ctrl+Alt+Suppr, verrouiller, déconnecter, redémarrer, éteindre">
-              <Power className="h-4 w-4" />
-            </button>
-          </>
-        )}
-        <button type="button" className={picto("bg-slate-600")} onClick={() => setIdentifiantsOuvert(true)} title="Identifiant Windows mémorisé pour ce poste">
-          <Lock className="h-4 w-4" />
-        </button>
-        <button type="button" className={picto(voletOuvert ? "bg-sky-600 ring-2 ring-white" : "bg-slate-600")} onClick={() => setVoletOuvert((v) => !v)}
-                title={voletOuvert ? "Replier le volet" : "Caractéristiques, performances, chat et fichiers du poste"}>
-          {voletOuvert ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-        </button>
-        <button type="button" className={picto("bg-slate-600")} onClick={basculerPleinEcran} title={pleinEcran ? "Quitter le plein écran" : "Plein écran"}>
-          {pleinEcran ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-        </button>
-        <button type="button" className={picto("bg-rose-600")} onClick={fermer} title="Arrêter la prise en main et fermer" data-testid="controle-distance-fermer">
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-        {/* Menu des actions système (confirmation ensuite) */}
-        {menuSysteme && peutAgir && (
-          <div className="absolute left-full top-0 z-30 ml-2 w-64 overflow-hidden rounded-xl bg-slate-900 shadow-2xl ring-1 ring-white/15">
-            {Object.entries(ACTIONS_SYSTEME).map(([action, a]) => (
-              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmation(action); }}
-                      className={`block w-full px-3 py-2 text-left text-xs hover:bg-white/10 ${a.danger ? "text-rose-300" : "text-slate-100"}`}>
-                {a.titre}
-              </button>
-            ))}
-            {/* Lot 140 : maintenance du disque (outils Windows seulement) */}
-            <div className="border-t border-white/10 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Maintenance du disque</div>
-            {Object.entries(ACTIONS_MAINTENANCE).map(([action, a]) => (
-              <button key={action} type="button" onClick={() => { setMenuSysteme(false); setConfirmationMaint({ action, volume: "C:" }); }}
-                      className="block w-full px-3 py-2 text-left text-xs text-slate-100 hover:bg-white/10">
-                {a.titre}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {!barreHaut && barreActions}
 
         <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${survolDepot ? "ring-4 ring-inset ring-sky-400/70" : ""}`}
              onDragOver={(e) => { if (etat === "active") { e.preventDefault(); setSurvolDepot(true); } }}
              onDragLeave={() => setSurvolDepot(false)}
              onDrop={deposer}>
-          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+          {barreHaut && barreActions}
+          <div ref={zoneRef} className={`relative flex min-h-0 flex-1 items-center justify-center p-1 ${zoomVue > 100 ? "overflow-auto" : "overflow-hidden"}`}>
             {/* Choix du mode : deux grandes tuiles colorées ; un clic envoie directement la demande */}
             {etat === "choix" && (
               <div className="w-full max-w-xl">
@@ -1027,12 +1103,21 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             )}
 
             {/* Le canvas reste monté pour garder l'image entre deux rendus ; masqué hors session active */}
+            {/* Lot 331 : en vue zoomée (125 / 150 %), le canvas occupe un cadre plus grand que la fenêtre (défilement) ; `contents` = enveloppe sans effet en vue normale */}
+            <div className={zoomVue > 100 ? `m-auto shrink-0 ${etat === "active" ? "" : "hidden"}` : "contents"}
+                 style={zoomVue > 100 ? (() => {
+                   // Taille de l'image ajustée à la fenêtre (comme en vue normale) × le zoom : le cadre a exactement cette taille
+                   const e = ecrans.find((x) => x.index === ecranActif) || ecrans[0];
+                   const cl = e?.largeur || 1280, ch = e?.hauteur || 720;
+                   const fit = Math.min(Math.max(1, tailleZone.l) / cl, Math.max(1, tailleZone.h) / ch);
+                   return { width: Math.round(cl * fit * zoomVue / 100), height: Math.round(ch * fit * zoomVue / 100) };
+                 })() : undefined}>
             <canvas
               ref={canvasRef}
               width={1280}
               height={720}
               tabIndex={0}
-              className={`max-h-full max-w-full rounded-lg bg-black shadow-2xl shadow-black/60 ring-1 ring-white/10 outline-none ${etat === "active" ? "" : "hidden"} ${peutAgir ? "cursor-crosshair" : "cursor-default"}`}
+              className={`${zoomVue > 100 ? "h-full w-full" : "max-h-full max-w-full"} rounded-lg bg-black shadow-2xl shadow-black/60 ring-1 ring-white/10 outline-none ${etat === "active" ? "" : "hidden"} ${peutAgir ? "cursor-crosshair" : "cursor-default"}`}
               style={{ objectFit: "contain" }}
               onMouseMove={souris("deplacer")}
               onMouseDown={souris("bas")}
@@ -1043,6 +1128,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
               onKeyUp={clavier("haut")}
               data-testid="controle-distance-ecran"
             />
+            </div>
           </div>
           {clavierOuvert && etat === "active" && (
             <ClavierVirtuel envoyer={envoyer} actif={peutAgir} onFermer={() => setClavierOuvert(false)} />

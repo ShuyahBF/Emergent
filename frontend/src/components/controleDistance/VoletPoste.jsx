@@ -367,7 +367,7 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
                     <span className="truncate" title={t.nom}>{t.sens === "envoi" ? "↑" : "↓"} {t.nom}</span>
                     <span className="flex shrink-0 items-center gap-1">
                       <span className={t.interrompu ? "text-amber-300" : t.erreur ? "text-rose-300" : t.fini ? "text-emerald-300" : "text-slate-400"}>
-                        {t.interrompu ? `interrompu ${pct} %` : t.erreur ? "échec" : t.fini ? "terminé" : `${pct} %`}
+                        {t.interrompu ? `interrompu ${pct} %` : t.erreur ? "échec" : t.fini ? "terminé" : (t.sens === "envoi" && pct >= 100 ? "100 % — confirmation du poste…" : `${pct} %`)}
                       </span>
                       {/* Lot 284 : annuler un transfert en cours */}
                       {!t.fini && !t.erreur && !t.interrompu && (

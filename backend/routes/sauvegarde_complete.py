@@ -299,11 +299,26 @@ async def _import_en_cours() -> bool:
 # ---------------------------------------------------------------------------
 # Fichiers d'export : effacement après 1 h, après le téléchargement
 # ---------------------------------------------------------------------------
+def liberer_memoire() -> int:
+    """Lot 331 — rend au système la mémoire que Python garde après une grosse opération.
+    Constat du 27/10/2026 : la sauvegarde de 03:00 (1,2 million de documents) laissait le serveur à ~500 Mo sur 512 Mo de limite ; à 05:47 un
+    transfert de fichier du contrôle à distance a fait dépasser la limite → Render a arrêté le serveur (« oomKilled ») et coupé les sessions.
+    `gc.collect()` + `malloc_trim(0)` (glibc) remettent la mémoire inutilisée à disposition. Sans effet (renvoie 0) hors Linux."""
+    import ctypes
+    import gc
+    gc.collect()
+    try:
+        return int(ctypes.CDLL("libc.so.6").malloc_trim(0))
+    except Exception:  # noqa: BLE001 — pas de glibc (autre système) : rien à faire
+        return 0
+
+
 def _effacer(chemin: Path) -> None:
     try:
         chemin.unlink(missing_ok=True)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[sauvegarde-complete] effacement de %s impossible : %s", chemin.name, exc)
+    liberer_memoire()   # lot 331 : toute fin d'export ou de sauvegarde rend sa mémoire au serveur
 
 
 async def _purger_exports() -> int:

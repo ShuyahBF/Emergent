@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "330"
-LOT_LIBELLE = "Base de données : index client_id + created_at sur le chat interne (support Loois, messages non lus) d'après le rapport Query Shape d'Atlas."
+LOT = "331"
+LOT_LIBELLE = "Contrôle à distance : clavier du technicien respecté, pixels parasites corrigés, vue zoomée et barre en haut, transferts fiabilisés (mémoire du serveur libérée après les sauvegardes)."

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "328"
-LOT_LIBELLE = "Suivi des RDV : /suivi-rdv en mode administrateur = même écran que la télé (médecin, photo, Suivi Support), patients en clair."
+LOT = "329"
+LOT_LIBELLE = "Suivi des RDV : le patient peut activer des alertes (bip, vibration, notification) quand il est le prochain puis quand sa consultation commence."

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "329", "date": "2026-10-27",
+        "titre": "🔔 Suivi du RDV : alertes pour le patient (bip, vibration, notification)",
+        "description": "Sur sa page /suivi-rdv, le patient peut appuyer sur « Me prévenir quand c'est bientôt mon tour » (son consentement). Il reçoit alors un bip, une vibration et une notification quand il devient le prochain, puis quand sa consultation commence. Fonctionne tant que la page reste ouverte sur son téléphone ; rien n'est enregistré.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "328", "date": "2026-10-27",
         "titre": "📺 /suivi-rdv en administrateur : le même écran que la télé, en clair",
         "description": "Connecté à SAWALI, /suivi-rdv ouvre désormais l'écran de la télé sur votre téléphone : un médecin à la fois avec sa photo, sa spécialité et sa porte, Jour / 3 jours / Semaine, et l'option Suivi Support (messagerie et demandes de support). Noms et téléphones des patients en clair, sans code PIN ni limite de durée.",

@@ -64,6 +64,12 @@ def calculer_signature(cle: str, horodatage: str, methode: str, chemin: str, req
                     hashlib.sha256).hexdigest()
 
 
+def requete_du_corps(corps: bytes) -> str:
+    """Lot 333 : pour une requête POST, la « requête » signée est l'empreinte SHA-256 du corps (« sha256=<hex> ») : une signature
+    interceptée ne peut pas servir à soumettre une AUTRE clé à vérifier."""
+    return "sha256=" + hashlib.sha256(corps).hexdigest()
+
+
 def verifier_signature(cle: str, horodatage: Optional[str], signature: Optional[str], methode: str, chemin: str,
                        requete: str, maintenant: Optional[float] = None) -> bool:
     """Vrai si la signature est correcte ET récente (±5 min). Comparaison à temps constant."""
@@ -143,6 +149,31 @@ def setup_ekol_portail_export_routes(*, db, api, get_current_user=None) -> None:
         return {"cle_configuree": bool(os.environ.get("EKOL_PORTAIL_HMAC", "").strip()),
                 "tables_utiles": list(TABLES_PORTAIL),
                 "ecoles": [{"site": s, "tables": ecoles[s]} for s in sorted(ecoles)]}
+
+    @api.post("/ekol-portail/verifier-cle", tags=["Portail e-Kol"])
+    async def verifier_cle(request: Request):
+        """Lot 333 — le portail demande à SAWALI si une clé client Loois (« LK-… », celle du support) est valide et à quel client elle
+        appartient : le suivi d'utilisation remonté par Loois n'a ainsi besoin d'AUCUNE autre clé que celle déjà saisie sur le poste.
+        Signature identique à l'export (EKOL_PORTAIL_HMAC), calculée sur l'empreinte du corps. Réponse :
+        {valide, code, libelle, applications} ; clé commune, révoquée ou inconnue → valide=false (jamais le détail).
+        Lecture seule : aucune écriture hors la « dernière utilisation » de la clé."""
+        cle = os.environ.get("EKOL_PORTAIL_HMAC", "").strip()
+        if not cle:
+            raise HTTPException(status_code=503, detail="Vérification désactivée : EKOL_PORTAIL_HMAC non configurée.")
+        corps = await request.body()
+        if len(corps) > 2048 or not verifier_signature(cle, request.headers.get("X-Timestamp"), request.headers.get("X-Signature"),
+                                                       request.method, request.url.path, requete_du_corps(corps)):
+            raise HTTPException(status_code=401, detail="Signature invalide ou expirée.")
+        try:
+            cle_loois = str(json.loads(corps or b"{}").get("cle") or "")
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="Corps JSON attendu : {\"cle\": \"LK-…\"}")
+        from routes.loois_cles_clients import identifier_cle
+        identite = await identifier_cle(db, cle_loois, machine="portail e-Kol")
+        if not identite or identite.get("type") != "client":
+            return {"valide": False}
+        return {"valide": True, "code": identite["code"], "libelle": identite.get("libelle") or identite["code"],
+                "applications": list(identite.get("applications") or [])}
 
     @api.get("/ekol-portail/export", tags=["Portail e-Kol"])
     async def exporter(request: Request, site: str, table: str, depuis: str = "", limite: int = LIMITE_DEFAUT):

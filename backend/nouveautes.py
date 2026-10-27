@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "333", "date": "2026-10-27",
+        "titre": "🎓 Portail e-Kol : suivi d'utilisation vérifié avec la clé client Loois",
+        "description": "Le portail e-Kol demande désormais à SAWALI de vérifier la clé client Loois (celle du support) pour accepter le suivi d'utilisation remonté par les postes : aucune clé supplémentaire à saisir. La route signée « verifier-cle » renvoie seulement le code du client et ses applications ; clé commune, révoquée ou inconnue = refusée.",
+        "rubrique": "🎓 Portail e-Kol (élèves et parents)",
+    },
+    {
         "lot": "332", "date": "2026-10-27",
         "titre": "📋 Contrôle à distance : le presse-papiers du poste arrive dans le vôtre",
         "description": "Ce que vous copiez sur le poste contrôlé (fenêtre de Logs, texte…) est maintenant copié dans votre presse-papiers. Si votre navigateur refuse la copie automatique, cliquez une fois sur l'écran du poste. Nouveau pictogramme cyan pour redemander la copie à la demande. Nécessite Loois à jour sur le poste (.\\maj.ps1) et le mode « Contrôler ».",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "330", "date": "2026-10-27",
+        "titre": "🗄️ Base de données : index sur le chat interne (support Loois, non lus)",
+        "description": "D'après le rapport Query Shape d'Atlas, les requêtes du chat interne (~36 000 en 3 jours) relisaient toute la collection : un index client_id + date les limite au fil concerné (809 → 298 documents examinés pour le fil Support Loois). Taille ajoutée : moins de 1 Mo. Les requêtes WhatsApp du rapport (ratio 9 à 77) n'ont pas été retenues : gain trop faible.",
+        "rubrique": "🗄️ Audit des collections MongoDB — lesquelles ne servent plus (lecture seule)",
+    },
+    {
         "lot": "329", "date": "2026-10-27",
         "titre": "🔔 Suivi du RDV : alertes pour le patient (bip, vibration, notification)",
         "description": "Sur sa page /suivi-rdv, le patient peut appuyer sur « Me prévenir quand c'est bientôt mon tour » (son consentement). Il reçoit alors un bip, une vibration et une notification quand il devient le prochain, puis quand sa consultation commence. Fonctionne tant que la page reste ouverte sur son téléphone ; rien n'est enregistré.",

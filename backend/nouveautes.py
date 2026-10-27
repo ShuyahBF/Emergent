@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "332", "date": "2026-10-27",
+        "titre": "📋 Contrôle à distance : le presse-papiers du poste arrive dans le vôtre",
+        "description": "Ce que vous copiez sur le poste contrôlé (fenêtre de Logs, texte…) est maintenant copié dans votre presse-papiers. Si votre navigateur refuse la copie automatique, cliquez une fois sur l'écran du poste. Nouveau pictogramme cyan pour redemander la copie à la demande. Nécessite Loois à jour sur le poste (.\\maj.ps1) et le mode « Contrôler ».",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "331", "date": "2026-10-27",
         "titre": "🖥️ Contrôle à distance : clavier, pixels parasites, zoom, transferts fiabilisés",
         "description": "Votre clavier AZERTY est respecté quel que soit le clavier du poste. Les pixels parasites sont corrigés (dessin dans l'ordre + rafraîchissement automatique quand l'écran se calme). Nouveaux pictogrammes : loupe 100/125/150 % et barre d'actions en haut ou à gauche. Transferts : jauge fidèle, « confirmation du poste », reprise proposée ; la cause des échecs du matin (serveur arrêté à 05:47 faute de mémoire après la sauvegarde de 03:00) est corrigée.",

@@ -117,3 +117,23 @@ def test_qr_png_refuse_un_site_inconnu():
     c, _ = _app()
     assert c.get("/api/suivi-rdv/qr.png", params={"base": "https://app.sawalismartsystems.com"}).status_code == 200
     assert c.get("/api/suivi-rdv/qr.png", params={"base": "https://evil.example.com"}).status_code == 400
+
+
+def test_apercu_admin_en_clair_sans_fenetre_ni_service():
+    """Lot 327 — l'admin voit tous les RDV du jour en clair, même service patient éteint et hors fenêtre de 3 h ; un non-admin est refusé."""
+    c, base = _app()
+    assert c.get("/api/admin/suivi-rdv/apercu").status_code == 403
+    maintenant = datetime.now(timezone.utc)
+    j0 = maintenant.replace(hour=0, minute=0, second=0, microsecond=0)
+    for ident, pat, tel, h, st in (("a", "DIALLO Awa : 70009999 : R-1", "70009999", 1, "scheduled"), ("b", "OUEDRAOGO Alphonse", "70001122", 20, "scheduled"),
+                                   ("c", "KONE Aminata", "70003333", 22, "cancelled")):
+        _run(base.planning_appointments.insert_one({"id": ident, "medecin": "DR X", "is_rdv": 1, "patient": pat, "patient_phone": tel, "status": st,
+                                                    "start_at": (j0 + timedelta(hours=h)).isoformat()}))
+    _run(base.planning_appointments.insert_one({"id": "w", "medecin": "DR X", "is_rdv": 0, "patient": "SANS RDV", "start_at": (j0 + timedelta(hours=2)).isoformat()}))
+    d = c.get("/api/admin/suivi-rdv/apercu", headers={"x-admin": "1"}).json()
+    assert d["service_patient_actif"] is False and d["jours"] == 1
+    noms = [(r["patient"], r["telephone"], r["etat"]) for r in d["rdv"]]
+    assert ("DIALLO Awa", "70009999", "attente") in noms and ("OUEDRAOGO Alphonse", "70001122", "attente") in noms      # clair, sans le reçu
+    assert any(r["etat"] == "annule" and r["message"] == "" for r in d["rdv"]) and not any(r["patient"] == "SANS RDV" for r in d["rdv"])
+    assert d["jours"] == c.get("/api/admin/suivi-rdv/apercu?jours=3", headers={"x-admin": "1"}).json()["jours"] - 2
+    assert c.get("/api/admin/suivi-rdv/apercu?jours=99", headers={"x-admin": "1"}).json()["jours"] == 1

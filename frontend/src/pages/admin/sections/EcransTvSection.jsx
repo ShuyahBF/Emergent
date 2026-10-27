@@ -370,6 +370,16 @@ export default function EcransTvSection() {
             <a href={`${window.location.origin}/suivi-rdv`} target="_blank" rel="noreferrer" className="text-xs text-sky-700 underline break-all">{window.location.origin}/suivi-rdv</a>
           </div>
         )}
+        {/* Lot 327 — la même page en mode administrateur : tout en clair, sans limite de durée (le téléphone de l'admin joue le rôle d'une télé de contrôle) */}
+        <div className="border-t border-slate-200 pt-2 space-y-1" data-testid="tv-suivi-admin">
+          <p className="text-xs text-slate-500">
+            Contrôle en tant qu'administrateur : connecté à SAWALI, ouvrez la même page. Vous y voyez tous les rendez-vous en clair (nom, téléphone), sans limite de durée,
+            sur 1 jour, 3 jours ou la semaine, avec la phrase que lit chaque patient. Fonctionne même si le service patient est éteint.
+          </p>
+          <a href="/suivi-rdv" target="_blank" rel="noreferrer" className="inline-block rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white" data-testid="tv-suivi-admin-ouvrir">
+            Ouvrir le suivi en mode administrateur
+          </a>
+        </div>
       </div>
       <p className="text-[11px] text-slate-500">
         Compatible avec le navigateur d'une télé LG webOS (ou tout navigateur moderne). L'écran se rafraîchit toutes les 8 secondes ; si la liaison est perdue, il garde le dernier contenu et le signale en haut.

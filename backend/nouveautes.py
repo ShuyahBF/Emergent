@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "327", "date": "2026-10-27",
+        "titre": "🛡️ Suivi des RDV : la page des patients en mode administrateur",
+        "description": "Connecté à SAWALI en administrateur, ouvrez /suivi-rdv : vous voyez tous les rendez-vous en clair (nom, téléphone) sans limite de durée, sur 1 jour, 3 jours ou la semaine, avec la phrase que lit chaque patient. Votre téléphone sert de télé de contrôle. Bouton dans la rubrique Écrans TV.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "326", "date": "2026-10-27",
         "titre": "🗄️ Base de données : 2 index ajoutés (rappels de RDV, journal d'activité)",
         "description": "Conseils du Performance Advisor Atlas appliqués : la tâche des rappels de RDV (chaque minute) n'examine plus ~1200 rendez-vous à chaque passage, et le journal d'activité par client est indexé. Taille ajoutée : moins de 1 Mo. Les autres conseils (WhatsApp) n'ont pas été retenus : gain trop faible pour leur coût.",

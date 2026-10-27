@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "331", "date": "2026-10-27",
+        "titre": "🖥️ Contrôle à distance : clavier, pixels parasites, zoom, transferts fiabilisés",
+        "description": "Votre clavier AZERTY est respecté quel que soit le clavier du poste. Les pixels parasites sont corrigés (dessin dans l'ordre + rafraîchissement automatique quand l'écran se calme). Nouveaux pictogrammes : loupe 100/125/150 % et barre d'actions en haut ou à gauche. Transferts : jauge fidèle, « confirmation du poste », reprise proposée ; la cause des échecs du matin (serveur arrêté à 05:47 faute de mémoire après la sauvegarde de 03:00) est corrigée.",
+        "rubrique": "🖥️ Contrôle à distance Loois",
+    },
+    {
         "lot": "330", "date": "2026-10-27",
         "titre": "🗄️ Base de données : index sur le chat interne (support Loois, non lus)",
         "description": "D'après le rapport Query Shape d'Atlas, les requêtes du chat interne (~36 000 en 3 jours) relisaient toute la collection : un index client_id + date les limite au fil concerné (809 → 298 documents examinés pour le fil Support Loois). Taille ajoutée : moins de 1 Mo. Les requêtes WhatsApp du rapport (ratio 9 à 77) n'ont pas été retenues : gain trop faible.",

@@ -13,8 +13,9 @@ export const TRAME_FICHIER_VERS_TECHNICIEN = 3;
 export const TAILLE_MORCEAU = 256 * 1024;
 export const TAILLE_MAX_FICHIER = 2 * 1024 * 1024 * 1024;
 
-// File d'envoi du WebSocket au-delà de laquelle on attend (ne pas saturer une liaison lente)
-const TAMPON_MAX = 4 * 1024 * 1024;
+// File d'envoi du WebSocket au-delà de laquelle on attend (ne pas saturer une liaison lente).
+// Lot 331 : 1 Mo au lieu de 4 Mo — la jauge d'un envoi ne devance plus que d'1 Mo ce qui est réellement parti du navigateur.
+const TAMPON_MAX = 1024 * 1024;
 
 /** Trame d'un morceau de fichier : octet 0 = type, octets 1-4 = identifiant (u32 petit-boutiste), puis les données. */
 export function trameFichier(type, id, donnees) {
@@ -34,8 +35,8 @@ export function lireTrameFichier(tampon) {
 }
 
 /** Attend que la file d'envoi du WebSocket se vide un peu (liaison lente). */
-export async function attendreTampon(ws) {
-  while (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount > TAMPON_MAX) {
+export async function attendreTampon(ws, limite = TAMPON_MAX) {
+  while (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount > limite) {
     await new Promise((ok) => setTimeout(ok, 50));
   }
 }
@@ -73,9 +74,13 @@ export async function envoyerFichier(ws, id, fichier, progression, dossier = "",
     const morceau = await fichier.slice(debut, Math.min(fichier.size, debut + TAILLE_MORCEAU)).arrayBuffer();
     await attendreTampon(ws);
     ws.send(trameFichier(TRAME_FICHIER_VERS_POSTE, id, morceau));
-    progression?.(Math.min(fichier.size, debut + TAILLE_MORCEAU));
+    // Lot 331 : la jauge compte les octets PARTIS du navigateur (les morceaux encore en file d'attente ne comptent pas)
+    progression?.(Math.max(0, Math.min(fichier.size, debut + TAILLE_MORCEAU - ws.bufferedAmount)));
   }
+  // Lot 331 : on attend que la file soit vide avant d'annoncer la fin : « 100 % » veut dire « tout est parti », pas « tout est en file »
+  await attendreTampon(ws, 0);
   if (ws.readyState !== WebSocket.OPEN) return false;
+  progression?.(fichier.size);
   ws.send(JSON.stringify({ type: "fichier_fin", id }));
   return true;
 }
@@ -177,4 +182,33 @@ export const registrePostes = new Map();   // posteId → { nom, recevoir(blob, 
 /** Postes contrôlés ouverts dans les autres onglets (destinations possibles d'une copie). */
 export function autresPostes(posteId) {
   return [...registrePostes.entries()].filter(([id]) => id !== posteId).map(([id, p]) => ({ id, nom: p.nom, recevoir: p.recevoir }));
+}
+
+
+// =====================================================================
+// Lot 331 — CLAVIER : c'est la disposition du TECHNICIEN (AZERTY…) qui compte, pas celle du poste contrôlé.
+// Avant : seul le « code physique » de la touche partait (la touche à la place du Q d'un clavier US) et le poste l'interprétait avec SA
+// disposition : un « a » tapé en AZERTY pouvait arriver « q ». Maintenant :
+//   - touche qui produit un caractère (lettre, chiffre, ponctuation, accent, @, €…) → le CARACTÈRE tapé part tel quel et est saisi sur le
+//     poste en « Unicode » (code vide, `touche` = le caractère) : identique quelle que soit la disposition du poste ;
+//   - raccourci (Ctrl / Alt / Windows + une lettre ou un chiffre) → la touche est désignée par sa LETTRE (Ctrl+A = la touche « A » de
+//     votre clavier) : « KeyA », « Digit1 »… ;
+//   - touches sans caractère (Entrée, flèches, F1…, Maj, Ctrl, Alt…) et Espace → code physique, comme avant ;
+//   - touche morte (accent circonflexe…) : ignorée, le caractère composé arrive à la frappe suivante.
+// =====================================================================
+
+/** Message « clavier » à envoyer au poste pour un évènement `ev` du navigateur ; null si rien à envoyer. `action` : "bas" ou "haut". */
+export function messageClavier(action, ev) {
+  const touche = ev.key || "";
+  const code = ev.code || "";
+  if (touche === "Dead" || touche === "Process" || touche === "Unidentified" || touche === "Compose") return null;   // touche morte, saisie assistée
+  const altGr = Boolean(ev.altGraph) || touche === "AltGraph";
+  const raccourci = !altGr && Boolean(ev.ctrlKey || ev.metaKey || ev.altKey);   // AltGr = Ctrl+Alt pour le navigateur : ce n'est PAS un raccourci
+  const imprimable = [...touche].length === 1 && touche !== " ";
+  if (imprimable && !raccourci) return { type: "clavier", action, code: "", touche };               // caractère tapé (Unicode)
+  if (imprimable && raccourci) {
+    if (/^[a-z]$/i.test(touche)) return { type: "clavier", action, code: `Key${touche.toUpperCase()}`, touche };
+    if (/^[0-9]$/.test(touche)) return { type: "clavier", action, code: `Digit${touche}`, touche };
+  }
+  return { type: "clavier", action, code, touche };                                                   // touche de commande : code physique
 }

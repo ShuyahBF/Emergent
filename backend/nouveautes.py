@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "338", "date": "2026-10-28",
+        "titre": "🎓 Portail e-Kol : le contrat du client affiché sous le nom de l'école",
+        "description": "Le portail e-Kol demande à SAWALI le contrat du compte client lié à la clé de l'école (n° de contrat, état, échéance, jamais de montant) et l'affiche en rouge sous le nom de l'école. Il suffit que la clé ait son compte client lié.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "337", "date": "2026-10-28",
         "titre": "🧩 Liluvine ne revient plus sur un logiciel hors offre après un simple « Ok »",
         "description": "Une ancienne réponse citant Aizenta à un client qui n'a que e-KOL était rejouée dans la conversation et se répétait à chaque message. Ces réponses ne sont plus rejouées et Liluvine demande de quel logiciel il s'agit au lieu d'en choisir un.",

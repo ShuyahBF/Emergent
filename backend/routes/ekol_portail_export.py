@@ -175,6 +175,36 @@ def setup_ekol_portail_export_routes(*, db, api, get_current_user=None) -> None:
         return {"valide": True, "code": identite["code"], "libelle": identite.get("libelle") or identite["code"],
                 "applications": list(identite.get("applications") or [])}
 
+    @api.post("/ekol-portail/contrat", tags=["Portail e-Kol"])
+    async def contrat_ecole(request: Request):
+        """Lot 338 — le portail e-Kol affiche, sous le nom de l'école, les informations de CONTRAT de son client SAWALI : n° de contrat,
+        état (à jour, retard, expiré…), échéance. Corps {"code": « code du site »} (le code de la clé client Loois = le site de l'école) ;
+        signature identique aux autres routes (EKOL_PORTAIL_HMAC). Le contrat est celui du COMPTE CLIENT lié à la clé (lot 334).
+        Lecture seule, JAMAIS de montant (même logique que la puce de contrat du Centre de messagerie : `fiche_contrat`)."""
+        cle = os.environ.get("EKOL_PORTAIL_HMAC", "").strip()
+        if not cle:
+            raise HTTPException(status_code=503, detail="Contrat désactivé : EKOL_PORTAIL_HMAC non configurée.")
+        corps = await request.body()
+        if len(corps) > 2048 or not verifier_signature(cle, request.headers.get("X-Timestamp"), request.headers.get("X-Signature"),
+                                                       request.method, request.url.path, requete_du_corps(corps)):
+            raise HTTPException(status_code=401, detail="Signature invalide ou expirée.")
+        try:
+            code = str(json.loads(corps or b"{}").get("code") or "").strip()
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="Corps JSON attendu : {\"code\": \"CODE-SITE\"}")
+        inconnu = {"trouve": False}
+        if not code:
+            return inconnu
+        fiche = await db.loois_cles_clients.find_one({"code": code}, {"_id": 0, "tenant_id": 1, "libelle": 1})
+        if not fiche or not fiche.get("tenant_id"):
+            return inconnu                                    # clé sans compte client lié : aucun contrat à montrer
+        from datetime import date
+        from routes.puce_contrat import CHAMPS_CLIENT, fiche_contrat
+        compte = await db.users.find_one({"id": fiche["tenant_id"]}, CHAMPS_CLIENT)
+        f = fiche_contrat(compte, date.today())
+        return {"trouve": True, "numero": f["numero"], "etat": f["etat"], "statut": f["statut"], "statut_libelle": f["statut_libelle"],
+                "debut": f["debut"], "fin": f["fin"], "echeance": f["echeance_prochaine"], "jours_retard": f["jours_retard"]}
+
     @api.get("/ekol-portail/export", tags=["Portail e-Kol"])
     async def exporter(request: Request, site: str, table: str, depuis: str = "", limite: int = LIMITE_DEFAUT):
         # --- 1. Signature du portail (clé partagée en variable d'environnement) ---

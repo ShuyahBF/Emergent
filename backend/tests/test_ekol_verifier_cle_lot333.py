@@ -93,3 +93,35 @@ def test_route_desactivee_sans_cle_partagee(monkeypatch):
     monkeypatch.delenv("EKOL_PORTAIL_HMAC", raising=False)
     db = mongomock_motor.AsyncMongoMockClient()["sawali_test"]
     assert application(db).post(CHEMIN, json={"cle": "LK-x"}).status_code == 503
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 338 — contrat de l'école affiché dans le portail e-Kol (sous le nom de l'école)
+# ---------------------------------------------------------------------------------------------------------------------
+def appel_contrat(c, code, cle_hmac=HMAC):
+    chemin = "/api/ekol-portail/contrat"
+    brut = json.dumps({"code": code}).encode()
+    ts = str(int(time.time()))
+    sig = ex.calculer_signature(cle_hmac, ts, "POST", chemin, ex.requete_du_corps(brut))
+    return c.post(chemin, content=brut, headers={"X-Timestamp": ts, "X-Signature": sig, "Content-Type": "application/json"})
+
+
+def test_contrat_de_l_ecole_sans_montant(env):
+    from datetime import date, timedelta
+    db = mongomock_motor.AsyncMongoMockClient()["t"]
+    fiche = creer_client(db, code="ECOLE-DES-METIERS")
+    lancer(db.users.insert_one({"id": "cpt1", "company": "ECOLE DES METIERS", "role": "client", "contract_number": "110",
+                                "contract_signed_at": (date.today() - timedelta(days=100)).isoformat(),
+                                "contract_end_at": (date.today() + timedelta(days=300)).isoformat(),
+                                "last_payment_at": date.today().isoformat(), "contract_billing_period": "monthly",
+                                "contract_amount": 99999}))
+    lancer(db.loois_cles_clients.update_one({"code": "ECOLE-DES-METIERS"}, {"$set": {"tenant_id": "cpt1"}}))
+    c = application(db)
+    r = appel_contrat(c, "ECOLE-DES-METIERS").json()
+    assert r["trouve"] is True and r["numero"] == "110" and r["etat"] == "valide" and r["echeance"]
+    assert "contract_amount" not in json.dumps(r) and "99999" not in json.dumps(r)        # jamais de montant
+    # Code inconnu, ou clé sans compte lié : rien à montrer ; signature fausse : refusée
+    assert appel_contrat(c, "AUTRE").json() == {"trouve": False}
+    creer_client(db, code="SANS-COMPTE")
+    assert appel_contrat(c, "SANS-COMPTE").json() == {"trouve": False}
+    assert appel_contrat(c, "ECOLE-DES-METIERS", cle_hmac="mauvaise").status_code == 401

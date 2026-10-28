@@ -53,7 +53,8 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
 ## Tableaux (règle 3)
 - Sur TOUT tableau : ligne survolée = fond bleu clair transparent
   (`rgba(56, 189, 248, 0.16)`) ; ligne sélectionnée = fond orange clair
-  (`#f6a35b`) avec police blanche.
+  (`#f6a35b`) avec police BLEU NUIT (`#0A1E3D`, contraste 7,7:1) — règle modifiée le 28/10/2026 : l'ancienne police blanche n'avait que 2:1
+  de contraste (illisible).
 - Mise en œuvre globale dans le CSS de chaque plateforme ; une ligne est
   sélectionnée si elle porte `ligne-selectionnee`, `aria-selected="true"`,
   `data-selected="true"`, ou si la case à cocher de sa première cellule est cochée.

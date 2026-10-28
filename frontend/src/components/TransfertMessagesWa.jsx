@@ -176,7 +176,7 @@ export default function TransfertMessagesWa({ messages, onClose }) {
                   const coche = choisis.some((c) => c.id === d.id && c.source === d.source);
                   // Ligne cochée : fond orange et police blanche (règle 3 des tableaux du propriétaire)
                   return (
-                    <label key={`${d.source}-${d.id}`} className={`flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-sky-50 ${coche ? "bg-[#f6a35b] text-white hover:bg-[#f6a35b]" : ""}`}>
+                    <label key={`${d.source}-${d.id}`} className={`flex cursor-pointer items-center gap-2 px-2 py-1 text-sm hover:bg-sky-50 ${coche ? "bg-[#f6a35b] text-[#0a1e3d] hover:bg-[#f6a35b]" : ""}`}>
                       <input type="checkbox" checked={coche} onChange={() => basculer(d)} />
                       <span className="flex-1 truncate">{d.nom} <span className="text-[11px] opacity-70">+{d.telephone}{d.source === "client" ? " · client" : ""}{d.ligne_libelle ? ` · ${d.ligne_libelle}` : ""}</span></span>
                       {d.fenetre_ouverte

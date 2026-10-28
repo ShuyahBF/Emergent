@@ -82,7 +82,7 @@ function JaugeCollections({ jauge, titre }) {
 }
 
 // Un bloc du plan : tableau avec case à cocher en première cellule (la règle CSS globale colore la ligne
-// sélectionnée en orange #f6a35b, police blanche, et la ligne survolée en bleu clair transparent).
+// sélectionnée en orange #f6a35b, police bleu nuit, et la ligne survolée en bleu clair transparent).
 // Les éléments protégés sont grisés, avec un cadenas et la raison : jamais cochables.
 function BlocPlan({ titre, aide, bloc, cle, colonnes, choix, basculer, toutCocher, sansDefaut }) {
   if (!bloc) return null;

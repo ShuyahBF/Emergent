@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "342", "date": "2026-10-28",
+        "titre": "🎨 Tableaux : la ligne sélectionnée est maintenant en police bleu nuit",
+        "description": "La ligne sélectionnée d'un tableau garde son fond orange clair mais le texte passe du blanc au bleu nuit : lisible (7,7 pour 1 au lieu de 2 pour 1).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "341", "date": "2026-10-28",
         "titre": "📺 Écran TV : un médecin seul (ex. le DG) avec ses patients en clair, e-mail du médecin saisissable",
         "description": "Dans « Écrans TV », nouvelle portée « Un médecin seul » : la télé n'affiche que les rendez-vous de ce médecin, en clair si la case est cochée. Chaque médecin a maintenant un champ « E-mail du médecin » dans la rubrique des portes.",

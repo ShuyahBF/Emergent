@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "341", "date": "2026-10-28",
+        "titre": "📺 Écran TV : un médecin seul (ex. le DG) avec ses patients en clair, e-mail du médecin saisissable",
+        "description": "Dans « Écrans TV », nouvelle portée « Un médecin seul » : la télé n'affiche que les rendez-vous de ce médecin, en clair si la case est cochée. Chaque médecin a maintenant un champ « E-mail du médecin » dans la rubrique des portes.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "340", "date": "2026-10-28",
         "titre": "📺 Écran TV : tous les RDV ou seulement ceux du compte de la télé, patients en clair au choix",
         "description": "Dans « Écrans TV », chaque télé affiche les rendez-vous de tous les médecins (comme avant) ou seulement ceux du compte enregistré pour elle ; dans ce second cas, une case permet d'afficher les patients en clair, sinon ils restent anonymisés.",

@@ -290,10 +290,15 @@ def normaliser_portes(brut: Any) -> List[Dict[str, str]]:
         porte = str(ligne.get("porte") or "").strip()
         profession = str(ligne.get("profession") or "").strip()[:60]
         photo = str(ligne.get("photo") or "").strip()
+        email = str(ligne.get("email") or "").strip().lower()[:120]
+        if "@" not in email or " " in email:
+            email = ""                                  # lot 341 : adresse e-mail du médecin (sert à reconnaître ses RDV) ; invalide : ignorée
         if not (photo.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")) and len(photo) <= MAX_PHOTO):
             photo = ""                                  # photo absente, d'un autre type ou trop lourde : ignorée
-        if medecin and (porte or profession or photo):
+        if medecin and (porte or profession or photo or email):
             entree = {"medecin": medecin[:80], "porte": porte[:30]}
+            if email:
+                entree["email"] = email
             if profession:
                 entree["profession"] = profession
             if photo:
@@ -302,7 +307,7 @@ def normaliser_portes(brut: Any) -> List[Dict[str, str]]:
     return list(par_nom.values())
 
 
-PORTEES_RDV = ("tous", "compte")          # lot 340 : portée du planning du hall (liste déroulante)
+PORTEES_RDV = ("tous", "compte", "medecin")          # lot 340 : portée du planning du hall (liste déroulante) ; lot 341 : + « medecin » (un médecin seul)
 
 
 def portee_rdv_valide(valeur: Any) -> str:
@@ -311,18 +316,28 @@ def portee_rdv_valide(valeur: Any) -> str:
     return valeur if valeur in PORTEES_RDV else "tous"
 
 
-def perimetre_rdv(portee: str, client_id: str, ids: List[str], codes: List[str]) -> Dict[str, Any]:
+def perimetre_rdv(portee: str, client_id: str, ids: List[str], codes: List[str], medecin: str = "", email: str = "") -> Dict[str, Any]:
     """Filtre MongoDB des RDV du hall : « compte » = uniquement `tenant_id` du compte de l'écran ; « tous » = le compte, sa société et tous les RDV
     qui portent le même code clinique."""
     if portee == "compte":
         return {"tenant_id": client_id}
+    if portee == "medecin" and (medecin or email):
+        # Lot 341 : un médecin seul (ex. le DG, bureau privé) — reconnu par son adresse e-mail (réglage « E-mail du médecin ») ou, à défaut, son nom,
+        # dans le périmètre normal de la télé (compte, société, code clinique) ; sans casse.
+        base = perimetre_rdv("tous", client_id, ids, codes)
+        qui: List[Dict[str, Any]] = []
+        if email:
+            qui.append({"medecin_email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+        if medecin:
+            qui.append({"medecin": {"$regex": f"^{re.escape(medecin)}$", "$options": "i"}})
+        return {"$and": [base, {"$or": qui}]}
     return {"$or": [{"tenant_id": {"$in": ids}}, {"code_clinique": {"$in": codes}}]} if codes else {"tenant_id": {"$in": ids}}
 
 
 def hall_en_clair(portee: str, rdv_clair: bool, clair_admin: bool) -> bool:
-    """Noms et téléphones des patients EN CLAIR : page administrateur (lot 328) ou, au choix de l'administrateur, écran limité au compte
-    (lot 340, case « affichage en clair »). Une télé qui voit tous les médecins reste TOUJOURS anonymisée."""
-    return bool(clair_admin or (portee == "compte" and rdv_clair))
+    """Noms et téléphones des patients EN CLAIR : page administrateur (lot 328) ou, au choix de l'administrateur, écran limité au compte ou à
+    un médecin (lots 340-341, case « affichage en clair »). Une télé qui voit tous les médecins reste TOUJOURS anonymisée."""
+    return bool(clair_admin or (portee in ("compte", "medecin") and rdv_clair))
 
 
 def taille_heure_valide(valeur: Any) -> str:
@@ -346,7 +361,8 @@ class EcranAppairage(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=64)
     modules: Optional[Dict[str, bool]] = None
     rdv_portee: Optional[str] = Field(None, max_length=10)      # lot 340 : « tous » (défaut) ou « compte »
-    rdv_clair: Optional[bool] = None                           # lot 340 : patients en clair (seulement avec « compte »)
+    rdv_clair: Optional[bool] = None                           # lot 340 : patients en clair (seulement avec « compte » ou « medecin »)
+    rdv_medecin: Optional[str] = Field(None, max_length=80)    # lot 341 : nom du médecin quand la portée est « medecin »
 
 
 class EcranModif(BaseModel):
@@ -356,6 +372,7 @@ class EcranModif(BaseModel):
     taille_heure: Optional[str] = Field(None, max_length=20)
     rdv_portee: Optional[str] = Field(None, max_length=10)      # lot 340
     rdv_clair: Optional[bool] = None                           # lot 340
+    rdv_medecin: Optional[str] = Field(None, max_length=80)    # lot 341
 
 
 def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_ids=None):
@@ -459,7 +476,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
 
     async def _contenu_flux(flux: Dict[str, Any], modules: Dict[str, bool], modules_servis: Dict[str, bool], ids: List[str], suivi_ouvert: bool,
                             fil: str, photos: int, jours: int, clair: bool = False,
-                            portee: str = "tous", rdv_clair: bool = False, client_exact: str = "") -> Dict[str, Any]:
+                            portee: str = "tous", rdv_clair: bool = False, client_exact: str = "", rdv_medecin: str = "") -> Dict[str, Any]:
         """Messagerie, demandes de support et planning du hall d'un flux. Partagé par la télé (`/tv/flux`, patients anonymisés) et par la page
         administrateur `/suivi-rdv` (lot 328 : `clair=True`, rendu identique à la télé mais noms et téléphones complets)."""
         if modules_servis["messagerie"]:
@@ -517,7 +534,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             # Lot 309 : les RDV d'une même clinique peuvent être rangés sous plusieurs comptes (médecins rattachés différemment) :
             # on prend aussi tous ceux qui portent le MÊME code clinique (ex. CMCO) que les RDV du périmètre de l'écran.
             codes = [c for c in await db.planning_appointments.distinct("code_clinique", {"tenant_id": {"$in": ids}}) if c and c != "manual"]
-            perimetre = perimetre_rdv(portee, client_exact or (ids[0] if ids else ""), ids, codes)       # lot 340 : « tous » (défaut) ou le compte de l'écran seul
+            r = await _reglages_portes()
+            fiche_med = next((p for p in r if p["medecin"].lower() == rdv_medecin.strip().lower()), {}) if rdv_medecin else {}
+            perimetre = perimetre_rdv(portee, client_exact or (ids[0] if ids else ""), ids, codes,
+                                      medecin=rdv_medecin.strip(), email=fiche_med.get("email", ""))       # lot 340 : « tous » (défaut) ou le compte de l'écran seul ; lot 341 : un médecin seul
             if clair:
                 perimetre = {}                                   # lot 328 : l'administrateur de SAWALI voit les RDV de toutes les cliniques
             jour_q = {"$or": [{"start_at": {"$gte": j0.isoformat(), "$lt": j_fin.isoformat()}},
@@ -528,7 +548,6 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                 {"_id": 0, "medecin": 1, "is_rdv": 1, "start_at": 1, "received_at": 1, "created_at": 1, "updated_at": 1,
                  "numero_ordre": 1, "status": 1, "patient": 1, "patient_phone": 1, "numero_recu": 1, "etat_consult": 1},
             ).to_list(2000)
-            r = await _reglages_portes()
             # Lot 303 : les photos (lourdes) ne sont envoyées que si la télé les demande (au démarrage puis de temps en temps)
             flux["hall"] = forme_hall(docs, {p["medecin"].lower(): p["porte"] for p in r}, maintenant,
                                       fiches={p["medecin"].lower(): p for p in r}, avec_photos=bool(photos), limite=14 * horizon,
@@ -559,9 +578,11 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
                                 "maintenant": _maintenant().isoformat(),
                                 "page": PAGE_TV_VERSION}      # lot 307 : la page de la télé se recharge seule si elle n'est pas à cette version
         flux["ecran"]["rdv_portee"] = portee_rdv_valide(ecran.get("rdv_portee"))
+        flux["ecran"]["rdv_medecin"] = str(ecran.get("rdv_medecin") or "")
         flux["ecran"]["rdv_clair"] = hall_en_clair(portee_rdv_valide(ecran.get("rdv_portee")), bool(ecran.get("rdv_clair")), False)
         await _contenu_flux(flux, modules, modules_servis, ids, suivi_ouvert, fil, photos, jours, portee=portee_rdv_valide(ecran.get("rdv_portee")),
-                            rdv_clair=bool(ecran.get("rdv_clair")), client_exact=str(ecran.get("client_id") or ""))
+                            rdv_clair=bool(ecran.get("rdv_clair")), client_exact=str(ecran.get("client_id") or ""),
+                            rdv_medecin=str(ecran.get("rdv_medecin") or ""))
         # « Vu le » : écrit au plus une fois par minute (pas une écriture à chaque rafraîchissement)
         vu = ecran.get("vu_le") or ""
         if not vu or vu < (_maintenant() - timedelta(minutes=1)).isoformat():
@@ -654,7 +675,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         ecran = {"id": uuid.uuid4().hex, "nom": payload.nom.strip(), "code": code, "client_id": payload.client_id,
                  "client_nom": client.get("company") or client.get("full_name") or "",
                  "modules": modules_valides(payload.modules or {"messagerie": True, "support": True}),
-                 "rdv_portee": portee_rdv_valide(payload.rdv_portee), "rdv_clair": bool(payload.rdv_clair) and portee_rdv_valide(payload.rdv_portee) == "compte",
+                 "rdv_portee": portee_rdv_valide(payload.rdv_portee), "rdv_clair": bool(payload.rdv_clair) and portee_rdv_valide(payload.rdv_portee) != "tous",
+                 "rdv_medecin": (payload.rdv_medecin or "").strip() if portee_rdv_valide(payload.rdv_portee) == "medecin" else "",
                  "empreinte": appairage["empreinte"], "cree_le": _maintenant().isoformat(), "cree_par": user.get("email"), "vu_le": None}
         await db.settings.update_one({"_id": "global"}, {"$push": {"tv_ecrans": ecran}, "$pull": {"tv_appairages": {"id": appairage["id"]}}})
         return {"ok": True, "ecran": {k: v for k, v in ecran.items() if k != "empreinte"}}
@@ -680,8 +702,12 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             if payload.rdv_portee not in PORTEES_RDV:
                 raise HTTPException(status_code=400, detail="Portée inconnue : " + ", ".join(PORTEES_RDV))
             champs["tv_ecrans.$.rdv_portee"] = payload.rdv_portee
-            if payload.rdv_portee != "compte":
-                champs["tv_ecrans.$.rdv_clair"] = False        # lot 340 : l'affichage en clair n'existe que pour un écran limité au compte
+            if payload.rdv_portee == "tous":
+                champs["tv_ecrans.$.rdv_clair"] = False        # lot 340 : l'affichage en clair n'existe que pour un écran limité (compte ou médecin)
+            if payload.rdv_portee != "medecin":
+                champs["tv_ecrans.$.rdv_medecin"] = ""
+        if payload.rdv_medecin is not None:
+            champs["tv_ecrans.$.rdv_medecin"] = payload.rdv_medecin.strip()          # lot 341 : médecin ciblé
         if payload.rdv_clair is not None and payload.rdv_portee != "tous":
             champs["tv_ecrans.$.rdv_clair"] = bool(payload.rdv_clair)
         if not champs:
@@ -693,7 +719,8 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         s2 = await _reglages()
         ecran = next((e for e in s2.get("tv_ecrans") or [] if e.get("id") == ecran_id), {})
         return {"ok": True, "modules": modules_valides(ecran.get("modules")), "taille_heure": taille_heure_valide(ecran.get("taille_heure")),
-                "rdv_portee": portee_rdv_valide(ecran.get("rdv_portee")), "rdv_clair": hall_en_clair(portee_rdv_valide(ecran.get("rdv_portee")), bool(ecran.get("rdv_clair")), False)}
+                "rdv_portee": portee_rdv_valide(ecran.get("rdv_portee")), "rdv_medecin": str(ecran.get("rdv_medecin") or ""),
+                "rdv_clair": hall_en_clair(portee_rdv_valide(ecran.get("rdv_portee")), bool(ecran.get("rdv_clair")), False)}
 
     @api.delete("/admin/tv/ecrans/{ecran_id}", tags=["Admin — Écrans TV"])
     async def admin_tv_revoquer(ecran_id: str, user: dict = Depends(get_current_admin)):

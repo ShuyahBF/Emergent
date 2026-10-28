@@ -2,6 +2,10 @@
 journal des affichages, jamais d'empreinte ni de jeton chiffré dans les réponses, clés anciennes à régénérer.
 Lancer : cd backend && python -m pytest tests/test_lot335_cles_consultables.py -q"""
 import asyncio
+import os
+
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")   # la liste des clés calcule le contrat (modules du serveur)
+os.environ.setdefault("DB_NAME", "sawali_test_lot335")
 
 import pytest
 from fastapi import APIRouter, FastAPI, HTTPException, Request

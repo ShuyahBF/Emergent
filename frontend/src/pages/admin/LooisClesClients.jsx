@@ -12,7 +12,7 @@
 //   - RÉGLAGE DE TRANSITION « Accepter encore la clé commune pour la synchro » (décoché par défaut).
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, UserX, KeyRound, X, Copy, Check } from "lucide-react";
+import { RefreshCw, UserX, KeyRound, X, Copy, Check, Eye } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 const BASE = "/admin/loois-cles-clients";
@@ -106,6 +106,18 @@ export default function LooisClesClients() {
     }
   };
 
+  // Lot 335 — AFFICHER la clé en clair (super-admin seulement : le serveur refuse les autres) ; chaque affichage est inscrit à l'historique
+  const afficherCle = async (fiche, type) => {
+    const t = toast.loading("Patientez…");
+    try {
+      const r = await apiClient.post(`${BASE}/${fiche.id}/afficher`, { type });
+      toast.dismiss(t);
+      setCleMontree({ code: fiche.code, cle: r.data.cle, consultee: true });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Affichage impossible", { id: t });
+    }
+  };
+
   // Lot 131.1 — clé SANS SURVEILLANCE (« LKS-… ») : prise en main sans accord sur les postes qui la portent
   const sansSurveillance = async (fiche, quoi) => {
     const messages = {
@@ -184,10 +196,18 @@ export default function LooisClesClients() {
                 <h2 className="text-lg font-semibold text-slate-900">
                   {String(cleMontree.cle).startsWith("LKS-") ? "Clé sans surveillance" : "Clé client Loois"} — {cleMontree.code}
                 </h2>
-                <p className="text-sm text-slate-600">
-                  Notez-la maintenant : elle ne sera <strong>plus jamais affichée</strong> (SAWALI n'en garde que l'empreinte).
-                  À coller sur chaque poste concerné : icône Loois → « Clé client Loois… ».
-                </p>
+                {cleMontree.consultee ? (
+                  <p className="text-sm text-slate-600">
+                    Clé affichée à la demande du super-admin (cet affichage est inscrit à l'historique de la clé). Ne la diffusez qu'au client concerné.
+                    À coller sur le poste : « Écrire au support » (Ctrl+Alt+S) → « Clé client Loois ».
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-600">
+                    Copiez-la maintenant. Elle pourra être réaffichée plus tard par le super-admin si le chiffrement est activé sur le serveur
+                    (variable LOOIS_CLES_CHIFFREMENT) ; sinon elle ne sera <strong>plus jamais affichée</strong>.
+                    À coller sur chaque poste concerné : icône Loois → « Clé client Loois… ».
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-slate-50 p-2 ring-1 ring-slate-200">
@@ -214,6 +234,12 @@ export default function LooisClesClients() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1 text-sm">
                 <h2 className="text-lg font-semibold">Clés clients Loois {occupe && <Jauge />}</h2>
+                {/* Lot 335 : le secret de chiffrement rend les nouvelles clés consultables par le super-admin */}
+                {!donnees.chiffrement_configure && (
+                  <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800" data-testid="chiffrement-absent">
+                    Clés non consultables : la variable LOOIS_CLES_CHIFFREMENT (32 caractères au moins) n'est pas définie sur le serveur (Render → Environment). Une fois définie, régénérez les clés à rendre consultables.
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
                   Une clé par client : elle identifie le client (code du site) pour la synchro des tables, le chat du support et le signal de présence.
                   Seule l'empreinte de la clé est enregistrée{donnees.poivre_configure ? " (avec le poivre LOOIS_CLES_PEPPER)" : " — variable LOOIS_CLES_PEPPER non définie (recommandée)"}.
@@ -331,7 +357,15 @@ export default function LooisClesClients() {
                               </>
                             )}
                           </td>
-                          <td className="p-2 font-mono text-xs">{f.prefixe}…</td>
+                          <td className="whitespace-nowrap p-2 font-mono text-xs" onClick={(e) => e.stopPropagation()}>
+                            {f.prefixe}…
+                            {/* Lot 335 : afficher la clé en clair (super-admin) ; grisé si elle n'a pas été conservée chiffrée */}
+                            <button type="button" onClick={() => afficherCle(f, "cle")} disabled={!f.cle_consultable || !f.actif}
+                              title={f.cle_consultable ? "Afficher la clé en clair (inscrit à l'historique)" : "Clé non consultable : régénérez-la (créée avant le chiffrement ou secret non défini)"}
+                              className="ml-1 rounded-full p-1 align-middle text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent" data-testid={`afficher-cle-${f.code}`}>
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          </td>
                           {/* Lot 131.1 — clé sans surveillance : pictogrammes (générer / remplacer, révoquer) */}
                           <td className="whitespace-nowrap p-2" onClick={(e) => e.stopPropagation()}>
                             {f.ss_prefixe && f.ss_actif ? (
@@ -339,6 +373,8 @@ export default function LooisClesClients() {
                                 <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs text-indigo-800" title={`Créée le ${dateHeure(f.ss_cree_le)}`}>
                                   <UserX className="h-3.5 w-3.5" aria-hidden="true" />{f.ss_prefixe}…
                                 </span>
+                                <button type="button" onClick={() => afficherCle(f, "sans_surveillance")} disabled={!f.ss_consultable} title={f.ss_consultable ? "Afficher la clé sans surveillance en clair" : "Non consultable : remplacez-la"}
+                                  className="rounded-full p-1 text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:text-slate-300"><Eye className="h-4 w-4" /></button>
                                 <button type="button" onClick={() => sansSurveillance(f, "generer")} title="Remplacer la clé sans surveillance"
                                   className="rounded-full p-1 text-indigo-700 hover:bg-indigo-50"><RefreshCw className="h-4 w-4" /></button>
                                 <button type="button" onClick={() => sansSurveillance(f, "revoquer")} title="Révoquer la clé sans surveillance"

@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -57,6 +58,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
+from fastapi.responses import Response
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -91,6 +93,48 @@ def _maintenant() -> datetime:
 # ---------------------------------------------------------------------------
 # Logique pure (testée) : génération, empreinte, clé commune
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lot 335 — clé CONSULTABLE par le super-admin (chiffrement réversible)
+# ---------------------------------------------------------------------------
+# Demande du propriétaire (28/10/2026) : « la voir en clair pour le super-admin dans le paramétrage ». SAWALI garde TOUJOURS l'empreinte
+# (c'est elle qui valide la clé) ; en plus, la clé est conservée CHIFFRÉE (Fernet : AES-128-CBC + HMAC) avec un secret qui n'est PAS dans la base :
+# la variable d'environnement LOOIS_CLES_CHIFFREMENT (saisie sur Render par le propriétaire, 32 caractères au moins). Sans ce secret, rien n'est
+# conservé en clair ni de façon réversible. Une clé créée avant ce lot (ou sans secret défini) n'est pas consultable : la régénérer.
+ENV_CHIFFREMENT = "LOOIS_CLES_CHIFFREMENT"
+
+
+def _fernet():
+    """Chiffreur dérivé du secret LOOIS_CLES_CHIFFREMENT ; None si le secret n'est pas défini."""
+    secret = (os.environ.get(ENV_CHIFFREMENT) or "").strip()
+    if not secret:
+        return None
+    from cryptography.fernet import Fernet
+    import base64
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(("loois-cles-clients:" + secret).encode("utf-8")).digest()))
+
+
+def chiffrement_configure() -> bool:
+    """Vrai si le secret de chiffrement est défini sur le serveur (les nouvelles clés sont alors consultables)."""
+    return _fernet() is not None
+
+
+def chiffrer_cle(cle: str) -> Optional[str]:
+    """Clé en clair → jeton chiffré (texte) ; None sans secret de chiffrement."""
+    f = _fernet()
+    return f.encrypt(cle.encode("utf-8")).decode("ascii") if f else None
+
+
+def dechiffrer_cle(jeton: Optional[str]) -> Optional[str]:
+    """Jeton chiffré → clé en clair ; None si absent, illisible ou si le secret a changé depuis la création."""
+    f = _fernet()
+    if not f or not jeton:
+        return None
+    try:
+        return f.decrypt(jeton.encode("ascii")).decode("utf-8")
+    except Exception:  # noqa: BLE001 — secret changé ou jeton abîmé
+        return None
+
+
 def generer_cle() -> str:
     """Nouvelle clé client : « LK- » + 32 caractères aléatoires sûrs pour une adresse (A-Z, a-z, 0-9, « - », « _ »)."""
     return PREFIXE_CLE + secrets.token_urlsafe(24)[:LONGUEUR_ALEATOIRE]
@@ -193,7 +237,7 @@ async def creer_fiche_cle(db, propre: Dict[str, Any], par: str) -> Tuple[str, Di
     d'une école (routes/ekol_enrolement.py)."""
     cle = generer_cle()
     p = poivre()
-    champs = {"cle_hash": hacher_cle(cle, p), "cle_poivree": bool(p), "prefixe": prefixe_affiche(cle)}
+    champs = {"cle_hash": hacher_cle(cle, p), "cle_poivree": bool(p), "prefixe": prefixe_affiche(cle), "cle_chiffree": chiffrer_cle(cle)}
     maintenant = _maintenant().isoformat()
     fiche = {"id": str(uuid.uuid4()), **propre, **champs, "actif": True, "cree_le": maintenant,
              "cree_par": par, "derniere_utilisation": None, "derniere_machine": None, "revoquee_le": None,
@@ -236,8 +280,12 @@ async def comptes_et_contrats(db, cles: list) -> Tuple[list, Dict[str, Any]]:
 
 
 def fiche_publique(fiche: Dict[str, Any]) -> Dict[str, Any]:
-    """Fiche renvoyée à la page : SANS l'empreinte (ni, évidemment, la clé)."""
-    return {k: v for k, v in fiche.items() if k not in ("_id", "cle_hash", "ss_cle_hash")}
+    """Fiche renvoyée à la page : SANS l'empreinte, SANS le jeton chiffré (ni, évidemment, la clé). Lot 335 : deux indicateurs disent si la clé
+    (LK-) et la clé sans surveillance (LKS-) peuvent être affichées par le super-admin."""
+    sortie = {k: v for k, v in fiche.items() if k not in ("_id", "cle_hash", "ss_cle_hash", "cle_chiffree", "ss_cle_chiffree")}
+    sortie["cle_consultable"] = bool(fiche.get("cle_chiffree"))
+    sortie["ss_consultable"] = bool(fiche.get("ss_cle_chiffree"))
+    return sortie
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +388,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         """Génère une clé, renvoie (en mémoire seulement) la clé en clair et les champs à enregistrer."""
         cle = generer_cle()
         p = poivre()
-        return {"cle": cle, "champs": {"cle_hash": hacher_cle(cle, p), "cle_poivree": bool(p), "prefixe": prefixe_affiche(cle)}}
+        return {"cle": cle, "champs": {"cle_hash": hacher_cle(cle, p), "cle_poivree": bool(p), "prefixe": prefixe_affiche(cle), "cle_chiffree": chiffrer_cle(cle)}}
 
     @api.get("/admin/loois-cles-clients", tags=["Loois clés clients"])
     async def liste(user: dict = Depends(get_current_user)):
@@ -361,7 +409,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         return {"cles": cles, "reglages": await lire_reglages(db), "poivre_configure": bool(poivre()),
                 "cle_commune_configuree": bool((os.environ.get("LOOIS_SUPPORT_CLE") or "").strip()),
                 "applications": list(APPLICATIONS_CONNUES), "sites_connus": sites_connus,
-                "comptes_clients": comptes_clients}
+                "comptes_clients": comptes_clients, "chiffrement_configure": chiffrement_configure()}
 
     @api.post("/admin/loois-cles-clients", tags=["Loois clés clients"])
     async def creer(request: Request, user: dict = Depends(get_current_user)):
@@ -446,6 +494,41 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         ETAT["clients_actifs"] = True
         return {"ok": True, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}
 
+    @api.post("/admin/loois-cles-clients/{id_fiche}/afficher", tags=["Loois clés clients"])
+    async def afficher_cle(id_fiche: str, request: Request, user: dict = Depends(get_current_user)):
+        """Lot 335 — AFFICHE EN CLAIR la clé d'un client (corps {"type": "cle" | "sans_surveillance"}) : réservé au SUPER-ADMIN. Chaque affichage est
+        inscrit à l'historique de la fiche (qui, quand, quelle clé — jamais la clé). Refusé si la clé est révoquée, si elle a été créée avant
+        l'activation du chiffrement (à régénérer) ou si le secret LOOIS_CLES_CHIFFREMENT n'est pas défini."""
+        admin(user)
+        from routes.controle_distance import est_super_admin
+        if not est_super_admin(user):
+            raise HTTPException(status_code=403, detail="Affichage d'une clé : réservé au super-admin")
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            corps = {}
+        genre = (corps or {}).get("type") or "cle"
+        if genre not in ("cle", "sans_surveillance"):
+            raise HTTPException(status_code=422, detail="type attendu : cle ou sans_surveillance")
+        fiche = await fiche_ou_404(id_fiche)
+        sans = genre == "sans_surveillance"
+        if not chiffrement_configure():
+            raise HTTPException(status_code=409, detail=f"Le secret de chiffrement {ENV_CHIFFREMENT} n'est pas défini sur le serveur (Render → Environment) : les clés ne sont pas consultables.")
+        if not (fiche.get("ss_actif") if sans else fiche.get("actif")):
+            raise HTTPException(status_code=409, detail="Cette clé est révoquée : réactivez-la ou régénérez-la.")
+        jeton = fiche.get("ss_cle_chiffree") if sans else fiche.get("cle_chiffree")
+        if not jeton:
+            raise HTTPException(status_code=409, detail="Cette clé a été créée avant l'activation du chiffrement : régénérez-la pour pouvoir l'afficher.")
+        cle = dechiffrer_cle(jeton)
+        if not cle:
+            raise HTTPException(status_code=409, detail="Clé illisible (le secret de chiffrement a changé depuis sa création) : régénérez-la.")
+        maintenant = _maintenant().isoformat()
+        await db.loois_cles_clients.update_one({"id": id_fiche}, {"$push": {"historique": {
+            "action": "affichage_cle_sans_surveillance" if sans else "affichage_cle", "le": maintenant, "par": auteur(user),
+            "prefixe": fiche.get("ss_prefixe") if sans else fiche.get("prefixe")}}})
+        return Response(content=json.dumps({"ok": True, "cle": cle, "code": fiche.get("code")}), media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
+
     # --- Lot 131.1 : clé SANS SURVEILLANCE ------------------------------------------------------------------------
     @api.post("/admin/loois-cles-clients/{id_fiche}/sans-surveillance", tags=["Loois clés clients"])
     async def generer_sans_surveillance(id_fiche: str, user: dict = Depends(get_current_user)):
@@ -465,7 +548,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         except Exception:  # noqa: BLE001
             pass
         await db.loois_cles_clients.update_one({"id": id_fiche}, {
-            "$set": {"ss_cle_hash": hacher_cle(cle, p), "ss_cle_poivree": bool(p), "ss_prefixe": prefixe_affiche(cle),
+            "$set": {"ss_cle_hash": hacher_cle(cle, p), "ss_cle_poivree": bool(p), "ss_prefixe": prefixe_affiche(cle), "ss_cle_chiffree": chiffrer_cle(cle),
                      "ss_actif": True, "ss_cree_le": maintenant, "ss_cree_par": auteur(user), "ss_revoquee_le": None},
             "$push": {"historique": {"action": "sans_surveillance_generation", "le": maintenant, "par": auteur(user),
                                      "ancien_prefixe": fiche.get("ss_prefixe"), "prefixe": prefixe_affiche(cle)}}})

@@ -203,6 +203,38 @@ async def creer_fiche_cle(db, propre: Dict[str, Any], par: str) -> Tuple[str, Di
     return cle, fiche
 
 
+async def comptes_et_contrats(db, cles: list) -> Tuple[list, Dict[str, Any]]:
+    """Lot 334 — (comptes clients proposables, contrat par clé).
+
+    Comptes proposés : comptes PRINCIPAUX (sans compte parent) qui portent un contrat (numéro, périodicité ou paiement),
+    comme l'écran Abonnements. Contrat d'une clé : même calcul que la route /api/loois/contrat lue par Loois, donc
+    « non_lie » tant qu'aucun compte n'est lié, et « anonymiser » vrai dès que le contrat n'est pas actif.
+    Lecture EN BLOC (une requête), jamais une lecture par clé (règle 7)."""
+    from routes.loois_synchro import statut_contrat_loois   # import tardif (évite une boucle d'imports)
+
+    conditions = [{"contract_billing_period": {"$nin": [None, ""]}}, {"contract_number": {"$nin": [None, ""]}},
+                  {"last_payment_at": {"$nin": [None, ""]}}]
+    liés = [f["tenant_id"] for f in cles if f.get("tenant_id")]
+    if liés:
+        conditions.append({"id": {"$in": liés}})          # un compte déjà lié reste affiché même sans contrat renseigné
+    docs = await db.users.find({"$or": conditions}, {"_id": 0, "password_hash": 0}).to_list(5000)
+    par_id = {d["id"]: d for d in docs}
+    comptes = []
+    for d in docs:
+        parent = d.get("parent_client_id")
+        if parent and parent != d.get("id"):
+            continue                                   # utilisateur suivi : pas un compte client principal
+        comptes.append({"id": d["id"], "nom": d.get("company") or d.get("full_name") or d.get("email") or d["id"],
+                        "email": d.get("email")})
+    comptes.sort(key=lambda c: (c["nom"] or "").lower())
+    maintenant = _maintenant()
+    contrats: Dict[str, Any] = {}
+    for f in cles:
+        client = par_id.get(f.get("tenant_id")) if f.get("tenant_id") else None
+        contrats[f["id"]] = statut_contrat_loois(client, maintenant)
+    return comptes, contrats
+
+
 def fiche_publique(fiche: Dict[str, Any]) -> Dict[str, Any]:
     """Fiche renvoyée à la page : SANS l'empreinte (ni, évidemment, la clé)."""
     return {k: v for k, v in fiche.items() if k not in ("_id", "cle_hash", "ss_cle_hash")}
@@ -322,9 +354,14 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
             if p.get("site"):
                 sites.add((p["site"], p.get("application") or ""))
         sites_connus = [{"code": s, "application": a, "a_une_cle": any(c["code"] == s for c in cles)} for s, a in sorted(sites)]
+        # Lot 334 : contrat de chaque clé (statut lu comme le fait Loois) + liste des comptes clients à lier
+        comptes_clients, contrats = await comptes_et_contrats(db, cles)
+        for f in cles:
+            f["contrat"] = contrats.get(f["id"])
         return {"cles": cles, "reglages": await lire_reglages(db), "poivre_configure": bool(poivre()),
                 "cle_commune_configuree": bool((os.environ.get("LOOIS_SUPPORT_CLE") or "").strip()),
-                "applications": list(APPLICATIONS_CONNUES), "sites_connus": sites_connus}
+                "applications": list(APPLICATIONS_CONNUES), "sites_connus": sites_connus,
+                "comptes_clients": comptes_clients}
 
     @api.post("/admin/loois-cles-clients", tags=["Loois clés clients"])
     async def creer(request: Request, user: dict = Depends(get_current_user)):
@@ -357,6 +394,12 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         if "code" in propre and propre["code"] != fiche["code"] and await db.loois_cles_clients.find_one({"code": propre["code"]}, {"_id": 1}):
             raise HTTPException(status_code=409, detail=f"Le code {propre['code']} est déjà utilisé")
+        # Lot 334 : le compte client lié doit exister ; son nom est relu dans SAWALI (jamais celui envoyé par la page)
+        if propre.get("tenant_id"):
+            compte = await db.users.find_one({"id": propre["tenant_id"]}, {"_id": 0, "company": 1, "full_name": 1, "email": 1})
+            if not compte:
+                raise HTTPException(status_code=422, detail="compte client introuvable")
+            propre["client_nom"] = (compte.get("company") or compte.get("full_name") or compte.get("email") or "")[:160] or None
         maintenant = _maintenant().isoformat()
         await db.loois_cles_clients.update_one({"id": id_fiche}, {
             "$set": {**propre, "maj_le": maintenant, "maj_par": auteur(user)},

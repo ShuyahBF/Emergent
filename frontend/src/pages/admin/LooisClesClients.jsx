@@ -31,7 +31,15 @@ const dateHeure = (iso) => {
 };
 
 // Formulaire vide (création)
-const VIDE = { code: "", libelle: "", applications: [] };
+const VIDE = { code: "", libelle: "", applications: [], tenant_id: "" };
+
+// Lot 334 — statut du contrat lu par Loois (route /loois/contrat) : libellé + couleur. Seuls « actif » donnent les vraies données.
+const STATUTS_CONTRAT = {
+  a_jour: ["à jour", "bg-emerald-100 text-emerald-800"], sans_echeance: ["sans échéance", "bg-emerald-100 text-emerald-800"],
+  pseudo_valide: ["pseudo-contrat", "bg-emerald-100 text-emerald-800"], grace: ["délai de grâce", "bg-amber-100 text-amber-800"],
+  expire: ["expiré", "bg-rose-100 text-rose-800"], suspendu: ["suspendu", "bg-rose-100 text-rose-800"],
+  archive: ["archivé", "bg-rose-100 text-rose-800"], non_lie: ["non lié", "bg-rose-100 text-rose-800"],
+};
 
 export default function LooisClesClients() {
   const [donnees, setDonnees] = useState(null);   // {cles, reglages, sites_connus, poivre_configure, cle_commune_configuree}
@@ -68,7 +76,8 @@ export default function LooisClesClients() {
     if (!formulaire.code.trim()) return;
     const t = toast.loading("Patientez… création de la clé");
     try {
-      const r = await apiClient.post(BASE, formulaire);
+      const compte = (donnees?.comptes_clients || []).find((c) => c.id === formulaire.tenant_id);
+      const r = await apiClient.post(BASE, { ...formulaire, tenant_id: formulaire.tenant_id || null, client_nom: compte?.nom || null });
       setCleMontree({ code: r.data.fiche.code, cle: r.data.cle });
       setFormulaire(VIDE);
       toast.success(`Clé créée pour ${r.data.fiche.code}`, { id: t });
@@ -120,7 +129,7 @@ export default function LooisClesClients() {
   const enregistrerEdition = async () => {
     const t = toast.loading("Patientez… enregistrement");
     try {
-      await apiClient.put(`${BASE}/${edition.id}`, { libelle: edition.libelle, applications: edition.applications });
+      await apiClient.put(`${BASE}/${edition.id}`, { libelle: edition.libelle, applications: edition.applications, tenant_id: edition.tenant_id || "" });
       setEdition(null);
       toast.success("Enregistré", { id: t });
       charger(false);
@@ -155,6 +164,7 @@ export default function LooisClesClients() {
 
   const applications = donnees?.applications || ["eKol", "Aizenta", "Biolog"];
   const cles = donnees?.cles || [];
+  const comptes = donnees?.comptes_clients || [];
 
   return (
     <div className="space-y-4" data-testid="loois-cles-clients">
@@ -248,6 +258,15 @@ export default function LooisClesClients() {
                   ))}
                 </div>
               </div>
+              {/* Lot 334 — compte client / contrat : sans lui, Loois anonymise ses listes (statut « non lié ») */}
+              <label className="flex flex-col">
+                <span className="text-xs text-slate-500">Compte client (contrat)</span>
+                <select value={formulaire.tenant_id} onChange={(e) => setFormulaire({ ...formulaire, tenant_id: e.target.value })}
+                  className="w-56 rounded border border-slate-300 px-2 py-1" data-testid="compte-client">
+                  <option value="">— aucun (états anonymisés) —</option>
+                  {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                </select>
+              </label>
               <button type="submit" disabled={!formulaire.code.trim()} className="rounded-lg bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-700 disabled:opacity-50" data-testid="creer-cle">
                 ➕ Créer la clé
               </button>
@@ -263,7 +282,7 @@ export default function LooisClesClients() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs text-slate-500">
                     <tr>
-                      <th className="p-2">Client</th><th className="p-2">Applications</th><th className="p-2">Clé</th>
+                      <th className="p-2">Client</th><th className="p-2">Applications</th><th className="p-2" title="Contrat du compte client lié : Loois anonymise ses états PDF si le contrat n'est pas actif">Contrat</th><th className="p-2">Clé</th>
                       <th className="p-2" title="Clé « LKS-… » : prise en main par le super-admin sans clic sur le poste">Sans surveillance</th><th className="p-2">État</th>
                       <th className="p-2">Dernière utilisation</th><th className="p-2">Créée le</th><th className="p-2">Actions</th>
                     </tr>
@@ -291,6 +310,26 @@ export default function LooisClesClients() {
                                 ))}
                               </div>
                             ) : (f.applications?.length ? f.applications.map((a) => LIBELLES[a] || a).join(", ") : "toutes")}
+                          </td>
+                          {/* Lot 334 — compte client lié (liste déroulante en modification) + statut du contrat */}
+                          <td className="p-2 text-xs">
+                            {enEdition ? (
+                              <select value={edition.tenant_id} onClick={(e) => e.stopPropagation()} onChange={(e) => setEdition({ ...edition, tenant_id: e.target.value })}
+                                className="w-44 rounded border border-slate-300 px-1 py-0.5 text-slate-800" data-testid="edition-compte-client">
+                                <option value="">— aucun (anonymisé) —</option>
+                                {f.tenant_id && !comptes.some((c) => c.id === f.tenant_id) && <option value={f.tenant_id}>{f.client_nom || f.tenant_id}</option>}
+                                {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                              </select>
+                            ) : (
+                              <>
+                                {(() => {
+                                  const st = STATUTS_CONTRAT[f.contrat?.statut] || [f.contrat?.statut || "inconnu", "bg-slate-100 text-slate-700"];
+                                  return <span className={`rounded px-1.5 font-semibold ${st[1]}`} data-testid="statut-contrat">{st[0]}</span>;
+                                })()}
+                                <div className="mt-0.5 opacity-80">{f.client_nom || "aucun compte lié"}</div>
+                                {f.contrat?.anonymiser && <div className="text-[10px] text-rose-700">états anonymisés</div>}
+                              </>
+                            )}
                           </td>
                           <td className="p-2 font-mono text-xs">{f.prefixe}…</td>
                           {/* Lot 131.1 — clé sans surveillance : pictogrammes (générer / remplacer, révoquer) */}
@@ -327,7 +366,7 @@ export default function LooisClesClients() {
                               </>
                             ) : (
                               <>
-                                <button type="button" onClick={() => setEdition({ id: f.id, libelle: f.libelle || "", applications: f.applications || [] })}
+                                <button type="button" onClick={() => setEdition({ id: f.id, libelle: f.libelle || "", applications: f.applications || [], tenant_id: f.tenant_id || "" })}
                                   className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Modifier</button>
                                 <button type="button" onClick={() => action(f, "regenerer")}
                                   className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Régénérer</button>

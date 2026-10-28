@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "333"
-LOT_LIBELLE = "Portail e-Kol : suivi d'utilisation des postes Loois vérifié avec la clé client Loois (route signée de vérification). Lot 332 : contrôle à distance, presse-papiers du poste copié chez le technicien (copie automatique + bouton). Lot 331 : clavier du technicien respecté, pixels parasites corrigés, vue zoomée et barre en haut, transferts fiabilisés (mémoire du serveur libérée après les sauvegardes)."
+LOT = "334"
+LOT_LIBELLE = "Clés clients Loois : liste déroulante du compte client (contrat) lié à chaque clé + colonne Contrat — une clé sans compte lié faisait anonymiser les listes de Loois. Lot 333 : Portail e-Kol : suivi d'utilisation des postes Loois vérifié avec la clé client Loois (route signée de vérification). Lot 332 : contrôle à distance, presse-papiers du poste copié chez le technicien (copie automatique + bouton). Lot 331 : clavier du technicien respecté, pixels parasites corrigés, vue zoomée et barre en haut, transferts fiabilisés (mémoire du serveur libérée après les sauvegardes)."

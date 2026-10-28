@@ -8,7 +8,11 @@ Lancer : cd backend && python -m pytest tests/test_lot68_1_cles_clients.py -q
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")   # le calcul du contrat charge les modules du serveur
+os.environ.setdefault("DB_NAME", "sawali_test_lot68_1")
 from pathlib import Path
 
 import pytest

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "340", "date": "2026-10-28",
+        "titre": "📺 Écran TV : tous les RDV ou seulement ceux du compte de la télé, patients en clair au choix",
+        "description": "Dans « Écrans TV », chaque télé affiche les rendez-vous de tous les médecins (comme avant) ou seulement ceux du compte enregistré pour elle ; dans ce second cas, une case permet d'afficher les patients en clair, sinon ils restent anonymisés.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "339", "date": "2026-10-28",
         "titre": "🏥 Liluvine ne renvoie plus la liste de garde à un simple « Ok je regarde »",
         "description": "Si un contact a déjà reçu la liste des pharmacies de garde dans les 3 dernières heures, une demande seulement devinée (sans « !garde ») ne la fait plus renvoyer. La commande explicite « !garde » la renvoie toujours ; le délai se règle dans la rubrique.",

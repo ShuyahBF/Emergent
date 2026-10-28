@@ -24,6 +24,9 @@ export default function EcransTvSection() {
   const [nom, setNom] = useState("");
   const [clientId, setClientId] = useState("");
   const [modules, setModules] = useState({ messagerie: true, support: true, hall: false });
+  // Lot 340 : RDV du hall = tous les médecins du périmètre du client, ou seulement le compte de cet écran (en clair si la case est cochée)
+  const [rdvPortee, setRdvPortee] = useState("tous");
+  const [rdvClair, setRdvClair] = useState(false);
   // Lot 300 : portes (bureaux) des médecins affichées dans le hall
   const [portes, setPortes] = useState([]);                  // [{medecin, porte, autre}]
   const [medecinsConnus, setMedecinsConnus] = useState([]);
@@ -79,7 +82,7 @@ export default function EcransTvSection() {
     if (!code.trim() || !nom.trim() || !clientId) { toast.error("Code, nom de l'écran et client sont obligatoires"); return; }
     setEnvoi(true);
     try {
-      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId, modules });
+      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId, modules, rdv_portee: rdvPortee, rdv_clair: rdvPortee === "compte" && rdvClair });
       toast.success("Écran appairé : la télé démarre dans quelques secondes");
       setCode(""); setNom("");
       charger();
@@ -130,6 +133,16 @@ export default function EcransTvSection() {
       if (r.data?.modules) setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, modules: r.data.modules } : e)));
       toast.success("Contenus de l'écran enregistrés");
     } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible : le contenu n'a pas été enregistré"); charger(); }
+  };
+
+  // Lot 340 : portée des RDV et affichage en clair d'un écran déjà appairé
+  const changerRdv = async (ecran, champs) => {
+    setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, ...champs } : e)));
+    try {
+      const r = await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, champs);
+      if (r.data?.rdv_portee) setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, rdv_portee: r.data.rdv_portee, rdv_clair: r.data.rdv_clair } : e)));
+      toast.success("Rendez-vous affichés : réglage enregistré");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible"); charger(); }
   };
 
   // Lot 309 : taille de l'heure sur l'écran du hall (liste finie → liste déroulante)
@@ -225,6 +238,19 @@ export default function EcransTvSection() {
             </label>
           ))}
         </div>
+        {/* Lot 340 : portée des rendez-vous du hall (liste finie = liste déroulante) */}
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="text-xs text-slate-600">Rendez-vous affichés (hall)
+            <select value={rdvPortee} onChange={(e) => { setRdvPortee(e.target.value); if (e.target.value !== "compte") setRdvClair(false); }} className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-rdv-portee-saisi">
+              <option value="tous">Tous les médecins (liste complète)</option>
+              <option value="compte">Seulement le compte de cet écran</option>
+            </select>
+          </label>
+          <label className={`flex items-center gap-2 text-sm ${rdvPortee === "compte" ? "text-slate-700" : "text-slate-400"}`}>
+            <input type="checkbox" disabled={rdvPortee !== "compte"} checked={rdvPortee === "compte" && rdvClair} onChange={(e) => setRdvClair(e.target.checked)} data-testid="tv-rdv-clair-saisi" />
+            Afficher les patients en clair (sinon anonymisés)
+          </label>
+        </div>
         <button type="button" onClick={appairer} disabled={envoi}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-appairer">
           {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}Appairer
@@ -246,7 +272,7 @@ export default function EcransTvSection() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-testid="tv-liste">
-              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Code d'appairage</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">Taille de l'heure (hall)</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
+              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1 pr-3">Écran</th><th className="pr-3">Code d'appairage</th><th className="pr-3">Client</th><th className="pr-3">Contenus</th><th className="pr-3">RDV affichés (hall)</th><th className="pr-3">Taille de l'heure (hall)</th><th className="pr-3">Vu pour la dernière fois</th><th /></tr></thead>
               <tbody>
                 {ecrans.map((e) => (
                   <tr key={e.id} className="border-t border-slate-100">
@@ -261,6 +287,15 @@ export default function EcransTvSection() {
                           </label>
                         ))}
                       </div>
+                    </td>
+                    <td className="pr-3">
+                      <select value={e.rdv_portee || "tous"} onChange={(ev) => changerRdv(e, { rdv_portee: ev.target.value })} className="px-2 py-1 border border-slate-300 rounded-lg text-xs" data-testid="tv-rdv-portee">
+                        <option value="tous">Tous les médecins</option>
+                        <option value="compte">Compte de l&apos;écran seul</option>
+                      </select>
+                      <label className={`mt-1 flex items-center gap-1 text-xs ${(e.rdv_portee || "tous") === "compte" ? "text-slate-700" : "text-slate-400"}`}>
+                        <input type="checkbox" disabled={(e.rdv_portee || "tous") !== "compte"} checked={Boolean(e.rdv_clair)} onChange={(ev) => changerRdv(e, { rdv_clair: ev.target.checked })} data-testid="tv-rdv-clair" />En clair
+                      </label>
                     </td>
                     <td className="pr-3">
                       <select value={e.taille_heure || "grande"} onChange={(ev) => changerTaille(e, ev.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-xs" data-testid="tv-taille-heure">

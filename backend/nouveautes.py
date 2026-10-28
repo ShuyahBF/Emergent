@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "337", "date": "2026-10-28",
+        "titre": "🧩 Liluvine ne revient plus sur un logiciel hors offre après un simple « Ok »",
+        "description": "Une ancienne réponse citant Aizenta à un client qui n'a que e-KOL était rejouée dans la conversation et se répétait à chaque message. Ces réponses ne sont plus rejouées et Liluvine demande de quel logiciel il s'agit au lieu d'en choisir un.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "336", "date": "2026-10-28",
         "titre": "🧩 Liluvine n'aide plus pour un logiciel absent de l'offre du client",
         "description": "Cas réel : un contact de l'ÉCOLE DES MÉTIERS (offre : e-KOL) a reçu une aide pour la mise à jour d'Aizenta. L'assistant est désormais borné à l'offre saisie sur la fiche du client : pour un logiciel ou un produit qui n'y figure pas, il répond que ce n'est pas dans l'offre du client chez SAWALI, puis escalade vers un humain. Vérifiez que l'offre de chaque client est complète.",

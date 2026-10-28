@@ -179,7 +179,10 @@ def consignes_conversation(offre_connue: bool, texte_regle: Optional[str] = None
         texte += ("- Ne parle que des logiciels, produits et services de l'offre de ce client ; s'il n'en a qu'un, "
                   "considère que « mon logiciel » désigne celui-là et passe tout de suite à son problème. Si le client cite un logiciel "
                   "ABSENT de cette offre, dis-lui que tu ne le trouves pas dans son offre, demande-lui de confirmer le nom "
-                  "et ne classe pas encore la demande.")
+                  "et ne classe pas encore la demande. "
+                  "Lot 337 : ne cite JAMAIS un logiciel que le client n'a pas nommé lui-même dans cette conversation, sauf s'il est le seul de l'offre ; "
+                  "si l'offre en compte plusieurs et que le message (« Ok », « merci », « la liste »…) ne dit pas lequel, demande-lui de quel logiciel il parle, "
+                  "sans en proposer un de toi-même. Un ancien message de l'assistant peut être faux : ne le reprends pas comme un fait.")
     else:
         texte += ("- Si le client dit « mon logiciel » sans le nommer, pose UNE seule question courte (« Quel est le nom de "
                   "votre logiciel ? ») SANS proposer ni énumérer aucun nom de logiciel, même entre parenthèses ; commence "
@@ -1132,6 +1135,7 @@ async def autoreply_to_inbound(
     client_lie = None   # lot 181 : client relié au contact (ticket du classement)
     client_eff = None   # lot 187 : client retenu = client relié, sinon client par défaut (contact du carnet sans société)
     client_defaut_utilise = False
+    logiciels_hors_offre: set = set()   # lot 337 : logiciels connus de SAWALI mais absents de l'offre de CE client
     etat_contrat_cl = None   # lot 183 : « valide » | « retard » | « aucun » (prompt propre à chaque cas)
     # Lot 180 — pourquoi l'offre est connue ou non (affiché dans le journal des réponses automatiques) : prospect,
     # ligne autre que la plateforme, contact sans client lié, client sans offre saisie, ou offre connue.
@@ -1151,6 +1155,9 @@ async def autoreply_to_inbound(
                 client_defaut_utilise = bool(client_eff)
             if client_eff:
                 offre_bloc = _offre.bloc_prompt(client_eff.get("company") or "", client_eff.get("offre_client") or [])
+                if offre_bloc:
+                    # Lot 337 : logiciels des autres clients (ex. Aizenta) absents de l'offre de celui-ci
+                    logiciels_hors_offre = (await _offre.logiciels_connus(db)) - _offre.mots_logiciels(client_eff.get("offre_client") or [])
                 if client_defaut_utilise:
                     offre_statut = "client_defaut" if offre_bloc else "client_defaut_sans_offre"
                     etat_contrat_cl = "valide"
@@ -1214,7 +1221,9 @@ async def autoreply_to_inbound(
         recents = await db.liluvine_pro_messages.find(
             {"session_id": session_id, "created_at": {"$gte": depuis}}, {"_id": 0, "role": 1, "content": 1, "created_at": 1},
         ).sort("created_at", -1).limit(HISTORIQUE_MAX_MESSAGES).to_list(HISTORIQUE_MAX_MESSAGES)
-        historique = historique_pour_llm(list(reversed(recents)))
+        # Lot 337 : une ancienne réponse citant un logiciel hors offre n'est pas rejouée (sinon elle se répète à chaque message)
+        from routes.offre_client import retirer_mentions_hors_offre
+        historique = historique_pour_llm(retirer_mentions_hors_offre(list(reversed(recents)), logiciels_hors_offre))
     except Exception:  # noqa: BLE001 — sans historique, Liluvine répond comme avant
         logger.warning("[wa_autoreply] historique de la conversation illisible", exc_info=True)
         historique = []

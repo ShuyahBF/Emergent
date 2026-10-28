@@ -184,6 +184,45 @@ def bloc_prompt(societe: str, offre: List[Dict[str, Any]]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 337 — l'historique rejoué ne doit pas ramener un logiciel absent de l'offre du client
+# ---------------------------------------------------------------------------------------------------------------------
+def _mot_logiciel(nom: Any) -> str:
+    """Premier mot du nom d'un logiciel, sans accents ni casse (« Bitdefender Standard » → « bitdefender »)."""
+    mots = _sans_accents(nom).split()
+    return mots[0].strip(".,;:()") if mots else ""
+
+
+def mots_logiciels(offre: List[Dict[str, Any]]) -> set:
+    """Premiers mots des LOGICIELS d'une offre (ceux de quatre lettres ou plus : « e-kol », « aizenta »…)."""
+    return {m for o in (offre or []) if o.get("type") == "logiciel" and len(m := _mot_logiciel(o.get("nom"))) >= 4}
+
+
+_cache_logiciels_connus: List[Any] = [0.0, set()]
+
+
+async def logiciels_connus(db) -> set:
+    """Premiers mots de tous les logiciels qu'au moins une offre client contient (cache de 10 minutes, règle 7)."""
+    import time
+    if time.time() - _cache_logiciels_connus[0] < 600:
+        return _cache_logiciels_connus[1]
+    connus: set = set()
+    async for u in db.users.find({"offre_client.type": "logiciel"}, {"_id": 0, "offre_client": 1}):
+        connus |= mots_logiciels(normaliser_offre(u.get("offre_client")))
+    _cache_logiciels_connus[:] = [time.time(), connus]
+    return connus
+
+
+def retirer_mentions_hors_offre(docs: List[Dict[str, Any]], absents: set) -> List[Dict[str, Any]]:
+    """Messages déjà échangés SANS les réponses de l'assistant qui citent un logiciel absent de l'offre du client.
+    Cas réel (28/10/2026) : une ancienne réponse parlait d'Aizenta à un client qui n'a que e-KOL ; rejouée dans l'historique,
+    elle faisait citer Aizenta à CHAQUE réponse suivante, même après un simple « Ok ». Les messages du client ne sont jamais retirés."""
+    if not absents:
+        return list(docs or [])
+    motif = re.compile(r"\b(?:" + "|".join(re.escape(m) for m in sorted(absents)) + r")\b")
+    return [d for d in docs or [] if not (d.get("role") == "assistant" and motif.search(_sans_accents(d.get("content"))))]
+
+
 def detecter_objet(texte: str, offre: List[Dict[str, Any]]) -> Optional[str]:
     """Ce que Liluvine détecte dans un message d'assistance : « la maintenance de <produit> », « l'assistance demandée »…
     None si le message ne demande aucune assistance (salutation, remerciement, simple question commerciale…)."""

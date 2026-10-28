@@ -169,3 +169,23 @@ def test_lot178_offre_appliquee_sur_la_ligne_de_la_plateforme():
     assert ok(is_prospect=False, platform_tenant=True) is True      # client de SAWALI sur la ligne SAWALI : offre lue
     assert ok(is_prospect=True, platform_tenant=True) is False      # prospect : aucune offre
     assert ok(is_prospect=False, platform_tenant=False) is False    # ligne d'un client (tenant) : ses contacts ne sont pas des clients de SAWALI
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 337 — l'historique rejoué ne ramène pas un logiciel absent de l'offre
+# ---------------------------------------------------------------------------------------------------------------------
+def test_lot337_historique_sans_logiciel_hors_offre():
+    from routes import offre_client as O
+    offre = O.normaliser_offre([{"type": "logiciel", "nom": "e-KOL"}, {"type": "logiciel", "nom": "Bitdefender Standard"}])
+    autre = O.normaliser_offre([{"type": "logiciel", "nom": "Aizenta"}, {"type": "logiciel", "nom": "Bitdefender Business"}])
+    absents = (O.mots_logiciels(offre) | O.mots_logiciels(autre)) - O.mots_logiciels(offre)
+    assert absents == {"aizenta"}                       # Bitdefender est dans l'offre : jamais retiré
+    docs = [{"role": "user", "content": "la liste de classe"},
+            {"role": "assistant", "content": "Je remonte votre demande pour les listes dans AIZENTA."},
+            {"role": "user", "content": "Ok"},
+            {"role": "assistant", "content": "Un souci avec Bitdefender ?"}]
+    restant = O.retirer_mentions_hors_offre(docs, absents)
+    assert [d["content"] for d in restant] == ["la liste de classe", "Ok", "Un souci avec Bitdefender ?"]   # seule la réponse fautive part
+    assert O.retirer_mentions_hors_offre(docs, set()) == docs
+    # Les messages du CLIENT ne sont jamais retirés, même s'il cite le logiciel
+    assert O.retirer_mentions_hors_offre([{"role": "user", "content": "Aizenta ne marche pas"}], absents)

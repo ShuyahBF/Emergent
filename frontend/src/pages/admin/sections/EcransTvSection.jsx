@@ -27,6 +27,7 @@ export default function EcransTvSection() {
   // Lot 340 : RDV du hall = tous les médecins du périmètre du client, ou seulement le compte de cet écran (en clair si la case est cochée)
   const [rdvPortee, setRdvPortee] = useState("tous");
   const [rdvClair, setRdvClair] = useState(false);
+  const [rdvMedecin, setRdvMedecin] = useState("");          // lot 341 : médecin ciblé quand la portée est « Un médecin seul »
   // Lot 300 : portes (bureaux) des médecins affichées dans le hall
   const [portes, setPortes] = useState([]);                  // [{medecin, porte, autre}]
   const [medecinsConnus, setMedecinsConnus] = useState([]);
@@ -80,11 +81,12 @@ export default function EcransTvSection() {
 
   const appairer = async () => {
     if (!code.trim() || !nom.trim() || !clientId) { toast.error("Code, nom de l'écran et client sont obligatoires"); return; }
+    if (rdvPortee === "medecin" && !rdvMedecin) { toast.error("Choisissez le médecin dont cet écran affiche les rendez-vous"); return; }
     setEnvoi(true);
     try {
-      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId, modules, rdv_portee: rdvPortee, rdv_clair: rdvPortee === "compte" && rdvClair });
+      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId, modules, rdv_portee: rdvPortee, rdv_clair: rdvPortee !== "tous" && rdvClair, rdv_medecin: rdvPortee === "medecin" ? rdvMedecin : "" });
       toast.success("Écran appairé : la télé démarre dans quelques secondes");
-      setCode(""); setNom("");
+      setCode(""); setNom(""); setRdvMedecin("");
       charger();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Appairage impossible");
@@ -116,7 +118,7 @@ export default function EcransTvSection() {
   const enregistrerPortes = async () => {
     setSavingPortes(true);
     try {
-      await apiClient.put("/admin/tv/portes", { portes: portes.filter((l) => l.medecin?.trim() && (l.porte?.trim() || l.profession?.trim() || l.photo)).map((l) => ({ medecin: l.medecin.trim(), porte: l.porte.trim(), profession: (l.profession || "").trim(), photo: l.photo || "" })) });
+      await apiClient.put("/admin/tv/portes", { portes: portes.filter((l) => l.medecin?.trim() && (l.porte?.trim() || l.profession?.trim() || l.photo || l.email?.trim())).map((l) => ({ medecin: l.medecin.trim(), porte: l.porte.trim(), profession: (l.profession || "").trim(), photo: l.photo || "", email: (l.email || "").trim() })) });
       toast.success("Portes enregistrées");
       charger();
     } catch (err) { toast.error(err?.response?.data?.detail || "Enregistrement impossible"); }
@@ -140,7 +142,7 @@ export default function EcransTvSection() {
     setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, ...champs } : e)));
     try {
       const r = await apiClient.put(`/admin/tv/ecrans/${ecran.id}`, champs);
-      if (r.data?.rdv_portee) setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, rdv_portee: r.data.rdv_portee, rdv_clair: r.data.rdv_clair } : e)));
+      if (r.data?.rdv_portee) setEcrans((l) => l.map((e) => (e.id === ecran.id ? { ...e, rdv_portee: r.data.rdv_portee, rdv_clair: r.data.rdv_clair, rdv_medecin: r.data.rdv_medecin || "" } : e)));
       toast.success("Rendez-vous affichés : réglage enregistré");
     } catch (err) { toast.error(err?.response?.data?.detail || "Modification impossible"); charger(); }
   };
@@ -241,13 +243,22 @@ export default function EcransTvSection() {
         {/* Lot 340 : portée des rendez-vous du hall (liste finie = liste déroulante) */}
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs text-slate-600">Rendez-vous affichés (hall)
-            <select value={rdvPortee} onChange={(e) => { setRdvPortee(e.target.value); if (e.target.value !== "compte") setRdvClair(false); }} className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-rdv-portee-saisi">
+            <select value={rdvPortee} onChange={(e) => { setRdvPortee(e.target.value); if (e.target.value === "tous") setRdvClair(false); }} className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-rdv-portee-saisi">
               <option value="tous">Tous les médecins (liste complète)</option>
               <option value="compte">Seulement le compte de cet écran</option>
+              <option value="medecin">Un médecin seul (ex. le DG)</option>
             </select>
           </label>
-          <label className={`flex items-center gap-2 text-sm ${rdvPortee === "compte" ? "text-slate-700" : "text-slate-400"}`}>
-            <input type="checkbox" disabled={rdvPortee !== "compte"} checked={rdvPortee === "compte" && rdvClair} onChange={(e) => setRdvClair(e.target.checked)} data-testid="tv-rdv-clair-saisi" />
+          {rdvPortee === "medecin" && (
+            <label className="text-xs text-slate-600">Médecin
+              <select value={rdvMedecin} onChange={(e) => setRdvMedecin(e.target.value)} className="mt-1 block px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-rdv-medecin-saisi">
+                <option value="">— Médecin —</option>
+                {medecinsProposes.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+          )}
+          <label className={`flex items-center gap-2 text-sm ${rdvPortee !== "tous" ? "text-slate-700" : "text-slate-400"}`}>
+            <input type="checkbox" disabled={rdvPortee === "tous"} checked={rdvPortee !== "tous" && rdvClair} onChange={(e) => setRdvClair(e.target.checked)} data-testid="tv-rdv-clair-saisi" />
             Afficher les patients en clair (sinon anonymisés)
           </label>
         </div>
@@ -292,9 +303,16 @@ export default function EcransTvSection() {
                       <select value={e.rdv_portee || "tous"} onChange={(ev) => changerRdv(e, { rdv_portee: ev.target.value })} className="px-2 py-1 border border-slate-300 rounded-lg text-xs" data-testid="tv-rdv-portee">
                         <option value="tous">Tous les médecins</option>
                         <option value="compte">Compte de l&apos;écran seul</option>
+                        <option value="medecin">Un médecin seul</option>
                       </select>
-                      <label className={`mt-1 flex items-center gap-1 text-xs ${(e.rdv_portee || "tous") === "compte" ? "text-slate-700" : "text-slate-400"}`}>
-                        <input type="checkbox" disabled={(e.rdv_portee || "tous") !== "compte"} checked={Boolean(e.rdv_clair)} onChange={(ev) => changerRdv(e, { rdv_clair: ev.target.checked })} data-testid="tv-rdv-clair" />En clair
+                      {e.rdv_portee === "medecin" && (
+                        <select value={e.rdv_medecin || ""} onChange={(ev) => changerRdv(e, { rdv_medecin: ev.target.value })} className="mt-1 block px-2 py-1 border border-slate-300 rounded-lg text-xs" data-testid="tv-rdv-medecin">
+                          <option value="">— Médecin —</option>
+                          {Array.from(new Set([...medecinsProposes, e.rdv_medecin].filter(Boolean))).map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      )}
+                      <label className={`mt-1 flex items-center gap-1 text-xs ${(e.rdv_portee || "tous") !== "tous" ? "text-slate-700" : "text-slate-400"}`}>
+                        <input type="checkbox" disabled={(e.rdv_portee || "tous") === "tous"} checked={Boolean(e.rdv_clair)} onChange={(ev) => changerRdv(e, { rdv_clair: ev.target.checked })} data-testid="tv-rdv-clair" />En clair
                       </label>
                     </td>
                     <td className="pr-3">
@@ -332,6 +350,9 @@ export default function EcransTvSection() {
             )}
             <input value={l.porte} onChange={(e) => majPorte(i, { porte: e.target.value })} maxLength={30} placeholder="Bureau 3" className="px-3 py-2 border border-slate-300 rounded-lg text-sm" />
             <button type="button" onClick={() => setPortes((ls) => ls.filter((_, k) => k !== i))} title="Retirer" className="p-2 rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+            {/* Lot 341 : adresse e-mail du médecin (jamais affichée sur la télé) : sert à reconnaître ses RDV quand un écran est limité à lui */}
+            <input type="email" value={l.email || ""} onChange={(e) => majPorte(i, { email: e.target.value })} maxLength={120} placeholder="E-mail du médecin (ex. dg@clinique.bf)"
+                   className="sm:col-span-3 px-3 py-1.5 border border-slate-300 rounded-lg text-sm" data-testid="tv-porte-email" />
             {/* Lot 303 : profession et photo du médecin, affichées dans le hall */}
             <div className="sm:col-span-3 flex flex-wrap items-center gap-2 -mt-1 mb-1">
               {l.photo

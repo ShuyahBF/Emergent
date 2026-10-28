@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 
 def test_portee_valide_par_defaut_tous():
-    assert PORTEES_RDV == ("tous", "compte")
+    assert PORTEES_RDV == ("tous", "compte", "medecin")
     assert portee_rdv_valide("compte") == "compte" and portee_rdv_valide("tous") == "tous"
     assert portee_rdv_valide(None) == "tous" and portee_rdv_valide("n'importe quoi") == "tous"
 

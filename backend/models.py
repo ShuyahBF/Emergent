@@ -1311,6 +1311,9 @@ class SettingsUpdate(BaseModel):
     garde_reply_site_url: Optional[str] = None
     garde_reply_image_url: Optional[str] = None
     garde_reply_image_caption: Optional[str] = None
+    # Lot 339 — anti-répétition de la liste des pharmacies de garde : pas de nouvel envoi à un même contact dans les N dernières heures
+    # (défaut 3 ; 0 = toujours renvoyer), SAUF demande explicite « !garde ». Voir `garde_deja_envoyee_recemment`.
+    garde_reply_anti_repetition_heures: Optional[int] = None
 
     # Iter43-fix24ap (2026-06-17) — Monitoring intégrations (Google Cal + Meta WA Webhook).
     # `integration_health_alerts_enabled` : active les alertes WhatsApp (défaut: True).

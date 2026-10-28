@@ -582,6 +582,23 @@ async def autoreply_to_inbound(
     if reactions_helpers.get("try_fuzzy_command_correction") and not text.startswith("!"):
         try:
             fuzzy = await reactions_helpers["try_fuzzy_command_correction"](text)
+            # Lot 339 — « Ok je regarde » était pris pour « !garde » et la liste des pharmacies de garde était renvoyée à chaque message.
+            # Une commande DEVINÉE (sans « ! ») n'est plus exécutée si la liste a déjà été envoyée à ce contact dans le délai réglé
+            # (3 h par défaut) : ni correction, ni liste. Seule la demande explicite « !garde » renvoie la liste.
+            if fuzzy and str(fuzzy.get("cmd") or "").lower().startswith(("garde", "pharmacie")) \
+                    and await garde_deja_envoyee_recemment(db, phone_digits, settings_doc):
+                logger.info("[wa_autoreply] liste de garde déjà envoyée récemment à %s…, commande devinée ignorée (%r)", phone_digits[:5], text[:40])
+                if reactions_helpers.get("log_fuzzy_correction"):
+                    try:
+                        await reactions_helpers["log_fuzzy_correction"](
+                            phone_digits=phone_digits, contact=contact, tenant_id=inbound_doc.get("client_id"), cmd=fuzzy["cmd"],
+                            score=float(fuzzy.get("score") or 0), inbound_text=text,
+                            correction_prefix="(ignorée : la liste de garde a déjà été envoyée récemment, demande non explicite)",
+                            wa_inbound_id=inbound_doc.get("wa_message_id"),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                return {"ok": True, "command": "!garde", "skipped": "garde_deja_envoyee_recemment", "send": None}
             if fuzzy and fuzzy.get("cmd"):
                 # Réécrit le texte en `!cmd` pour que le dispatcher standard réponde
                 # Envoie D'ABORD le message de correction, puis laisse le flux normal
@@ -1607,6 +1624,25 @@ async def autoreply_to_inbound(
 # ====================================================================
 # Iter43-fix22 (2026-06) — Public WA commands : !Garde, !Meteo
 # ====================================================================
+DELAI_GARDE_DEFAUT_HEURES = 3     # lot 339 : délai d'anti-répétition de la liste des pharmacies de garde
+
+
+async def garde_deja_envoyee_recemment(db, phone_digits: str, settings_doc: Dict[str, Any], maintenant: Optional[datetime] = None) -> bool:
+    """Lot 339 — vrai si la liste des pharmacies de garde (commande « !garde ») a déjà été envoyée à ce numéro dans les N dernières heures.
+    N = réglage `garde_reply_anti_repetition_heures` (défaut 3 ; 0 = anti-répétition désactivée). Ne sert qu'aux demandes NON explicites."""
+    try:
+        heures = (settings_doc or {}).get("garde_reply_anti_repetition_heures")
+        heures = DELAI_GARDE_DEFAUT_HEURES if heures in (None, "") else int(heures)
+        if heures <= 0 or not phone_digits:
+            return False
+        depuis = ((maintenant or datetime.now(timezone.utc)) - timedelta(hours=heures)).isoformat()
+        envoye = await db.whatsapp_messages.find_one(
+            {"direction": "outbound", "phone_digits": phone_digits, "command": "!garde", "created_at": {"$gte": depuis}}, {"_id": 1})
+        return envoye is not None
+    except Exception:  # noqa: BLE001 — en cas de doute on répond (jamais de silence à cause d'une erreur de base)
+        return False
+
+
 async def _build_garde_reply(db) -> str:
     """Construit la réponse pour la commande `!Garde` : liste des officines
     de garde de la semaine en cours + message de prompt rétablissement.

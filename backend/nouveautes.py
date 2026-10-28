@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "336", "date": "2026-10-28",
+        "titre": "🧩 Liluvine n'aide plus pour un logiciel absent de l'offre du client",
+        "description": "Cas réel : un contact de l'ÉCOLE DES MÉTIERS (offre : e-KOL) a reçu une aide pour la mise à jour d'Aizenta. L'assistant est désormais borné à l'offre saisie sur la fiche du client : pour un logiciel ou un produit qui n'y figure pas, il répond que ce n'est pas dans l'offre du client chez SAWALI, puis escalade vers un humain. Vérifiez que l'offre de chaque client est complète.",
+        "rubrique": "🧩 Offre du client — Liluvine",
+    },
+    {
         "lot": "335", "date": "2026-10-28",
         "titre": "👁️ Clés clients Loois : afficher la clé en clair (super-admin)",
         "description": "Un bouton « œil » affiche la clé LK- (ou LKS-) d'un client, réservé au super-admin ; chaque affichage est inscrit à l'historique de la clé. La clé est conservée chiffrée avec le secret LOOIS_CLES_CHIFFREMENT (à définir sur Render, hors base) : les clés déjà créées doivent être régénérées une fois pour devenir consultables.",

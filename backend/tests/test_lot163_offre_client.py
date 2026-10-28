@@ -97,6 +97,14 @@ def test_bloc_prompt():
     assert oc.bloc_prompt("ACME", []) == ""
 
 
+def test_bloc_prompt_limite_l_assistance_a_l_offre():
+    """Lot 336 — cas réel (28/10/2026) : le client n'a que e-KOL ; l'assistant a pourtant aidé pour la mise à jour d'un autre logiciel (Aizenta).
+    Le prompt doit borner l'assistance aux logiciels, produits et services de l'offre et faire escalader le reste."""
+    b = oc.bloc_prompt("ECOLE DES METIERS", [{"type": "logiciel", "nom": "e-KOL", "actif": True}])
+    assert "e-KOL" in b and "PÉRIMÈTRE" in b and "QUE sur les logiciels" in b and "n'y figure PAS" in b and "AUCUNE aide technique" in b
+    assert "marqueur d'escalade" in b
+
+
 def test_routes_offre_et_reglages():
     from fastapi import APIRouter, FastAPI
     from fastapi.testclient import TestClient

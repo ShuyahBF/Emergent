@@ -175,7 +175,10 @@ def bloc_prompt(societe: str, offre: List[Dict[str, Any]]) -> str:
         "Le contact qui écrit est lié à ce client. Voici ce que SAWALI lui fournit (logiciels, produits, services) :\n"
         + "\n".join(lignes) + "\n"
         "Règles : ne lui demande JAMAIS quels produits, CRM ou logiciels il utilise avec SAWALI (tu le sais déjà) ; "
-        "adapte tes réponses à cette offre. Analyse son message : si tu ne le comprends pas, pose UNE question précise "
+        "adapte tes réponses à cette offre. PÉRIMÈTRE (lot 336) : tu n'assistes QUE sur les logiciels, produits et services de cette liste. "
+        "Si le message parle d'un logiciel ou d'un produit qui n'y figure PAS, ne donne AUCUNE aide technique dessus et ne pose aucune question "
+        "de diagnostic : réponds simplement que ce logiciel ne figure pas dans son offre chez SAWALI, qu'il peut le vérifier avec son "
+        "responsable, puis escalade vers un humain avec le marqueur d'escalade. Analyse son message : si tu ne le comprends pas, pose UNE question précise "
         "pour obtenir plus de détails ; si, même avec ces détails, la demande dépasse tes moyens, escalade vers un humain "
         "avec le marqueur d'escalade."
     )

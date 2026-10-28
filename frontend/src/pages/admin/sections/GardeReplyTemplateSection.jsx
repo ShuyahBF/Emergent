@@ -119,6 +119,8 @@ export default function GardeReplyTemplateSection() {
   const [siteUrl, setSiteUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageCaption, setImageCaption] = useState("");
+  // Lot 339 — anti-répétition : nombre d'heures pendant lesquelles la liste n'est pas renvoyée à un contact qui ne la redemande pas explicitement
+  const [antiRep, setAntiRep] = useState("3");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -132,6 +134,7 @@ export default function GardeReplyTemplateSection() {
       setSiteUrl(r.data?.garde_reply_site_url || "");
       setImageUrl(r.data?.garde_reply_image_url || "");
       setImageCaption(r.data?.garde_reply_image_caption || "");
+      setAntiRep(String(r.data?.garde_reply_anti_repetition_heures ?? 3));
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur chargement template !garde");
     } finally {
@@ -153,6 +156,7 @@ export default function GardeReplyTemplateSection() {
         garde_reply_site_url: siteUrl || "",
         garde_reply_image_url: imageUrl || "",
         garde_reply_image_caption: imageCaption || "",
+        garde_reply_anti_repetition_heures: Number(antiRep),
       });
       toast.success("Template !garde enregistré");
     } catch (err) {
@@ -326,6 +330,25 @@ export default function GardeReplyTemplateSection() {
               className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none text-sm"
               data-testid="garde-reply-image-caption-input"
             />
+          </div>
+          {/* Lot 339 — liste finie = liste déroulante */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1" htmlFor="garde-anti-repetition">
+              Ne pas renvoyer la liste à un contact qui l&apos;a déjà reçue depuis…
+            </label>
+            <select
+              id="garde-anti-repetition"
+              value={antiRep}
+              onChange={(e) => setAntiRep(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none text-sm"
+              data-testid="garde-anti-repetition-select"
+            >
+              <option value="0">Toujours renvoyer (désactivé)</option>
+              {[1, 2, 3, 6, 12, 24].map((h) => <option key={h} value={String(h)}>{h} heure{h > 1 ? "s" : ""}{h === 3 ? " (recommandé)" : ""}</option>)}
+            </select>
+            <p className="text-[10px] text-slate-500 italic mt-1">
+              S&apos;applique seulement quand Liluvine « devine » la demande (ex. « Ok je regarde » pris pour « !garde »). La commande explicite « !garde » renvoie toujours la liste.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button

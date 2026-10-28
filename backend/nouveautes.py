@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "339", "date": "2026-10-28",
+        "titre": "🏥 Liluvine ne renvoie plus la liste de garde à un simple « Ok je regarde »",
+        "description": "Si un contact a déjà reçu la liste des pharmacies de garde dans les 3 dernières heures, une demande seulement devinée (sans « !garde ») ne la fait plus renvoyer. La commande explicite « !garde » la renvoie toujours ; le délai se règle dans la rubrique.",
+        "rubrique": "🏥 S058c — WhatsApp !garde : Template de réponse personnalisable",
+    },
+    {
         "lot": "338", "date": "2026-10-28",
         "titre": "🎓 Portail e-Kol : le contrat du client affiché sous le nom de l'école",
         "description": "Le portail e-Kol demande à SAWALI le contrat du compte client lié à la clé de l'école (n° de contrat, état, échéance, jamais de montant) et l'affiche en rouge sous le nom de l'école. Il suffit que la clé ait son compte client lié.",

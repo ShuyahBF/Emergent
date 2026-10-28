@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "335", "date": "2026-10-28",
+        "titre": "👁️ Clés clients Loois : afficher la clé en clair (super-admin)",
+        "description": "Un bouton « œil » affiche la clé LK- (ou LKS-) d'un client, réservé au super-admin ; chaque affichage est inscrit à l'historique de la clé. La clé est conservée chiffrée avec le secret LOOIS_CLES_CHIFFREMENT (à définir sur Render, hors base) : les clés déjà créées doivent être régénérées une fois pour devenir consultables.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "334", "date": "2026-10-28",
         "titre": "🔑 Clés clients Loois : choisir le compte client (contrat) de chaque clé",
         "description": "Une clé sans compte client lié donnait « contrat non lié » : Loois anonymisait ses listes même si le contrat était à jour. Chaque clé a maintenant une liste déroulante « Compte client » et une colonne « Contrat » (à jour, expiré, non lié…). Liez la clé de chaque école : Loois relit le contrat dans les 10 minutes.",

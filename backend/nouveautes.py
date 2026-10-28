@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "334", "date": "2026-10-28",
+        "titre": "🔑 Clés clients Loois : choisir le compte client (contrat) de chaque clé",
+        "description": "Une clé sans compte client lié donnait « contrat non lié » : Loois anonymisait ses listes même si le contrat était à jour. Chaque clé a maintenant une liste déroulante « Compte client » et une colonne « Contrat » (à jour, expiré, non lié…). Liez la clé de chaque école : Loois relit le contrat dans les 10 minutes.",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "333", "date": "2026-10-27",
         "titre": "🎓 Portail e-Kol : suivi d'utilisation vérifié avec la clé client Loois",
         "description": "Le portail e-Kol demande désormais à SAWALI de vérifier la clé client Loois (celle du support) pour accepter le suivi d'utilisation remonté par les postes : aucune clé supplémentaire à saisir. La route signée « verifier-cle » renvoie seulement le code du client et ses applications ; clé commune, révoquée ou inconnue = refusée.",

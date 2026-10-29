@@ -2548,10 +2548,28 @@ async def whatsapp_webhook_incoming(request: Request):
                     if re.match(r"^[!/]\s*formulaires?\b", (text_body or "").strip(), re.IGNORECASE) \
                             and mtype in ("text", "document", "image") and "_liluvine_formulaire" in globals():
                         try:
+                            # Lot 360 — « !formulaire » envoyé en TEXTE SEUL juste APRÈS le document (deux messages au lieu d'un
+                            # document avec la légende) : on reprend le dernier document / la dernière photo reçu(e) de ce numéro
+                            # dans les 10 dernières minutes, au lieu de répondre seulement le mode d'emploi.
+                            _mt_cmd, _mi_cmd, _nom_cmd = mtype, (media_info if mtype != "text" else None), (msg.get("document") or {}).get("filename")
+                            if mtype == "text" and re.match(r"^[!/]\s*formulaires?\s*$", (text_body or "").strip(), re.IGNORECASE):
+                                _prec = await db.whatsapp_messages.find_one(
+                                    {"direction": "inbound", "phone_digits": digits_only, "message_type": {"$in": ["document", "image"]},
+                                     "media_url": {"$nin": [None, ""]}, "formulaire_traite": {"$ne": True},
+                                     "created_at": {"$gte": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()}},
+                                    {"_id": 0, "id": 1, "message_type": 1, "media_url": 1, "media_mime_type": 1, "media_filename": 1,
+                                     "media_id": 1, "media_kind": 1}, sort=[("created_at", -1)])
+                                if _prec:
+                                    _mt_cmd = _prec["message_type"]
+                                    _mi_cmd = {"stored_name": str(_prec["media_url"]).rstrip("/").rsplit("/", 1)[-1],
+                                               "mime_type": _prec.get("media_mime_type"), "filename": _prec.get("media_filename"),
+                                               "file_id": _prec.get("media_id"), "public_url": _prec["media_url"], "kind": _prec.get("media_kind")}
+                                    _nom_cmd = _prec.get("media_filename")
+                                    await db.whatsapp_messages.update_one({"id": _prec["id"]}, {"$set": {"formulaire_traite": True}})
                             await _liluvine_formulaire["commande"](
-                                from_num=from_num, profile_name=profile_name, mtype=mtype,
-                                media_info=media_info if mtype != "text" else None,
-                                nom_fichier=(msg.get("document") or {}).get("filename"),
+                                from_num=from_num, profile_name=profile_name, mtype=_mt_cmd,
+                                media_info=_mi_cmd,
+                                nom_fichier=_nom_cmd,
                                 compte_par_defaut=client_scope, texte=text_body)
                         except Exception:  # noqa: BLE001
                             logger.warning("[!formulaire] commande en échec", exc_info=True)

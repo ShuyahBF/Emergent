@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "360", "date": "2026-10-29",
+        "titre": "📝 !formulaire : le document peut être envoyé avant la commande",
+        "description": "Si vous envoyez d'abord le document (ou la photo) puis « !formulaire » en texte, Liluvine reprend ce document (10 minutes au plus) au lieu de ne répondre que le mode d'emploi.",
+        "rubrique": "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)",
+    },
+    {
         "lot": "359", "date": "2026-10-29",
         "titre": "↔️ Nombres alignés à droite (alertes WhatsApp et PDF)",
         "description": "Dans l'historique par ligne et dans les PDF (échecs, envois), les nombres et les coûts sont alignés à droite.",

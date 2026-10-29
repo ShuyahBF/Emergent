@@ -90,7 +90,7 @@ export default function AlertesPlateformesSection() {
         </div>
         {histo.waba_id && <p className="text-xs text-slate-600">Compte WhatsApp Business (WABA) : <strong className="font-mono">{histo.waba_id}</strong> — le moyen de paiement se règle pour tout le compte, donc une alerte de paiement touche toutes les lignes.</p>}
         {histo.lignes.map((w) => (
-          <div key={w.cle} className="rounded-md border border-slate-200 p-2 text-xs space-y-1" data-testid={`ligne-${w.cle}`}>
+          <div key={w.cle} className="rounded-xl border border-slate-200 p-2 text-xs space-y-1" data-testid={`ligne-${w.cle}`}>
             <div className="flex flex-wrap items-center gap-2">
               <strong className="text-sm">{w.libelle}{w.principale ? " (principale)" : ""}</strong>
               <span className="text-slate-600">{w.telephone || ""} · ID du numéro : <span className="font-mono">{w.phone_number_id || "—"}</span></span>

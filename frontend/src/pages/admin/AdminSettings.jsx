@@ -1489,27 +1489,37 @@ export default function AdminSettings() {
 
       {/* Lot 352 — alertes des plateformes (Meta/WhatsApp) pour l'administrateur seul + historique par WABA ID en PDF */}
       <Filterable title="🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne" anchorId="s-alertes-plateformes">
-        <AlertesPlateformesSection />
+        <Cadre title="🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne">
+          <AlertesPlateformesSection />
+        </Cadre>
       </Filterable>
 
       {/* Lot 348 — recalcul de la base de connaissances avec le modèle de Qdrant (copie, puis bascule réversible) */}
       <Filterable title="🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant" anchorId="s-recalcul-kb">
-        <RecalculKbSection />
+        <Cadre title="🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant">
+          <RecalculKbSection />
+        </Cadre>
       </Filterable>
 
       {/* Lot 344 — mémoire des conversations WhatsApp (Qdrant) : recherche, historique pour l'IA, enrichissement validé de la base */}
       <Filterable title="🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base" anchorId="s-memoire-conversations">
-        <MemoireConversationsSection />
+        <Cadre title="🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base">
+          <MemoireConversationsSection />
+        </Cadre>
       </Filterable>
 
       {/* Lot 343 — l'agent IA laisse la main aux humains : délai de 15 s, pas d'intrusion dans une conversation humaine en cours */}
       <Filterable title="🤝 Réponses automatiques : laisser la main aux humains" anchorId="s-main-humaine">
-        <MainHumaineSection />
+        <Cadre title="🤝 Réponses automatiques : laisser la main aux humains">
+          <MainHumaineSection />
+        </Cadre>
       </Filterable>
 
       {/* Lot 361 — moyens de paiement des formulaires et sondages (PawaPay par défaut, opérateurs, PI-SPI) */}
       <Filterable title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)" anchorId="s-paiement-formulaires" category="comms">
-        <PaiementFormulairesSection />
+        <Cadre title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)">
+          <PaiementFormulairesSection />
+        </Cadre>
       </Filterable>
 
       {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}
@@ -7285,6 +7295,14 @@ const CorpsSection = ({ icon: Icon, title, children }) => (
       {Icon && <Icon className="h-4 w-4 text-sawali-blue" />}
       <h2 className="font-display font-semibold">{title}</h2>
     </div>
+    {children}
+  </div>
+);
+// Lot 363 — cadre des rubriques ajoutées depuis le lot 343 : mêmes classes que « Section » (rounded-xl + border-slate), donc encadrées
+// du mince filet de la règle « cartes » (Paramètres → Cadre des cartes), avec le titre de la rubrique. Pas de second Filterable.
+const Cadre = ({ title, children }) => (
+  <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3" data-section-title={title}>
+    <h2 className="font-display font-semibold">{title}</h2>
     {children}
   </div>
 );

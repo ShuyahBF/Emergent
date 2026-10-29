@@ -1081,6 +1081,15 @@ function PortalLayoutInner({ admin = false }) {
           )}
         </div>
 
+        {/* Lot 365 — bouton « Paramètres » (roue dentée) ÉPINGLÉ en bas de la barre latérale pour l'Administrateur / Superviseur :
+            il était le DERNIER lien de la longue liste défilante et sortait de l'écran dès qu'on quittait la page des Paramètres. */}
+        {isAdminOrSup && (
+          <NavLink to="/admin/settings" onClick={() => setOpen(false)}
+            className={({ isActive }) => `sidebar-link w-full mt-2 ${isActive ? "active" : ""}`} data-testid="parametres-epingle">
+            <Settings className="h-4 w-4" />
+            Paramètres
+          </NavLink>
+        )}
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"

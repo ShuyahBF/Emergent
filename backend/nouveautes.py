@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "346", "date": "2026-10-29",
+        "titre": "🧠 Mémoire des conversations : moins de bruit, extraits plus pertinents pour l'IA",
+        "description": "Les messages automatiques (sondages, modèles Meta, campagnes) ne sont plus indexés, et l'IA ne reçoit que les extraits réellement proches du sujet (seuil adapté au modèle de recherche).",
+        "rubrique": "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base",
+    },
+    {
         "lot": "345", "date": "2026-10-29",
         "titre": "🧠 Mémoire des conversations : recherche calculée par Qdrant (plus de limite de mémoire)",
         "description": "Les vecteurs de la mémoire des conversations sont calculés par Qdrant Cloud Inference (modèle multilingue gratuit) : la recherche fonctionne sur le serveur actuel de 512 Mo, sans passer à une offre supérieure.",

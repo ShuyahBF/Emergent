@@ -56,6 +56,14 @@ PDF_MAX_BLOCS = 40                     # un PDF géant n'occupe pas tout l'espac
 MODELE_INFERENCE = "intfloat/multilingual-e5-small"   # gratuit chez Qdrant Cloud Inference ; 384 dimensions
 DIMENSION = 384
 _CLIENTS_INFERENCE: Dict[Tuple[str, str], Any] = {}
+# Lot 346 — qualité. (1) Messages AUTOMATIQUES envoyés depuis un compte de l'équipe (sondages, modèles Meta, campagnes, formulaires…) :
+# ils portent une de ces étiquettes et ne disent rien d'utile sur le sujet d'une conversation → jamais indexés.
+MARQUEURS_AUTOMATIQUES = ("survey_id", "template_name", "campaign_id", "campagne_id", "automation_id", "form_id", "formulaire_id",
+                          "broadcast_id", "barriere_auto", "relance_auto")
+# (2) Seuils de pertinence pour l'IA. Le modèle E5 donne des scores de similarité SERRÉS : des textes sans rapport obtiennent
+# déjà ~0,78 à 0,82 ; seuls les extraits proches du sujet dépassent ~0,84. Un seuil plus bas injecterait du bruit dans les réponses.
+SEUIL_MEME_NUMERO = 0.84
+SEUIL_REPONSES_EQUIPE = 0.86
 _NS = uuid.UUID("5c0e3f3e-7a54-4f1e-9a52-1c6f2d9a0e44")   # espace de noms des identifiants de points
 
 
@@ -85,6 +93,8 @@ def nature_du_message(m: Dict[str, Any], images_actives: bool = True) -> Optiona
     Ignorés : vocaux et audios ; réponses automatiques / de l'IA ; messages retenus par la barrière ; sortants sans
     expéditeur humain ; messages sans contenu."""
     if m.get("barriere_retenu") or m.get("auto_reply") or m.get("ai_generated"):
+        return None
+    if any(m.get(c) for c in MARQUEURS_AUTOMATIQUES):       # message automatique (sondage, modèle, campagne…)
         return None
     sortant = m.get("direction") == "outbound"
     if sortant and not m.get("sender_id"):
@@ -387,7 +397,7 @@ async def contexte_pour_ia(db, *, phone_digits: str, client_id: Optional[str], r
         if propres:
             parts.append("[HISTORIQUE DE CE CONTACT — extraits d'anciens échanges, à utiliser seulement s'ils sont pertinents]")
         for h in propres:
-            if h["score"] < 0.35:
+            if h["score"] < SEUIL_MEME_NUMERO:
                 continue
             ligne = f"• {(h.get('created_at') or '')[:10]} — {'client' if h.get('direction') == 'inbound' else 'équipe'} : {(h.get('text') or '')[:500]}"
             if total + len(ligne) > max_chars:
@@ -396,7 +406,7 @@ async def contexte_pour_ia(db, *, phone_digits: str, client_id: Optional[str], r
             total += len(ligne)
         if r["ia_reponses_equipe"] and client_id:
             autres = await asyncio.wait_for(rechercher(db, requete=requete, client_id=client_id, direction="outbound", top_k=4), timeout=4)
-            retenus = [h for h in autres if h["score"] >= 0.5 and h.get("phone_digits") != phone_digits]
+            retenus = [h for h in autres if h["score"] >= SEUIL_REPONSES_EQUIPE and h.get("phone_digits") != phone_digits]
             if retenus:
                 parts.append("[RÉPONSES DÉJÀ DONNÉES PAR L'ÉQUIPE SUR CE SUJET — anonymes ; ne cite jamais de nom, numéro ni donnée personnelle]")
                 for h in retenus:

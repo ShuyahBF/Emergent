@@ -174,3 +174,16 @@ def test_indexation_de_bout_en_bout_avec_qdrant_en_memoire(monkeypatch):
         assert len(c.get("/api/admin/wa-memoire/candidates?statut=valide").json()["items"]) == 1
 
     asyncio.run(validation())
+
+
+def test_messages_automatiques_jamais_indexes():
+    """Lot 346 : sondages, modèles Meta, campagnes… envoyés depuis un compte de l'équipe ne sont pas des échanges à retrouver."""
+    humain = {"direction": "outbound", "phone_digits": "22670000000", "sender_id": "u1", "message_type": "text", "body": "Merci de répondre au sondage"}
+    assert W.nature_du_message(humain) == "texte"
+    for marqueur in ("survey_id", "template_name", "campaign_id", "automation_id", "form_id"):
+        assert W.nature_du_message({**humain, marqueur: "x"}) is None, marqueur
+    assert W.nature_du_message({**humain, "template_name": None}) == "texte"       # champ présent mais vide : message libre
+
+
+def test_seuils_de_pertinence_adaptes_au_modele_e5():
+    assert W.SEUIL_MEME_NUMERO >= 0.83 and W.SEUIL_REPONSES_EQUIPE > W.SEUIL_MEME_NUMERO

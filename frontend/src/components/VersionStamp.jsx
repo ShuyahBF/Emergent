@@ -9,7 +9,7 @@ import { libelleVersion } from "@/components/EtatConnexion";
   by the super-admin in /admin/settings → "Version stamp".
 */
 // Lot 365 : tailles réduites d'environ 1 px (« diminuer légèrement le texte » en bas de la barre latérale)
-const SIZE_PX = { xs: 9, sm: 11, md: 13, lg: 15 };
+const SIZE_PX = { xs: 7, sm: 9, md: 11, lg: 13 };   // lot 366 : encore 2 px de moins
 
 // Lot 79.13 — sur téléphone, le libellé flottant (position fixe en bas à gauche) passait PAR-DESSUS le contenu
 // (tableaux, boutons). Deux variantes :

@@ -978,7 +978,9 @@ function PortalLayoutInner({ admin = false }) {
             )}
             {/* Lot 176 — « Paramètres » : un simple pictogramme juste après la bulle de notification (gain de place) ;
                 présent seulement si le profil y a droit (le lien reste dans `links`, filtré par rôle comme avant). */}
-            {links.some((l) => l.to === "/admin/settings") && (
+            {/* Lot 366 : l'Administrateur / Superviseur garde ce pictogramme AUSSI dans la barre du portail (/portal/…, p. ex. l'éditeur
+                de formulaire) : il disparaissait car `links` y est la liste du CLIENT, sans le lien /admin/settings. */}
+            {(isAdminOrSup || links.some((l) => l.to === "/admin/settings")) && (
               <NavLink
                 to="/admin/settings"
                 onClick={() => setOpen(false)}
@@ -1081,15 +1083,6 @@ function PortalLayoutInner({ admin = false }) {
           )}
         </div>
 
-        {/* Lot 365 — bouton « Paramètres » (roue dentée) ÉPINGLÉ en bas de la barre latérale pour l'Administrateur / Superviseur :
-            il était le DERNIER lien de la longue liste défilante et sortait de l'écran dès qu'on quittait la page des Paramètres. */}
-        {isAdminOrSup && (
-          <NavLink to="/admin/settings" onClick={() => setOpen(false)}
-            className={({ isActive }) => `sidebar-link w-full mt-2 ${isActive ? "active" : ""}`} data-testid="parametres-epingle">
-            <Settings className="h-4 w-4" />
-            Paramètres
-          </NavLink>
-        )}
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"

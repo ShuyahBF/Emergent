@@ -1008,6 +1008,10 @@ class SettingsUpdate(BaseModel):
     wa_principal_telephone: Optional[str] = None     # numéro affiché de la ligne principale
     wa_numeros: Optional[List[Dict[str, Any]]] = None  # lignes supplémentaires [{id, libelle, telephone, vip, prospects, complement_prompt}]
     wa_seuil_vip: Optional[float] = None             # montant de contrat à partir duquel le client passe sur la ligne VIP
+    # Lot 343 — laisser la main aux humains avant la réponse de l'IA (voir routes/wa_main_humaine.py)
+    wa_main_humaine_active: Optional[bool] = None
+    wa_main_humaine_delai_s: Optional[int] = None
+    wa_main_humaine_fenetre_min: Optional[int] = None
     # Lot 63 — barrière anti-rafale (voir routes/barriere_wa.py)
     wa_barriere_active: Optional[bool] = None
     wa_barriere_seuil: Optional[int] = None

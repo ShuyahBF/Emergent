@@ -2824,13 +2824,20 @@ async def whatsapp_webhook_incoming(request: Request):
                         try:
                             from routes.liluvine_wa_autoreply import autoreply_to_inbound
                             s_root = await db.settings.find_one({"_id": "global"}) or {}
-                            ar_result = await autoreply_to_inbound(
-                                db,
-                                inbound_doc=doc,
-                                contact=contact,
-                                settings_doc=s_root,
-                                wa_send_text=_wa_send_text,
-                                wa_send_interactive_button=_wa_send_interactive_button,
+                            # Lot 343 — laisser la main aux humains : la réponse de l'IA part en arrière-plan au bout de 15 s,
+                            # seulement si aucun humain n'a répondu et sans se mêler d'une conversation humaine en cours
+                            # (sauf si plus aucun humain n'est présent). Les commandes « ! » / « / » restent immédiates.
+                            from routes.wa_main_humaine import appliquer as _main_humaine
+                            ar_result = await _main_humaine(
+                                db, inbound_doc=doc, settings_doc=s_root, scope_uid=scope_for_msg,
+                                executer=lambda: autoreply_to_inbound(
+                                    db,
+                                    inbound_doc=doc,
+                                    contact=contact,
+                                    settings_doc=s_root,
+                                    wa_send_text=_wa_send_text,
+                                    wa_send_interactive_button=_wa_send_interactive_button,
+                                ),
                             )
                             if ar_result.get("ok"):
                                 logger.info("[wa_autoreply] sent for %s (cmd=%s, msg_id=%s)",

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "367"
-LOT_LIBELLE = "Paramètres › Paiement PawaPay : l'URL de callback des Payouts s'affiche (avec bouton Copier) à côté de Deposits et Refunds."
+LOT = "368"
+LOT_LIBELLE = "Retour des réponses : les réponses aux formulaires et sondages transmis à une plateforme (ALBARKA…) reviennent dans SAWALI, sous le nom de la plateforme (badge et filtre dans le tableau des réponses)."

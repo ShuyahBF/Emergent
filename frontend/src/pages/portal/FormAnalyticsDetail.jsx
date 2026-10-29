@@ -351,6 +351,7 @@ export default function FormAnalyticsDetail() {
 function SubmissionsTable({ fid, dateFrom, dateTo }) {
   const [data, setData] = React.useState({ columns: [], rows: [] });
   const [loading, setLoading] = React.useState(true);
+  const [source, setSource] = React.useState("");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -376,7 +377,10 @@ function SubmissionsTable({ fid, dateFrom, dateTo }) {
     }
   }, [loading]);
 
-  const { columns = [], rows = [] } = data;
+  const { columns = [] } = data;
+  // Lot 368 — « catégorie » = nom de la plateforme dont viennent les réponses (ex. ALBARKA) ; "" = toutes, "__direct" = reçues directement par SAWALI
+  const plateformes = [...new Set((data.rows || []).map((r) => r.plateforme_nom).filter(Boolean))];
+  const rows = (data.rows || []).filter((r) => !source || (source === "__direct" ? !r.plateforme_nom : r.plateforme_nom === source));
   if (loading) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-400 text-sm">Chargement du tableau des soumissions…</div>;
 
   return (
@@ -386,7 +390,18 @@ function SubmissionsTable({ fid, dateFrom, dateTo }) {
           <h3 className="font-display font-semibold text-sm">Tableau des soumissions</h3>
           <p className="text-[10px] text-slate-500">Vue brute — chaque ligne = 1 soumission, chaque colonne = 1 champ du formulaire</p>
         </div>
-        <span className="rounded-full bg-sky-100 text-sky-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums" data-testid="submissions-table-count">{rows.length} ligne(s)</span>
+        <div className="flex items-center gap-2">
+          {/* Lot 368 : liste déroulante des sources (règle : liste finie = liste déroulante) */}
+          {plateformes.length > 0 && (
+            <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source des réponses" data-testid="submissions-source"
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+              <option value="">Toutes les sources</option>
+              <option value="__direct">Reçues directement</option>
+              {plateformes.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          <span className="rounded-full bg-sky-100 text-sky-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums" data-testid="submissions-table-count">{rows.length} ligne(s)</span>
+        </div>
       </div>
       {rows.length === 0 ? (
         <p className="px-4 py-8 text-center text-slate-400 text-sm italic">Aucune soumission pour cette période.</p>
@@ -417,6 +432,13 @@ function SubmissionsTable({ fid, dateFrom, dateTo }) {
                       <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-violet-100 text-violet-800 px-1.5 py-0.5 text-[10px] font-semibold"
                         title="Réponse recueillie par Liluvine pendant un appel (agenda d'appels)" data-testid={`submission-appel-${r.id}`}>
                         📞 Appel
+                      </span>
+                    )}
+                    {/* Lot 368 — réponse renvoyée par une plateforme : son nom est la catégorie */}
+                    {r.plateforme_nom && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-indigo-100 text-indigo-800 px-1.5 py-0.5 text-[10px] font-semibold"
+                        title={`Réponse reçue sur la plateforme ${r.plateforme_nom}`} data-testid={`submission-plateforme-${r.id}`}>
+                        🌐 {r.plateforme_nom}
                       </span>
                     )}
                     {/* Lot 71 — champ obligatoire manquant : réponse incomplète */}

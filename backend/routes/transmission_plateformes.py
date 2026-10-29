@@ -4,6 +4,11 @@
 # que le reste des échanges avec les plateformes : X-Timestamp + X-Signature = HMAC-SHA256(secret de l'émetteur, "<ts>.<corps>"))
 # à l'adresse « url_formulaires » de l'émetteur : il « tombe » dans l'espace Formulaires / Sondages de la plateforme.
 #
+# Lot 368 — RETOUR DES RÉPONSES : la plateforme renvoie à SAWALI les réponses reçues à un document qu'elle a reçu
+# (POST signé /api/webhook/plateforme-reponse-formulaire). Elles sont rangées dans la COPIE conservée par SAWALI (réponses du formulaire ou
+# du sondage), marquées du nom de la plateforme (« ALBARKA ») : badge et filtre dans le tableau des réponses. Idempotent (même réponse = jamais
+# de doublon) ; seule une plateforme à qui le document a été transmis peut y déposer des réponses.
+#
 # Une COPIE reste dans SAWALI (le document n'est jamais déplacé) avec l'HISTORIQUE DES TRANSMISSIONS (champ `transmissions` du document :
 # plateforme, date, résultat, auteur). Chaque transmission est aussi inscrite au journal `liluvine_transmissions` (mode « formulaire » /
 # « sondage », ligne de la plateforme) : elle est ainsi comptée dans « Autres travaux IA » de l'impression des envois par ligne
@@ -19,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.transmission_plateformes")
@@ -96,6 +101,62 @@ async def transmettre(db, type_doc: str, doc: Dict[str, Any], emetteur: Dict[str
     return entree
 
 
+REPONSE_OCTETS_MAX = 100_000             # taille du JSON de réponses acceptée (une réponse plus grosse est refusée, jamais tronquée)
+
+
+def _valeur_sure(v: Any) -> Any:
+    """Valeur d'une réponse réduite à du texte, des nombres, des booléens ou des listes de ces valeurs (fonction pure)."""
+    if isinstance(v, (str, int, float, bool)) or v is None:
+        return v
+    if isinstance(v, list):
+        return [_valeur_sure(x) for x in v[:100] if not isinstance(x, (dict, list))]
+    return str(v)[:500]
+
+
+async def recevoir_reponse(db, emetteur: Dict[str, Any], corps: Dict[str, Any]) -> Dict[str, Any]:
+    """Range UNE réponse venue d'une plateforme dans la copie du formulaire / sondage. Lève HTTPException (422 / 403) si refusée.
+    Renvoie {ok, deja}."""
+    type_doc = str(corps.get("type") or "formulaire")
+    id_doc = str(corps.get("id_sawali") or "").strip()
+    rep_id = str(corps.get("reponse_id") or "").strip()[:80]
+    data = corps.get("data")
+    if type_doc not in TYPES or not id_doc or not rep_id or not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="type, id_sawali, reponse_id et data (objet) requis")
+    if len(json.dumps(data, ensure_ascii=False, default=str).encode()) > REPONSE_OCTETS_MAX:
+        raise HTTPException(status_code=422, detail="réponse trop volumineuse")
+    collection = TYPES[type_doc][0]
+    doc = await db[collection].find_one({"id": id_doc}, {"_id": 0, "id": 1, "client_id": 1, "transmissions": 1})
+    if not doc:
+        raise HTTPException(status_code=422, detail="document inconnu")
+    code = emetteur["code"]
+    if not any(x.get("plateforme") == code and x.get("ok") for x in doc.get("transmissions") or []):
+        raise HTTPException(status_code=403, detail="ce document n'a pas été transmis à cette plateforme")
+    propre = {str(k)[:80]: _valeur_sure(v) for k, v in list(data.items())[:300]}
+    nom_plateforme = emetteur.get("nom") or code.upper()
+    ident = f"plat-{code}-{rep_id}"
+    rep = corps.get("repondant") if isinstance(corps.get("repondant"), dict) else {}
+    nom = str(rep.get("nom") or "").strip()[:120] or None
+    email = str(rep.get("email") or "").strip()[:160] or None
+    maintenant = _now()
+    marque = {"via": "plateforme", "plateforme": code, "plateforme_nom": nom_plateforme}
+    if type_doc == "formulaire":
+        # user_id propre à la réponse : contourne l'index unique (form_id, user_id) et sert d'identifiant d'idempotence
+        if await db.form_submissions.find_one({"form_id": id_doc, "user_id": ident}, {"_id": 1}):
+            return {"ok": True, "deja": True}
+        await db.form_submissions.insert_one({
+            "id": ident, "form_id": id_doc, "client_id": doc.get("client_id"), "user_id": ident,
+            "user_label": nom or email or nom_plateforme, "data": propre, "geo": None, "respondent_email": email,
+            "anonymous": False, "created_at": str(corps.get("recu_le") or maintenant), "updated_at": maintenant, "revisions_count": 1, **marque})
+        await db.forms.update_one({"id": id_doc}, {"$inc": {"uses_count": 1}})
+    else:
+        if await db.wa_survey_responses.find_one({"id": ident}, {"_id": 1}):
+            return {"ok": True, "deja": True}
+        await db.wa_survey_responses.insert_one({
+            "id": ident, "survey_id": id_doc, "invite_id": None, "contact_id": None, "answers": propre,
+            "created_at": str(corps.get("recu_le") or maintenant), "updated_at": maintenant, "revisions": 0, **marque})
+    return {"ok": True, "deja": False}
+
+
 class Demande(BaseModel):
     plateformes: List[str] = Field(min_length=1, max_length=20)      # codes des émetteurs
 
@@ -136,6 +197,26 @@ def make_router(*, db, get_current_user, is_admin_like):
                 continue
             resultats.append(await transmettre(db, type_doc, doc, emetteur, user.get("email") or user["id"]))
         return {"ok": all(r["ok"] for r in resultats), "resultats": resultats}
+
+    @router.post("/webhook/plateforme-reponse-formulaire", tags=["Plateformes — retour des réponses"])
+    async def reponse_de_plateforme(request: Request):
+        """Réponse à un formulaire / sondage transmis, renvoyée par la plateforme (POST signé X-Emetteur / X-Timestamp / X-Signature)."""
+        from routes.contrats_plateformes import signature_valide
+        code = (request.headers.get("X-Emetteur") or "").strip().lower()
+        emetteur = await db.liluvine_emetteurs.find_one({"code": code}, {"_id": 0}) if code else None
+        if not emetteur or not emetteur.get("actif", True):
+            raise HTTPException(status_code=401, detail="Émetteur inconnu ou désactivé")
+        brut = await request.body()
+        if not signature_valide(emetteur.get("secret") or "", request.headers.get("X-Timestamp") or "", brut,
+                                request.headers.get("X-Signature") or "", datetime.now(timezone.utc)):
+            raise HTTPException(status_code=401, detail="Signature refusée")
+        try:
+            corps = json.loads(brut.decode("utf-8") or "{}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Corps JSON illisible")
+        if not isinstance(corps, dict):
+            raise HTTPException(status_code=400, detail="Corps JSON attendu")
+        return await recevoir_reponse(db, emetteur, corps)
 
     @router.get("/me/transmissions/{type_doc}/{doc_id}")
     async def historique(type_doc: str, doc_id: str, user: dict = Depends(get_current_user)):

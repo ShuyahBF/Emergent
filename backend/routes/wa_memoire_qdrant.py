@@ -23,6 +23,11 @@
 # n'entre dans la base sans la VALIDATION du propriétaire (relecture, correction possible, choix de la collection) : une réponse humaine
 # peut contenir une donnée de santé ou une erreur, et l'IA la répéterait à d'autres clients.
 #
+# CALCUL DES VECTEURS (lot 345) : par QDRANT CLOUD INFERENCE (modèle gratuit « intfloat/multilingual-e5-small », 384 dimensions,
+# 512 jetons par requête, hébergé aux États-Unis comme le cluster) : le serveur Render n'a plus aucun modèle à charger (offre Starter
+# de 512 Mo suffisante). Les textes sont préfixés « passage: » (indexation) et « query: » (recherche), comme l'exige la famille E5.
+# Cette collection utilise donc SON modèle ; les collections de la base de connaissances gardent le leur (vecteurs non comparables).
+#
 # CONFIDENTIALITÉ — ces échanges contiennent des données de santé / personnelles :
 #   - fonction désactivée tant que le propriétaire ne l'active pas (Paramètres) ;
 #   - recherche humaine réservée aux administrateurs et superviseurs ;
@@ -48,6 +53,9 @@ TAILLE_LOT = 40                        # messages lus par passage
 PDF_MAX_OCTETS = 15 * 1024 * 1024
 IMAGE_MAX_OCTETS = 5 * 1024 * 1024
 PDF_MAX_BLOCS = 40                     # un PDF géant n'occupe pas tout l'espace
+MODELE_INFERENCE = "intfloat/multilingual-e5-small"   # gratuit chez Qdrant Cloud Inference ; 384 dimensions
+DIMENSION = 384
+_CLIENTS_INFERENCE: Dict[Tuple[str, str], Any] = {}
 _NS = uuid.UUID("5c0e3f3e-7a54-4f1e-9a52-1c6f2d9a0e44")   # espace de noms des identifiants de points
 
 
@@ -159,6 +167,26 @@ def est_reponse_utile(question: str, reponse: str) -> bool:
 
 # ───────────────────────────── accès Qdrant ─────────────────────────────
 
+def vecteur_document(texte: str, requete: bool = False):
+    """Texte à faire vectoriser par Qdrant Cloud Inference (préfixe E5 : « query: » pour une recherche, « passage: » sinon)."""
+    from qdrant_client.models import Document
+    return Document(text=("query: " if requete else "passage: ") + (texte or "")[:2000], model=MODELE_INFERENCE)
+
+
+def _creer_client_inference(url: str, cle: str):
+    from qdrant_client import QdrantClient
+    if (url, cle) not in _CLIENTS_INFERENCE:
+        _CLIENTS_INFERENCE[(url, cle)] = QdrantClient(url=url, api_key=cle, timeout=30, cloud_inference=True)
+    return _CLIENTS_INFERENCE[(url, cle)]
+
+
+async def _client_inference(db):
+    """Client Qdrant avec le calcul des vecteurs chez Qdrant (création dans un fil : l'import de qdrant_client est lent)."""
+    from routes.qdrant_rag import _resolve_credentials
+    url, cle = await _resolve_credentials(db)
+    return await asyncio.to_thread(_creer_client_inference, url, cle)
+
+
 async def _etat(db) -> Dict[str, Any]:
     return await db.settings.find_one({"_id": ETAT_ID}) or {}
 
@@ -166,13 +194,11 @@ async def _etat(db) -> Dict[str, Any]:
 async def _preparer_collection(db):
     """Crée la collection (si besoin) SANS la marquer « enabled_for_liluvine » : elle ne doit jamais alimenter la base
     de connaissances générale (qui mélangerait les numéros). Index des champs de filtre en best-effort."""
-    from routes.qdrant_rag import _EMBED_VECTOR_SIZE, _client_pret, _resolve_credentials
     from qdrant_client.models import Distance, VectorParams
-    url, cle = await _resolve_credentials(db)
-    client = await _client_pret(url, cle)
+    client = await _client_inference(db)
     if not await asyncio.to_thread(lambda: client.collection_exists(COLLECTION)):
         await asyncio.to_thread(lambda: client.create_collection(
-            collection_name=COLLECTION, vectors_config=VectorParams(size=_EMBED_VECTOR_SIZE, distance=Distance.COSINE)))
+            collection_name=COLLECTION, vectors_config=VectorParams(size=DIMENSION, distance=Distance.COSINE)))
         for champ in ("phone_digits", "client_id", "direction", "nature"):
             try:
                 await asyncio.to_thread(lambda c=champ: client.create_payload_index(COLLECTION, c, field_schema="keyword"))
@@ -218,7 +244,6 @@ async def _contenu_media(db, m: Dict[str, Any], nature: str, etat: Dict[str, Any
 async def _candidat_qr(db, client, reponse_msg: Dict[str, Any], mid: str):
     """Question / réponse CANDIDATE : la réponse d'un humain + les derniers messages texte du client (24 h au plus avant). Anonymisée,
     statut « propose » (jamais publiée sans validation). None si la réponse n'apporte rien ou si une candidate très proche existe."""
-    from routes.qdrant_rag import _embed_texts
     from qdrant_client.models import PointStruct
     fin = reponse_msg.get("created_at") or ""
     debut = (datetime.fromisoformat(fin.replace("Z", "+00:00")) - timedelta(hours=24)).isoformat() if fin else ""
@@ -232,10 +257,10 @@ async def _candidat_qr(db, client, reponse_msg: Dict[str, Any], mid: str):
         return None
     noms = (reponse_msg.get("contact_name") or "", reponse_msg.get("sender_label") or "")
     q, r = anonymiser(question, noms), anonymiser(reponse, noms)
-    vecteur = (await asyncio.to_thread(_embed_texts, [q]))[0]
+    vecteur = vecteur_document(q)
     try:   # doublon : une question / réponse presque identique (proposée, validée ou refusée) existe déjà
         proches = (await asyncio.to_thread(lambda: client.query_points(
-            collection_name=COLLECTION, query=vecteur, query_filter=filtre_qdrant(nature="qr"), limit=1, with_payload=False))).points
+            collection_name=COLLECTION, query=vecteur_document(q, requete=True), query_filter=filtre_qdrant(nature="qr"), limit=1, with_payload=False))).points
         if proches and float(proches[0].score) >= 0.93:
             return None
     except Exception:  # noqa: BLE001
@@ -256,10 +281,6 @@ async def indexer_lot(db, taille: int = TAILLE_LOT) -> Dict[str, Any]:
         r = reglages(s)
         if not r["actif"] or not s.get("qdrant_enabled"):
             bilan["raison"] = "desactive"
-            return bilan
-        from routes.qdrant_rag import _embed_texts, embeddings_autorises
-        if not embeddings_autorises():
-            bilan["raison"] = "memoire_serveur_insuffisante"
             return bilan
         etat = await _etat(db)
         curseur = etat.get("curseur") or datetime.now(timezone.utc).isoformat()       # première activation : à partir de maintenant
@@ -288,7 +309,7 @@ async def indexer_lot(db, taille: int = TAILLE_LOT) -> Dict[str, Any]:
                 if not blocs:
                     bilan["ignores"] += 1
                     continue
-                vecteurs = await asyncio.to_thread(_embed_texts, blocs)
+                vecteurs = [vecteur_document(b) for b in blocs]        # vectorisés par Qdrant Cloud Inference à l'envoi
                 mid = m.get("id") or m.get("wa_message_id") or m.get("message_id") or f"{m.get('phone_digits')}:{m.get('created_at')}"
                 for rang, (bloc, vec) in enumerate(zip(blocs, vecteurs)):
                     points.append(PointStruct(id=identifiant_point(str(mid), rang), vector=vec, payload={
@@ -337,12 +358,10 @@ async def rattraper_historique(db, jours: int) -> Dict[str, Any]:
 async def rechercher(db, *, requete: str, phone_digits: Optional[str] = None, client_id: Optional[str] = None,
                      direction: Optional[str] = None, nature: Optional[str] = None, top_k: int = 8) -> List[Dict[str, Any]]:
     """Recherche par similarité dans la mémoire des conversations (filtres exacts facultatifs)."""
-    from routes.qdrant_rag import _client_pret, _embed_query, _resolve_credentials
     if not (requete or "").strip():
         return []
-    url, cle = await _resolve_credentials(db)
-    client = await _client_pret(url, cle)
-    vec = await asyncio.to_thread(_embed_query, requete)
+    client = await _client_inference(db)
+    vec = vecteur_document(requete, requete=True)
     filtre = filtre_qdrant(phone_digits=phone_digits, client_id=client_id, direction=direction, nature=nature,
                            sans_nature=None if nature == "qr" else "qr")      # les candidates ont leur propre écran
     k = min(max(1, int(top_k or 8)), 30)
@@ -361,9 +380,6 @@ async def contexte_pour_ia(db, *, phone_digits: str, client_id: Optional[str], r
         s = await db.settings.find_one({"_id": "global"}) or {}
         r = reglages(s)
         if not (r["actif"] and r["ia"] and s.get("qdrant_enabled") and (requete or "").strip() and phone_digits):
-            return ""
-        from routes.qdrant_rag import embeddings_autorises
-        if not embeddings_autorises():
             return ""
         parts: List[str] = []
         total = 0
@@ -435,15 +451,12 @@ def make_router(*, db, get_current_user):
         e = await _etat(db)
         points = None
         try:
-            from routes.qdrant_rag import _client_pret, _resolve_credentials, embeddings_autorises
-            url, cle = await _resolve_credentials(db)
-            client = await _client_pret(url, cle)
+            client = await _client_inference(db)
             if await asyncio.to_thread(lambda: client.collection_exists(COLLECTION)):
                 points = (await asyncio.to_thread(lambda: client.count(COLLECTION, exact=False))).count
-            serveur_ok = embeddings_autorises()
         except Exception:  # noqa: BLE001
-            serveur_ok = None
-        return {"reglages": reglages(s), "qdrant_active": bool(s.get("qdrant_enabled")), "serveur_assez_grand": serveur_ok,
+            pass
+        return {"reglages": reglages(s), "qdrant_active": bool(s.get("qdrant_enabled")), "moteur": f"Qdrant Cloud Inference ({MODELE_INFERENCE})",
                 "points": points, "total_messages": e.get("total_messages", 0), "curseur": e.get("curseur"),
                 "derniere_execution": e.get("derniere_execution"), "derniere_erreur": e.get("derniere_erreur")}
 
@@ -466,9 +479,7 @@ def make_router(*, db, get_current_user):
 
 
     async def _client_qdrant():
-        from routes.qdrant_rag import _client_pret, _resolve_credentials
-        url, cle = await _resolve_credentials(db)
-        return await _client_pret(url, cle)
+        return await _client_inference(db)
 
     @router.get("/candidates")
     async def candidates(statut: str = "propose", limite: int = 30, user: dict = Depends(get_current_user)):
@@ -507,9 +518,14 @@ def make_router(*, db, get_current_user):
         r = anonymiser((corps.reponse or pl.get("reponse") or "").strip())
         if len(q) < 5 or len(r) < 5:
             raise HTTPException(status_code=422, detail="Question et réponse ne peuvent pas être vides")
-        await upsert_text_documents(db, collection=corps.collection, docs=[{
-            "title": q[:200], "text": f"Question : {q}\nRéponse : {r}", "source": "conversations WhatsApp (validé)",
-            "tags": ["conversation", "validé"]}])
+        try:
+            await upsert_text_documents(db, collection=corps.collection, docs=[{
+                "title": q[:200], "text": f"Question : {q}\nRéponse : {r}", "source": "conversations WhatsApp (validé)",
+                "tags": ["conversation", "validé"]}])
+        except RuntimeError as exc:   # modèle local de la base de connaissances non chargeable (serveur de 512 Mo)
+            raise HTTPException(status_code=503, detail="La base de connaissances utilise un modèle de recherche que ce serveur "
+                                "ne peut pas charger : il faut d'abord la recalculer avec le modèle de Qdrant (étape suivante) "
+                                "ou passer le serveur à 2 Go. Détail : " + str(exc)[:120]) from exc
         await _maj_statut(client, pid, "valide", {"collection": corps.collection, "valide_par": user.get("email"),
                                                   "valide_le": datetime.now(timezone.utc).isoformat()})
         return {"ok": True, "collection": corps.collection}

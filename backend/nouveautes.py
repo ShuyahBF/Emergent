@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "345", "date": "2026-10-29",
+        "titre": "🧠 Mémoire des conversations : recherche calculée par Qdrant (plus de limite de mémoire)",
+        "description": "Les vecteurs de la mémoire des conversations sont calculés par Qdrant Cloud Inference (modèle multilingue gratuit) : la recherche fonctionne sur le serveur actuel de 512 Mo, sans passer à une offre supérieure.",
+        "rubrique": "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base",
+    },
+    {
         "lot": "344", "date": "2026-10-29",
         "titre": "🧠 Mémoire des conversations WhatsApp dans Qdrant",
         "description": "Messages, PDF et images (jamais les vocaux) indexés pour retrouver un échange par numéro ou par sujet ; l'IA reçoit l'historique du même numéro ; les réponses de l'équipe deviennent des questions / réponses que vous validez pour enrichir la base de connaissances.",

@@ -346,9 +346,13 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
     def esc(t: Any) -> str:
         return str(t if t is not None else "—").replace("&", "&amp;").replace("<", "&lt;")
 
-    def tableau(lignes: List[List[Any]], largeurs: List[float]):
+    def tableau(lignes: List[List[Any]], largeurs: List[float], droite: tuple = ()):
+        # Règle du propriétaire : les NOMBRES sont toujours alignés à DROITE (colonnes `droite`, en-tête compris)
         entete = ParagraphStyle("entete", parent=cell, textColor=colors.white, fontName="Helvetica-Bold")      # en-tête blanc sur bleu
-        t = Table([[Paragraph(esc(c), entete if i == 0 else cell) for c in l] for i, l in enumerate(lignes)], colWidths=largeurs, repeatRows=1)
+        entete_d = ParagraphStyle("entete_d", parent=entete, alignment=2)
+        cell_d = ParagraphStyle("cell_d", parent=cell, alignment=2)
+        t = Table([[Paragraph(esc(c), (entete_d if j in droite else entete) if i == 0 else (cell_d if j in droite else cell))
+                    for j, c in enumerate(l)] for i, l in enumerate(lignes)], colWidths=largeurs, repeatRows=1)
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5fb")])]))
@@ -373,17 +377,17 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
             [(a.get("depuis") or "")[:16].replace("T", " "), a.get("titre"), a.get("code"), a.get("nombre"),
              "ouverte" if a.get("ouverte") else f"fermée le {(a.get('fermee_le') or '')[:10]} ({a.get('motif') or ''})"] for a in w["alertes"]]
             if w["alertes"] else [["Ouverte le", "Alerte", "Code", "Messages", "État"], ["—", "Aucune alerte sur la période", "—", "—", "—"]],
-            [30 * mm, 62 * mm, 14 * mm, 18 * mm, 56 * mm]))
+            [30 * mm, 62 * mm, 14 * mm, 18 * mm, 56 * mm], droite=(2, 3)))
         corps += [Spacer(1, 3 * mm), Paragraph("<b>Échecs par code d'erreur Meta</b>", styles["Heading3"])]
         corps.append(tableau([["Code", "Signification", "Nombre", "Premier", "Dernier"]] + [
             [c["code"], c["libelle"] + (" — CRITIQUE" if c["critique"] else ""), c["nombre"], (c["premiere"] or "")[:16].replace("T", " "),
              (c["derniere"] or "")[:16].replace("T", " ")] for c in w["par_code"]]
             if w["par_code"] else [["Code", "Signification", "Nombre", "Premier", "Dernier"], ["—", "Aucun échec", "0", "—", "—"]],
-            [16 * mm, 84 * mm, 18 * mm, 31 * mm, 31 * mm]))
+            [16 * mm, 84 * mm, 18 * mm, 31 * mm, 31 * mm], droite=(0, 2)))
         corps += [Spacer(1, 3 * mm), Paragraph("<b>Échecs par jour</b>", styles["Heading3"])]
         corps.append(tableau([["Date", "Échecs", "Détail par code"]] + [
             [j["date"], j["echecs"], " · ".join(f"{c} ×{n}" for c, n in sorted(j["codes"].items(), key=lambda x: -x[1]))] for j in w["par_jour"]]
-            if w["par_jour"] else [["Date", "Échecs", "Détail par code"], ["—", "0", "—"]], [26 * mm, 20 * mm, 134 * mm]))
+            if w["par_jour"] else [["Date", "Échecs", "Détail par code"], ["—", "0", "—"]], [26 * mm, 20 * mm, 134 * mm], droite=(1,)))
 
     def pied(canvas, document):
         canvas.saveState()
@@ -460,8 +464,12 @@ def pdf_envois(donnees: Dict[str, Any]) -> bytes:
     def esc(t: Any) -> str:
         return str(t if t is not None else "—").replace("&", "&amp;").replace("<", "&lt;")
 
-    def tableau(lignes: List[List[Any]], largeurs: List[float]):
-        t = Table([[Paragraph(esc(c), entete if i == 0 else cell) for c in l] for i, l in enumerate(lignes)], colWidths=largeurs, repeatRows=1)
+    def tableau(lignes: List[List[Any]], largeurs: List[float], droite: tuple = ()):
+        # Règle du propriétaire : les NOMBRES sont toujours alignés à DROITE (colonnes `droite`, en-tête compris)
+        entete_d = ParagraphStyle("entete_d", parent=entete, alignment=2)
+        cell_d = ParagraphStyle("cell_d", parent=cell, alignment=2)
+        t = Table([[Paragraph(esc(c), (entete_d if j in droite else entete) if i == 0 else (cell_d if j in droite else cell))
+                    for j, c in enumerate(l)] for i, l in enumerate(lignes)], colWidths=largeurs, repeatRows=1)
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")),
                                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5fb")])]))
@@ -484,10 +492,10 @@ def pdf_envois(donnees: Dict[str, Any]) -> bytes:
         corps.append(tableau([["Client (société liée)", "Envois", "Coût par message", "Coût estimé"]] + [
             [c["client"], c["envois"], f"{c['cout_unitaire']:g} {c['devise']}", f"{c['cout']:g} {c['devise']}"] for c in w["par_client"]]
             if w["par_client"] else [["Client (société liée)", "Envois", "Coût par message", "Coût estimé"], ["Aucun envoi", "0", "—", "—"]],
-            [82 * mm, 22 * mm, 38 * mm, 38 * mm]))
+            [82 * mm, 22 * mm, 38 * mm, 38 * mm], droite=(1, 2, 3)))
         corps += [Spacer(1, 3 * mm), Paragraph("<b>Envois par jour</b>", styles["Heading3"])]
         corps.append(tableau([["Date", "Envois"]] + [[j["date"], j["envois"]] for j in w["par_jour"]]
-                             if w["par_jour"] else [["Date", "Envois"], ["—", "0"]], [40 * mm, 40 * mm]))
+                             if w["par_jour"] else [["Date", "Envois"], ["—", "0"]], [40 * mm, 40 * mm], droite=(1,)))
 
     def pied(canvas, document):
         canvas.saveState()

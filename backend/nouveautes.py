@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "359", "date": "2026-10-29",
+        "titre": "↔️ Nombres alignés à droite (alertes WhatsApp et PDF)",
+        "description": "Dans l'historique par ligne et dans les PDF (échecs, envois), les nombres et les coûts sont alignés à droite.",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "358", "date": "2026-10-29",
         "titre": "💰 Coût estimé des envois d'ALBARKA (client lié à l'émetteur)",
         "description": "Les envois de la transmission universelle sont valorisés avec le « Coût par message » de la fiche du client lié à l'émetteur (ALBARKA → ALBARKA Consulting).",

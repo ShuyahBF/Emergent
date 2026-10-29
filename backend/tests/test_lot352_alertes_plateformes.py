@@ -1,4 +1,4 @@
-"""Lot 352 — alertes des plateformes (Meta/WhatsApp) remontées à l'administrateur seul, historique par WABA et PDF."""
+"""Lots 352 et 354 — alertes des plateformes (Meta/WhatsApp) remontées à l'administrateur seul, historique par ligne (Phone Number ID) et PDF."""
 import asyncio
 import os
 import sys
@@ -19,7 +19,7 @@ def test_fonctions_pures():
     assert A.waba_du_message(carte, "P1") == "WABA-1" and A.waba_du_message(carte, "P2") == "WABA-2"
     assert A.waba_du_message(carte, "P3") == "WABA-1"            # ligne sans WABA propre : celui des réglages
     assert A.waba_du_message(carte, None) == "WABA-1" and A.waba_du_message(carte, "inconnu") == "WABA-1"
-    assert carte["P2"]["waba_herite"] is False and carte["P3"]["waba_herite"] is True and carte["P1"]["waba_herite"] is False      # lot 353
+    assert A.ligne_du_message(carte, "P2") == "P2" and A.ligne_du_message(carte, None) == "P1" and A.ligne_du_message(carte, "inconnu") == "P1"
     assert A.cle_alerte(131042, "WABA-1") == "meta-131042-WABA-1"
     mail = A.texte_email({"titre": "T", "plateforme": "Meta", "depuis": "2026-10-29T12:00:00", "nombre": 3, "code": 131042, "action": "Payer",
                           "waba_id": "WABA-1"})
@@ -72,7 +72,7 @@ def test_ouverture_email_unique_rappel_et_retablissement():
     asyncio.run(scenario())
 
 
-def test_historique_par_waba_et_pdf():
+def test_historique_par_ligne_et_pdf():
     from mongomock_motor import AsyncMongoMockClient
     import pymupdf
 
@@ -84,24 +84,25 @@ def test_historique_par_waba_et_pdf():
             _msg(131042, maintenant - timedelta(days=1)), _msg(131042, maintenant - timedelta(days=1), "P1"), _msg(131049, maintenant - timedelta(days=2), "P1"),
             _msg(None, maintenant - timedelta(days=2), "P1", statut="delivered"), _msg(131042, maintenant - timedelta(days=1), "P2"),
             _msg(131042, maintenant - timedelta(days=90), "P1"),                                   # hors période
-            _msg(131042, maintenant - timedelta(minutes=5), "P1")])                                # échec récent : ouvre l'alerte
+            _msg(131042, maintenant - timedelta(minutes=5), "P1"), _msg(131042, maintenant - timedelta(minutes=4), "P2")])   # récents : ouvrent l'alerte
         await A.surveiller(db, None, maintenant)
-        h = await A.historique_par_waba(db, 30)
-        par = {w["waba_id"]: w for w in h["wabas"]}
-        assert set(par) == {"WABA-1", "WABA-2"}
-        w1 = par["WABA-1"]
-        assert w1["envois"] == 5 and w1["echecs"] == 4 and [c["code"] for c in w1["par_code"]][0] == 131042
-        assert w1["par_code"][0]["critique"] is True and any(c["code"] == 131049 and not c["critique"] for c in w1["par_code"])
-        assert len(w1["lignes"]) == 2 and len(w1["par_jour"]) == 3 and w1["alertes"] and w1["alertes"][0]["ouverte"] is True
-        assert par["WABA-2"]["echecs"] == 1
-        assert h["lignes_sans_waba"] == ["Autre ligne"]          # lot 353 : ligne sans WABA ID propre signalée dans l'historique et le PDF
-        un = await A.historique_par_waba(db, 30, "WABA-2")
-        assert [w["waba_id"] for w in un["wabas"]] == ["WABA-2"]
+        h = await A.historique_par_ligne(db, 30)
+        par = {l["cle"]: l for l in h["lignes"]}
+        assert list(par) == ["P1", "P2", "P3"] and h["waba_id"] == "WABA-1"                 # toutes les lignes, même sans message (P3)
+        p1 = par["P1"]
+        assert p1["libelle"] == "Liluvine Standard" and p1["principale"] is True and p1["phone_number_id"] == "P1"
+        assert p1["envois"] == 5 and p1["echecs"] == 4 and p1["par_code"][0]["code"] == 131042 and p1["par_code"][0]["critique"] is True
+        assert any(c["code"] == 131049 and not c["critique"] for c in p1["par_code"]) and len(p1["par_jour"]) == 3
+        assert p1["alertes"] and p1["alertes"][0]["ouverte"] is True and p1["alertes"][0]["nombre"] == 1
+        assert par["P2"]["envois"] == 2 and par["P2"]["echecs"] == 2 and par["P2"]["alertes"]
+        assert par["P3"]["envois"] == 0 and par["P3"]["alertes"] == []
+        une = await A.historique_par_ligne(db, 30, "P2")
+        assert [l["cle"] for l in une["lignes"]] == ["P2"]
         pdf = A.pdf_historique(h)
         with pymupdf.open("pdf", pdf) as d:
             texte = " ".join(p.get_text() for p in d)
-            assert "Attention" in texte and "Autre ligne" in texte
-            assert d.page_count == 2 and "WABA-1" in texte and "WABA-2" in texte and "131042" in texte and "paiement" in texte
+            assert d.page_count == 3 and "Liluvine Standard" in texte and "Ligne VIP" in texte and "Phone Number ID" in texte
+            assert "P1" in texte and "P2" in texte and "131042" in texte and "paiement" in texte and "WABA-1" in texte
             assert abs(d[0].rect.width - 595) < 2          # A4
 
     asyncio.run(scenario())

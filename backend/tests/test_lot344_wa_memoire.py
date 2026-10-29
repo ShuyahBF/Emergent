@@ -82,17 +82,29 @@ def test_indexation_de_bout_en_bout_avec_qdrant_en_memoire(monkeypatch):
     qd = QdrantClient(":memory:")
     qd.create_collection("base_kb", vectors_config=VectorParams(size=384, distance=Distance.COSINE))
 
-    async def client_pret(*a, **k):
-        return qd
+    class ClientInference:
+        """Simule Qdrant Cloud Inference : transforme les « Document » en vecteurs (ici factices) avant de les confier à Qdrant en mémoire."""
+        def __getattr__(self, nom):
+            return getattr(qd, nom)
+
+        def upsert(self, collection_name, points, **k):
+            for p in points:
+                if hasattr(p.vector, "text"):
+                    assert p.vector.model == W.MODELE_INFERENCE and p.vector.text.startswith("passage: ")
+                    p.vector = faux_vecteur(p.vector.text)
+            return qd.upsert(collection_name, points=points, **k)
+
+        def query_points(self, collection_name, query=None, **k):
+            if hasattr(query, "text"):
+                assert query.model == W.MODELE_INFERENCE and query.text.startswith("query: ")
+                query = faux_vecteur(query.text.replace("query: ", "passage: ", 1))
+            return qd.query_points(collection_name, query=query, **k)
 
     async def creds(*a, **k):
         return "http://x", "k"
 
-    monkeypatch.setattr(Q, "_embed_texts", lambda textes: [faux_vecteur(t) for t in textes])
-    monkeypatch.setattr(Q, "_embed_query", faux_vecteur)
-    monkeypatch.setattr(Q, "_client_pret", client_pret)
     monkeypatch.setattr(Q, "_resolve_credentials", creds)
-    monkeypatch.setattr(Q, "embeddings_autorises", lambda: True)
+    monkeypatch.setattr(W, "_creer_client_inference", lambda url, cle: ClientInference())
 
     async def scenario():
         db = AsyncMongoMockClient()["t"]
@@ -148,6 +160,15 @@ def test_indexation_de_bout_en_bout_avec_qdrant_en_memoire(monkeypatch):
         c = TestClient(app)
         assert c.get("/api/admin/wa-memoire/candidates").json()["items"][0]["id"] == str(pid)
         assert c.post(f"/api/admin/wa-memoire/candidates/{pid}/valider", json={"collection": W.COLLECTION}).status_code == 422
+        # Petit serveur : le modèle local de la base de connaissances ne se charge pas → message clair (503), la candidate reste à valider
+        async def modele_indisponible(_db, *, collection, docs):
+            raise RuntimeError("Recherche Qdrant suspendue : mémoire du serveur insuffisante")
+
+        monkeypatch.setattr(Q, "upsert_text_documents", modele_indisponible)
+        refus = c.post(f"/api/admin/wa-memoire/candidates/{pid}/valider", json={"collection": "base_kb"})
+        assert refus.status_code == 503 and "recalculer" in refus.json()["detail"]
+        assert len(c.get("/api/admin/wa-memoire/candidates").json()["items"]) == 1
+        monkeypatch.setattr(Q, "upsert_text_documents", ecrire)
         assert c.post(f"/api/admin/wa-memoire/candidates/{pid}/valider", json={"collection": "base_kb"}).status_code == 200
         assert qd.count("base_kb").count == 1 and c.get("/api/admin/wa-memoire/candidates").json()["items"] == []
         assert len(c.get("/api/admin/wa-memoire/candidates?statut=valide").json()["items"]) == 1

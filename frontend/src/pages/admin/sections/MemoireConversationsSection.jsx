@@ -125,7 +125,7 @@ export default function MemoireConversationsSection() {
       {/* État */}
       <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-xs space-y-1" data-testid="memoire-etat">
         <div>Qdrant : <strong>{etat.qdrant_active ? "actif" : "désactivé (activez-le dans la rubrique Qdrant)"}</strong>
-          {etat.serveur_assez_grand === false && <span className="text-red-700"> — serveur trop petit pour le modèle d'indexation</span>}</div>
+          {etat.moteur && <span className="text-slate-500"> — calcul de la recherche : {etat.moteur}</span>}</div>
         <div>Points indexés : <strong>{etat.points ?? "—"}</strong> · messages traités : <strong>{etat.total_messages}</strong></div>
         <div>Dernier passage : {etat.derniere_execution ? new Date(etat.derniere_execution).toLocaleString("fr-FR") : "—"}
           {etat.derniere_erreur && <span className="text-red-700"> · erreur : {etat.derniere_erreur}</span>}</div>

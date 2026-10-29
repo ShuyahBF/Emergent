@@ -100,9 +100,9 @@ export default function AlertesPlateformesSection() {
               <button type="button" className={bouton} onClick={() => pdf(w.cle, "envois")}>Imprimer les envois</button>
             </div>
             {w.par_code.length > 0 && (
-              <table className="w-full"><thead><tr className="text-left text-slate-500"><th>Code</th><th>Signification</th><th>Nombre</th><th>Dernier</th></tr></thead>
+              <table className="w-full"><thead><tr className="text-left text-slate-500"><th>Code</th><th>Signification</th><th className="text-right">Nombre</th><th>Dernier</th></tr></thead>
                 <tbody>{w.par_code.map((c) => (
-                  <tr key={c.code} className={c.critique ? "text-red-700 font-semibold" : ""}><td>{c.code}</td><td>{c.libelle}{c.critique ? " — critique" : ""}</td><td>{c.nombre}</td><td>{quand(c.derniere)}</td></tr>
+                  <tr key={c.code} className={c.critique ? "text-red-700 font-semibold" : ""}><td>{c.code}</td><td>{c.libelle}{c.critique ? " — critique" : ""}</td><td className="text-right tabular-nums">{c.nombre}</td><td>{quand(c.derniere)}</td></tr>
                 ))}</tbody></table>
             )}
             {w.alertes.length > 0 && (

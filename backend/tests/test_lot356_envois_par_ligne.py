@@ -32,6 +32,8 @@ def test_transmissions_universelles_comptees_sur_leur_ligne():
         now = datetime.now(timezone.utc).isoformat()
         await db.settings.insert_one({"_id": "global", "wa_phone_number_id": "111",
                                       "wa_numeros": [{"id": "222", "libelle": "Liluvine ALBARKA"}]})
+        await db.users.insert_one({"id": "c9", "company": "ALBARKA Consulting", "wa_unit_cost": 15, "wa_currency": "XOF"})
+        await db.liluvine_emetteurs.insert_one({"code": "albarka", "client_id": "c9"})
         await db.liluvine_transmissions.insert_many([
             {"date": now, "emetteur": "albarka", "ok": True, "ligne": "222"},
             {"date": now, "emetteur": "albarka", "ok": False, "ligne": "222"}])
@@ -39,5 +41,6 @@ def test_transmissions_universelles_comptees_sur_leur_ligne():
         assert h["lignes"][0]["envois"] == 2 and h["lignes"][0]["echecs"] == 1
         e = await ap.envois_par_ligne(db, 30, "222")
         w = e["lignes"][0]
-        assert w["envois"] == 1 and "albarka" in w["par_client"][0]["client"]
+        assert w["envois"] == 1 and w["par_client"][0]["client"] == "ALBARKA Consulting"
+        assert w["cout_total"] == 15      # coût par message de la fiche du client lié à l'émetteur
     asyncio.run(scenario())

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "358", "date": "2026-10-29",
+        "titre": "💰 Coût estimé des envois d'ALBARKA (client lié à l'émetteur)",
+        "description": "Les envois de la transmission universelle sont valorisés avec le « Coût par message » de la fiche du client lié à l'émetteur (ALBARKA → ALBARKA Consulting).",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "357", "date": "2026-10-29",
         "titre": "📊 Historique par ligne : envois d'ALBARKA et réponses de Liluvine comptés",
         "description": "Les envois de la transmission universelle (modèles ALBARKA, Ster…) et les réponses de l'IA sont maintenant comptés sur la ligne qui les envoie ; bouton renommé « Imprimer Échecs en PDF ».",

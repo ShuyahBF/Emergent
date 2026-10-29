@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "367", "date": "2026-10-29",
+        "titre": "💸 URL de callback des Payouts PawaPay",
+        "description": "Le cadre « URLs de callback PawaPay » affiche maintenant l'URL Payouts (bouton Copier) à coller dans le tableau de bord PawaPay.",
+        "rubrique": "Paiement — PawaPay (Mobile Money)",
+    },
+    {
         "lot": "366", "date": "2026-10-29",
         "titre": "🎚️ Pictogramme Paramètres toujours présent dans la barre latérale",
         "description": "Le pictogramme des paramètres à côté d'« Alerte WhatsApp » ne disparaît plus quand l'Administrateur ouvre une page du portail (éditeur de formulaire…) ; texte de version un peu plus petit.",

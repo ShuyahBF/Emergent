@@ -95,6 +95,7 @@ def test_callback_urls_endpoint_returns_three_urls(env, db):
     assert "legacy_url" in body
     assert body["deposits_url"].endswith("/api/webhooks/pawapay/deposits/known-secret-iter38r-fix2")
     assert body["refunds_url"].endswith("/api/webhooks/pawapay/refunds/known-secret-iter38r-fix2")
+    assert body["payouts_url"].endswith("/api/webhooks/pawapay/payouts/known-secret-iter38r-fix2")
     assert body["legacy_url"].endswith("/api/webhooks/pawapay/known-secret-iter38r-fix2")
     assert body["secret_preview"]  # masked
 

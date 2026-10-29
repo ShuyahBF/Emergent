@@ -69,6 +69,8 @@ def test_chaque_carte_ouvre_une_rubrique_des_parametres():
     from nouveautes import NOUVEAUTES
     page = (Path(__file__).resolve().parents[2] / "frontend/src/pages/admin/AdminSettings.jsx").read_text(encoding="utf-8")
     rubriques = set(re.findall(r'<Filterable\s+title="([^"]+)"', page))
+    # <Section title="…"> affiche aussi un <Filterable> du même titre (voir le composant Section)
+    rubriques |= set(re.findall(r'<Section\s[^>]*?title="([^"]+)"', page))
     for n in NOUVEAUTES:
         if n.get("rubrique"):
             assert n["rubrique"] in rubriques, f"rubrique introuvable dans les Paramètres : {n['rubrique']} ({n['titre']})"

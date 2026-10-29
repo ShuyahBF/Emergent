@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Send, X, RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import SurveySendModal from "@/components/SurveySendModal";
+import TransmissionPlateformes from "@/components/TransmissionPlateformes";   // lot 361
 import SuiviEnvois, { STATUTS_ENVOI } from "@/components/SuiviEnvois";
 import { dateHeure } from "@/components/EnvoiProgrammation";
 import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
@@ -61,6 +62,7 @@ export default function EnvoisFormulaireModal({ form, onClose }) {
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700">
             <Send className="h-4 w-4" /> Nouvel envoi (WhatsApp ou SMS)
           </button>
+          <TransmissionPlateformes type="formulaire" docId={form.id} />
           <SuiviEnvois items={envois} onAnnuler={annuler} />
           <div className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
             {envois.map((e) => {

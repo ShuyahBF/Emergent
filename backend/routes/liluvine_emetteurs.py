@@ -33,6 +33,7 @@ class NouvelEmetteur(BaseModel):
     url_retour: Optional[str] = None   # https://<plateforme>/api/webhooks/liluvine-retour (lot 57.5)
     url_stats: Optional[str] = None    # lot 62 — statistiques internes (vide = URL de retour)
     url_assistant: Optional[str] = None  # lot 102 — assistant de la plateforme (Liluvine lui pose les questions des clients)
+    url_formulaires: Optional[str] = None  # lot 361 — réception des formulaires / sondages transmis par SAWALI (espace Formulaires de la plateforme)
 
 
 class ModifEmetteur(BaseModel):
@@ -46,6 +47,7 @@ class ModifEmetteur(BaseModel):
     # Lot 102 : adresse de l'assistant de la plateforme (ex. ZandGo : https://…/api/liluvine/question) ;
     # vide = Liluvine ne l'interroge pas
     url_assistant: Optional[str] = None
+    url_formulaires: Optional[str] = None   # lot 361 — réception des formulaires / sondages (POST signé) ; vide = plateforme non destinataire
     # Lot 223 : ligne WhatsApp de SAWALI par laquelle partent les messages de cette plateforme
     # (clé de ligne : « principal » ou Phone Number ID) ; vide = règles habituelles de choix du numéro
     ligne: Optional[str] = None
@@ -240,6 +242,7 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             "url_retour": _url_retour_valide(donnees.url_retour),
             "url_stats": _url_retour_valide(donnees.url_stats),   # lot 62
             "url_assistant": _url_retour_valide(donnees.url_assistant),   # lot 102
+            "url_formulaires": _url_retour_valide(donnees.url_formulaires),   # lot 361
             "cle_regeneree_le": maintenant, "cree_par": admin.get("email"),
         })
         return {"code": code, "cle": cle}
@@ -273,6 +276,8 @@ def make_liluvine_emetteurs_router(*, db, get_current_admin) -> APIRouter:
             changements["reponses_transmises"] = bool(donnees.reponses_transmises)
         if donnees.url_assistant is not None:   # lot 102 — assistant de la plateforme
             changements["url_assistant"] = _url_retour_valide(donnees.url_assistant)
+        if donnees.url_formulaires is not None:   # lot 361 — réception des formulaires / sondages
+            changements["url_formulaires"] = _url_retour_valide(donnees.url_formulaires)
         if donnees.ligne is not None:   # lot 223 — ligne WhatsApp de SAWALI dédiée à cette plateforme
             cle_ligne = donnees.ligne.strip()
             if cle_ligne:

@@ -21,6 +21,7 @@
   horaires fixées par l'Admin. `kind="form"` : même fenêtre pour envoyer le lien d'un
   formulaire public (prop `survey` = le formulaire ; POST /me/forms/{id}/envois).
 */
+import TransmissionPlateformes from "@/components/TransmissionPlateformes";   // lot 361
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -209,6 +210,8 @@ export default function SurveySendModal({ survey, kind = "survey", reminder = fa
                 </div>
               </section>
             )}
+            {/* Lot 361 : les plateformes sont aussi des destinataires (sondages ; les formulaires l'affichent dans leur fenêtre d'envois) */}
+            {kind !== "form" && <TransmissionPlateformes type="sondage" docId={survey.id} />}
             {/* Entreprise + contacts un à un */}
             <section className="grid sm:grid-cols-2 gap-4">
               <label className="text-sm font-semibold text-slate-800">Entreprise du contact (contient)

@@ -72,6 +72,11 @@ from ia_client import cle_ia as _cle_ia  # noqa: E402 — lot 53 : clé du fourn
 
 logger = logging.getLogger("sawali.liluvine_formulaire")
 
+# Lot 361 — ligne WhatsApp (Phone Number ID) qui a reçu la commande : notée sur chaque commande pour le décompte
+# « autres travaux IA » par ligne (voir routes/alertes_plateformes.py).
+import contextvars
+_LIGNE_COMMANDE: contextvars.ContextVar = contextvars.ContextVar("ligne_commande_formulaire", default=None)
+
 PRIX_PAR_DEFAUT = {"client": 2000, "inconnu": 3000}          # FCFA, réglables par l'Admin
 CLES_PRIX = {"client": "liluvine_formulaire_prix_client_xof", "inconnu": "liluvine_formulaire_prix_inconnu_xof"}
 DUREE_LIENS = timedelta(days=30)
@@ -262,7 +267,7 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         """Lot 37 — toute commande entre au journal, même un refus ou un simple mode d'emploi."""
         cmd = {"id": uuid_fn(), "telephone": from_num, "chiffres": "".join(ch for ch in from_num if ch.isdigit()),
                "nom_contact": profile_name, "statut": statut, "cree_le": _now(), "livre": False,
-               "intervention_requise": False, "journal": [], **extra}
+               "intervention_requise": False, "journal": [], "ligne": _LIGNE_COMMANDE.get(), **extra}
         await db.liluvine_formulaires.insert_one(cmd.copy())
         return cmd
 
@@ -277,8 +282,9 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
     # --- 1. Commande reçue ----------------------------------------------------------
     async def commande(*, from_num: str, profile_name: Optional[str], mtype: str, media_info: Optional[dict],
                        nom_fichier: Optional[str], compte_par_defaut: Optional[str],
-                       texte: Optional[str] = None) -> Dict[str, Any]:
+                       texte: Optional[str] = None, ligne: Optional[str] = None) -> Dict[str, Any]:
         """Message « !formulaire » reçu (texte seul, document ou photo). Répond toujours au contact."""
+        _LIGNE_COMMANDE.set(ligne)       # lot 361 : ligne qui a reçu la commande
         chiffres = "".join(ch for ch in from_num if ch.isdigit())
         # Lot 41 — numéro en liste noire : refus immédiat, rien n'est analysé
         if await db.liluvine_liste_noire.find_one({"chiffres": chiffres, "actif": True}, {"_id": 1}):
@@ -516,10 +522,16 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
             await _echec(cmd, "le lien de paiement n'a pas pu être créé, réessayez dans quelques minutes.",
                          technique=True)
             return
+        # Lot 361 : moyens de paiement ACTIFS choisis dans les Paramètres (PawaPay par défaut) : opérateurs Mobile Money offerts
+        # et PI-SPI éventuel ; seuls ces moyens s'affichent sur le lien de paiement.
+        from routes import paiement_formulaires as _pf
+        actifs = _pf.moyens_actifs(await db.settings.find_one({"_id": "global"}) or {})
+        mnos_lien = _pf.operateurs_autorises(actifs, list(mnos))
         lien = {
             "id": uuid_fn(), "slug": slug, "client_id": cmd["compte_id"], "owner_user_id": None, "owner_email": None,
             "owner_label": "Liluvine !formulaire", "label": f"Formulaire {titre}", "amount": float(prix),
-            "currency": "XOF", "description": f"Mise en ligne du formulaire {titre}", "allowed_mnos": list(mnos),
+            "currency": "XOF", "description": f"Mise en ligne du formulaire {titre}", "allowed_mnos": mnos_lien,
+            "methodes": _pf.methodes_du_lien(actifs, list(mnos)),
             "expires_at": (quand + DUREE_PAIEMENT).isoformat(), "max_uses": 1, "uses_count": 0, "disabled": False,
             "liluvine_formulaire_id": cmd["id"], "prefill_phone": cmd["telephone"],
             "prefill_name": cmd.get("nom_contact") or "", "created_at": _now(), "updated_at": _now(),
@@ -529,7 +541,7 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
                                                                             "payment_link_slug": slug}})
         await _message(cmd, (
             f"{resume}\n\n💰 Tarif : *{prix_lisible(prix)} FCFA*"
-            f"\nPayez par Mobile Money (Orange, Moov, Telecel) : {_base()}/pay/{slug}\n"
+            f"\nPayez par {_pf.libelle_moyens(actifs, list(mnos))} : {_base()}/pay/{slug}\n"
             "Dès que le paiement est confirmé, je vous envoie le lien sécurisé du formulaire à faire remplir."),
             f"tarif {prix_lisible(prix)} FCFA + lien de paiement",
             "Tarif et lien de paiement non délivrés : les envoyer au contact")

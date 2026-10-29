@@ -260,7 +260,8 @@ async def _transmissions_comme_envois(db, depuis: str) -> List[Dict[str, Any]]:
     dans `liluvine_transmissions` et JAMAIS dans `whatsapp_messages`, donc absents de l'historique par ligne. On les ramène à la même
     forme qu'un message sortant ; `ligne` du journal = Phone Number ID de la ligne dédiée (vide / « principal » = ligne principale)."""
     brut = await db.liluvine_transmissions.find(
-        {"date": {"$gte": depuis}}, {"_id": 0, "date": 1, "emetteur": 1, "ok": 1, "ligne": 1}).to_list(100000)
+        {"date": {"$gte": depuis}, "mode": {"$nin": ["formulaire", "sondage"]}},      # lot 361 : transmissions de documents = autres travaux IA
+        {"_id": 0, "date": 1, "emetteur": 1, "ok": 1, "ligne": 1}).to_list(100000)
     # Lot 358 : la fiche de l'émetteur (liluvine_emetteurs.client_id) désigne le client / tenant LIÉ → son « Coût par message » sert au coût estimé
     lies = {e["code"]: e.get("client_id") async for e in db.liluvine_emetteurs.find({"client_id": {"$nin": [None, ""]}}, {"_id": 0, "code": 1, "client_id": 1})}
     sortie = []
@@ -433,10 +434,24 @@ async def envois_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> 
                                              "envois": 0, "cout": 0.0})
         c["envois"] += 1
         c["cout"] = round(c["envois"] * c["cout_unitaire"], 2)
+    # Lot 361 — « AUTRES TRAVAUX IA » par ligne : formulaires générés par la commande « !formulaire » reçue sur la ligne, et
+    # formulaires / sondages transmis à une plateforme (ligne dédiée de la plateforme). D'autres natures de travaux s'ajouteront ici.
+    travaux: Dict[str, Dict[str, int]] = {}
+
+    def _compter(cle_ligne: Any, nature: str) -> None:
+        cle = ligne_du_message(carte, cle_ligne)
+        travaux.setdefault(cle, {})[nature] = travaux.setdefault(cle, {}).get(nature, 0) + 1
+    async for c in db.liluvine_formulaires.find({"cree_le": {"$gte": depuis}, "statut": {"$in": ["en_attente_paiement", "publie"]}},
+                                                {"_id": 0, "ligne": 1}):
+        _compter(c.get("ligne"), "Formulaires générés (commande !formulaire)")
+    async for t in db.liluvine_transmissions.find({"date": {"$gte": depuis}, "mode": {"$in": ["formulaire", "sondage"]}, "ok": True},
+                                                  {"_id": 0, "ligne": 1, "mode": 1}):
+        _compter(t.get("ligne"), "Formulaires transmis à des plateformes" if t["mode"] == "formulaire" else "Sondages transmis à des plateformes")
     sortie = []
     for w in lignes.values():
         if ligne and w["cle"] != ligne and w.get("phone_number_id") != ligne:
             continue
+        w["autres_travaux"] = [{"libelle": k, "nombre": v} for k, v in sorted((travaux.get(w["cle"]) or {}).items())]
         w["par_jour"] = sorted(({"date": d, "envois": n} for d, n in w["par_jour"].items()), key=lambda x: x["date"], reverse=True)
         w["par_client"] = sorted(w["par_client"].values(), key=lambda x: -x["envois"])
         w["cout_total"] = round(sum(c["cout"] for c in w["par_client"]), 2)
@@ -496,6 +511,11 @@ def pdf_envois(donnees: Dict[str, Any]) -> bytes:
         corps += [Spacer(1, 3 * mm), Paragraph("<b>Envois par jour</b>", styles["Heading3"])]
         corps.append(tableau([["Date", "Envois"]] + [[j["date"], j["envois"]] for j in w["par_jour"]]
                              if w["par_jour"] else [["Date", "Envois"], ["—", "0"]], [40 * mm, 40 * mm], droite=(1,)))
+        # Lot 361 — rubrique « Autres travaux IA » (formulaires, sondages…) de cette ligne
+        corps += [Spacer(1, 3 * mm), Paragraph("<b>Autres travaux IA</b>", styles["Heading3"])]
+        corps.append(tableau([["Travail", "Nombre"]] + [[t["libelle"], t["nombre"]] for t in w.get("autres_travaux") or []]
+                             if w.get("autres_travaux") else [["Travail", "Nombre"], ["Aucun travail sur la période", "0"]],
+                             [110 * mm, 30 * mm], droite=(1,)))
 
     def pied(canvas, document):
         canvas.saveState()

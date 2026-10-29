@@ -1319,6 +1319,13 @@ from routes.qdrant_migration_e5 import make_router as _make_migration_e5_router 
 api.include_router(_make_migration_e5_router(db=db, get_current_user=get_current_user))
 
 # Lot 352 — alertes des plateformes (Meta/WhatsApp : paiement, jeton, compte restreint) remontées à l'administrateur seul + historique par WABA
+# Lot 361 — transmission d'un formulaire / sondage à des plateformes (copie conservée dans SAWALI, historique des transmissions)
+from routes.transmission_plateformes import make_router as _make_transmission_plateformes_router  # noqa: E402
+api.include_router(_make_transmission_plateformes_router(db=db, get_current_user=get_current_user, is_admin_like=_is_admin_or_superviseur))
+# Lot 361 — moyens de paiement des formulaires et sondages (PawaPay par défaut, opérateurs, PI-SPI)
+from routes.paiement_formulaires import make_router as _make_paiement_formulaires_router  # noqa: E402
+api.include_router(_make_paiement_formulaires_router(db=db, get_current_user=get_current_user, send_email=send_email,
+                                                     hooks_apres_paiement=_HOOKS_APRES_PAIEMENT))
 from routes.alertes_plateformes import make_router as _make_alertes_plateformes_router  # noqa: E402
 api.include_router(_make_alertes_plateformes_router(db=db, get_current_user=get_current_user, send_email=send_email))
 

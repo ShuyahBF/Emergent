@@ -1184,6 +1184,12 @@ async def public_get_payment_link(slug: str):
         "currency": pl.get("currency") or "XOF",
         "description": pl.get("description"),
         "allowed_mnos": pl.get("allowed_mnos") or [],
+        # Lot 361 : moyens proposés (« MOBILE » = opérateurs via PawaPay, « PISPI » = virement bancaire instantané)
+        "methodes": pl.get("methodes") or ["MOBILE"],
+        "pispi": ({"texte": ((await db.settings.find_one({"_id": "global"}, {"paiement_formulaires_pispi_texte": 1}) or {})
+                             .get("paiement_formulaires_pispi_texte") or ""),
+                   "reference": pl["slug"], "declare": bool(pl.get("pispi_declare_le")), "confirme": bool(pl.get("pispi_confirme_le"))}
+                  if "PISPI" in (pl.get("methodes") or []) else None),
         "expires_at": pl.get("expires_at"),
         "status": _payment_link_status(pl),
         "uses_count": pl.get("uses_count") or 0,

@@ -2570,7 +2570,7 @@ async def whatsapp_webhook_incoming(request: Request):
                                 from_num=from_num, profile_name=profile_name, mtype=_mt_cmd,
                                 media_info=_mi_cmd,
                                 nom_fichier=_nom_cmd,
-                                compte_par_defaut=client_scope, texte=text_body)
+                                compte_par_defaut=client_scope, texte=text_body, ligne=numero_recu)
                         except Exception:  # noqa: BLE001
                             logger.warning("[!formulaire] commande en échec", exc_info=True)
                         continue

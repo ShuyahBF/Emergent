@@ -51,6 +51,9 @@ export default function PayLink() {
   const [mno, setMno] = useState(null);
   const [payerName, setPayerName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Lot 361 : moyen choisi par le client (« MOBILE » = opérateurs via PawaPay, « PISPI » = virement bancaire instantané)
+  const [choix, setChoix] = useState(null);
+  const [pispiFait, setPispiFait] = useState(false);
 
   // Result state
   const [result, setResult] = useState(null); // {deposit_id, status, api_message, amount, currency}
@@ -61,6 +64,8 @@ export default function PayLink() {
       const r = await axios.get(`${BACKEND}/api/public/pay/${slug}`);
       setLink(r.data);
       if (r.data?.amount != null) setAmount(String(r.data.amount));
+      setChoix((r.data?.methodes || ["MOBILE"])[0]);
+      setPispiFait(!!r.data?.pispi?.declare);
       if (Array.isArray(r.data?.allowed_mnos) && r.data.allowed_mnos.length > 0) {
         setMno(r.data.allowed_mnos[0]);
       }
@@ -115,6 +120,19 @@ export default function PayLink() {
       const detail = err?.response?.data?.detail;
       const msg = (typeof detail === "object" ? (detail?.failureMessage || detail?.rejectionMessage || detail?.message || JSON.stringify(detail)) : detail) || err?.message || "Erreur lors du paiement";
       toast.error(String(msg).slice(0, 200));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Lot 361 : le client déclare son virement PI-SPI ; l'administrateur confirme après réception sur le compte bancaire
+  const declarerPispi = async () => {
+    setSubmitting(true);
+    try {
+      await axios.post(`${BACKEND}/api/public/pay/${slug}/pispi`, { payer_name: payerName || undefined });
+      setPispiFait(true);
+    } catch (err) {
+      toast.error(String(err?.response?.data?.detail || "Déclaration impossible").slice(0, 200));
     } finally {
       setSubmitting(false);
     }
@@ -215,6 +233,38 @@ export default function PayLink() {
                 />
               </div>
             )}
+            {(link.methodes || []).length > 1 && (
+              <div>
+                <label className="text-xs font-semibold block mb-1">Comment souhaitez-vous payer ?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[["MOBILE", "Mobile Money"], ["PISPI", "PI-SPI (virement)"]].filter(([c]) => link.methodes.includes(c)).map(([c, l]) => (
+                    <button key={c} type="button" onClick={() => setChoix(c)} data-testid={`pay-methode-${c}`}
+                      className={`rounded-lg px-2 py-3 text-sm font-semibold ring-1 ${choix === c ? "ring-2 ring-amber-600 bg-amber-600 text-white" : "ring-slate-200 text-slate-600 bg-white"}`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {choix === "PISPI" && link.pispi && (
+              <div className="space-y-3" data-testid="pay-pispi">
+                <p className="text-sm text-slate-700 whitespace-pre-line">{link.pispi.texte}</p>
+                <p className="text-sm">Référence à indiquer : <span className="font-mono font-bold">{link.pispi.reference}</span></p>
+                {pispiFait ? (
+                  <p className="text-sm text-emerald-700 font-semibold">Merci ! Nous vérifions la réception de votre virement ; votre formulaire sera mis en ligne dès confirmation.</p>
+                ) : (
+                  <>
+                    <input value={payerName} onChange={(e) => setPayerName(e.target.value.slice(0, 80))} placeholder="Votre nom (optionnel)"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                    <button onClick={declarerPispi} disabled={submitting} data-testid="pay-pispi-btn"
+                      className="w-full rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-3 text-base font-semibold disabled:opacity-60">
+                      {submitting ? "Envoi…" : "J'ai effectué le virement"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {choix === "MOBILE" && (<>
             <div>
               <label className="text-xs font-semibold block mb-1">Choisissez votre opérateur</label>
               <div className={`grid grid-cols-${link.allowed_mnos.length} gap-2`} style={{ gridTemplateColumns: `repeat(${link.allowed_mnos.length}, 1fr)` }}>
@@ -272,6 +322,7 @@ export default function PayLink() {
                 <span className="ml-2">• {link.uses_count}/{link.max_uses} utilisations</span>
               )}
             </p>
+            </>)}
           </div>
         )}
       </div>

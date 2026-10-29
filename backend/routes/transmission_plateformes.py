@@ -116,6 +116,8 @@ def make_router(*, db, get_current_user, is_admin_like):
     @router.get("/me/transmissions/plateformes")
     async def plateformes(user: dict = Depends(get_current_user)):
         """Plateformes proposées comme destinataires (en plus des contacts) : actives, avec ou sans adresse de réception."""
+        if not is_admin_like(user):                 # les plateformes sont gérées par SAWALI : liste réservée à l'Admin / Superviseur
+            return {"plateformes": []}
         lignes = await db.liluvine_emetteurs.find({"actif": True}, {"_id": 0, "code": 1, "nom": 1, "url_formulaires": 1}).to_list(100)
         return {"plateformes": [{"code": e["code"], "nom": e.get("nom") or e["code"], "recoit_formulaires": bool(e.get("url_formulaires"))}
                                 for e in lignes]}
@@ -123,6 +125,8 @@ def make_router(*, db, get_current_user, is_admin_like):
     @router.post("/me/transmissions/{type_doc}/{doc_id}")
     async def envoyer(type_doc: str, doc_id: str, demande: Demande, user: dict = Depends(get_current_user)):
         """Transmet le document aux plateformes choisies ; une copie reste dans SAWALI avec l'historique."""
+        if not is_admin_like(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur et au superviseur")
         doc = await _document(type_doc, doc_id, user)
         resultats = []
         for code in dict.fromkeys(demande.plateformes):

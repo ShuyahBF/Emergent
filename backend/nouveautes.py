@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "364", "date": "2026-10-29",
+        "titre": "🌐 Plateformes dans l'éditeur de formulaire",
+        "description": "Sous « Clients autorisés », le bloc « Envoyer à des plateformes » liste ALBARKA, e-Kol… ; une plateforme sans adresse de réception est signalée (à renseigner dans Transmission WA Universelle).",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "363", "date": "2026-10-29",
         "titre": "🖼️ Paramètres : rubriques encadrées du mince filet",
         "description": "Cinq rubriques récentes avaient perdu leur cadre et leur titre ; elles sont de nouveau encadrées (règle « Cadre des cartes »).",

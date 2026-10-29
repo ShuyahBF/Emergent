@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 import ClientAccessSelector from "@/components/ClientAccessSelector";
+import TransmissionPlateformes from "@/components/TransmissionPlateformes";   // lot 364 : plateformes destinataires
 import { FieldInput } from "@/pages/portal/FormRunner";
 
 // Types de champs de Sawali (inchangés) avec leur icône pour la palette
@@ -266,6 +267,9 @@ export default function FormEditor() {
         </div>
         <ClientAccessSelector value={Array.isArray(form.access_client_ids) ? form.access_client_ids : []}
           onChange={(ids) => change({ access_client_ids: ids })} label="Clients autorisés à voir ce formulaire" testIdPrefix="form-access-clients" />
+        {/* Lot 364 — les PLATEFORMES (ALBARKA, e-Kol…) sont aussi des destinataires : le formulaire arrive dans leur espace Formulaires ;
+            une copie reste dans SAWALI avec l'historique des transmissions. Hors du sélecteur de clients (qui règle l'ACCÈS). */}
+        {form.id && <TransmissionPlateformes type="formulaire" docId={form.id} />}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_290px] gap-4">

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "348", "date": "2026-10-29",
+        "titre": "🔄 Base de connaissances : recalcul avec le modèle de Qdrant (copie sans risque)",
+        "description": "Chaque collection de la base de Liluvine peut être recopiée avec des vecteurs calculés par Qdrant (originale intacte), puis activée ou remise en un clic : la recherche de Liluvine fonctionne sur un petit serveur et les questions / réponses validées peuvent y entrer.",
+        "rubrique": "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant",
+    },
+    {
         "lot": "347", "date": "2026-10-29",
         "titre": "🧠 Mémoire des conversations : doublons regroupés, clics de boutons ignorés",
         "description": "Dans la recherche, un même message répété n'apparaît qu'une fois avec son nombre d'occurrences ; les clics sur des boutons (ex. « Autorisation d'appel : acceptée ») ne sont plus indexés.",

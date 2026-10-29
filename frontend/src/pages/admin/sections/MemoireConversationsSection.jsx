@@ -34,7 +34,9 @@ export default function MemoireConversationsSection() {
       setEtat(e.data);
       setReglages(e.data.reglages);
       const liste = Array.isArray(c.data) ? c.data : (c.data?.collections || c.data?.items || []);
-      setCollections(liste.map((x) => x.name).filter((n) => n && n !== "wa_conversations"));
+      // Lot 348 : les collections recalculées par Qdrant (« inference ») passent en premier ; sur un petit serveur ce sont les seules acceptées
+      setCollections(liste.filter((x) => x.name && x.name !== "wa_conversations")
+        .sort((a, b) => (b.moteur === "inference") - (a.moteur === "inference")).map((x) => ({ nom: x.name, recalculee: x.moteur === "inference" })));
       setCandidates(q.data?.items || []);
     } catch {
       toast.error("Mémoire des conversations indisponible");
@@ -78,7 +80,7 @@ export default function MemoireConversationsSection() {
     } catch (err) { setResultats(null); toast.error(err?.response?.data?.detail || "Recherche impossible"); } finally { setOccupe(false); }
   };
 
-  const brouillon = (c) => ({ question: c.question, reponse: c.reponse, collection: collections[0] || "", ...(brouillons[c.id] || {}) });
+  const brouillon = (c) => ({ question: c.question, reponse: c.reponse, collection: collections[0]?.nom || "", ...(brouillons[c.id] || {}) });
   const corriger = (c, cle, v) => setBrouillons((b) => ({ ...b, [c.id]: { ...brouillon(c), [cle]: v } }));
 
   // Publication (après relecture) dans la collection choisie, ou refus
@@ -172,7 +174,7 @@ export default function MemoireConversationsSection() {
               <textarea rows={3} className={champ} value={b.reponse} onChange={(e) => corriger(c, "reponse", e.target.value)} />
               <div className="flex flex-wrap items-center gap-2">
                 <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={b.collection} onChange={(e) => corriger(c, "collection", e.target.value)}>
-                  {collections.map((n) => <option key={n} value={n}>{n}</option>)}
+                  {collections.map((x) => <option key={x.nom} value={x.nom}>{x.nom}{x.recalculee ? " (recalculée par Qdrant)" : ""}</option>)}
                 </select>
                 <button type="button" className={bouton} onClick={() => valider(c)}>Ajouter à la base</button>
                 <button type="button" className="text-xs font-semibold px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50" onClick={() => refuser(c)}>Écarter</button>

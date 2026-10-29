@@ -118,6 +118,56 @@ def _embed_query(query: str) -> List[float]:
 
 
 # ---------------------------------------------------------------------------
+# Lot 348 — moteur de vecteurs PAR COLLECTION : « local » (modèle chargé sur le serveur, ≥ 1 Go de mémoire) ou « inference »
+# (Qdrant Cloud Inference, modèle gratuit intfloat/multilingual-e5-small : rien à charger sur le serveur). Le moteur d'une
+# collection est écrit dans `settings.qdrant_collection_settings.<nom>.moteur` ; il ne change JAMAIS les vecteurs déjà stockés :
+# une collection « inference » est une COPIE recalculée (voir routes/qdrant_migration_e5.py), l'originale reste intacte.
+# ---------------------------------------------------------------------------
+MODELE_E5 = "intfloat/multilingual-e5-small"
+_CLIENTS_IA: dict = {}
+
+
+def moteur_de(settings: dict, collection: str) -> str:
+    """« inference » ou « local » (défaut) pour une collection. Fonction pure."""
+    return (((settings or {}).get("qdrant_collection_settings") or {}).get(collection) or {}).get("moteur") or "local"
+
+
+def doc_e5(texte: str, requete: bool = False):
+    """Texte à faire vectoriser par Qdrant Cloud Inference (préfixe E5 : « query: » recherche, « passage: » contenu)."""
+    from qdrant_client.models import Document
+    return Document(text=("query: " if requete else "passage: ") + (texte or "")[:2000], model=MODELE_E5)
+
+
+def _make_client_ia(url: str, api_key: str):
+    from qdrant_client import QdrantClient
+    if (url, api_key) not in _CLIENTS_IA:
+        _CLIENTS_IA[(url, api_key)] = QdrantClient(url=url, api_key=api_key, timeout=30, cloud_inference=True)
+    return _CLIENTS_IA[(url, api_key)]
+
+
+async def client_ia(db):
+    """Client Qdrant capable de faire vectoriser des « Document » par Qdrant (création dans un fil : import lent)."""
+    url, key = await _resolve_credentials(db)
+    return await asyncio.to_thread(_make_client_ia, url, key)
+
+
+async def _requetes_par_collection(db, settings: dict, noms: list, requete: str):
+    """(client, {collection: vecteur de requête}). Le modèle LOCAL n'est chargé que si une collection « local » est interrogée ET
+    que la mémoire du serveur le permet ; les collections « inference » n'en ont pas besoin."""
+    locales = [n for n in noms if moteur_de(settings, n) != "inference"]
+    q_local = None
+    if locales and embeddings_autorises():
+        q_local = await asyncio.to_thread(_embed_query, requete)
+    vecteurs = {}
+    for n in noms:
+        if moteur_de(settings, n) == "inference":
+            vecteurs[n] = doc_e5(requete, requete=True)
+        elif q_local is not None:
+            vecteurs[n] = q_local
+    return await client_ia(db), vecteurs
+
+
+# ---------------------------------------------------------------------------
 # Qdrant client factory
 # ---------------------------------------------------------------------------
 
@@ -332,6 +382,7 @@ async def list_collections(db) -> list[dict]:
             "vectors_count": count,
             "enabled_for_liluvine": bool(cfg.get("enabled_for_liluvine", False)),
             "description": cfg.get("description") or "",
+            "moteur": cfg.get("moteur") or "local",       # lot 348 : « inference » = recalculée par Qdrant
             "vector_size": _EMBED_VECTOR_SIZE,
             "distance": "Cosine",
             "estimated_size_bytes": size_bytes,
@@ -426,6 +477,10 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
     url, key = await _resolve_credentials(db)
     client = await _client_pret(url, key)
     from qdrant_client.models import PointStruct
+    # Lot 348 : une collection recalculée par Qdrant (moteur « inference ») reçoit ses vecteurs de Qdrant, sans modèle local
+    moteur = moteur_de(await db.settings.find_one({"_id": "global"}) or {}, collection)
+    if moteur == "inference":
+        client = await client_ia(db)
     now_iso = datetime.now(timezone.utc).isoformat()
     points: list[PointStruct] = []
     inserted_chunks = 0
@@ -434,7 +489,8 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
         if not text:
             continue
         chunks = chunk_text(text, max_chars=1200, overlap=150)
-        vectors = await asyncio.to_thread(_embed_texts, chunks)  # lot 26 : calcul hors du serveur principal
+        vectors = ([doc_e5(c) for c in chunks] if moteur == "inference"
+                   else await asyncio.to_thread(_embed_texts, chunks))  # lot 26 : calcul hors du serveur principal
         for chunk, vec in zip(chunks, vectors):
             points.append(PointStruct(
                 id=str(uuid.uuid4()),
@@ -561,7 +617,11 @@ async def upsert_image(
     url, key = await _resolve_credentials(db)
     client = await _client_pret(url, key)
     from qdrant_client.models import PointStruct
-    vec = (await asyncio.to_thread(_embed_texts, [embed_text]))[0]  # lot 26
+    if moteur_de(await db.settings.find_one({"_id": "global"}) or {}, collection) == "inference":   # lot 348
+        client = await client_ia(db)
+        vec = doc_e5(embed_text)
+    else:
+        vec = (await asyncio.to_thread(_embed_texts, [embed_text]))[0]  # lot 26
     point_id = str(uuid.uuid4())
     # lot 26 : envoi à Qdrant dans un thread
     await asyncio.to_thread(lambda: client.upsert(
@@ -644,7 +704,11 @@ async def search_points(db, *, collection: str, query: str, top_k: int = 5) -> d
         raise HTTPException(status_code=400, detail="Requête vide")
     url, key = await _resolve_credentials(db)
     client = await _client_pret(url, key)
-    qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
+    if moteur_de(await db.settings.find_one({"_id": "global"}) or {}, collection) == "inference":   # lot 348
+        client = await client_ia(db)
+        qvec = doc_e5(query, requete=True)
+    else:
+        qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     top_k = min(max(1, int(top_k or 5)), 50)
     try:
         hits = (await asyncio.to_thread(lambda: client.query_points(collection_name=collection, query=qvec, limit=top_k, with_payload=True))).points
@@ -699,14 +763,12 @@ async def search_similar_images(db, *, query: str, top_k: int = 4) -> list[dict]
     if not enabled:
         return []
     try:
-        url, key = await _resolve_credentials(db)
-        client = await _client_pret(url, key)
-        qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
+        client, vecteurs = await _requetes_par_collection(db, settings, enabled, query)   # lot 348 : moteur par collection
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] search_similar_images credentials/embed failed")
         return []
     all_hits: list[dict] = []
-    for cname in enabled:
+    for cname, qvec in vecteurs.items():
         try:
             hits = (await asyncio.to_thread(lambda: client.query_points(
                 collection_name=cname, query=qvec, limit=top_k * 2, with_payload=True,
@@ -751,17 +813,17 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
     enabled = [n for n in enabled if n != "wa_conversations"]
     if not enabled:
         return ""
-    if not embeddings_autorises():
-        return ""   # lot 58.2 : serveur trop petit pour le modèle d'indexation (voir embeddings_autorises)
+    # Lot 58.2 / 348 : le modèle local ne se charge que si la mémoire le permet ; les collections recalculées par Qdrant
+    # (moteur « inference ») n'en ont pas besoin et restent interrogées sur un petit serveur.
     try:
-        url, key = await _resolve_credentials(db)
-        client = await _client_pret(url, key)
-        qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
+        client, vecteurs = await _requetes_par_collection(db, settings, enabled, query)
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] build_rag_context credentials/embed failed")
         return ""
+    if not vecteurs:
+        return ""
     all_hits = []
-    for cname in enabled:
+    for cname, qvec in vecteurs.items():
         try:
             hits = (await asyncio.to_thread(lambda: client.query_points(collection_name=cname, query=qvec, limit=4, with_payload=True))).points
             for h in hits:

@@ -66,6 +66,13 @@ export default function AlertesPlateformesSection() {
           <div key={a.cle} className="rounded-md border border-red-200 bg-red-50 p-2 text-xs mb-1">
             <div className="font-semibold">{a.titre} <span className="font-normal text-slate-600">· WABA {a.waba_id || "—"} · code {a.code} · {a.nombre} échec(s) · depuis {quand(a.depuis)}</span></div>
             <div>Que faire : {a.action}</div>
+            {/* Lot 355 : lien direct vers Meta pour régler le problème, placé juste avant « fermer » (paiement : réglages de paiement du compte WABA) */}
+            <a className="inline-block mt-1 mr-3 font-semibold text-blue-700 underline" target="_blank" rel="noopener noreferrer"
+               href={String(a.code) === "131042"
+                 ? `https://business.facebook.com/billing_hub/payment_settings?asset_id=${a.waba_id || ""}`
+                 : `https://business.facebook.com/wa/manage/home/?waba_id=${a.waba_id || ""}`}>
+              {String(a.code) === "131042" ? "Régler le paiement sur Meta ↗" : "Ouvrir WhatsApp Manager ↗"}
+            </a>
             <button type="button" className="underline mt-1" onClick={() => regler(a.cle)}>C'est réglé (fermer)</button>
           </div>
         ))}
@@ -87,7 +94,7 @@ export default function AlertesPlateformesSection() {
             <div className="flex flex-wrap items-center gap-2">
               <strong className="text-sm">{w.libelle}{w.principale ? " (principale)" : ""}</strong>
               <span className="text-slate-600">{w.telephone || ""} · ID du numéro : <span className="font-mono">{w.phone_number_id || "—"}</span></span>
-              <span>· {w.envois} envois · {w.echecs} échec(s){w.envois ? ` (${(100 * w.echecs / w.envois).toFixed(1)} %)` : ""}</span>
+              <span>· {w.envois} envois · {w.echecs} échec(s){w.envois ? <span title="Taux d'échec = échecs ÷ envois sur la période"> (taux d'échec {(100 * w.echecs / w.envois).toFixed(1)} %)</span> : ""}</span>
               <button type="button" className={bouton} onClick={() => pdf(w.cle)}>Imprimer en PDF</button>
             </div>
             {w.par_code.length > 0 && (

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "366", "date": "2026-10-29",
+        "titre": "🎚️ Pictogramme Paramètres toujours présent dans la barre latérale",
+        "description": "Le pictogramme des paramètres à côté d'« Alerte WhatsApp » ne disparaît plus quand l'Administrateur ouvre une page du portail (éditeur de formulaire…) ; texte de version un peu plus petit.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "365", "date": "2026-10-29",
         "titre": "⚙️ Bouton Paramètres toujours visible ; adresse de réception proposée",
         "description": "Le bouton « Paramètres » reste épinglé en bas de la barre latérale ; le texte de version est un peu plus petit ; chaque plateforme reçoit une adresse de réception proposée (bouton « Utiliser l'adresse proposée »).",

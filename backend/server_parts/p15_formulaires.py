@@ -701,6 +701,8 @@ async def me_form_submissions_table(
             "via": s.get("via") or "",
             "statut": s.get("statut") or "",
             "appel_agenda_id": (s.get("appel") or {}).get("agenda_id"),
+            # Lot 368 — réponse renvoyée par une plateforme (ex. ALBARKA) : son nom sert de « catégorie » (badge et filtre)
+            "plateforme_nom": s.get("plateforme_nom") or "",
         }
         data = s.get("data") or {}
         for col in columns:

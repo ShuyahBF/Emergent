@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "368", "date": "2026-10-29",
+        "titre": "↩️ Les réponses des plateformes reviennent dans SAWALI",
+        "description": "Les réponses aux formulaires et sondages transmis à ALBARKA reviennent dans la copie conservée par SAWALI, marquées du nom de la plateforme (badge et filtre « Source » dans le tableau des soumissions).",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "367", "date": "2026-10-29",
         "titre": "💸 URL de callback des Payouts PawaPay",
         "description": "Le cadre « URLs de callback PawaPay » affiche maintenant l'URL Payouts (bouton Copier) à coller dans le tableau de bord PawaPay.",

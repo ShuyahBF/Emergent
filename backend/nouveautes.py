@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "349", "date": "2026-10-29",
+        "titre": "🔄 Base de connaissances : bouton « Voir le contenu » et test d'une question",
+        "description": "Sous chaque collection : voir ses points (titre et extrait), voir la copie recalculée, et tester une question directement sur le contenu pour vérifier avant de basculer.",
+        "rubrique": "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant",
+    },
+    {
         "lot": "348", "date": "2026-10-29",
         "titre": "🔄 Base de connaissances : recalcul avec le modèle de Qdrant (copie sans risque)",
         "description": "Chaque collection de la base de Liluvine peut être recopiée avec des vecteurs calculés par Qdrant (originale intacte), puis activée ou remise en un clic : la recherche de Liluvine fonctionne sur un petit serveur et les questions / réponses validées peuvent y entrer.",

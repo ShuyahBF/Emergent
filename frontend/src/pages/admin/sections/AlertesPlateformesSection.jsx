@@ -1,4 +1,5 @@
-// AlertesPlateformesSection.jsx — Lot 352 : alertes des plateformes (Meta/WhatsApp) et HISTORIQUE PAR WABA ID imprimable en PDF.
+// AlertesPlateformesSection.jsx — Lots 352 et 354 : alertes des plateformes (Meta/WhatsApp) et HISTORIQUE PAR LIGNE (ID du numéro de téléphone)
+// imprimable en PDF.
 // Réservé à l'administrateur (les autres comptes reçoivent 403 et voient un message).
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -43,9 +44,9 @@ export default function AlertesPlateformesSection() {
     catch { toast.error("Impossible de fermer l'alerte"); }
   };
   // PDF : ouvert dans un nouvel onglet (impression depuis le lecteur du navigateur)
-  const pdf = async (waba) => {
+  const pdf = async (ligne) => {
     try {
-      const r = await apiClient.get("/admin/alertes-plateformes/historique.pdf", { params: { jours, waba: waba || undefined }, responseType: "blob" });
+      const r = await apiClient.get("/admin/alertes-plateformes/historique.pdf", { params: { jours, ligne: ligne || undefined }, responseType: "blob" });
       window.open(URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), "_blank");
     } catch { toast.error("PDF indisponible"); }
   };
@@ -73,27 +74,22 @@ export default function AlertesPlateformesSection() {
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h4 className="text-sm font-semibold">Historique par compte WABA</h4>
+          <h4 className="text-sm font-semibold">Historique par ligne (ID du numéro de téléphone)</h4>
           <label className="text-xs flex items-center gap-1">sur
             <input type="number" min={1} max={365} className="w-16 rounded-md border border-slate-300 px-2 py-1" value={jours} onChange={(e) => setJours(e.target.value)} />
             jours</label>
           <button type="button" className={bouton} onClick={() => charger(jours)}>Actualiser</button>
-          <button type="button" className={bouton} onClick={() => pdf(null)} data-testid="alertes-pdf-tous">PDF de tous les comptes</button>
+          <button type="button" className={bouton} onClick={() => pdf(null)} data-testid="alertes-pdf-tous">PDF de toutes les lignes</button>
         </div>
-        {histo.lignes_sans_waba?.length > 0 && (
-          <p className="text-xs rounded-md bg-amber-50 border border-amber-200 p-2" data-testid="lignes-sans-waba">
-            WABA ID non renseigné pour : <strong>{histo.lignes_sans_waba.join(", ")}</strong>. Ces lignes sont comptées avec le WABA des réglages.
-            Saisissez le WABA ID de chacune dans Paramètres → WhatsApp Business API → « Lignes WhatsApp de Liluvine ».
-          </p>
-        )}
-        {histo.wabas.map((w) => (
-          <div key={w.waba_id} className="rounded-md border border-slate-200 p-2 text-xs space-y-1" data-testid={`waba-${w.waba_id}`}>
+        {histo.waba_id && <p className="text-xs text-slate-600">Compte WhatsApp Business (WABA) : <strong className="font-mono">{histo.waba_id}</strong> — le moyen de paiement se règle pour tout le compte, donc une alerte de paiement touche toutes les lignes.</p>}
+        {histo.lignes.map((w) => (
+          <div key={w.cle} className="rounded-md border border-slate-200 p-2 text-xs space-y-1" data-testid={`ligne-${w.cle}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <strong className="text-sm">WABA ID : {w.waba_id}</strong>
+              <strong className="text-sm">{w.libelle}{w.principale ? " (principale)" : ""}</strong>
+              <span className="text-slate-600">{w.telephone || ""} · ID du numéro : <span className="font-mono">{w.phone_number_id || "—"}</span></span>
               <span>· {w.envois} envois · {w.echecs} échec(s){w.envois ? ` (${(100 * w.echecs / w.envois).toFixed(1)} %)` : ""}</span>
-              <button type="button" className={bouton} onClick={() => pdf(w.waba_id)}>Imprimer en PDF</button>
+              <button type="button" className={bouton} onClick={() => pdf(w.cle)}>Imprimer en PDF</button>
             </div>
-            <div className="text-slate-600">Lignes : {w.lignes.map((l) => `${l.libelle}${l.telephone ? ` (${l.telephone})` : ""}`).join(" · ")}</div>
             {w.par_code.length > 0 && (
               <table className="w-full"><thead><tr className="text-left text-slate-500"><th>Code</th><th>Signification</th><th>Nombre</th><th>Dernier</th></tr></thead>
                 <tbody>{w.par_code.map((c) => (

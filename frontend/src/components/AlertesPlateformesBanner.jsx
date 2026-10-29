@@ -47,7 +47,7 @@ export default function AlertesPlateformesBanner() {
             </div>
           </div>
         ))}
-        <p className="text-xs"><Link to="/admin/settings#s-alertes-plateformes" className="underline font-semibold">Historique par WABA et PDF</Link></p>
+        <p className="text-xs"><Link to="/admin/settings#s-alertes-plateformes" className="underline font-semibold">Historique par ligne et PDF</Link></p>
       </div>
     </div>
   );

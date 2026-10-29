@@ -7,9 +7,11 @@
 # Seuls les codes qui bloquent TOUT le compte sont retenus (paiement, compte verrouillé, jeton, numéro non enregistré, blocage de
 # politique) : les limites par destinataire (131047 « re-engagement », 131049 « healthy ecosystem »…) sont normales et ignorées.
 #
-# Chaque alerte est rattachée à un compte WhatsApp Business (WABA ID) ; « Historique par WABA » regroupe, par compte, les alertes et les
-# échecs d'envoi par jour et par code d'erreur Meta (30 jours par défaut), imprimables en PDF (copie pour Meta, la comptabilité…).
-# Le WABA d'une ligne est son champ `waba_id` (réglage des numéros WhatsApp) ou, à défaut, `wa_business_account_id` des réglages.
+# Historique PAR LIGNE (identifiant du numéro de téléphone Meta, « Phone Number ID » : Standard, VIP, ALBARKA…) : pour chaque ligne,
+# envois, échecs par jour et par code d'erreur Meta (30 jours par défaut) et alertes concernées, imprimable en PDF (copie pour Meta,
+# la comptabilité…). Chaque message porte le Phone Number ID de la ligne qui l'a envoyé (`wa_numero_id`) ; un message sans identifiant
+# est rattaché à la ligne principale. Le compte WABA (`wa_business_account_id`, un seul pour toutes les lignes) est rappelé en tête.
+# Le moyen de paiement se règle par COMPTE (WABA) : une alerte de paiement touche donc toutes les lignes en même temps.
 #
 # Fonctionnement : une tâche (toutes les 10 min) lit les échecs de l'heure écoulée :
 #   - un code critique apparaît → alerte OUVERTE (bandeau rouge sur les pages /admin pour l'administrateur + e-mail, car WhatsApp
@@ -86,7 +88,7 @@ def carte_lignes(s: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     principal = str(s.get("wa_phone_number_id") or "").strip()
     carte: Dict[str, Dict[str, Any]] = {principal or "principale": {
         "phone_number_id": principal, "libelle": str(s.get("wa_principal_libelle") or "").strip() or "Liluvine Standard",
-        "telephone": str(s.get("wa_principal_telephone") or "").strip(), "waba_id": waba_global, "principale": True, "waba_herite": False}}
+        "telephone": str(s.get("wa_principal_telephone") or "").strip(), "waba_id": waba_global, "principale": True}}
     for brut in s.get("wa_numeros") or []:
         if not isinstance(brut, dict):
             continue
@@ -95,9 +97,7 @@ def carte_lignes(s: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             continue
         carte[pid] = {"phone_number_id": pid, "libelle": str(brut.get("libelle") or "").strip() or f"Ligne {pid[-4:]}",
                       "telephone": str(brut.get("telephone") or "").strip(), "principale": False,
-                      "waba_id": str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip() or waba_global,
-                      # lot 353 : vrai si la ligne n'a pas son propre WABA ID (elle est comptée avec celui des réglages)
-                      "waba_herite": not str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip()}
+                      "waba_id": str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip() or waba_global}
     return carte
 
 
@@ -108,6 +108,14 @@ def waba_du_message(carte: Dict[str, Dict[str, Any]], numero_id: Any) -> str:
         return carte[pid]["waba_id"]
     principale = next((l for l in carte.values() if l.get("principale")), None)
     return (principale or {}).get("waba_id") or "non renseigné"
+
+
+def ligne_du_message(carte: Dict[str, Dict[str, Any]], numero_id: Any) -> str:
+    """Clé (Phone Number ID) de la ligne d'un message ; un message sans identifiant ou inconnu → ligne principale. Fonction pure."""
+    pid = str(numero_id or "").strip()
+    if pid and pid in carte:
+        return pid
+    return next((k for k, l in carte.items() if l.get("principale")), next(iter(carte), "principale"))
 
 
 def _maintenant() -> datetime:
@@ -134,6 +142,7 @@ def texte_email(alerte: Dict[str, Any], rappel: bool = False) -> Dict[str, str]:
              f"<p><strong>Plateforme :</strong> {alerte.get('plateforme') or '—'}<br>"
              f"<strong>Compte WABA :</strong> {alerte.get('waba_id') or '—'}<br>"
              f"<strong>Depuis :</strong> {alerte.get('depuis', '')[:16].replace('T', ' ')} UTC<br>"
+             f"<strong>Lignes touchées :</strong> {', '.join(f'{k} ({n})' for k, n in (alerte.get('lignes') or {}).items()) or '—'}<br>"
              f"<strong>Messages en échec :</strong> {alerte.get('nombre', 0)} (code Meta {alerte.get('code')})</p>"
              f"<p><strong>Que faire :</strong> {alerte.get('action') or ''}</p>"
              "<p>Dès que le problème est réglé, l'alerte se ferme toute seule après le premier envoi réussi.</p>"
@@ -146,7 +155,8 @@ async def _etat(db) -> Dict[str, Any]:
 
 
 async def ouvrir_ou_mettre_a_jour(db, send_email, *, cle: str, code: Any, titre: str, action: str, plateforme: str,
-                                  nombre: int, derniere: str, maintenant: Optional[datetime] = None, waba_id: str = "") -> Dict[str, Any]:
+                                  nombre: int, derniere: str, maintenant: Optional[datetime] = None, waba_id: str = "",
+                                  lignes: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """Ouvre l'alerte `cle` ou la met à jour ; envoie l'e-mail à l'ouverture puis un rappel toutes les 12 h. Jamais d'exception."""
     maintenant = maintenant or _maintenant()
     etat = await _etat(db)
@@ -156,7 +166,7 @@ async def ouvrir_ou_mettre_a_jour(db, send_email, *, cle: str, code: Any, titre:
     if nouvelle:
         a = {"cle": cle, "code": code, "titre": titre, "action": action, "plateforme": plateforme, "waba_id": waba_id,
              "depuis": maintenant.isoformat(), "email_le": None}
-    a.update({"nombre": nombre, "derniere": derniere, "vue_le": maintenant.isoformat()})
+    a.update({"nombre": nombre, "derniere": derniere, "vue_le": maintenant.isoformat(), "lignes": dict(lignes or a.get("lignes") or {})})
     envoyer = nouvelle
     if not nouvelle and a.get("email_le"):
         try:
@@ -206,14 +216,16 @@ async def surveiller(db, send_email=None, maintenant: Optional[datetime] = None)
         for m in echecs:
             code = int(m["wa_error_code"])
             waba = waba_du_message(carte, m.get("wa_numero_id"))
-            g = groupes.setdefault((code, waba), {"nombre": 0, "derniere": ""})
+            g = groupes.setdefault((code, waba), {"nombre": 0, "derniere": "", "lignes": {}})
             g["nombre"] += 1
+            cle_l = ligne_du_message(carte, m.get("wa_numero_id"))
+            g["lignes"][cle_l] = g["lignes"].get(cle_l, 0) + 1
             g["derniere"] = max(g["derniere"], m.get("created_at") or "")
         for (code, waba), g in groupes.items():
             d = CODES_CRITIQUES[code]
             cle = cle_alerte(code, waba)
             await ouvrir_ou_mettre_a_jour(db, send_email, cle=cle, code=code, titre=d["titre"], action=d["action"], plateforme=d["plateforme"],
-                                          nombre=g["nombre"], derniere=g["derniere"], maintenant=maintenant, waba_id=waba)
+                                          nombre=g["nombre"], derniere=g["derniere"], maintenant=maintenant, waba_id=waba, lignes=g["lignes"])
             bilan["ouvertes"].append(cle)
         # alertes rétablies : plus d'échec depuis RETABLI_APRES_MIN et au moins un envoi réussi (par une ligne du MÊME WABA) depuis
         for cle, a in list(((await _etat(db)).get("ouvertes") or {}).items()):
@@ -243,24 +255,26 @@ async def surveiller(db, send_email=None, maintenant: Optional[datetime] = None)
     return bilan
 
 
-async def historique_par_waba(db, jours: int = 30, waba: Optional[str] = None) -> Dict[str, Any]:
-    """Historique PAR COMPTE WABA sur `jours` jours : lignes, envois et échecs, échecs par jour et par code d'erreur, alertes."""
+async def historique_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> Dict[str, Any]:
+    """Historique PAR LIGNE (Phone Number ID) sur `jours` jours : envois, échecs, échecs par jour et par code d'erreur Meta, alertes."""
     jours = max(1, min(int(jours or 30), 365))
     maintenant = _maintenant()
     depuis = (maintenant - timedelta(days=jours)).isoformat()
     s = await db.settings.find_one({"_id": "global"}) or {}
     carte = carte_lignes(s)
     etat = await _etat(db)
-    wabas: Dict[str, Dict[str, Any]] = {}
-    for l in carte.values():
-        w = wabas.setdefault(l["waba_id"], {"waba_id": l["waba_id"], "lignes": [], "envois": 0, "echecs": 0, "par_jour": {}, "par_code": {}, "alertes": []})
-        w["lignes"].append({k: l.get(k) for k in ("libelle", "telephone", "phone_number_id", "principale", "waba_herite")})
+    vide = lambda l: {"phone_number_id": l.get("phone_number_id"), "cle": None, "libelle": l.get("libelle"), "telephone": l.get("telephone"),  # noqa: E731
+                      "principale": bool(l.get("principale")), "waba_id": l.get("waba_id"), "envois": 0, "echecs": 0,
+                      "par_jour": {}, "par_code": {}, "alertes": []}
+    lignes: Dict[str, Dict[str, Any]] = {}
+    for cle, l in carte.items():
+        lignes[cle] = {**vide(l), "cle": cle}
     sortants = await db.whatsapp_messages.find(
         {"direction": "outbound", "created_at": {"$gte": depuis}, "wa_status": {"$in": ["sent", "delivered", "read", "failed"]}},
         {"_id": 0, "wa_status": 1, "wa_error_code": 1, "created_at": 1, "wa_numero_id": 1}).to_list(50000)
     for m in sortants:
-        cle_w = waba_du_message(carte, m.get("wa_numero_id"))
-        w = wabas.get(cle_w) or wabas.setdefault(cle_w, {"waba_id": cle_w, "lignes": [], "envois": 0, "echecs": 0, "par_jour": {}, "par_code": {}, "alertes": []})
+        cle = ligne_du_message(carte, m.get("wa_numero_id"))
+        w = lignes.get(cle) or lignes.setdefault(cle, {**vide({"phone_number_id": cle, "libelle": f"Ligne {cle[-4:]}"}), "cle": cle})
         w["envois"] += 1
         if m.get("wa_status") != "failed":
             continue
@@ -277,24 +291,26 @@ async def historique_par_waba(db, jours: int = 30, waba: Optional[str] = None) -
         c["derniere"] = max(c["derniere"] or "", m.get("created_at") or "")
     toutes = list((etat.get("ouvertes") or {}).values()) + list(etat.get("historique") or [])
     for a in toutes:
-        w = wabas.get(a.get("waba_id") or "")
-        if w is not None and (a.get("depuis") or "") >= depuis:
-            w["alertes"].append({k: a.get(k) for k in ("titre", "code", "depuis", "fermee_le", "motif", "nombre")} | {"ouverte": not a.get("fermee_le")})
+        if (a.get("depuis") or "") < depuis:
+            continue
+        for cle in (a.get("lignes") or {}):
+            if cle in lignes:
+                lignes[cle]["alertes"].append({k: a.get(k) for k in ("titre", "code", "depuis", "fermee_le", "motif", "waba_id")}
+                                              | {"nombre": a["lignes"][cle], "ouverte": not a.get("fermee_le")})
     sortie = []
-    for w in wabas.values():
-        if waba and w["waba_id"] != waba:
+    for w in lignes.values():
+        if ligne and w["cle"] != ligne and w.get("phone_number_id") != ligne:
             continue
         w["par_jour"] = sorted(w["par_jour"].values(), key=lambda x: x["date"], reverse=True)
         w["par_code"] = sorted(w["par_code"].values(), key=lambda x: -x["nombre"])
         w["alertes"].sort(key=lambda x: x.get("depuis") or "", reverse=True)
         sortie.append(w)
-    # Lignes dont le WABA ID n'est pas renseigné alors qu'il y a plusieurs lignes : l'historique les compte avec le WABA des réglages
-    heritees = [l["libelle"] for l in carte.values() if l.get("waba_herite")]
-    return {"jours": jours, "genere_le": maintenant.isoformat(), "wabas": sortie, "lignes_sans_waba": heritees if len(carte) > 1 else []}
+    waba = str(s.get("wa_business_account_id") or "").strip() or None
+    return {"jours": jours, "genere_le": maintenant.isoformat(), "waba_id": waba, "lignes": sortie}
 
 
 def pdf_historique(donnees: Dict[str, Any]) -> bytes:
-    """PDF A4 de l'historique par WABA : une section par compte (lignes, totaux, alertes, échecs par code, échecs par jour)."""
+    """PDF A4 de l'historique par ligne : une page par ligne (identité, totaux, alertes, échecs par code, échecs par jour)."""
     import io
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -307,7 +323,7 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
     cell = ParagraphStyle("cell", parent=styles["Normal"], fontSize=8, leading=9.5)
     sortie = io.BytesIO()
     doc = SimpleDocTemplate(sortie, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
-                            title="Historique WhatsApp par WABA", author="SAWALI Smart Systems")
+                            title="Historique WhatsApp par ligne", author="SAWALI Smart Systems")
 
     def esc(t: Any) -> str:
         return str(t if t is not None else "—").replace("&", "&amp;").replace("<", "&lt;")
@@ -320,21 +336,20 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
                                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5fb")])]))
         return t
 
-    corps: List[Any] = [Paragraph("<b>Historique des envois WhatsApp par compte WABA</b>", styles["Title"]),
-                        Paragraph(f"Période : {donnees['jours']} derniers jours · édité le {esc(donnees['genere_le'][:16].replace('T', ' '))} UTC", petit)]
-    if donnees.get("lignes_sans_waba"):
-        corps.append(Paragraph("<b>Attention :</b> WABA ID non renseigné pour " + esc(", ".join(donnees["lignes_sans_waba"]))
-                               + " ; ces lignes sont comptées avec le WABA des réglages.", petit))
-    if not donnees["wabas"]:
-        corps.append(Paragraph("Aucun compte WABA.", styles["Normal"]))
-    for i, w in enumerate(donnees["wabas"]):
+    corps: List[Any] = [Paragraph("<b>Historique des envois WhatsApp par ligne</b>", styles["Title"]),
+                        Paragraph(f"Période : {donnees['jours']} derniers jours · édité le {esc(donnees['genere_le'][:16].replace('T', ' '))} UTC"
+                                  + (f" · compte WABA : {esc(donnees.get('waba_id'))}" if donnees.get("waba_id") else ""), petit)]
+    if not donnees["lignes"]:
+        corps.append(Paragraph("Aucune ligne.", styles["Normal"]))
+    for i, w in enumerate(donnees["lignes"]):
         if i:
             corps.append(PageBreak())
         taux = f"{100 * w['echecs'] / w['envois']:.1f} %" if w["envois"] else "—"
-        corps += [Spacer(1, 4 * mm), Paragraph(f"<b>WABA ID : {esc(w['waba_id'])}</b>", styles["Heading2"]),
-                  Paragraph(f"Envois : <b>{w['envois']}</b> · échecs : <b>{w['echecs']}</b> ({taux})", styles["Normal"]), Spacer(1, 2 * mm),
-                  tableau([["Ligne", "Téléphone", "Phone Number ID"]] + [[l["libelle"] + (" (principale)" if l.get("principale") else ""), l["telephone"] or "—",
-                                                                         l["phone_number_id"] or "—"] for l in w["lignes"]], [60 * mm, 40 * mm, 80 * mm]),
+        corps += [Spacer(1, 4 * mm),
+                  Paragraph(f"<b>{esc(w['libelle'])}</b>" + (" (ligne principale)" if w.get("principale") else ""), styles["Heading2"]),
+                  Paragraph(f"Téléphone : <b>{esc(w.get('telephone') or '—')}</b> · ID du numéro de téléphone (Phone Number ID) : "
+                            f"<b>{esc(w.get('phone_number_id') or '—')}</b>", styles["Normal"]),
+                  Paragraph(f"Envois : <b>{w['envois']}</b> · échecs : <b>{w['echecs']}</b> ({taux})", styles["Normal"]),
                   Spacer(1, 3 * mm), Paragraph("<b>Alertes</b>", styles["Heading3"])]
         corps.append(tableau([["Ouverte le", "Alerte", "Code", "Messages", "État"]] + [
             [(a.get("depuis") or "")[:16].replace("T", " "), a.get("titre"), a.get("code"), a.get("nombre"),
@@ -382,19 +397,19 @@ def make_router(*, db, get_current_user, send_email):
         return {"ouvertes": ouvertes, "historique": etat.get("historique") or [], "codes_surveilles": sorted(CODES_CRITIQUES)}
 
     @router.get("/historique")
-    async def historique(jours: int = 30, waba: Optional[str] = None, user: dict = Depends(get_current_user)):
-        """Historique par compte WABA (lignes, envois / échecs, échecs par code et par jour, alertes)."""
+    async def historique(jours: int = 30, ligne: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Historique par ligne (Phone Number ID) : envois / échecs, échecs par code et par jour, alertes."""
         _gate(user)
-        return await historique_par_waba(db, jours, waba)
+        return await historique_par_ligne(db, jours, ligne)
 
     @router.get("/historique.pdf")
-    async def historique_pdf(jours: int = 30, waba: Optional[str] = None, user: dict = Depends(get_current_user)):
-        """Même historique en PDF (tous les WABA, ou un seul avec ?waba=)."""
+    async def historique_pdf(jours: int = 30, ligne: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Même historique en PDF (toutes les lignes, ou une seule avec ?ligne=<Phone Number ID>)."""
         _gate(user)
         from fastapi.responses import Response
-        donnees = await historique_par_waba(db, jours, waba)
+        donnees = await historique_par_ligne(db, jours, ligne)
         return Response(content=pdf_historique(donnees), media_type="application/pdf",
-                        headers={"Content-Disposition": 'inline; filename="historique-waba.pdf"', "Cache-Control": "no-store"})
+                        headers={"Content-Disposition": 'inline; filename="historique-lignes-whatsapp.pdf"', "Cache-Control": "no-store"})
 
     @router.post("/verifier")
     async def verifier(user: dict = Depends(get_current_user)):

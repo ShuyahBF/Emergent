@@ -17,16 +17,22 @@
 
 NOUVEAUTES = [
     {
+        "lot": "354", "date": "2026-10-29",
+        "titre": "📱 Historique des envois WhatsApp par ligne (ID du numéro de téléphone), imprimable en PDF",
+        "description": "Pour chaque ligne (Standard, VIP, ALBARKA…) : envois, échecs par jour et par code Meta, alertes concernées ; PDF d'une ligne ou de toutes. Le champ « WABA ID » par ligne est retiré (un seul compte WABA).",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "353", "date": "2026-10-29",
-        "titre": "📱 WABA ID par ligne WhatsApp (Standard, VIP, ALBARKA)",
-        "description": "Chaque ligne WhatsApp peut avoir son propre WABA ID : l'historique et les alertes de paiement Meta sont séparés par compte, et le PDF signale les lignes dont le WABA ID n'est pas renseigné.",
+        "titre": "📱 (remplacé au lot 354) WABA ID par ligne WhatsApp",
+        "description": "Ce champ a été retiré au lot 354 : l'historique se fait par ligne (ID du numéro de téléphone), le compte WABA étant le même pour toutes vos lignes.",
         "rubrique": "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels",
     },
     {
         "lot": "352", "date": "2026-10-29",
         "titre": "🚨 Alertes plateformes : le défaut de paiement Meta remonte à l'administrateur",
-        "description": "Quand WhatsApp refuse tous les envois (paiement Meta, jeton expiré, compte restreint), l'administrateur reçoit un e-mail et un bandeau rouge ; l'alerte se ferme seule au rétablissement. Historique par WABA ID (échecs par jour et par code) imprimable en PDF.",
-        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID",
+        "description": "Quand WhatsApp refuse tous les envois (paiement Meta, jeton expiré, compte restreint), l'administrateur reçoit un e-mail et un bandeau rouge ; l'alerte se ferme seule au rétablissement. Historique par ligne (échecs par jour et par code) imprimable en PDF.",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
     },
     {
         "lot": "351", "date": "2026-10-29",

@@ -44,9 +44,9 @@ export default function AlertesPlateformesSection() {
     catch { toast.error("Impossible de fermer l'alerte"); }
   };
   // PDF : ouvert dans un nouvel onglet (impression depuis le lecteur du navigateur)
-  const pdf = async (ligne) => {
+  const pdf = async (ligne, type = "historique") => {   // type : « historique » (échecs, alertes) ou « envois » (envois réussis + coût estimé)
     try {
-      const r = await apiClient.get("/admin/alertes-plateformes/historique.pdf", { params: { jours, ligne: ligne || undefined }, responseType: "blob" });
+      const r = await apiClient.get(`/admin/alertes-plateformes/${type}.pdf`, { params: { jours, ligne: ligne || undefined }, responseType: "blob" });
       window.open(URL.createObjectURL(new Blob([r.data], { type: "application/pdf" })), "_blank");
     } catch { toast.error("PDF indisponible"); }
   };
@@ -96,6 +96,8 @@ export default function AlertesPlateformesSection() {
               <span className="text-slate-600">{w.telephone || ""} · ID du numéro : <span className="font-mono">{w.phone_number_id || "—"}</span></span>
               <span>· {w.envois} envois · {w.echecs} échec(s){w.envois ? <span title="Taux d'échec = échecs ÷ envois sur la période"> (taux d'échec {(100 * w.echecs / w.envois).toFixed(1)} %)</span> : ""}</span>
               <button type="button" className={bouton} onClick={() => pdf(w.cle)}>Imprimer en PDF</button>
+              {/* Lot 355 : impression des seuls ENVOIS de cette ligne, avec le coût estimé (coût par message de la fiche du client lié) */}
+              <button type="button" className={bouton} onClick={() => pdf(w.cle, "envois")}>Imprimer les envois</button>
             </div>
             {w.par_code.length > 0 && (
               <table className="w-full"><thead><tr className="text-left text-slate-500"><th>Code</th><th>Signification</th><th>Nombre</th><th>Dernier</th></tr></thead>

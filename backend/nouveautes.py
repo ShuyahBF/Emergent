@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "347", "date": "2026-10-29",
+        "titre": "🧠 Mémoire des conversations : doublons regroupés, clics de boutons ignorés",
+        "description": "Dans la recherche, un même message répété n'apparaît qu'une fois avec son nombre d'occurrences ; les clics sur des boutons (ex. « Autorisation d'appel : acceptée ») ne sont plus indexés.",
+        "rubrique": "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base",
+    },
+    {
         "lot": "346", "date": "2026-10-29",
         "titre": "🧠 Mémoire des conversations : moins de bruit, extraits plus pertinents pour l'IA",
         "description": "Les messages automatiques (sondages, modèles Meta, campagnes) ne sont plus indexés, et l'IA ne reçoit que les extraits réellement proches du sujet (seuil adapté au modèle de recherche).",

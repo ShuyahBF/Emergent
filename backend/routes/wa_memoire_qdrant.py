@@ -96,6 +96,8 @@ def nature_du_message(m: Dict[str, Any], images_actives: bool = True) -> Optiona
         return None
     if any(m.get(c) for c in MARQUEURS_AUTOMATIQUES):       # message automatique (sondage, modèle, campagne…)
         return None
+    if (m.get("message_type") or "").lower() in ("button", "interactive") and not m.get("media_id"):
+        return None                                          # clic sur un bouton (« Autorisation d'appel : acceptée »…) : aucun contenu
     sortant = m.get("direction") == "outbound"
     if sortant and not m.get("sender_id"):
         return None
@@ -113,6 +115,22 @@ def nature_du_message(m: Dict[str, Any], images_actives: bool = True) -> Optiona
     if not texte or re.fullmatch(r"\[[^\]]{1,40}\]", texte):      # « [image envoyé] » : marqueur, pas un contenu
         return None
     return "texte"
+
+
+def regrouper_doublons(resultats: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
+    """Lot 347 — un même texte envoyé plusieurs fois (même numéro, même sens) n'apparaît qu'une fois, avec son nombre d'occurrences
+    (`occurrences`) ; l'occurrence la mieux classée est gardée, la plus récente indiquée (`derniere_date`). Fonction pure."""
+    groupes: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    for h in resultats:
+        cle = (h.get("phone_digits"), h.get("direction"), re.sub(r"\s+", " ", (h.get("text") or "").strip().lower()))
+        g = groupes.get(cle)
+        if g is None:
+            groupes[cle] = {**h, "occurrences": 1, "derniere_date": h.get("created_at")}
+        else:
+            g["occurrences"] += 1
+            if (h.get("created_at") or "") > (g["derniere_date"] or ""):
+                g["derniere_date"] = h.get("created_at")
+    return list(groupes.values())[:k]
 
 
 def identifiant_point(message_id: str, rang: int) -> str:
@@ -376,10 +394,10 @@ async def rechercher(db, *, requete: str, phone_digits: Optional[str] = None, cl
                            sans_nature=None if nature == "qr" else "qr")      # les candidates ont leur propre écran
     k = min(max(1, int(top_k or 8)), 30)
     hits = (await asyncio.to_thread(lambda: client.query_points(
-        collection_name=COLLECTION, query=vec, query_filter=filtre, limit=k, with_payload=True))).points
-    return [{"score": round(float(h.score), 4), **{c: (h.payload or {}).get(c) for c in (
+        collection_name=COLLECTION, query=vec, query_filter=filtre, limit=min(k * 4, 100), with_payload=True))).points
+    return regrouper_doublons([{"score": round(float(h.score), 4), **{c: (h.payload or {}).get(c) for c in (
         "text", "nature", "direction", "phone_digits", "contact_name", "sender_label", "created_at", "media_url", "media_filename", "message_id")}}
-        for h in hits]
+        for h in hits], k)
 
 
 async def contexte_pour_ia(db, *, phone_digits: str, client_id: Optional[str], requete: str, max_chars: int = 1800) -> str:

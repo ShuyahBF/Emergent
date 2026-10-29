@@ -149,7 +149,7 @@ export default function MemoireConversationsSection() {
           <ul className="space-y-2">
             {resultats.map((h, i) => (
               <li key={i} className="rounded-md border border-slate-200 p-2 text-xs">
-                <div className="text-slate-500">{(h.created_at || "").slice(0, 10)} · +{h.phone_digits} {h.contact_name ? `(${h.contact_name})` : ""} · {h.direction === "inbound" ? "client" : (h.sender_label || "équipe")} · {h.nature} · score {h.score}</div>
+                <div className="text-slate-500">{(h.created_at || "").slice(0, 10)} · +{h.phone_digits} {h.contact_name ? `(${h.contact_name})` : ""} · {h.direction === "inbound" ? "client" : (h.sender_label || "équipe")} · {h.nature} · score {h.score}{h.occurrences > 1 ? ` · ×${h.occurrences} (dernier : ${(h.derniere_date || "").slice(0, 10)})` : ""}</div>
                 <div className="whitespace-pre-wrap">{h.text}</div>
                 {h.media_url && <a className="text-blue-700 underline" href={h.media_url} target="_blank" rel="noreferrer">{h.media_filename || "Fichier"}</a>}
               </li>

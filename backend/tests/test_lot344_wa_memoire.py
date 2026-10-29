@@ -187,3 +187,14 @@ def test_messages_automatiques_jamais_indexes():
 
 def test_seuils_de_pertinence_adaptes_au_modele_e5():
     assert W.SEUIL_MEME_NUMERO >= 0.83 and W.SEUIL_REPONSES_EQUIPE > W.SEUIL_MEME_NUMERO
+
+
+def test_clics_de_boutons_non_indexes_et_doublons_regroupes():
+    """Lot 347 : « Autorisation d'appel : acceptée » (clic de bouton) n'est pas indexé ; un même texte répété n'apparaît qu'une fois."""
+    clic = {"direction": "inbound", "phone_digits": "22670000000", "message_type": "interactive", "body": "Autorisation d'appel : acceptée"}
+    assert W.nature_du_message(clic) is None and W.nature_du_message({**clic, "message_type": "button"}) is None
+    h = {"phone_digits": "1", "direction": "inbound", "text": "Autorisation d'appel : acceptée", "score": 0.86}
+    groupes = W.regrouper_doublons([{**h, "created_at": "2026-10-06"}, {**h, "created_at": "2026-10-08", "score": 0.85},
+                                    {**h, "direction": "outbound", "created_at": "2026-10-07"}, {**h, "text": "Autre texte", "score": 0.8}], 8)
+    assert [g["occurrences"] for g in groupes] == [2, 1, 1] and groupes[0]["derniere_date"] == "2026-10-08" and groupes[0]["score"] == 0.86
+    assert len(W.regrouper_doublons([{**h, "created_at": str(i), "text": f"t{i}"} for i in range(10)], 3)) == 3

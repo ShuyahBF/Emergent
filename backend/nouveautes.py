@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "351", "date": "2026-10-29",
+        "titre": "🤖 Liluvine : une commande ne s'exécute que si elle commence par « ! »",
+        "description": "Un message sans « ! » qui ressemble à une commande (ex. « adresse ») n'est plus exécuté : Liluvine explique qu'une commande commence par « ! » et indique la commande à envoyer (ex. !adresse).",
+        "rubrique": "Liluvine Reactions & Ad Auto-Replies (fuzzy commands, templates FB)",
+    },
+    {
         "lot": "350", "date": "2026-10-29",
         "titre": "🤖 Liluvine : une question n'est plus prise pour une commande « ! »",
         "description": "Un message long qui contient « adresse » ou « disponibilité » (ex. « Comment connaître l'adresse IP d'une machine ») n'est plus transformé en !adresse ou !stock : Liluvine répond avec sa base de connaissances. Les vraies commandes courtes restent reconnues.",

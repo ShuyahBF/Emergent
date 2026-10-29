@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "355", "date": "2026-10-29",
+        "titre": "🔗 Alertes Meta : lien pour régler le paiement",
+        "description": "Chaque alerte propose un lien direct vers Meta (paiement ou WhatsApp Manager) avant « fermer » ; le pourcentage de l'historique par ligne est le taux d'échec.",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "354", "date": "2026-10-29",
         "titre": "📱 Historique des envois WhatsApp par ligne (ID du numéro de téléphone), imprimable en PDF",
         "description": "Pour chaque ligne (Standard, VIP, ALBARKA…) : envois, échecs par jour et par code Meta, alertes concernées ; PDF d'une ligne ou de toutes. Le champ « WABA ID » par ligne est retiré (un seul compte WABA).",

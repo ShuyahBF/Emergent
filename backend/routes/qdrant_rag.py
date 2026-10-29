@@ -747,6 +747,8 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
         return ""
     coll_meta = settings.get("qdrant_collection_settings") or {}
     enabled = [name for name, cfg in coll_meta.items() if (cfg or {}).get("enabled_for_liluvine")]
+    # Lot 344 : la mémoire des conversations mélange les numéros : elle n'alimente JAMAIS la base générale (voir routes/wa_memoire_qdrant.py)
+    enabled = [n for n in enabled if n != "wa_conversations"]
     if not enabled:
         return ""
     if not embeddings_autorises():

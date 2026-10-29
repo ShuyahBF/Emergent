@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "344", "date": "2026-10-29",
+        "titre": "🧠 Mémoire des conversations WhatsApp dans Qdrant",
+        "description": "Messages, PDF et images (jamais les vocaux) indexés pour retrouver un échange par numéro ou par sujet ; l'IA reçoit l'historique du même numéro ; les réponses de l'équipe deviennent des questions / réponses que vous validez pour enrichir la base de connaissances.",
+        "rubrique": "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base",
+    },
+    {
         "lot": "343", "date": "2026-10-29",
         "titre": "🤝 L'agent IA laisse la main aux humains (délai de 15 s)",
         "description": "Liluvine et les autres agents IA ne répondent qu'au bout de 15 s si aucun humain n'a répondu, et ne se mêlent pas d'une conversation humaine en cours tant qu'un membre de l'équipe est présent.",

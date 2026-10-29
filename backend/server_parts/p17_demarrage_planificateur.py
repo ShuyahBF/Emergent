@@ -908,6 +908,23 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=600,
             )
+            # Lot 344 — mémoire des conversations WhatsApp : un passage d'indexation par minute (désactivé tant que le propriétaire
+            # n'a pas coché « Activer » dans Paramètres ; un passage inactif ne coûte qu'une lecture des réglages).
+            async def _scheduled_wa_memoire():
+                try:
+                    from routes.wa_memoire_qdrant import indexer_lot
+                    await indexer_lot(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[wa_memoire] job failed: %s", exc)
+            _safe_add_job(
+                _scheduled_wa_memoire,
+                CronTrigger(minute="*", timezone="UTC"),
+                id="wa_memoire_indexation_1min",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=120,
+            )
             # 2026-02 fork iter104 — Contract Overdue Alert (daily at 08:15 Africa/Abidjan).
             # Scan all tenants with contract fields set and email/WhatsApp the
             # super-admin when a tenant is past its threshold.

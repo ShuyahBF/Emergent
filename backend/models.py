@@ -1008,6 +1008,12 @@ class SettingsUpdate(BaseModel):
     wa_principal_telephone: Optional[str] = None     # numéro affiché de la ligne principale
     wa_numeros: Optional[List[Dict[str, Any]]] = None  # lignes supplémentaires [{id, libelle, telephone, vip, prospects, complement_prompt}]
     wa_seuil_vip: Optional[float] = None             # montant de contrat à partir duquel le client passe sur la ligne VIP
+    # Lot 344 — mémoire des conversations WhatsApp dans Qdrant (voir routes/wa_memoire_qdrant.py)
+    wa_memoire_active: Optional[bool] = None
+    wa_memoire_images: Optional[bool] = None
+    wa_memoire_ia: Optional[bool] = None
+    wa_memoire_ia_reponses_equipe: Optional[bool] = None
+    wa_memoire_images_par_jour: Optional[int] = None
     # Lot 343 — laisser la main aux humains avant la réponse de l'IA (voir routes/wa_main_humaine.py)
     wa_main_humaine_active: Optional[bool] = None
     wa_main_humaine_delai_s: Optional[int] = None

@@ -1254,6 +1254,13 @@ async def autoreply_to_inbound(
                                     audience="prospects" if is_prospect else "clients")  # smaller budget for WA
     except Exception:
         kb = ""
+    # Lot 344 — mémoire des conversations (Qdrant) : extraits pertinents des anciens échanges de CE numéro (jamais d'un autre client)
+    try:
+        from routes.wa_memoire_qdrant import contexte_pour_ia
+        memoire_ctx = await contexte_pour_ia(db, phone_digits=phone_digits, client_id=scope_uid,
+                                             requete=requete_recherche(text_modele, historique))
+    except Exception:  # noqa: BLE001
+        memoire_ctx = ""
     contact_tag = ""
     if contact and contact.get("name"):
         contact_tag = f"\n\nContact qui écrit : {contact['name']} ({contact.get('code') or phone_digits})"
@@ -1296,6 +1303,7 @@ async def autoreply_to_inbound(
         + (("\n" + ctx) if ctx else "")
         + (("\n" + biz_ctx) if biz_ctx else "")
         + (("\n\n" + kb) if kb else "")
+        + (("\n\n" + memoire_ctx) if memoire_ctx else "")     # lot 344 : mémoire des conversations
         + contact_tag
         + offre_bloc          # lot 163 : offre du client lié (vide si aucune)
         + consignes_conversation(bool(offre_bloc), settings_doc.get("liluvine_wa_consignes_conversation"))   # lots 179/184

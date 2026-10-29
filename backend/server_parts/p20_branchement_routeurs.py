@@ -1310,6 +1310,10 @@ api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_u
 from routes.qdrant_rag import make_router as _make_qdrant_router  # noqa: E402
 api.include_router(_make_qdrant_router(db=db, get_current_user=get_current_user))
 
+# Lot 344 — mémoire des conversations WhatsApp dans Qdrant (recherche par numéro et par sujet, questions / réponses à valider)
+from routes.wa_memoire_qdrant import make_router as _make_wa_memoire_router  # noqa: E402
+api.include_router(_make_wa_memoire_router(db=db, get_current_user=get_current_user))
+
 # S-iter39p — Media Library (PDF + video + image library shared in Brochures)
 from routes.media_library import setup_media_library_routes  # noqa: E402
 setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, save_and_log=_obj_storage.save_and_log)

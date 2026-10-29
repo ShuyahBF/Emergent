@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "343", "date": "2026-10-29",
+        "titre": "🤝 L'agent IA laisse la main aux humains (délai de 15 s)",
+        "description": "Liluvine et les autres agents IA ne répondent qu'au bout de 15 s si aucun humain n'a répondu, et ne se mêlent pas d'une conversation humaine en cours tant qu'un membre de l'équipe est présent.",
+        "rubrique": "🤝 Réponses automatiques : laisser la main aux humains",
+    },
+    {
         "lot": "342", "date": "2026-10-28",
         "titre": "🎨 Tableaux : la ligne sélectionnée est maintenant en police bleu nuit",
         "description": "La ligne sélectionnée d'un tableau garde son fond orange clair mais le texte passe du blanc au bleu nuit : lisible (7,7 pour 1 au lieu de 2 pour 1).",

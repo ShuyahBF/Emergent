@@ -1314,6 +1314,10 @@ api.include_router(_make_qdrant_router(db=db, get_current_user=get_current_user)
 from routes.wa_memoire_qdrant import make_router as _make_wa_memoire_router  # noqa: E402
 api.include_router(_make_wa_memoire_router(db=db, get_current_user=get_current_user))
 
+# Lot 348 — recalcul de la base de connaissances avec le modèle de Qdrant (copie, puis bascule réversible)
+from routes.qdrant_migration_e5 import make_router as _make_migration_e5_router  # noqa: E402
+api.include_router(_make_migration_e5_router(db=db, get_current_user=get_current_user))
+
 # S-iter39p — Media Library (PDF + video + image library shared in Brochures)
 from routes.media_library import setup_media_library_routes  # noqa: E402
 setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, save_and_log=_obj_storage.save_and_log)

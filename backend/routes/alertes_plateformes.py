@@ -261,11 +261,13 @@ async def _transmissions_comme_envois(db, depuis: str) -> List[Dict[str, Any]]:
     forme qu'un message sortant ; `ligne` du journal = Phone Number ID de la ligne dédiée (vide / « principal » = ligne principale)."""
     brut = await db.liluvine_transmissions.find(
         {"date": {"$gte": depuis}}, {"_id": 0, "date": 1, "emetteur": 1, "ok": 1, "ligne": 1}).to_list(100000)
+    # Lot 358 : la fiche de l'émetteur (liluvine_emetteurs.client_id) désigne le client / tenant LIÉ → son « Coût par message » sert au coût estimé
+    lies = {e["code"]: e.get("client_id") async for e in db.liluvine_emetteurs.find({"client_id": {"$nin": [None, ""]}}, {"_id": 0, "code": 1, "client_id": 1})}
     sortie = []
     for t in brut:
         ligne = str(t.get("ligne") or "").strip()
         sortie.append({"created_at": t.get("date"), "wa_status": "sent" if t.get("ok") else "failed", "wa_error_code": None,
-                       "wa_numero_id": None if ligne in ("", "principal") else ligne, "client_id": None,
+                       "wa_numero_id": None if ligne in ("", "principal") else ligne, "client_id": lies.get(t.get("emetteur")),
                        "_source": f"Transmission universelle — {t.get('emetteur') or 'liluvine'}"})
     return sortie
 

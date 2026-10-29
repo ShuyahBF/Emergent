@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "362", "date": "2026-10-29",
+        "titre": "📮 Réception des formulaires et sondages : adresse de chaque plateforme",
+        "description": "Sous la table des plateformes émettrices, un bloc dédié permet de saisir l'adresse où chaque plateforme reçoit les formulaires et sondages transmis par SAWALI.",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "361", "date": "2026-10-29",
         "titre": "💳 Paiement des formulaires et sondages : moyens au choix, plateformes destinataires",
         "description": "Cochez les moyens actifs sur le lien de paiement (PawaPay par défaut, Orange, Moov, Telecel, PI-SPI) ; les formulaires et sondages peuvent aussi être transmis à des plateformes (copie et historique conservés), comptés dans « Autres travaux IA ».",

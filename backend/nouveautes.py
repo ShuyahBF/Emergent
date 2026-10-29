@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "361", "date": "2026-10-29",
+        "titre": "💳 Paiement des formulaires et sondages : moyens au choix, plateformes destinataires",
+        "description": "Cochez les moyens actifs sur le lien de paiement (PawaPay par défaut, Orange, Moov, Telecel, PI-SPI) ; les formulaires et sondages peuvent aussi être transmis à des plateformes (copie et historique conservés), comptés dans « Autres travaux IA ».",
+        "rubrique": "💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)",
+    },
+    {
         "lot": "360", "date": "2026-10-29",
         "titre": "📝 !formulaire : le document peut être envoyé avant la commande",
         "description": "Si vous envoyez d'abord le document (ou la photo) puis « !formulaire » en texte, Liluvine reprend ce document (10 minutes au plus) au lieu de ne répondre que le mode d'emploi.",

@@ -376,6 +376,7 @@ export default function LiluvineEmetteursSection() {
               <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th>
               <th className="pr-2" title="Lot 223 — numéro WhatsApp de SAWALI par lequel partent les messages de cette plateforme (ex. la ligne d'ALBARKA). Vide = règles habituelles de choix du numéro.">Ligne WhatsApp</th>
               <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…). Lot 103 : la commande « !code » (ex. « !zandgo où est ma commande ? », casse indifférente) la joint à tout moment ; conversation de 30 min, « FIN » rend la main à Liluvine.">Adresse de l'assistant</th><th></th>
+              <th className="pr-2" title="Lot 361 — adresse (POST signé) où la plateforme reçoit les formulaires et sondages transmis par SAWALI : vide = la plateforme n'est pas proposée comme destinataire">Réception des formulaires</th>
             </tr>
           </thead>
           <tbody>
@@ -446,6 +447,12 @@ export default function LiluvineEmetteursSection() {
                   <input defaultValue={e.url_assistant || ""} onClick={(ev) => ev.stopPropagation()} placeholder="vide = Liluvine répond"
                          onBlur={(ev) => ev.target.value !== (e.url_assistant || "") && modifier(e.code, { url_assistant: ev.target.value })}
                          className="w-56 rounded border border-slate-300 px-1 py-0.5" />
+                </td>
+                <td className="pr-2">
+                  {/* Lot 361 — espace Formulaires / Sondages de la plateforme (réception signée) ; enregistrée en quittant le champ */}
+                  <input defaultValue={e.url_formulaires || ""} onClick={(ev) => ev.stopPropagation()} placeholder="vide = non destinataire"
+                         onBlur={(ev) => ev.target.value !== (e.url_formulaires || "") && modifier(e.code, { url_formulaires: ev.target.value })}
+                         className="w-56 rounded border border-slate-300 px-1 py-0.5" data-testid={`emetteur-url-formulaires-${e.code}`} />
                 </td>
                 <td className="whitespace-nowrap">
                   <button type="button" title="Regénérer la clé" onClick={(ev) => { ev.stopPropagation(); regenerer(e.code); }}

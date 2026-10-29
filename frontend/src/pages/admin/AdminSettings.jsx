@@ -20,6 +20,7 @@ import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutorep
 import ListeNoireCommandesSection from "@/pages/admin/sections/ListeNoireCommandesSection";   // Lot 61
 import BarriereWaSection from "@/pages/admin/sections/BarriereWaSection";   // Lot 63
 import MainHumaineSection from "@/pages/admin/sections/MainHumaineSection";   // Lot 343
+import PaiementFormulairesSection from "@/pages/admin/sections/PaiementFormulairesSection";   // Lot 361
 import MemoireConversationsSection from "@/pages/admin/sections/MemoireConversationsSection";   // Lot 344
 import RecalculKbSection from "@/pages/admin/sections/RecalculKbSection";   // Lot 348
 import AlertesPlateformesSection from "@/pages/admin/sections/AlertesPlateformesSection";   // Lot 352
@@ -170,6 +171,7 @@ const NEW_LOTS = {
   "📊 Historique des appels de Liluvine (durée et coût)": "67.1",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "79.6",   // lot 79.6 : écran « Messages bloqués »
   "🤝 Réponses automatiques : laisser la main aux humains": "343",
+  "💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)": "361",
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "344",
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "348",
   "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne": "352",
@@ -239,6 +241,7 @@ const NEW_SECTIONS = {
   // Lots 59 à 63 (05-06/10/2026) — numéros WhatsApp multiples, appels, liste noire, barrière, plateformes
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "2026-10-08",   // lot 79.6
   "🤝 Réponses automatiques : laisser la main aux humains": "2026-10-29",   // lot 343
+  "💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)": "2026-10-29",   // lot 361
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "2026-10-29",   // lot 344
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "2026-10-29",   // lot 348
   "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne": "2026-10-29",   // lot 352
@@ -337,6 +340,7 @@ const NEW_DESCRIPTIONS = {
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "Copie de chaque collection de la base de Liluvine recalculée par Qdrant (originale intacte), bascule et retour en un clic : la recherche fonctionne sur un petit serveur (lot 348).",
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "Messages, PDF et images des conversations (jamais les vocaux) indexés dans Qdrant : recherche par numéro et par sujet, historique donné à l'IA, questions / réponses validées par vous pour enrichir la base de connaissances (lot 344).",
   "🤝 Réponses automatiques : laisser la main aux humains": "L'agent IA (Liluvine et les autres) ne répond qu'au bout de 15 s si aucun humain n'a répondu, et ne se mêle pas d'une conversation humaine en cours tant qu'un membre de l'équipe est présent (lot 343).",
+  "💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)": "Choisissez les moyens affichés sur le lien de paiement des formulaires et sondages ; PawaPay est actif par défaut, PI-SPI se confirme à la main (lot 361).",
   "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)": "Réponse automatique au n-ième message sans réponse, messages suivants retenus (lot 63).",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "Numéros interdits aux commandes « ! » avec message de refus de Liluvine (lot 61).",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "Activité des plateformes (adLyn, Ster, beAuthentik…) et statistiques internes (lots 61-62).",
@@ -1501,6 +1505,11 @@ export default function AdminSettings() {
       {/* Lot 343 — l'agent IA laisse la main aux humains : délai de 15 s, pas d'intrusion dans une conversation humaine en cours */}
       <Filterable title="🤝 Réponses automatiques : laisser la main aux humains" anchorId="s-main-humaine">
         <MainHumaineSection />
+      </Filterable>
+
+      {/* Lot 361 — moyens de paiement des formulaires et sondages (PawaPay par défaut, opérateurs, PI-SPI) */}
+      <Filterable title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)" anchorId="s-paiement-formulaires" category="comms">
+        <PaiementFormulairesSection />
       </Filterable>
 
       {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}

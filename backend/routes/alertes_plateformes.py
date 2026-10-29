@@ -255,6 +255,21 @@ async def surveiller(db, send_email=None, maintenant: Optional[datetime] = None)
     return bilan
 
 
+async def _transmissions_comme_envois(db, depuis: str) -> List[Dict[str, Any]]:
+    """Lot 357 — envois de la « transmission universelle » (ALBARKA, Ster, adLyn… par la ligne de SAWALI) : ils sont journalisés
+    dans `liluvine_transmissions` et JAMAIS dans `whatsapp_messages`, donc absents de l'historique par ligne. On les ramène à la même
+    forme qu'un message sortant ; `ligne` du journal = Phone Number ID de la ligne dédiée (vide / « principal » = ligne principale)."""
+    brut = await db.liluvine_transmissions.find(
+        {"date": {"$gte": depuis}}, {"_id": 0, "date": 1, "emetteur": 1, "ok": 1, "ligne": 1}).to_list(100000)
+    sortie = []
+    for t in brut:
+        ligne = str(t.get("ligne") or "").strip()
+        sortie.append({"created_at": t.get("date"), "wa_status": "sent" if t.get("ok") else "failed", "wa_error_code": None,
+                       "wa_numero_id": None if ligne in ("", "principal") else ligne, "client_id": None,
+                       "_source": f"Transmission universelle — {t.get('emetteur') or 'liluvine'}"})
+    return sortie
+
+
 async def historique_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> Dict[str, Any]:
     """Historique PAR LIGNE (Phone Number ID) sur `jours` jours : envois, échecs, échecs par jour et par code d'erreur Meta, alertes."""
     jours = max(1, min(int(jours or 30), 365))
@@ -272,6 +287,7 @@ async def historique_par_ligne(db, jours: int = 30, ligne: Optional[str] = None)
     sortants = await db.whatsapp_messages.find(
         {"direction": "outbound", "created_at": {"$gte": depuis}, "wa_status": {"$in": ["sent", "delivered", "read", "failed"]}},
         {"_id": 0, "wa_status": 1, "wa_error_code": 1, "created_at": 1, "wa_numero_id": 1}).to_list(50000)
+    sortants += await _transmissions_comme_envois(db, depuis)      # lot 357
     for m in sortants:
         cle = ligne_du_message(carte, m.get("wa_numero_id"))
         w = lignes.get(cle) or lignes.setdefault(cle, {**vide({"phone_number_id": cle, "libelle": f"Ligne {cle[-4:]}"}), "cle": cle})
@@ -392,6 +408,7 @@ async def envois_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> 
     sortants = await db.whatsapp_messages.find(
         {"direction": "outbound", "created_at": {"$gte": depuis}, "wa_status": {"$in": ["sent", "delivered", "read"]}},
         {"_id": 0, "created_at": 1, "wa_numero_id": 1, "client_id": 1}).to_list(100000)
+    sortants += [t for t in await _transmissions_comme_envois(db, depuis) if t["wa_status"] == "sent"]      # lot 357
     # fiches des sociétés liées, lues EN BLOC (jamais une lecture par message)
     ids = {m.get("client_id") for m in sortants if m.get("client_id")}
     fiches = {u["id"]: u async for u in db.users.find({"id": {"$in": list(ids)}},
@@ -403,9 +420,9 @@ async def envois_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> 
         w["envois"] += 1
         jour = (m.get("created_at") or "")[:10]
         w["par_jour"][jour] = w["par_jour"].get(jour, 0) + 1
-        cid = m.get("client_id") or ""
+        cid = m.get("client_id") or m.get("_source") or ""
         f = fiches.get(cid) or {}
-        c = w["par_client"].setdefault(cid, {"client": f.get("company") or f.get("full_name") or "Non rattaché à un client",
+        c = w["par_client"].setdefault(cid, {"client": f.get("company") or f.get("full_name") or m.get("_source") or "Non rattaché à un client",
                                              "cout_unitaire": float(f.get("wa_unit_cost") or 0), "devise": f.get("wa_currency") or "XOF",
                                              "envois": 0, "cout": 0.0})
         c["envois"] += 1

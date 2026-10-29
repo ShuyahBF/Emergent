@@ -516,6 +516,7 @@ async def autoreply_to_inbound(
         try:
             await db.whatsapp_messages.insert_one({
                 "id": uuid.uuid4().hex, "direction": "outbound",
+                "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
                 "to": to, "phone_digits": phone_digits, "body": text,
                 "client_id": inbound_doc.get("client_id"), "contact_id": (contact or {}).get("id"),
                 "wa_message_id": (res or {}).get("message_id") if isinstance(res, dict) else None,
@@ -768,6 +769,7 @@ async def autoreply_to_inbound(
                 try:
                     await db.whatsapp_messages.insert_one({
                         "id": uuid.uuid4().hex, "direction": "outbound",
+                        "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
                         "to": to_e164_v, "phone_digits": phone_digits,
                         "body": reply_v, "client_id": inbound_doc.get("client_id"),
                         "wa_message_id": (send_v or {}).get("message_id"),
@@ -907,6 +909,7 @@ async def autoreply_to_inbound(
             try:
                 await db.whatsapp_messages.insert_one({
                     "id": uuid.uuid4().hex, "direction": "outbound",
+                    "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
                     "to": to_e164_pc, "phone_digits": phone_digits,
                     "body": reply_pc, "client_id": inbound_doc.get("client_id"),
                     "wa_message_id": (send_pc or {}).get("message_id"),
@@ -946,6 +949,7 @@ async def autoreply_to_inbound(
         try:
             await db.whatsapp_messages.insert_one({
                 "id": uuid.uuid4().hex, "direction": "outbound",
+                "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
                 "to": to_e164_fb, "phone_digits": phone_digits,
                 "body": fallback_reply, "client_id": inbound_doc.get("client_id"),
                 "wa_message_id": (send_res_fb or {}).get("message_id"),
@@ -1202,6 +1206,7 @@ async def autoreply_to_inbound(
                         await db.whatsapp_messages.insert_one({
                             "id": secrets.token_urlsafe(12), "client_id": scope_uid, "tenant_id": scope_uid,
                             "direction": "outbound", "from": "liluvine-pro", "to": inbound_doc.get("from") or f"+{phone_digits}",
+                            "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
                             "phone_digits": phone_digits, "message_type": "text",
                             "body": f"{_offre.texte_refus(settings_doc, refus['objet'])}\n\n{signature_refus}",
                             "status": "sent", "wa_status": "sent", "sent_at": _now_iso(), "created_at": _now_iso(),
@@ -1597,6 +1602,7 @@ async def autoreply_to_inbound(
             "client_id": scope_uid,
             "tenant_id": scope_uid,
             "direction": "outbound",
+            "wa_numero_id": inbound_doc.get("wa_numero_id"),   # lot 357 : ligne qui a reçu le message (et répond)
             "from": "liluvine-pro",
             "to": inbound_doc.get("from") or f"+{phone_digits}",
             "phone_digits": phone_digits,

@@ -19,6 +19,7 @@ def test_fonctions_pures():
     assert A.waba_du_message(carte, "P1") == "WABA-1" and A.waba_du_message(carte, "P2") == "WABA-2"
     assert A.waba_du_message(carte, "P3") == "WABA-1"            # ligne sans WABA propre : celui des réglages
     assert A.waba_du_message(carte, None) == "WABA-1" and A.waba_du_message(carte, "inconnu") == "WABA-1"
+    assert carte["P2"]["waba_herite"] is False and carte["P3"]["waba_herite"] is True and carte["P1"]["waba_herite"] is False      # lot 353
     assert A.cle_alerte(131042, "WABA-1") == "meta-131042-WABA-1"
     mail = A.texte_email({"titre": "T", "plateforme": "Meta", "depuis": "2026-10-29T12:00:00", "nombre": 3, "code": 131042, "action": "Payer",
                           "waba_id": "WABA-1"})
@@ -93,11 +94,13 @@ def test_historique_par_waba_et_pdf():
         assert w1["par_code"][0]["critique"] is True and any(c["code"] == 131049 and not c["critique"] for c in w1["par_code"])
         assert len(w1["lignes"]) == 2 and len(w1["par_jour"]) == 3 and w1["alertes"] and w1["alertes"][0]["ouverte"] is True
         assert par["WABA-2"]["echecs"] == 1
+        assert h["lignes_sans_waba"] == ["Autre ligne"]          # lot 353 : ligne sans WABA ID propre signalée dans l'historique et le PDF
         un = await A.historique_par_waba(db, 30, "WABA-2")
         assert [w["waba_id"] for w in un["wabas"]] == ["WABA-2"]
         pdf = A.pdf_historique(h)
         with pymupdf.open("pdf", pdf) as d:
             texte = " ".join(p.get_text() for p in d)
+            assert "Attention" in texte and "Autre ligne" in texte
             assert d.page_count == 2 and "WABA-1" in texte and "WABA-2" in texte and "131042" in texte and "paiement" in texte
             assert abs(d[0].rect.width - 595) < 2          # A4
 

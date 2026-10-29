@@ -23,3 +23,21 @@ def test_envois_par_ligne_cout_fiche_client():
         assert w["cout_total"] == 30
         assert ap.pdf_envois(d).startswith(b"%PDF")
     asyncio.run(scenario())
+
+
+def test_transmissions_universelles_comptees_sur_leur_ligne():
+    """Lot 357 : les envois d'ALBARKA (journal liluvine_transmissions) apparaissent sur la ligne dédiée, avec le client « Transmission »."""
+    async def scenario():
+        db = mongomock_motor.AsyncMongoMockClient()["t"]
+        now = datetime.now(timezone.utc).isoformat()
+        await db.settings.insert_one({"_id": "global", "wa_phone_number_id": "111",
+                                      "wa_numeros": [{"id": "222", "libelle": "Liluvine ALBARKA"}]})
+        await db.liluvine_transmissions.insert_many([
+            {"date": now, "emetteur": "albarka", "ok": True, "ligne": "222"},
+            {"date": now, "emetteur": "albarka", "ok": False, "ligne": "222"}])
+        h = await ap.historique_par_ligne(db, 30, "222")
+        assert h["lignes"][0]["envois"] == 2 and h["lignes"][0]["echecs"] == 1
+        e = await ap.envois_par_ligne(db, 30, "222")
+        w = e["lignes"][0]
+        assert w["envois"] == 1 and "albarka" in w["par_client"][0]["client"]
+    asyncio.run(scenario())

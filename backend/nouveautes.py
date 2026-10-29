@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "357", "date": "2026-10-29",
+        "titre": "📊 Historique par ligne : envois d'ALBARKA et réponses de Liluvine comptés",
+        "description": "Les envois de la transmission universelle (modèles ALBARKA, Ster…) et les réponses de l'IA sont maintenant comptés sur la ligne qui les envoie ; bouton renommé « Imprimer Échecs en PDF ».",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "356", "date": "2026-10-29",
         "titre": "🖨️ Imprimer les envois d'une ligne WhatsApp avec le coût estimé",
         "description": "Nouveau bouton « Imprimer les envois » par ligne : envois réussis par jour et par client lié, coût estimé avec le « Coût par message » de la fiche du client.",

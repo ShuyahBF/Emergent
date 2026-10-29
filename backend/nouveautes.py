@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "365", "date": "2026-10-29",
+        "titre": "⚙️ Bouton Paramètres toujours visible ; adresse de réception proposée",
+        "description": "Le bouton « Paramètres » reste épinglé en bas de la barre latérale ; le texte de version est un peu plus petit ; chaque plateforme reçoit une adresse de réception proposée (bouton « Utiliser l'adresse proposée »).",
+        "rubrique": "Transmission WA Universelle Liluvine (webhook entrant)",
+    },
+    {
         "lot": "364", "date": "2026-10-29",
         "titre": "🌐 Plateformes dans l'éditeur de formulaire",
         "description": "Sous « Clients autorisés », le bloc « Envoyer à des plateformes » liste ALBARKA, e-Kol… ; une plateforme sans adresse de réception est signalée (à renseigner dans Transmission WA Universelle).",

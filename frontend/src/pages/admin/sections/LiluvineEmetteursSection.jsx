@@ -471,14 +471,36 @@ export default function LiluvineEmetteursSection() {
         <p className="text-sm font-semibold text-slate-800">Réception des formulaires et sondages par plateforme</p>
         <p className="text-xs text-slate-500">Adresse de la plateforme où SAWALI envoie (envoi signé) les formulaires et sondages qui lui sont destinés.
           Vide : la plateforme n'apparaît pas parmi les destinataires.</p>
-        {(emetteurs || []).map((e) => (
-          <label key={e.code} className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="w-32 font-semibold">{e.nom || e.code}</span>
-            <input defaultValue={e.url_formulaires || ""} placeholder="https://plateforme/api/webhooks/formulaires"
-                   onBlur={(ev) => ev.target.value !== (e.url_formulaires || "") && modifier(e.code, { url_formulaires: ev.target.value })}
-                   className="flex-1 min-w-[16rem] rounded border border-slate-300 px-2 py-1" data-testid={`emetteur-url-formulaires-${e.code}`} />
-          </label>
-        ))}
+        {(emetteurs || []).map((e) => {
+          // Adresse proposée : celle du retour de la plateforme avec « liluvine-formulaires » à la place de « liluvine-retour »
+          // (ex. …/api/webhooks/liluvine-retour → …/api/webhooks/liluvine-formulaires) ; à défaut, l'adresse du site + /api/webhooks/…
+          const retour = (e.url_retour || "").trim();
+          const site = (e.url_site || "").trim().replace(/\/$/, "");
+          const proposee = /\/liluvine-retour\/?$/.test(retour) ? retour.replace(/\/liluvine-retour\/?$/, "/liluvine-formulaires")
+            : (site ? `${site}/api/webhooks/liluvine-formulaires` : "");
+          return (
+            <div key={`${e.code}-${e.url_formulaires || ""}`} className="space-y-0.5">
+              <label className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="w-32 font-semibold">{e.nom || e.code}</span>
+                <input defaultValue={e.url_formulaires || ""} placeholder={proposee || "https://plateforme/api/webhooks/liluvine-formulaires"}
+                       onBlur={(ev) => ev.target.value !== (e.url_formulaires || "") && modifier(e.code, { url_formulaires: ev.target.value })}
+                       className="flex-1 min-w-[16rem] rounded border border-slate-300 px-2 py-1" data-testid={`emetteur-url-formulaires-${e.code}`} />
+                {proposee && proposee !== (e.url_formulaires || "") && (
+                  <button type="button" onClick={() => modifier(e.code, { url_formulaires: proposee })}
+                          className="rounded px-2 py-1 ring-1 ring-slate-300 hover:bg-slate-50" data-testid={`emetteur-proposer-${e.code}`}>
+                    Utiliser l'adresse proposée
+                  </button>
+                )}
+              </label>
+              {proposee && <p className="pl-1 text-[11px] text-slate-500">Proposition : <span className="font-mono">{proposee}</span></p>}
+            </div>
+          );
+        })}
+        <p className="text-[11px] text-slate-500">
+          Règle : l'adresse est celle de la route de réception SIGNÉE de la plateforme, la même famille que son adresse de retour
+          (…/api/webhooks/liluvine-retour → …/api/webhooks/liluvine-formulaires). Le formulaire n'arrive que si la plateforme a bien cette
+          route : ALBARKA l'a (lot 81) ; pour les autres, elle est à ajouter chez elles.
+        </p>
       </div>
 
       {/* Réponses de clients relayées aux plateformes */}

@@ -8,7 +8,8 @@ import { libelleVersion } from "@/components/EtatConnexion";
   Visual style (color / size / opacity / weight / italic) is configurable
   by the super-admin in /admin/settings → "Version stamp".
 */
-const SIZE_PX = { xs: 10, sm: 12, md: 14, lg: 16 };
+// Lot 365 : tailles réduites d'environ 1 px (« diminuer légèrement le texte » en bas de la barre latérale)
+const SIZE_PX = { xs: 9, sm: 11, md: 13, lg: 15 };
 
 // Lot 79.13 — sur téléphone, le libellé flottant (position fixe en bas à gauche) passait PAR-DESSUS le contenu
 // (tableaux, boutons). Deux variantes :

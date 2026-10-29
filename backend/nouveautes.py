@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "356", "date": "2026-10-29",
+        "titre": "🖨️ Imprimer les envois d'une ligne WhatsApp avec le coût estimé",
+        "description": "Nouveau bouton « Imprimer les envois » par ligne : envois réussis par jour et par client lié, coût estimé avec le « Coût par message » de la fiche du client.",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par ligne",
+    },
+    {
         "lot": "355", "date": "2026-10-29",
         "titre": "🔗 Alertes Meta : lien pour régler le paiement",
         "description": "Chaque alerte propose un lien direct vers Meta (paiement ou WhatsApp Manager) avant « fermer » ; le pourcentage de l'historique par ligne est le taux d'échec.",

@@ -378,6 +378,109 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
     return sortie.getvalue()
 
 
+async def envois_par_ligne(db, jours: int = 30, ligne: Optional[str] = None) -> Dict[str, Any]:
+    """Lot 355 — ENVOIS seulement (aucun échec détaillé) PAR LIGNE (Phone Number ID), avec le coût estimé : chaque envoi réussi est
+    valorisé au « Coût par message » (`wa_unit_cost`) de la fiche du client / tenant (société liée) auquel le message est rattaché."""
+    jours = max(1, min(int(jours or 30), 365))
+    maintenant = _maintenant()
+    depuis = (maintenant - timedelta(days=jours)).isoformat()
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    carte = carte_lignes(s)
+    lignes: Dict[str, Dict[str, Any]] = {cle: {"cle": cle, "phone_number_id": l.get("phone_number_id"), "libelle": l.get("libelle"),
+                                               "telephone": l.get("telephone"), "principale": bool(l.get("principale")),
+                                               "envois": 0, "par_jour": {}, "par_client": {}} for cle, l in carte.items()}
+    sortants = await db.whatsapp_messages.find(
+        {"direction": "outbound", "created_at": {"$gte": depuis}, "wa_status": {"$in": ["sent", "delivered", "read"]}},
+        {"_id": 0, "created_at": 1, "wa_numero_id": 1, "client_id": 1}).to_list(100000)
+    # fiches des sociétés liées, lues EN BLOC (jamais une lecture par message)
+    ids = {m.get("client_id") for m in sortants if m.get("client_id")}
+    fiches = {u["id"]: u async for u in db.users.find({"id": {"$in": list(ids)}},
+                                                      {"_id": 0, "id": 1, "full_name": 1, "company": 1, "wa_unit_cost": 1, "wa_currency": 1})}
+    for m in sortants:
+        cle = ligne_du_message(carte, m.get("wa_numero_id"))
+        w = lignes.get(cle) or lignes.setdefault(cle, {"cle": cle, "phone_number_id": cle, "libelle": f"Ligne {cle[-4:]}", "telephone": "",
+                                                       "principale": False, "envois": 0, "par_jour": {}, "par_client": {}})
+        w["envois"] += 1
+        jour = (m.get("created_at") or "")[:10]
+        w["par_jour"][jour] = w["par_jour"].get(jour, 0) + 1
+        cid = m.get("client_id") or ""
+        f = fiches.get(cid) or {}
+        c = w["par_client"].setdefault(cid, {"client": f.get("company") or f.get("full_name") or "Non rattaché à un client",
+                                             "cout_unitaire": float(f.get("wa_unit_cost") or 0), "devise": f.get("wa_currency") or "XOF",
+                                             "envois": 0, "cout": 0.0})
+        c["envois"] += 1
+        c["cout"] = round(c["envois"] * c["cout_unitaire"], 2)
+    sortie = []
+    for w in lignes.values():
+        if ligne and w["cle"] != ligne and w.get("phone_number_id") != ligne:
+            continue
+        w["par_jour"] = sorted(({"date": d, "envois": n} for d, n in w["par_jour"].items()), key=lambda x: x["date"], reverse=True)
+        w["par_client"] = sorted(w["par_client"].values(), key=lambda x: -x["envois"])
+        w["cout_total"] = round(sum(c["cout"] for c in w["par_client"]), 2)
+        sortie.append(w)
+    return {"jours": jours, "genere_le": maintenant.isoformat(), "lignes": sortie}
+
+
+def pdf_envois(donnees: Dict[str, Any]) -> bytes:
+    """PDF A4 des ENVOIS d'une ligne (ou de toutes) : total, envois par jour, envois et coût estimé par client lié."""
+    import io
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    styles = getSampleStyleSheet()
+    petit = ParagraphStyle("petit", parent=styles["Normal"], fontSize=8, leading=10)
+    cell = ParagraphStyle("cell", parent=styles["Normal"], fontSize=8, leading=9.5)
+    entete = ParagraphStyle("entete", parent=cell, textColor=colors.white, fontName="Helvetica-Bold")     # en-tête blanc sur bleu
+    sortie = io.BytesIO()
+    doc = SimpleDocTemplate(sortie, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
+                            title="Envois WhatsApp par ligne", author="SAWALI Smart Systems")
+
+    def esc(t: Any) -> str:
+        return str(t if t is not None else "—").replace("&", "&amp;").replace("<", "&lt;")
+
+    def tableau(lignes: List[List[Any]], largeurs: List[float]):
+        t = Table([[Paragraph(esc(c), entete if i == 0 else cell) for c in l] for i, l in enumerate(lignes)], colWidths=largeurs, repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")),
+                               ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                               ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5fb")])]))
+        return t
+
+    corps: List[Any] = [Paragraph("<b>Envois WhatsApp par ligne</b>", styles["Title"]),
+                        Paragraph(f"Période : {donnees['jours']} derniers jours · édité le {esc(donnees['genere_le'][:16].replace('T', ' '))} UTC · "
+                                  "envois réussis seulement ; coût estimé = « Coût par message » de la fiche du client lié", petit)]
+    if not donnees["lignes"]:
+        corps.append(Paragraph("Aucune ligne.", styles["Normal"]))
+    for i, w in enumerate(donnees["lignes"]):
+        if i:
+            corps.append(PageBreak())
+        corps += [Spacer(1, 4 * mm),
+                  Paragraph(f"<b>{esc(w['libelle'])}</b>" + (" (ligne principale)" if w.get("principale") else ""), styles["Heading2"]),
+                  Paragraph(f"Téléphone : <b>{esc(w.get('telephone') or '—')}</b> · ID du numéro de téléphone (Phone Number ID) : "
+                            f"<b>{esc(w.get('phone_number_id') or '—')}</b>", styles["Normal"]),
+                  Paragraph(f"Envois réussis : <b>{w['envois']}</b> · coût estimé : <b>{w['cout_total']:g}</b>", styles["Normal"]),
+                  Spacer(1, 3 * mm), Paragraph("<b>Envois et coût par client lié</b>", styles["Heading3"])]
+        corps.append(tableau([["Client (société liée)", "Envois", "Coût par message", "Coût estimé"]] + [
+            [c["client"], c["envois"], f"{c['cout_unitaire']:g} {c['devise']}", f"{c['cout']:g} {c['devise']}"] for c in w["par_client"]]
+            if w["par_client"] else [["Client (société liée)", "Envois", "Coût par message", "Coût estimé"], ["Aucun envoi", "0", "—", "—"]],
+            [82 * mm, 22 * mm, 38 * mm, 38 * mm]))
+        corps += [Spacer(1, 3 * mm), Paragraph("<b>Envois par jour</b>", styles["Heading3"])]
+        corps.append(tableau([["Date", "Envois"]] + [[j["date"], j["envois"]] for j in w["par_jour"]]
+                             if w["par_jour"] else [["Date", "Envois"], ["—", "0"]], [40 * mm, 40 * mm]))
+
+    def pied(canvas, document):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(14 * mm, 8 * mm, "SAWALI Smart Systems · Envois WhatsApp")
+        canvas.drawRightString(A4[0] - 14 * mm, 8 * mm, f"Page {document.page}")
+        canvas.restoreState()
+
+    doc.build(corps, onFirstPage=pied, onLaterPages=pied)
+    return sortie.getvalue()
+
+
 def make_router(*, db, get_current_user, send_email):
     from routes.llm_health import SUPER_ADMIN_EMAIL
 
@@ -410,6 +513,21 @@ def make_router(*, db, get_current_user, send_email):
         donnees = await historique_par_ligne(db, jours, ligne)
         return Response(content=pdf_historique(donnees), media_type="application/pdf",
                         headers={"Content-Disposition": 'inline; filename="historique-lignes-whatsapp.pdf"', "Cache-Control": "no-store"})
+
+    @router.get("/envois")
+    async def envois(jours: int = 30, ligne: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Lot 355 : envois réussis par ligne et coût estimé (coût par message de la fiche du client lié)."""
+        _gate(user)
+        return await envois_par_ligne(db, jours, ligne)
+
+    @router.get("/envois.pdf")
+    async def envois_pdf(jours: int = 30, ligne: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """PDF des ENVOIS d'une ligne (?ligne=<Phone Number ID>) ou de toutes."""
+        _gate(user)
+        from fastapi.responses import Response
+        donnees = await envois_par_ligne(db, jours, ligne)
+        return Response(content=pdf_envois(donnees), media_type="application/pdf",
+                        headers={"Content-Disposition": 'inline; filename="envois-lignes-whatsapp.pdf"', "Cache-Control": "no-store"})
 
     @router.post("/verifier")
     async def verifier(user: dict = Depends(get_current_user)):

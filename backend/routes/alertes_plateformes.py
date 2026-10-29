@@ -86,7 +86,7 @@ def carte_lignes(s: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     principal = str(s.get("wa_phone_number_id") or "").strip()
     carte: Dict[str, Dict[str, Any]] = {principal or "principale": {
         "phone_number_id": principal, "libelle": str(s.get("wa_principal_libelle") or "").strip() or "Liluvine Standard",
-        "telephone": str(s.get("wa_principal_telephone") or "").strip(), "waba_id": waba_global, "principale": True}}
+        "telephone": str(s.get("wa_principal_telephone") or "").strip(), "waba_id": waba_global, "principale": True, "waba_herite": False}}
     for brut in s.get("wa_numeros") or []:
         if not isinstance(brut, dict):
             continue
@@ -95,7 +95,9 @@ def carte_lignes(s: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             continue
         carte[pid] = {"phone_number_id": pid, "libelle": str(brut.get("libelle") or "").strip() or f"Ligne {pid[-4:]}",
                       "telephone": str(brut.get("telephone") or "").strip(), "principale": False,
-                      "waba_id": str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip() or waba_global}
+                      "waba_id": str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip() or waba_global,
+                      # lot 353 : vrai si la ligne n'a pas son propre WABA ID (elle est comptée avec celui des réglages)
+                      "waba_herite": not str(brut.get("waba_id") or brut.get("wa_business_account_id") or "").strip()}
     return carte
 
 
@@ -252,7 +254,7 @@ async def historique_par_waba(db, jours: int = 30, waba: Optional[str] = None) -
     wabas: Dict[str, Dict[str, Any]] = {}
     for l in carte.values():
         w = wabas.setdefault(l["waba_id"], {"waba_id": l["waba_id"], "lignes": [], "envois": 0, "echecs": 0, "par_jour": {}, "par_code": {}, "alertes": []})
-        w["lignes"].append({k: l.get(k) for k in ("libelle", "telephone", "phone_number_id", "principale")})
+        w["lignes"].append({k: l.get(k) for k in ("libelle", "telephone", "phone_number_id", "principale", "waba_herite")})
     sortants = await db.whatsapp_messages.find(
         {"direction": "outbound", "created_at": {"$gte": depuis}, "wa_status": {"$in": ["sent", "delivered", "read", "failed"]}},
         {"_id": 0, "wa_status": 1, "wa_error_code": 1, "created_at": 1, "wa_numero_id": 1}).to_list(50000)
@@ -286,7 +288,9 @@ async def historique_par_waba(db, jours: int = 30, waba: Optional[str] = None) -
         w["par_code"] = sorted(w["par_code"].values(), key=lambda x: -x["nombre"])
         w["alertes"].sort(key=lambda x: x.get("depuis") or "", reverse=True)
         sortie.append(w)
-    return {"jours": jours, "genere_le": maintenant.isoformat(), "wabas": sortie}
+    # Lignes dont le WABA ID n'est pas renseigné alors qu'il y a plusieurs lignes : l'historique les compte avec le WABA des réglages
+    heritees = [l["libelle"] for l in carte.values() if l.get("waba_herite")]
+    return {"jours": jours, "genere_le": maintenant.isoformat(), "wabas": sortie, "lignes_sans_waba": heritees if len(carte) > 1 else []}
 
 
 def pdf_historique(donnees: Dict[str, Any]) -> bytes:
@@ -318,6 +322,9 @@ def pdf_historique(donnees: Dict[str, Any]) -> bytes:
 
     corps: List[Any] = [Paragraph("<b>Historique des envois WhatsApp par compte WABA</b>", styles["Title"]),
                         Paragraph(f"Période : {donnees['jours']} derniers jours · édité le {esc(donnees['genere_le'][:16].replace('T', ' '))} UTC", petit)]
+    if donnees.get("lignes_sans_waba"):
+        corps.append(Paragraph("<b>Attention :</b> WABA ID non renseigné pour " + esc(", ".join(donnees["lignes_sans_waba"]))
+                               + " ; ces lignes sont comptées avec le WABA des réglages.", petit))
     if not donnees["wabas"]:
         corps.append(Paragraph("Aucun compte WABA.", styles["Normal"]))
     for i, w in enumerate(donnees["wabas"]):

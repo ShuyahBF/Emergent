@@ -66,7 +66,7 @@ export default function WaLignesPanel({ s, upd }) {
     <div className="rounded-xl ring-1 ring-emerald-200 bg-emerald-50/40 p-4 space-y-3" data-testid="wa-lignes-panel">
       <p className="text-sm font-semibold text-emerald-900">Lignes WhatsApp de Liluvine (plusieurs numéros)</p>
       <p className="text-xs text-slate-600">
-        Ajoutez ici les autres numéros du <strong>même compte WhatsApp</strong> (même jeton). Liluvine répond toujours
+        Ajoutez ici les autres numéros (même jeton). Si une ligne appartient à un <strong>autre compte WhatsApp Business (WABA)</strong>, renseignez son WABA ID : l'historique et les alertes de paiement Meta sont alors séparés par compte. Liluvine répond toujours
         depuis le numéro qui a reçu le message. Dans le Centre de messagerie, chaque utilisateur suivi ne voit que les
         lignes qui lui sont attribuées (fiche de l'utilisateur suivi) ; superviseurs et administrateurs voient tout.
       </p>
@@ -149,6 +149,17 @@ export default function WaLignesPanel({ s, upd }) {
               />
             </label>
           </div>
+          {/* Lot 353 — WABA ID (compte WhatsApp Business) de cette ligne : sert à l'historique par WABA et aux alertes de paiement Meta */}
+          <label className="block text-xs">
+            <span className="font-medium text-slate-700">WABA ID de cette ligne (compte WhatsApp Business)</span>
+            <input
+              className="mt-1 w-full sm:w-80 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-mono"
+              value={l.waba_id || ""}
+              placeholder="vide = celui de la ligne principale"
+              onChange={(e) => majChamp(i, "waba_id", e.target.value.replace(/\D/g, ""))}
+              data-testid={`wa-ligne-waba-${i}`}
+            />
+          </label>
           <div className="flex flex-wrap items-center gap-4 text-xs">
             <label className="inline-flex items-center gap-1.5">
               <input type="checkbox" checked={!!l.vip} onChange={(e) => majChamp(i, "vip", e.target.checked)} />

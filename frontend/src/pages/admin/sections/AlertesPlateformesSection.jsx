@@ -80,6 +80,12 @@ export default function AlertesPlateformesSection() {
           <button type="button" className={bouton} onClick={() => charger(jours)}>Actualiser</button>
           <button type="button" className={bouton} onClick={() => pdf(null)} data-testid="alertes-pdf-tous">PDF de tous les comptes</button>
         </div>
+        {histo.lignes_sans_waba?.length > 0 && (
+          <p className="text-xs rounded-md bg-amber-50 border border-amber-200 p-2" data-testid="lignes-sans-waba">
+            WABA ID non renseigné pour : <strong>{histo.lignes_sans_waba.join(", ")}</strong>. Ces lignes sont comptées avec le WABA des réglages.
+            Saisissez le WABA ID de chacune dans Paramètres → WhatsApp Business API → « Lignes WhatsApp de Liluvine ».
+          </p>
+        )}
         {histo.wabas.map((w) => (
           <div key={w.waba_id} className="rounded-md border border-slate-200 p-2 text-xs space-y-1" data-testid={`waba-${w.waba_id}`}>
             <div className="flex flex-wrap items-center gap-2">

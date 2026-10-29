@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "353", "date": "2026-10-29",
+        "titre": "📱 WABA ID par ligne WhatsApp (Standard, VIP, ALBARKA)",
+        "description": "Chaque ligne WhatsApp peut avoir son propre WABA ID : l'historique et les alertes de paiement Meta sont séparés par compte, et le PDF signale les lignes dont le WABA ID n'est pas renseigné.",
+        "rubrique": "WhatsApp Business API (Meta Cloud) — lignes Liluvine, couleurs, appels",
+    },
+    {
         "lot": "352", "date": "2026-10-29",
         "titre": "🚨 Alertes plateformes : le défaut de paiement Meta remonte à l'administrateur",
         "description": "Quand WhatsApp refuse tous les envois (paiement Meta, jeton expiré, compte restreint), l'administrateur reçoit un e-mail et un bandeau rouge ; l'alerte se ferme seule au rétablissement. Historique par WABA ID (échecs par jour et par code) imprimable en PDF.",

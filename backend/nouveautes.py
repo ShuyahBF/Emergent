@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "363", "date": "2026-10-29",
+        "titre": "🖼️ Paramètres : rubriques encadrées du mince filet",
+        "description": "Cinq rubriques récentes avaient perdu leur cadre et leur titre ; elles sont de nouveau encadrées (règle « Cadre des cartes »).",
+        "rubrique": "💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)",
+    },
+    {
         "lot": "362", "date": "2026-10-29",
         "titre": "📮 Réception des formulaires et sondages : adresse de chaque plateforme",
         "description": "Sous la table des plateformes émettrices, un bloc dédié permet de saisir l'adresse où chaque plateforme reçoit les formulaires et sondages transmis par SAWALI.",

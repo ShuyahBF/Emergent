@@ -907,6 +907,8 @@ async def admin_pawapay_callback_urls(request: Request, _: dict = Depends(get_cu
     return {
         "deposits_url": f"{base}/api/webhooks/pawapay/deposits/{secret}",
         "refunds_url": f"{base}/api/webhooks/pawapay/refunds/{secret}",
+        # Lot 367 : callback des payouts (envois d'argent depuis SAWALI), même secret que les dépôts
+        "payouts_url": f"{base}/api/webhooks/pawapay/payouts/{secret}",
         "legacy_url": f"{base}/api/webhooks/pawapay/{secret}",
         "secret_preview": secret[:6] + "…" + secret[-4:],
         "generated_at": s.get("pawapay_callback_secret_generated_at"),

@@ -8273,6 +8273,8 @@ const PawaPayCallbackUrls = () => {
         <div className="space-y-2">
           <UrlRow label="Deposits" value={data.deposits_url} onCopy={copy} testid="pawapay-deposits-url" />
           <UrlRow label="Refunds" value={data.refunds_url} onCopy={copy} testid="pawapay-refunds-url" />
+          {/* Lot 367 : callback des payouts (SAWALI envoie de l'argent via PawaPay) */}
+          <UrlRow label="Payouts" value={data.payouts_url} onCopy={copy} testid="pawapay-payouts-url" />
           <details className="text-[11px] text-sky-800/70">
             <summary className="cursor-pointer">URL legacy (rétro-compatibilité)</summary>
             <div className="mt-2"><UrlRow label="Legacy" value={data.legacy_url} onCopy={copy} testid="pawapay-legacy-url" /></div>

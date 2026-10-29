@@ -67,7 +67,9 @@ KNOWN_COMMANDS: Dict[str, List[str]] = {
         "garde", "pharmacie de garde", "pharmacies de garde", "pharmacie garde",
         "pharma garde", "de garde", "quelle pharmacie de garde", "pharmacies de nuit",
     ],
-    "meteo": ["meteo", "météo", "temps", "temperature", "température", "prevision", "prévisions"],
+    "meteo": ["meteo", "météo", "temps", "temperature", "température", "prevision", "prévisions",
+              # Lot 350 : expressions complètes (le mot « temps » seul ne suffit plus dans une phrase longue)
+              "quel temps fait il", "quel temps fait-il", "quel temps demain", "il fait quel temps"],
     "adresse": ["adresse", "ou etes vous", "où êtes vous", "localisation", "situation", "coordonnees"],
     "contact": ["contact", "contacts", "coordonnees", "coordonnées", "vos contacts"],
     "horaires": ["horaires", "horaire", "heures", "ouverture", "heures d'ouverture", "quand ouvre"],
@@ -124,13 +126,19 @@ def _fuzzy_match_command(text: str, threshold: int) -> Optional[Tuple[str, float
         return None
     best_cmd = None
     best_score = 0.0
+    mots = normalized.split()
     for cmd, synonyms in KNOWN_COMMANDS.items():
         for syn in synonyms:
-            # Si le synonyme est contenu dans le texte, match direct fort
-            if syn in normalized:
-                score = 90.0 + len(syn) / max(len(normalized), 1) * 10.0
-                if score > best_score:
-                    best_cmd, best_score = cmd, score
+            # Si le synonyme est contenu dans le texte (en MOTS entiers), match direct fort.
+            # Lot 350 : seulement si le message est COURT (3 mots au plus) ou si le synonyme en couvre au moins la moitié.
+            # Avant, n'importe quelle question contenant « adresse » ou « disponibilité » (ex. « Comment connaître l'adresse IP
+            # d'une machine ? ») devenait « !adresse » ou « !stock » et la base de connaissances n'était jamais consultée.
+            syn_norm = _norm(syn)
+            if syn_norm and re.search(r"(?<!\w)" + re.escape(syn_norm) + r"(?!\w)", normalized):
+                if len(mots) <= 3 or len(syn_norm.split()) / len(mots) >= 0.5:
+                    score = 90.0 + len(syn_norm) / max(len(normalized), 1) * 10.0
+                    if score > best_score:
+                        best_cmd, best_score = cmd, score
                 continue
             # Sinon, similarité globale
             score = _similarity(text, syn)

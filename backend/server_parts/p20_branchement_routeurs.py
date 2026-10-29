@@ -1318,6 +1318,10 @@ api.include_router(_make_wa_memoire_router(db=db, get_current_user=get_current_u
 from routes.qdrant_migration_e5 import make_router as _make_migration_e5_router  # noqa: E402
 api.include_router(_make_migration_e5_router(db=db, get_current_user=get_current_user))
 
+# Lot 352 — alertes des plateformes (Meta/WhatsApp : paiement, jeton, compte restreint) remontées à l'administrateur seul + historique par WABA
+from routes.alertes_plateformes import make_router as _make_alertes_plateformes_router  # noqa: E402
+api.include_router(_make_alertes_plateformes_router(db=db, get_current_user=get_current_user, send_email=send_email))
+
 # S-iter39p — Media Library (PDF + video + image library shared in Brochures)
 from routes.media_library import setup_media_library_routes  # noqa: E402
 setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, save_and_log=_obj_storage.save_and_log)

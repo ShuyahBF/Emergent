@@ -39,6 +39,7 @@ import GlobalRouteLoader from "@/components/GlobalRouteLoader";
 import BackgroundApplier from "@/components/BackgroundApplier";
 import { useUIFlags } from "@/lib/useUIFlags";
 import LlmHealthBanner from "@/components/LlmHealthBanner";
+import AlertesPlateformesBanner from "@/components/AlertesPlateformesBanner";   // lot 352
 import MarketingLayout from "@/components/MarketingLayout";
 import PortalLayout from "@/components/PortalLayout";
 
@@ -290,6 +291,7 @@ export default function App() {
         <GlobalRouteLoader />
         <BackgroundApplier />
         <LlmHealthBanner />
+        <AlertesPlateformesBanner />
         <AutoLogoutGate />
         {/* Lot 50 — maintenance de la plateforme et abonnement expiré (utilisateurs connectés) */}
         <SurveillanceMaintenance />

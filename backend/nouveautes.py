@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "352", "date": "2026-10-29",
+        "titre": "🚨 Alertes plateformes : le défaut de paiement Meta remonte à l'administrateur",
+        "description": "Quand WhatsApp refuse tous les envois (paiement Meta, jeton expiré, compte restreint), l'administrateur reçoit un e-mail et un bandeau rouge ; l'alerte se ferme seule au rétablissement. Historique par WABA ID (échecs par jour et par code) imprimable en PDF.",
+        "rubrique": "🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID",
+    },
+    {
         "lot": "351", "date": "2026-10-29",
         "titre": "🤖 Liluvine : une commande ne s'exécute que si elle commence par « ! »",
         "description": "Un message sans « ! » qui ressemble à une commande (ex. « adresse ») n'est plus exécuté : Liluvine explique qu'une commande commence par « ! » et indique la commande à envoyer (ex. !adresse).",

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "350", "date": "2026-10-29",
+        "titre": "🤖 Liluvine : une question n'est plus prise pour une commande « ! »",
+        "description": "Un message long qui contient « adresse » ou « disponibilité » (ex. « Comment connaître l'adresse IP d'une machine ») n'est plus transformé en !adresse ou !stock : Liluvine répond avec sa base de connaissances. Les vraies commandes courtes restent reconnues.",
+        "rubrique": "Liluvine Reactions & Ad Auto-Replies (fuzzy commands, templates FB)",
+    },
+    {
         "lot": "349", "date": "2026-10-29",
         "titre": "🔄 Base de connaissances : bouton « Voir le contenu » et test d'une question",
         "description": "Sous chaque collection : voir ses points (titre et extrait), voir la copie recalculée, et tester une question directement sur le contenu pour vérifier avant de basculer.",

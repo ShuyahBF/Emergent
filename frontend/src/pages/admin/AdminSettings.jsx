@@ -22,6 +22,7 @@ import BarriereWaSection from "@/pages/admin/sections/BarriereWaSection";   // L
 import MainHumaineSection from "@/pages/admin/sections/MainHumaineSection";   // Lot 343
 import MemoireConversationsSection from "@/pages/admin/sections/MemoireConversationsSection";   // Lot 344
 import RecalculKbSection from "@/pages/admin/sections/RecalculKbSection";   // Lot 348
+import AlertesPlateformesSection from "@/pages/admin/sections/AlertesPlateformesSection";   // Lot 352
 import AppelProprietaireSection from "@/pages/admin/sections/AppelProprietaireSection";   // Lot 67
 import HistoriqueAppelsLiluvine from "@/pages/admin/sections/HistoriqueAppelsLiluvine";   // Lot 67.1
 import LiluvineDecrocheSection from "@/pages/admin/sections/LiluvineDecrocheSection";   // Lot 69
@@ -171,6 +172,7 @@ const NEW_LOTS = {
   "🤝 Réponses automatiques : laisser la main aux humains": "343",
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "344",
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "348",
+  "🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID": "352",
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "61",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "61.1",
   "Transmission WA Universelle Liluvine (webhook entrant)": "112.1",   // lot 112.1 : texte libre si la fenêtre de 24 h est ouverte ; lot 107.1 : échec de retour effacé   // lots 83-84 : réponses citées ; lots 102-103 : assistant de la plateforme, mot-clé ; lot 104 : codes OTP par modèle
@@ -239,6 +241,7 @@ const NEW_SECTIONS = {
   "🤝 Réponses automatiques : laisser la main aux humains": "2026-10-29",   // lot 343
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "2026-10-29",   // lot 344
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "2026-10-29",   // lot 348
+  "🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID": "2026-10-29",   // lot 352
   "⛔ Liste noire des commandes « ! » (Liluvine WhatsApp)": "2026-10-06",
   "📊 S059 — Synthèse Liluvine + API Officines + Image sidebar": "2026-10-06",
   "Transmission WA Universelle Liluvine (webhook entrant)": "2026-10-12",   // lot 102 ; lot 107.1
@@ -330,6 +333,7 @@ const NEW_DESCRIPTIONS = {
   "🔔 Connexions aux plateformes (alerte WhatsApp)": "WhatsApp à chaque connexion sur adLyn, bfmobility, sTer, beAuthentik et ZandGo : plateforme, date/heure, IP, pays et opérateur, utilisateur, bouton « Visiter le site » (lots 109-110). Les visites de robots (centres de données) sont masquées et comptées dans la synthèse de Liluvine (lot 119).",
   "📞 Liluvine appelle le propriétaire à chaque message": "Message relayé sur WhatsApp puis appel vocal de Liluvine, au plus un par client toutes les 30 min (lot 67).",
   "📊 Historique des appels de Liluvine (durée et coût)": "Date/heure, destinataire, durée, coût et synthèse par période ; export CSV (lot 67.1).",
+  "🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID": "Pannes qui bloquent WhatsApp (paiement Meta, jeton, compte restreint) : e-mail et bandeau rouge pour l'administrateur seul, fermeture automatique au rétablissement, historique par WABA ID imprimable en PDF (lot 352).",
   "🔄 Base de connaissances Qdrant — recalcul avec le modèle de Qdrant": "Copie de chaque collection de la base de Liluvine recalculée par Qdrant (originale intacte), bascule et retour en un clic : la recherche fonctionne sur un petit serveur (lot 348).",
   "🧠 Mémoire des conversations WhatsApp (Qdrant) — recherche et enrichissement de la base": "Messages, PDF et images des conversations (jamais les vocaux) indexés dans Qdrant : recherche par numéro et par sujet, historique donné à l'IA, questions / réponses validées par vous pour enrichir la base de connaissances (lot 344).",
   "🤝 Réponses automatiques : laisser la main aux humains": "L'agent IA (Liluvine et les autres) ne répond qu'au bout de 15 s si aucun humain n'a répondu, et ne se mêle pas d'une conversation humaine en cours tant qu'un membre de l'équipe est présent (lot 343).",
@@ -1477,6 +1481,11 @@ export default function AdminSettings() {
             />
           </div>
         </CorpsSection>
+      </Filterable>
+
+      {/* Lot 352 — alertes des plateformes (Meta/WhatsApp) pour l'administrateur seul + historique par WABA ID en PDF */}
+      <Filterable title="🚨 Alertes plateformes (Meta/WhatsApp) — historique par WABA ID" anchorId="s-alertes-plateformes">
+        <AlertesPlateformesSection />
       </Filterable>
 
       {/* Lot 348 — recalcul de la base de connaissances avec le modèle de Qdrant (copie, puis bascule réversible) */}

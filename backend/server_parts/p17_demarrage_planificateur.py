@@ -925,6 +925,22 @@ async def _start_scheduler():
                 coalesce=True,
                 misfire_grace_time=120,
             )
+            # Lot 352 — alertes des plateformes : contrôle toutes les 10 minutes (échecs d'envoi WhatsApp bloquants : paiement Meta, jeton…)
+            async def _scheduled_alertes_plateformes():
+                try:
+                    from routes.alertes_plateformes import surveiller
+                    await surveiller(db, send_email)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[alertes_plateformes] job failed: %s", exc)
+            _safe_add_job(
+                _scheduled_alertes_plateformes,
+                CronTrigger(minute="*/10", timezone="UTC"),
+                id="alertes_plateformes_10min",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300,
+            )
             # 2026-02 fork iter104 — Contract Overdue Alert (daily at 08:15 Africa/Abidjan).
             # Scan all tenants with contract fields set and email/WhatsApp the
             # super-admin when a tenant is past its threshold.

@@ -53,11 +53,12 @@ export default function TransmissionPlateformes({ type, docId }) {
       <p className="text-xs text-slate-500">Le document arrive dans l'espace Formulaires / Sondages de la plateforme. Une copie reste dans SAWALI.</p>
       <div className="flex flex-wrap gap-3 text-sm">
         {plateformes.map((p) => (
-          <label key={p.code} className={`inline-flex items-center gap-1.5 ${p.recoit_formulaires ? "" : "opacity-50"}`}
+          <label key={p.code} className="inline-flex items-center gap-1.5"
             title={p.recoit_formulaires ? "" : "Adresse de réception non renseignée pour cette plateforme"}>
-            <input type="checkbox" disabled={!p.recoit_formulaires} checked={choisies.includes(p.code)} onChange={() => bascule(p.code)}
+            <input type="checkbox" disabled={!p.recoit_formulaires} className={p.recoit_formulaires ? "" : "opacity-50"} checked={choisies.includes(p.code)} onChange={() => bascule(p.code)}
               data-testid={`transmission-${p.code}`} />
             {p.nom}
+            {!p.recoit_formulaires && <span className="text-[10px] text-amber-700">(adresse de réception à renseigner : Paramètres → Transmission WA Universelle)</span>}
           </label>
         ))}
       </div>

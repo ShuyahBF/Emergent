@@ -376,7 +376,6 @@ export default function LiluvineEmetteursSection() {
               <th className="pr-2">URL de retour</th><th className="pr-2">URL des statistiques</th>
               <th className="pr-2" title="Lot 223 — numéro WhatsApp de SAWALI par lequel partent les messages de cette plateforme (ex. la ligne d'ALBARKA). Vide = règles habituelles de choix du numéro.">Ligne WhatsApp</th>
               <th className="pr-2" title="Liluvine pose à la plateforme les questions de ses clients (statut de commande, produit…). Lot 103 : la commande « !code » (ex. « !zandgo où est ma commande ? », casse indifférente) la joint à tout moment ; conversation de 30 min, « FIN » rend la main à Liluvine.">Adresse de l'assistant</th><th></th>
-              <th className="pr-2" title="Lot 361 — adresse (POST signé) où la plateforme reçoit les formulaires et sondages transmis par SAWALI : vide = la plateforme n'est pas proposée comme destinataire">Réception des formulaires</th>
             </tr>
           </thead>
           <tbody>
@@ -448,12 +447,6 @@ export default function LiluvineEmetteursSection() {
                          onBlur={(ev) => ev.target.value !== (e.url_assistant || "") && modifier(e.code, { url_assistant: ev.target.value })}
                          className="w-56 rounded border border-slate-300 px-1 py-0.5" />
                 </td>
-                <td className="pr-2">
-                  {/* Lot 361 — espace Formulaires / Sondages de la plateforme (réception signée) ; enregistrée en quittant le champ */}
-                  <input defaultValue={e.url_formulaires || ""} onClick={(ev) => ev.stopPropagation()} placeholder="vide = non destinataire"
-                         onBlur={(ev) => ev.target.value !== (e.url_formulaires || "") && modifier(e.code, { url_formulaires: ev.target.value })}
-                         className="w-56 rounded border border-slate-300 px-1 py-0.5" data-testid={`emetteur-url-formulaires-${e.code}`} />
-                </td>
                 <td className="whitespace-nowrap">
                   <button type="button" title="Regénérer la clé" onClick={(ev) => { ev.stopPropagation(); regenerer(e.code); }}
                           className="mr-1 inline-flex items-center gap-1 rounded px-2 py-0.5 ring-1 ring-slate-300">
@@ -471,6 +464,21 @@ export default function LiluvineEmetteursSection() {
             )}
           </tbody>
         </table>
+      </div>
+      {/* Lot 361 — RÉCEPTION DES FORMULAIRES ET SONDAGES par plateforme : adresse où SAWALI transmet (POST signé) les formulaires et sondages
+          destinés à la plateforme. Vide = la plateforme n'est pas proposée comme destinataire. Enregistrée en quittant le champ. */}
+      <div className="mt-3 rounded-xl ring-1 ring-slate-200 p-3 space-y-2" data-testid="reception-formulaires">
+        <p className="text-sm font-semibold text-slate-800">Réception des formulaires et sondages par plateforme</p>
+        <p className="text-xs text-slate-500">Adresse de la plateforme où SAWALI envoie (envoi signé) les formulaires et sondages qui lui sont destinés.
+          Vide : la plateforme n'apparaît pas parmi les destinataires.</p>
+        {(emetteurs || []).map((e) => (
+          <label key={e.code} className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-32 font-semibold">{e.nom || e.code}</span>
+            <input defaultValue={e.url_formulaires || ""} placeholder="https://plateforme/api/webhooks/formulaires"
+                   onBlur={(ev) => ev.target.value !== (e.url_formulaires || "") && modifier(e.code, { url_formulaires: ev.target.value })}
+                   className="flex-1 min-w-[16rem] rounded border border-slate-300 px-2 py-1" data-testid={`emetteur-url-formulaires-${e.code}`} />
+          </label>
+        ))}
       </div>
 
       {/* Réponses de clients relayées aux plateformes */}

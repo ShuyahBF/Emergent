@@ -461,6 +461,15 @@ async def handle_temp_subscribe_button_payload(*, db, payload: str, from_phone: 
     return True
 
 
+def message_commande_a_corriger(texte: str, commande: str) -> str:
+    """Lot 351 — message envoyé quand un texte SANS « ! » ressemble à une commande : on n'exécute rien, on dit quoi corriger.
+    Fonction pure. `commande` est le nom de la commande devinée (sans « ! »)."""
+    extrait = (texte or "").strip().replace("\n", " ")[:60]
+    return (f"« {extrait} » n'est pas une commande : une commande commence toujours par « ! ». "
+            f"Si vous cherchiez « !{commande} », envoyez exactement !{commande} (le point d'exclamation puis le mot, sans espace). "
+            "Sinon, posez votre question en une phrase complète et je vous répondrai.")
+
+
 async def autoreply_to_inbound(
     db,
     *,
@@ -600,15 +609,14 @@ async def autoreply_to_inbound(
                         pass
                 return {"ok": True, "command": "!garde", "skipped": "garde_deja_envoyee_recemment", "send": None}
             if fuzzy and fuzzy.get("cmd"):
-                # Réécrit le texte en `!cmd` pour que le dispatcher standard réponde
-                # Envoie D'ABORD le message de correction, puis laisse le flux normal
-                # exécuter la commande.
-                correction = fuzzy.get("correction_prefix") or ""
-                if correction:
-                    try:
-                        await _send_mirrored(from_num, correction, "fuzzy_correction")
-                    except Exception:  # noqa: BLE001
-                        pass
+                # Lot 351 (règle du propriétaire, 29/10/2026) : une commande n'est EXÉCUTÉE que si le message commence par « ! ».
+                # Un message sans « ! » qui ressemble à une commande n'est plus exécuté : Liluvine explique ce qu'il faut corriger
+                # (le « ! » manquant ou le nom de la commande) et ne répond rien d'autre.
+                correction = message_commande_a_corriger(text, str(fuzzy["cmd"]))
+                try:
+                    await _send_mirrored(from_num, correction, "fuzzy_correction")
+                except Exception:  # noqa: BLE001
+                    pass
                 # Iter43-fix24az-p — journalise le match dans la timeline du contact
                 if reactions_helpers.get("log_fuzzy_correction"):
                     try:
@@ -624,9 +632,8 @@ async def autoreply_to_inbound(
                         )
                     except Exception:  # noqa: BLE001
                         pass
-                text = f"!{fuzzy['cmd']}"
-                cmd_lower = text.lower()
-                logger.info("[wa_autoreply] fuzzy corrected to %s (score=%.1f)", text, fuzzy.get("score", 0))
+                logger.info("[wa_autoreply] commande devinée NON exécutée (sans « ! ») : %s (score=%.1f)", fuzzy["cmd"], fuzzy.get("score", 0))
+                return {"ok": True, "command": "fuzzy_correction", "reply": correction[:120], "skipped": "commande_sans_point_exclamation"}
         except Exception as exc:  # noqa: BLE001
             logger.warning("[wa_autoreply] fuzzy correction failed: %s", exc)
 

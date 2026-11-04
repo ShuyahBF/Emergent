@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "369"
-LOT_LIBELLE = "Connexion par empreinte digitale (passkeys / WebAuthn) : Windows Hello avec lecteur d'empreintes, téléphone ou clé de sécurité ; l'empreinte reste sur l'appareil. Activée par l'administrateur, mot de passe toujours possible."
+LOT = "370"
+LOT_LIBELLE = "Connexion par l'agent biométrique Loois (poste partagé) : le lecteur d'empreintes du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés et activation dans les Paramètres. Désactivée par défaut, mot de passe toujours possible."

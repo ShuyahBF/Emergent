@@ -8,6 +8,7 @@ import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCirc
 import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
+import AgentBioAdminSection from "@/pages/admin/sections/AgentBioAdminSection";   // Lot 370
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
@@ -127,6 +128,7 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🖐️ Agent biométrique Loois (postes partagés)": "370",   // lot 370 : agent biométrique Loois pour les postes partagés
   "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
   "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
   "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
@@ -196,6 +198,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🖐️ Agent biométrique Loois (postes partagés)": "2026-11-04",   // lot 370
   "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
   "📲 Application Android d'administration": "2026-10-18",   // lot 243
   "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
@@ -309,6 +312,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🖐️ Agent biométrique Loois (postes partagés)": "Connexion d'un doigt sur un poste partagé : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés, activation (lot 370).",
   "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
   "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",
   "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
@@ -1529,6 +1533,11 @@ export default function AdminSettings() {
       {/* Lot 369 — connexion par empreinte digitale (passkeys / WebAuthn) : activation, domaine, comptes, révocation */}
       <Filterable title="🔐 Connexion par empreinte digitale (passkeys)" anchorId="s-passkeys" category="auth">
         <PasskeysAdminSection />
+      </Filterable>
+
+      {/* Lot 370 — agent biométrique Loois (postes partagés) : agents, comptes liés, activation */}
+      <Filterable title="🖐️ Agent biométrique Loois (postes partagés)" anchorId="s-agent-bio" category="auth">
+        <AgentBioAdminSection />
       </Filterable>
 
       {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}

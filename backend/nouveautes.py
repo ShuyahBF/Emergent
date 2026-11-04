@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "370", "date": "2026-11-04",
+        "titre": "🖐️ Connexion par l'agent biométrique Loois (postes partagés)",
+        "description": "Sur un poste partagé (accueil, laboratoire), chacun se connecte avec SON doigt : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée, sans jamais envoyer l'empreinte. À régler ici : agents, comptes liés, activation.",
+        "rubrique": "🖐️ Agent biométrique Loois (postes partagés)",
+    },
+    {
         "lot": "369", "date": "2026-11-04",
         "titre": "🔐 Connexion par empreinte digitale (passkeys)",
         "description": "Se connecter d'un doigt, sans mot de passe ni code : lecteur d'empreintes avec Windows Hello, téléphone ou clé de sécurité. L'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature. À activer ici ; chacun enregistre sa passkey dans « Mon compte ».",

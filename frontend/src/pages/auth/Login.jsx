@@ -4,6 +4,7 @@ import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone,
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
 import { apiClient, lireMotifDeconnexion } from "@/lib/api";
 import { connexionParPasskey, messageErreurPasskey, passkeysActivees, passkeysSupportees } from "@/lib/passkeys";   // lot 369
+import { agentBioActive, connexionParAgent, messageErreurAgent } from "@/lib/agentBio";   // lot 370
 import { AvisMaintenance } from "@/components/MaintenancePlateforme";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -35,6 +36,9 @@ export default function Login() {
   useEffect(() => {
     if (passkeysSupportees()) passkeysActivees().then(setEmpreinteDispo);
   }, []);
+  // Lot 370 — connexion par l'agent biométrique Loois (lecteur du poste partagé) : bouton affiché si l'administrateur l'a activée et qu'un agent est enregistré
+  const [agentDispo, setAgentDispo] = useState(false);
+  useEffect(() => { agentBioActive().then(setAgentDispo); }, []);
   // Lot 50 — motif de la dernière déconnexion forcée (maintenance, session fermée, inactivité)
   const [motifDeconnexion] = useState(() => lireMotifDeconnexion());
   // Lot 49 — lien « Restauration initiale » affiché seulement sur un site neuf (base sans aucun compte)
@@ -127,6 +131,20 @@ export default function Login() {
       navigate(_postLoginRoute(r.user));
     } catch (err) {
       toast.error(messageErreurPasskey(err));
+    } finally { setLoading(false); }
+  };
+
+  // Lot 370 — l'agent du poste reconnaît la personne qui pose le doigt, SAWALI vérifie l'attestation signée (aucune empreinte n'est envoyée)
+  const connexionAgent = async () => {
+    setLoading(true);
+    toast("Patientez… posez votre doigt sur le lecteur du poste.");
+    try {
+      const r = await connexionParAgent();
+      login(r.access_token, r.user);
+      toast.success("Connexion réussie");
+      navigate(_postLoginRoute(r.user));
+    } catch (err) {
+      toast.error(messageErreurAgent(err));
     } finally { setLoading(false); }
   };
 
@@ -314,6 +332,18 @@ export default function Login() {
                     data-testid="login-passkey-button"
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />} Se connecter avec mon empreinte
+                  </button>
+                )}
+                {/* Lot 370 — Alternative : empreinte reconnue par l'agent biométrique du poste (poste partagé) */}
+                {agentDispo && (
+                  <button
+                    type="button"
+                    onClick={connexionAgent}
+                    disabled={loading}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 text-sm font-medium transition disabled:opacity-50"
+                    data-testid="login-agent-bio-button"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />} Empreinte (lecteur de ce poste)
                   </button>
                 )}
                 {/* Iter38r-fix9o (Item 8) — Alternative: WhatsApp OTP login */}

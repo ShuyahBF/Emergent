@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone } from "lucide-react";
+import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone, Fingerprint } from "lucide-react";
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
 import { apiClient, lireMotifDeconnexion } from "@/lib/api";
+import { connexionParPasskey, messageErreurPasskey, passkeysActivees, passkeysSupportees } from "@/lib/passkeys";   // lot 369
 import { AvisMaintenance } from "@/components/MaintenancePlateforme";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -29,6 +30,11 @@ export default function Login() {
   const [waName, setWaName] = useState("");
   const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
+  // Lot 369 — connexion par empreinte digitale (passkeys) : bouton affiché seulement si l'administrateur l'a activée et si le navigateur la gère
+  const [empreinteDispo, setEmpreinteDispo] = useState(false);
+  useEffect(() => {
+    if (passkeysSupportees()) passkeysActivees().then(setEmpreinteDispo);
+  }, []);
   // Lot 50 — motif de la dernière déconnexion forcée (maintenance, session fermée, inactivité)
   const [motifDeconnexion] = useState(() => lireMotifDeconnexion());
   // Lot 49 — lien « Restauration initiale » affiché seulement sur un site neuf (base sans aucun compte)
@@ -107,6 +113,20 @@ export default function Login() {
       toast.success(r.data.message);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de connexion");
+    } finally { setLoading(false); }
+  };
+
+  // Lot 369 — connexion en une étape : le système demande l'empreinte, le serveur vérifie la signature (aucune empreinte n'est envoyée)
+  const connexionEmpreinte = async () => {
+    setLoading(true);
+    toast("Patientez… validez avec votre empreinte (lecteur, téléphone ou clé de sécurité).");
+    try {
+      const r = await connexionParPasskey();
+      login(r.access_token, r.user);
+      toast.success("Connexion réussie");
+      navigate(_postLoginRoute(r.user));
+    } catch (err) {
+      toast.error(messageErreurPasskey(err));
     } finally { setLoading(false); }
   };
 
@@ -284,6 +304,18 @@ export default function Login() {
                     Se connecter
                   </button>
                 </form>
+                {/* Lot 369 — Alternative : empreinte digitale (passkey), sans mot de passe ni code */}
+                {empreinteDispo && (
+                  <button
+                    type="button"
+                    onClick={connexionEmpreinte}
+                    disabled={loading}
+                    className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 text-sm font-medium transition disabled:opacity-50"
+                    data-testid="login-passkey-button"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />} Se connecter avec mon empreinte
+                  </button>
+                )}
                 {/* Iter38r-fix9o (Item 8) — Alternative: WhatsApp OTP login */}
                 <div className="my-5 flex items-center gap-3">
                   <div className="flex-1 h-px bg-slate-200" />

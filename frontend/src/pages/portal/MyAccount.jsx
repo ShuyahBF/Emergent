@@ -10,6 +10,7 @@ import TenantKycSection from "@/pages/portal/sections/TenantKycSection";
 import SmartCommunicationsTenantSection from "@/pages/portal/sections/SmartCommunicationsTenantSection";
 // Lot 50 — sessions actives (limite d'appareils) et date de la dernière sauvegarde
 import SessionsActivesSection from "@/pages/portal/sections/SessionsActivesSection";
+import PasskeysSection from "@/pages/portal/sections/PasskeysSection";   // lot 369 : connexion par empreinte
 import DerniereSauvegarde from "@/components/DerniereSauvegarde";
 
 // Iter34k — Mon compte: read-only profile + request-change form
@@ -380,6 +381,7 @@ export default function MyAccount() {
           <BrowserNotificationsPrefSection />
 
           {/* Lot 50 — appareils connectés au compte et dernière sauvegarde générale */}
+          <PasskeysSection />
           <SessionsActivesSection />
           <DerniereSauvegarde variante="carte" />
 

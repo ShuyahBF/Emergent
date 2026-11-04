@@ -17,6 +17,7 @@ MÉTHODES DE CONNEXION JOURNALISÉES
                          n'est complète qu'après le code) ;
    - « code_email »    : étape 2, /auth/verify-otp (connexion réussie ou refusée) ;
    - « code_whatsapp » : /auth/wa-otp/verify (compte existant).
+   - « empreinte »     : /auth/passkeys/login/verify (lot 369, connexion complète en une étape).
    « Voir en tant que » (lot 44) n'ouvre pas de session de compte et n'est pas journalisé ici.
 
 BLOCAGE D'UNE IP (`connexions_ip_regles`)
@@ -62,6 +63,7 @@ GLOBAL = "*"                       # compte « * » = blocage sur toute la plate
 BLOQUEE, CONFIANCE = "bloquee", "confiance"
 REUSSIE, REFUSEE = "reussie", "refusee"
 MOT_DE_PASSE, CODE_EMAIL, CODE_WHATSAPP = "mot_de_passe", "code_email", "code_whatsapp"
+EMPREINTE = "empreinte"                # lot 369 : passkey (WebAuthn) — empreinte digitale, Windows Hello, téléphone ou clé de sécurité
 MOTIF_IP_BLOQUEE = "IP bloquée"
 MESSAGE_REFUS = "Connexion refusée depuis cette adresse. Contactez l'administrateur."
 

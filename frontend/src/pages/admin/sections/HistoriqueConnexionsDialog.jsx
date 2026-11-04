@@ -36,7 +36,7 @@ export function BadgeIp({ statut, libelle, portee }) {
   return null;
 }
 
-const METHODES = { mot_de_passe: "Mot de passe", code_email: "Code e-mail", code_whatsapp: "Code WhatsApp", autre: "Autre" };
+const METHODES = { mot_de_passe: "Mot de passe", code_email: "Code e-mail", code_whatsapp: "Code WhatsApp", empreinte: "Empreinte digitale", autre: "Autre" };
 
 export default function HistoriqueConnexionsDialog({ suivi, onClose }) {
   const [donnees, setDonnees] = useState(null);

@@ -7,6 +7,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
+import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
@@ -126,6 +127,7 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
   "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
   "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
   "🖥️ Contrôle à distance Loois": "135.1",   // lot 131 : voir / contrôler un poste Loois ; lot 135 : écran verrouillé, fichiers, onglets, vidéo, actions système ; lot 135.1 : purge des vidéos, menu Plateformes
@@ -194,6 +196,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
   "📲 Application Android d'administration": "2026-10-18",   // lot 243
   "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
   "🖥️ Contrôle à distance Loois": "2026-10-13",   // lot 131 ; lot 135 ; lot 135.1
@@ -306,6 +309,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
   "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",
   "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
   "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1) ; écran verrouillé et session fermée par le service Windows, fichiers, image DXGI, onglets, vidéo, clavier virtuel, blocage clavier/souris, actions système, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat (lot 135) ; purge automatique des vidéos après la durée de conservation et écran Plateformes → Contrôle à distance (lot 135.1).",
@@ -1520,6 +1524,11 @@ export default function AdminSettings() {
         <Cadre title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)">
           <PaiementFormulairesSection />
         </Cadre>
+      </Filterable>
+
+      {/* Lot 369 — connexion par empreinte digitale (passkeys / WebAuthn) : activation, domaine, comptes, révocation */}
+      <Filterable title="🔐 Connexion par empreinte digitale (passkeys)" anchorId="s-passkeys" category="auth">
+        <PasskeysAdminSection />
       </Filterable>
 
       {/* Lot 63 — barrière anti-rafale : trop de messages sans réponse → réponse automatique puis messages retenus */}

@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "369", "date": "2026-11-04",
+        "titre": "🔐 Connexion par empreinte digitale (passkeys)",
+        "description": "Se connecter d'un doigt, sans mot de passe ni code : lecteur d'empreintes avec Windows Hello, téléphone ou clé de sécurité. L'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature. À activer ici ; chacun enregistre sa passkey dans « Mon compte ».",
+        "rubrique": "🔐 Connexion par empreinte digitale (passkeys)",
+    },
+    {
         "lot": "368", "date": "2026-10-29",
         "titre": "↩️ Les réponses des plateformes reviennent dans SAWALI",
         "description": "Les réponses aux formulaires et sondages transmis à ALBARKA reviennent dans la copie conservée par SAWALI, marquées du nom de la plateforme (badge et filtre « Source » dans le tableau des soumissions).",

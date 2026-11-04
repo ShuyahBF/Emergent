@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "368"
-LOT_LIBELLE = "Retour des réponses : les réponses aux formulaires et sondages transmis à une plateforme (ALBARKA…) reviennent dans SAWALI, sous le nom de la plateforme (badge et filtre dans le tableau des réponses)."
+LOT = "369"
+LOT_LIBELLE = "Connexion par empreinte digitale (passkeys / WebAuthn) : Windows Hello avec lecteur d'empreintes, téléphone ou clé de sécurité ; l'empreinte reste sur l'appareil. Activée par l'administrateur, mot de passe toujours possible."

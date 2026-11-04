@@ -1,5 +1,14 @@
 # Here are your Instructions
 
+## Lot 370 — Connexion par l'agent biométrique Loois (postes partagés)
+
+Pour les postes où plusieurs personnes partagent le même compte Windows (accueil, laboratoire), là où les passkeys ne conviennent pas : le programme **LooisBioAgent** du poste (dépôt Loois) reconnaît la personne parmi toutes celles enrôlées dans Loois et remet à SAWALI une **attestation signée** (ECDSA P-256). L'empreinte ne quitte jamais le poste.
+
+- **Désactivée par défaut** : Paramètres › « 🖐️ Agent biométrique Loois (postes partagés) » : activer, enregistrer la clé publique de chaque agent (Réglages de l'agent › « Copier la clé publique »), lier chaque compte au nom de la personne dans Loois.
+- Déroulé : défi à usage unique (2 min) → l'agent du poste (`http://127.0.0.1:47821`) → attestation → SAWALI vérifie signature, défi, site, durée, puis ouvre la session comme une connexion normale (journal « empreinte »).
+- Aucune nouvelle collection : clés publiques dans `settings`, lien compte ↔ personne dans `users.agent_bio`, défis dans `otps`.
+- Backend : `backend/routes/agent_biometrique.py` ; tests : `backend/tests/test_agent_bio_lot370.py` ; front : `lib/agentBio.js`, `AgentBioAdminSection.jsx`, bouton sur la page de connexion.
+
 ## Lot 369 — Connexion par empreinte digitale (passkeys / WebAuthn)
 
 - Se connecter d'un doigt, sans mot de passe ni code : l'empreinte est vérifiée par l'appareil (lecteur d'empreintes avec Windows Hello, téléphone Android / iPhone, clé de sécurité à empreinte) ; SAWALI ne reçoit qu'une **signature** vérifiée avec la clé publique enregistrée, jamais l'empreinte.

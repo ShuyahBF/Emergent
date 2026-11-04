@@ -163,6 +163,23 @@ attach_passkey_routes(
     },
 )
 
+# Lot 370 — connexion par l'agent biométrique Loois (lecteur d'empreintes d'un poste partagé) : désactivée tant que l'administrateur ne l'active pas
+from routes.agent_biometrique import attach_agent_bio_routes  # noqa: E402
+
+attach_agent_bio_routes(
+    api,
+    db=db,
+    helpers={
+        "get_current_user": get_current_user,
+        "create_session_token": create_session_token,
+        "_to_user_public": _to_user_public,
+        "_uuid": _uuid,
+        "refuser_si_maintenance": _maintenance_plateforme.refuser_si_maintenance,
+        "refuser_si_cycle_vie": _cycle_vie_abonnements.refuser_connexion,
+        "emit_login_event": _emit_login_event,
+    },
+)
+
 # S046 (2026-02) — i18n translations management.
 from routes.i18n import attach_i18n_routes  # noqa: E402
 

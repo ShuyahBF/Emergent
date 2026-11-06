@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372.4", "date": "2026-11-06",
+        "titre": "🔑 Clés Loois : tous les comptes clients peuvent être liés",
+        "description": "Dans l'édition d'une clé client Loois, la liste des clients liés propose maintenant aussi les comptes sans contrat (marqués « sans contrat », après les autres).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "372.3", "date": "2026-11-06",
         "titre": "✍️ Exemples locaux dans les derniers formulaires",
         "description": "Les champs nom et e-mail restants (accueil sans rendez-vous, connexion, suivi des incidents, catalogue, annonceurs, officines) affichent « BADINI Awa » et une adresse Gmail.",

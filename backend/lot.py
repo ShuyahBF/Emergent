@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "372.3"
-LOT_LIBELLE = "Exemples locaux (BADINI Awa, e-mail Gmail) dans les champs nom et e-mail encore anciens : visiteurs, connexion, suivi des incidents, catalogue, annonceurs, officines."
+LOT = "372.4"
+LOT_LIBELLE = "Clés clients Loois : tous les comptes clients sont proposés pour la liaison (ceux sans contrat apparaissent après les autres, marqués « sans contrat »)."

@@ -250,13 +250,14 @@ async def creer_fiche_cle(db, propre: Dict[str, Any], par: str) -> Tuple[str, Di
 async def comptes_et_contrats(db, cles: list) -> Tuple[list, Dict[str, Any]]:
     """Lot 334 — (comptes clients proposables, contrat par clé).
 
-    Comptes proposés : comptes PRINCIPAUX (sans compte parent) qui portent un contrat (numéro, périodicité ou paiement),
-    comme l'écran Abonnements. Contrat d'une clé : même calcul que la route /api/loois/contrat lue par Loois, donc
+    Comptes proposés : TOUS les comptes clients PRINCIPAUX (sans compte parent). Chacun porte « avec_contrat » (numéro, périodicité ou paiement
+    renseigné, comme l'écran Abonnements) : la page range d'abord ceux qui ont un contrat, puis ceux qui n'en ont pas (« sans contrat »).
+    Lot 372.4 : avant, les comptes sans contrat n'étaient pas proposés et ne pouvaient donc pas être liés à une clé. Contrat d'une clé : même calcul que la route /api/loois/contrat lue par Loois, donc
     « non_lie » tant qu'aucun compte n'est lié, et « anonymiser » vrai dès que le contrat n'est pas actif.
     Lecture EN BLOC (une requête), jamais une lecture par clé (règle 7)."""
     from routes.loois_synchro import statut_contrat_loois   # import tardif (évite une boucle d'imports)
 
-    conditions = [{"contract_billing_period": {"$nin": [None, ""]}}, {"contract_number": {"$nin": [None, ""]}},
+    conditions = [{"role": "client"}, {"contract_billing_period": {"$nin": [None, ""]}}, {"contract_number": {"$nin": [None, ""]}},
                   {"last_payment_at": {"$nin": [None, ""]}}]
     liés = [f["tenant_id"] for f in cles if f.get("tenant_id")]
     if liés:
@@ -268,9 +269,10 @@ async def comptes_et_contrats(db, cles: list) -> Tuple[list, Dict[str, Any]]:
         parent = d.get("parent_client_id")
         if parent and parent != d.get("id"):
             continue                                   # utilisateur suivi : pas un compte client principal
+        avec_contrat = bool(d.get("contract_billing_period") or d.get("contract_number") or d.get("last_payment_at"))
         comptes.append({"id": d["id"], "nom": d.get("company") or d.get("full_name") or d.get("email") or d["id"],
-                        "email": d.get("email")})
-    comptes.sort(key=lambda c: (c["nom"] or "").lower())
+                        "email": d.get("email"), "avec_contrat": avec_contrat})
+    comptes.sort(key=lambda c: (not c["avec_contrat"], (c["nom"] or "").lower()))     # avec contrat d'abord, puis par nom
     maintenant = _maintenant()
     contrats: Dict[str, Any] = {}
     for f in cles:

@@ -290,7 +290,7 @@ export default function LooisClesClients() {
                 <select value={formulaire.tenant_id} onChange={(e) => setFormulaire({ ...formulaire, tenant_id: e.target.value })}
                   className="w-56 rounded border border-slate-300 px-2 py-1" data-testid="compte-client">
                   <option value="">— aucun (états anonymisés) —</option>
-                  {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                  {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}{c.avec_contrat ? "" : " — sans contrat"}</option>)}
                 </select>
               </label>
               <button type="submit" disabled={!formulaire.code.trim()} className="rounded-lg bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-700 disabled:opacity-50" data-testid="creer-cle">
@@ -344,7 +344,7 @@ export default function LooisClesClients() {
                                 className="w-44 rounded border border-slate-300 px-1 py-0.5 text-slate-800" data-testid="edition-compte-client">
                                 <option value="">— aucun (anonymisé) —</option>
                                 {f.tenant_id && !comptes.some((c) => c.id === f.tenant_id) && <option value={f.tenant_id}>{f.client_nom || f.tenant_id}</option>}
-                                {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                                {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}{c.avec_contrat ? "" : " — sans contrat"}</option>)}
                               </select>
                             ) : (
                               <>

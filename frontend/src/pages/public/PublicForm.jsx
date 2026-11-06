@@ -146,6 +146,14 @@ export default function PublicForm() {
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-5">
         {form.description && <p className="text-sm text-slate-300 whitespace-pre-line">{form.description}</p>}
+        {/* Lot 372.6 : légende des pastilles de profil (formulaires qui en comportent, ex. Checklist laboratoire) */}
+        {form.pages.some((p) => p.fields.some((f) => f.qui)) && (
+          <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 py-2 text-xs text-slate-200 flex items-center gap-4 flex-wrap" data-testid="public-form-legende">
+            <span>Qui remplit la question :</span>
+            <span className="inline-flex items-center"><PastilleProfil qui="Technicien" /> Technicien</span>
+            <span className="inline-flex items-center"><PastilleProfil qui="Responsable" /> Responsable du laboratoire</span>
+          </div>
+        )}
         {brouillonRestaure && (
           <div className="rounded-xl bg-sky-500/10 ring-1 ring-sky-400/40 px-4 py-2 text-xs text-sky-100 flex items-center gap-3 flex-wrap" data-testid="public-form-brouillon">
             <span className="flex-1 min-w-0">Votre saisie précédente a été retrouvée sur cet appareil. Vos réponses sont gardées automatiquement tant que vous n'avez pas cliqué sur « Envoyer ».</span>
@@ -186,7 +194,8 @@ export default function PublicForm() {
           ) : (
             <div key={f.id} className="min-w-0" style={{ gridColumnStart: f.col_start || 1, gridColumn: `span ${Math.min(12, f.col_span || 12)} / span ${Math.min(12, f.col_span || 12)}` }}>
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">
-                {f.label}{f.required && <span className="text-rose-300 ml-1">*</span>}
+                {f.qui && <PastilleProfil qui={f.qui} />}<LibelleNumerote texte={f.label} />{f.required && <span className="text-rose-300 ml-1">*</span>}
+                {f.qui && <span className="ml-2 normal-case tracking-normal font-normal" style={{ color: COULEURS_PROFIL[f.qui]?.texte }}>({f.qui.toLowerCase()})</span>}
               </label>
               <Input f={f} v={data[f.id]} onChange={(v) => setData((d) => ({ ...d, [f.id]: v }))} formId={jeton ? null : fid} />
             </div>
@@ -279,4 +288,23 @@ const DepotFichier = ({ f, v, onChange, formId }) => {
       <input type="file" accept={f.accept || undefined} className="sr-only" onChange={choisir} disabled={envoi} data-testid={`depot-input-${f.id}`} />
     </label>
   );
+};
+
+// Lot 372.6 — pastille de couleur du profil à qui une question est réservée : bleu = technicien, marron = responsable.
+const COULEURS_PROFIL = {
+  Technicien: { fond: "#3B82F6", texte: "#93C5FD" },
+  Responsable: { fond: "#A0522D", texte: "#D9A27A" },
+};
+const PastilleProfil = ({ qui }) => (
+  <span
+    className="inline-block h-2.5 w-2.5 rounded-full ring-1 ring-white/70 mr-1.5 align-baseline shrink-0"
+    style={{ background: COULEURS_PROFIL[qui]?.fond || "#94A3B8" }}
+    title={qui} role="img" aria-label={qui}
+  />
+);
+
+// Lot 372.6 — le numéro de question (« 2.4.1b ») garde sa casse malgré les libellés en majuscules : c'est la référence à citer dans une réponse.
+const LibelleNumerote = ({ texte }) => {
+  const m = /^(\d+(?:\.\d+)*[a-z]?) — (.*)$/s.exec(texte || "");
+  return m ? <><span className="normal-case font-bold">{m[1]}</span> — {m[2]}</> : <>{texte}</>;
 };

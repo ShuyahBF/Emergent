@@ -441,6 +441,20 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
         await db.forms.update_one({"id": form_id}, {"$set": maj})
         return vue({**form, **maj}, request)
 
+    @api.post("/admin/formulaire-automates/{form_id}/actualiser", tags=["Formulaire automates"])
+    async def actualiser(form_id: str, request: Request, user: dict = Depends(get_current_user)):
+        """Remet le contenu courant du modèle (questions, consignes, pastilles de profil) dans un formulaire DÉJÀ créé.
+        Les identifiants des questions sont stables : les réponses déjà reçues sont conservées et restent rattachées à leur question."""
+        exiger_admin(user)
+        form = await db.forms.find_one({"id": form_id, "modele": {"$in": list(MODELES)}}, {"_id": 0})
+        if not form:
+            raise HTTPException(status_code=404, detail="Formulaire introuvable")
+        modele_form = form.get("modele") or MODELE
+        b = form.get("branding") or {}
+        maj = {"pages": pages_du_modele(modele_form), "description": description_du_modele(modele_form, b.get("organisation", ""), b.get("message", "")), "updated_at": maintenant()}
+        await db.forms.update_one({"id": form_id}, {"$set": maj})
+        return vue({**form, **maj}, request)
+
     @api.get("/admin/formulaire-automates/{form_id}/reponses", tags=["Formulaire automates"])
     async def reponses(form_id: str, format: Optional[str] = None, user: dict = Depends(get_current_user)):
         """Réponses du formulaire : liste lisible (JSON) ou, avec ?format=csv, toutes les colonnes."""

@@ -161,6 +161,8 @@ def pages_formulaire() -> List[Dict[str, Any]]:
                            "col_start": 1, "col_span": 12, "row": 0})
             for c in (x for x in champs_numerotes() if x["section"] == i and x["point"] == j):
                 f: Dict[str, Any] = {"id": c["id"], "type": c["type"], "label": f"{c['numero']} — {c['label']}", "required": False, "col_start": 1, "col_span": 12, "row": 0}
+                if c.get("qui"):
+                    f["qui"] = c["qui"]                 # profil réservé : « Technicien » (pastille bleue) ou « Responsable » (pastille marron)
                 if c.get("options") is not None:
                     f["options"] = c["options"]
                 if c.get("accept"):
@@ -175,6 +177,7 @@ def pages_formulaire() -> List[Dict[str, Any]]:
 
 
 DESCRIPTION = ("Document à remplir au laboratoire par le responsable et les techniciens. Chaque question porte un numéro (exemple : 2.4.1b) qui sert à référencer la réponse. "
+               "Une pastille de couleur indique qui remplit la question : bleue = technicien, marron = responsable du laboratoire. "
                "Les pièces à joindre (exports CSV, journaux, photos) se déposent directement dans le formulaire. Les réponses sont enregistrées au fur et à mesure sur cet appareil "
                "et ne sont envoyées qu'au clic sur « Envoyer mes réponses » ; le formulaire peut être rempli en plusieurs fois, sur téléphone ou sur ordinateur.")
 

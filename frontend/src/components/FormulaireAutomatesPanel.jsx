@@ -83,6 +83,16 @@ export default function FormulaireAutomatesPanel() {
     } catch (e) { toast.error(erreur(e, "Opération impossible")); }
   };
 
+  // Remet les questions actuelles du modèle dans un formulaire déjà créé (les réponses reçues sont conservées)
+  const actualiser = async (f) => {
+    const t = toast.loading("Patientez… mise à jour des questions");
+    try {
+      await apiClient.post(`/admin/formulaire-automates/${f.id}/actualiser`);
+      toast.success("Questions mises à jour : les réponses reçues sont conservées.", { id: t });
+      await charger();
+    } catch (e) { toast.error(erreur(e, "Mise à jour impossible"), { id: t }); }
+  };
+
   const copier = async (lien) => {
     try { await navigator.clipboard.writeText(lien); toast.success("Lien copié."); }
     catch { toast.error("Copie impossible : sélectionnez le lien et copiez-le."); }
@@ -185,6 +195,7 @@ export default function FormulaireAutomatesPanel() {
                     <a href={f.lien} target="_blank" rel="noreferrer" role="button" className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs"><ExternalLink className="h-3.5 w-3.5" /> Ouvrir</a>
                     <button onClick={() => voirReponses(f)} className="rounded-md border px-2 py-1 text-xs">{ouvertId === f.id ? "Masquer" : "Réponses"}</button>
                     <button onClick={() => exporterCsv(f)} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs"><FileDown className="h-3.5 w-3.5" /> CSV</button>
+                    <button onClick={() => actualiser(f)} className="rounded-md border px-2 py-1 text-xs" title="Remet les questions actuelles du modèle (pastilles de profil comprises) ; les réponses reçues sont conservées" data-testid={`fa-actualiser-${f.id}`}>Mettre à jour les questions</button>
                     <button onClick={() => basculerPublic(f)} className="rounded-md border px-2 py-1 text-xs">{f.is_public ? "Désactiver" : "Réactiver"}</button>
                   </div>
                 </td>

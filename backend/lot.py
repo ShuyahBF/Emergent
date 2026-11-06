@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "372.5"
-LOT_LIBELLE = "Checklist laboratoire en formulaire public : questions numérotées (1.1.1, 2.4.1b…), pièces jointes, brouillon automatique ; modèle à choisir à la création dans « Automates : formulaires publics » (page Formulaires)."
+LOT = "372.6"
+LOT_LIBELLE = "Checklist laboratoire : pastille de couleur devant chaque question (bleu = technicien, marron = responsable), légende en tête ; bouton « Mettre à jour les questions » pour les formulaires déjà créés (réponses conservées)."

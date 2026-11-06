@@ -31,6 +31,7 @@ import TransfertMessagesWa from "@/components/TransfertMessagesWa";             
 import { fusionnerNotes, BulleNoteSysteme } from "@/components/NoteSystemeConversation";   // Lot 262 : messages système (visibles côté utilisateur seulement)
 import { majFiche } from "@/lib/majContact";                                         // lot 263 : mise à jour d'une seule fiche
 import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";           // Lot 260 : envoi d'un carrousel enregistré à ce contact
+import { telechargerFichier } from "@/lib/telechargement";   // lot 372.1
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -3630,6 +3631,8 @@ const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = nu
                 href={mediaUrl}
                 target="_blank"
                 rel="noreferrer"
+                // Lot 372.1 : ouvre la fenêtre « Enregistrer sous » (lieu et nom au choix) au lieu d'ouvrir le document
+                onClick={(e) => { e.preventDefault(); telechargerFichier(mediaUrl, m.media_filename); }}
                 className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs ring-1 ${outbound ? "bg-white/10 ring-white/30 text-white hover:bg-white/20" : "bg-slate-50 ring-slate-300 text-slate-800 hover:bg-slate-100"}`}
                 data-testid={`msg-doc-${m.id}`}
               >

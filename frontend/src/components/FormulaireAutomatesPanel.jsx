@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ClipboardList, Copy, ExternalLink, FileDown, ImagePlus, Plus, Save, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
+import { telechargerFichier } from "@/lib/telechargement";   // lot 372.1
 
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
@@ -205,7 +206,7 @@ export default function FormulaireAutomatesPanel() {
               {l.documents.length > 0 && (
                 <div className="mt-3 flex gap-2 flex-wrap boutons-distincts">
                   {l.documents.map((d) => (
-                    <a key={d.url} href={d.url} target="_blank" rel="noreferrer" role="button" className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
+                    <a key={d.url} href={d.url} target="_blank" rel="noreferrer" role="button" onClick={(e) => { e.preventDefault(); telechargerFichier(d.url, d.nom); }} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
                       <Paperclip className="h-3.5 w-3.5" /> {d.nom} <span className="text-slate-500">({d.champ})</span>
                     </a>
                   ))}

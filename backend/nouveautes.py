@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372.1", "date": "2026-11-06",
+        "titre": "📥 Documents reçus : fenêtre « Enregistrer sous »",
+        "description": "Le clic sur un document de la conversation WhatsApp (ou d'une réponse de formulaire) ouvre la fenêtre d'enregistrement, avec choix du dossier et du nom, au lieu d'ouvrir le PDF.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "372", "date": "2026-11-06",
         "titre": "💾 Formulaires publics : brouillon automatique",
         "description": "Ce que le visiteur saisit est gardé sur son appareil et retrouvé s'il ferme l'onglet ou perd sa connexion avant d'envoyer ; effacé dès l'envoi réussi.",

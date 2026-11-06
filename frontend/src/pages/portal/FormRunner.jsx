@@ -273,6 +273,8 @@ export const FieldInput = ({ field, value, onChange }) => {
       return <FileField field={field} value={value} onChange={onChange} />;
     case "signature":
       return <SignatureField value={value} onChange={onChange} />;
+    case "info":      // lot 372.5 : bloc d'information (consigne), sans saisie
+      return <p className="text-xs text-slate-500 whitespace-pre-line">{field.placeholder}</p>;
     default:
       return <input type="text" value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder} className={commonCls} />;
   }

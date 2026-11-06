@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372.5", "date": "2026-11-06",
+        "titre": "📝 Checklist laboratoire : formulaire public numéroté",
+        "description": "Nouveau modèle dans « Automates : formulaires publics » (page Formulaires) : la checklist du laboratoire, aux questions numérotées (ex. 2.4.1b), avec dépôt des exports et des photos, à remplir sur téléphone ou ordinateur.",
+        "lien": "/admin/forms?automates=1",
+    },
+    {
         "lot": "372.4", "date": "2026-11-06",
         "titre": "🔑 Clés Loois : tous les comptes clients peuvent être liés",
         "description": "Dans l'édition d'une clé client Loois, la liste des clients liés propose maintenant aussi les comptes sans contrat (marqués « sans contrat », après les autres).",

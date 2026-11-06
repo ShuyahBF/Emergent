@@ -153,7 +153,7 @@ export default function FormsList({ automates = false }) {
             className="inline-flex items-center gap-2 rounded-lg ring-1 ring-sawali-blue/40 text-sawali-blue px-4 py-2 text-sm hover:bg-sawali-blue/5"
             data-testid="form-automates-btn"
           >
-            <ClipboardList className="h-4 w-4" /> Spécifications d'automate
+            <ClipboardList className="h-4 w-4" /> Automates : formulaires publics
           </button>
         )}
         <button
@@ -170,7 +170,7 @@ export default function FormsList({ automates = false }) {
       {/* Lot 371.3 — formulaire public « Spécifications de votre automate » (logo + nom de la clinique, lien, réponses, CSV) */}
       {automates && automatesOuvert && (
         <div className="rounded-xl ring-1 ring-sawali-blue/30 p-4" data-testid="forms-automates-panel">
-          <h2 className="font-display font-bold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-sawali-blue" /> Spécifications de votre automate</h2>
+          <h2 className="font-display font-bold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-sawali-blue" /> Formulaires publics des automates</h2>
           <FormulaireAutomatesPanel />
         </div>
       )}

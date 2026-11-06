@@ -46,6 +46,8 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger("sawali.formulaire_automates")
 
 MODELE = "automate"
+MODELE_LABO = "laboratoire"                       # lot 372.5 : « Checklist laboratoire » (contenu : routes/checklist_laboratoire.py)
+MODELES = (MODELE, MODELE_LABO)
 TAILLE_MAX_FICHIER = 15 * 1024 * 1024         # documents des constructeurs : manuels de plusieurs Mo
 TAILLE_MAX_LOGO = 1024 * 1024
 EXTENSIONS_DOCUMENTS = {"pdf", "doc", "docx", "xls", "xlsx", "txt", "csv", "zip", "png", "jpg", "jpeg", "webp"}
@@ -156,6 +158,26 @@ def pages_modele() -> List[Dict[str, Any]]:
     return pages
 
 
+def titre_formulaire(modele: str, organisation: str) -> str:
+    """Titre du formulaire selon son modèle : « Spécifications de votre automate — X » ou « Checklist laboratoire — X »."""
+    return f"{'Checklist laboratoire' if modele == MODELE_LABO else 'Spécifications de votre automate'} — {organisation}"
+
+
+def pages_du_modele(modele: str) -> List[Dict[str, Any]]:
+    """Pages du formulaire selon le modèle (le modèle « laboratoire » vient de checklist_laboratoire.py)."""
+    if modele == MODELE_LABO:
+        from routes.checklist_laboratoire import pages_formulaire
+        return pages_formulaire()
+    return pages_modele()
+
+
+def description_du_modele(modele: str, organisation: str, message: str) -> str:
+    if modele == MODELE_LABO:
+        from routes.checklist_laboratoire import DESCRIPTION
+        return f"{message.strip()}\n\n{DESCRIPTION}" if message.strip() else DESCRIPTION
+    return description_formulaire(organisation, message)
+
+
 def description_formulaire(organisation: str, message: str) -> str:
     """Texte d'accueil : qui demande, pourquoi, comment répondre."""
     base = (f"{organisation} prépare la connexion de ses automates de laboratoire à son logiciel. "
@@ -204,7 +226,7 @@ def contenu_conforme(extension: str, brut: bytes) -> bool:
 
 def lignes_reponses(form: dict, soumissions: List[dict]) -> List[Dict[str, Any]]:
     """Une ligne par réponse : valeurs lisibles de chaque champ (selon le formulaire tel qu'il est), documents en liens."""
-    champs = [f for p in form.get("pages", []) for f in p.get("fields", [])]
+    champs = [f for p in form.get("pages", []) for f in p.get("fields", []) if f.get("type") != "info"]
     lignes = []
     for s in soumissions:
         data = s.get("data") or {}
@@ -228,7 +250,7 @@ def lignes_reponses(form: dict, soumissions: List[dict]) -> List[Dict[str, Any]]
 
 def export_csv(form: dict, lignes: List[Dict[str, Any]]) -> str:
     """CSV (séparateur « ; », UTF-8 avec BOM pour Excel) : date, répondant, puis une colonne par champ du formulaire."""
-    champs = [f for p in form.get("pages", []) for f in p.get("fields", [])]
+    champs = [f for p in form.get("pages", []) for f in p.get("fields", []) if f.get("type") != "info"]
     sortie = io.StringIO()
     w = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
     w.writerow(["Date", "Répondant", "E-mail"] + [f["label"] for f in champs])
@@ -241,6 +263,7 @@ def export_csv(form: dict, lignes: List[Dict[str, Any]]) -> str:
 
 class IdentiteCreation(BaseModel):
     organisation: str = Field(min_length=1, max_length=200)
+    modele: Optional[str] = MODELE                  # « automate » (fournisseurs) ou « laboratoire » (checklist du laboratoire)
     logo_url: Optional[str] = None
     message: Optional[str] = None
 
@@ -352,13 +375,13 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
     # ---------------------------------------------------------------- administrateur
 
     def vue(form: dict, request: Request) -> dict:
-        return {"id": form["id"], "number": form.get("number"), "title": form.get("title"), "branding": form.get("branding") or {}, "is_public": bool(form.get("is_public")),
+        return {"id": form["id"], "modele": form.get("modele") or MODELE, "number": form.get("number"), "title": form.get("title"), "branding": form.get("branding") or {}, "is_public": bool(form.get("is_public")),
                 "reponses": form.get("uses_count") or 0, "created_at": form.get("created_at"), "lien": lien_public(request, form["id"])}
 
     @api.get("/admin/formulaire-automates", tags=["Formulaire automates"])
     async def lister(request: Request, user: dict = Depends(get_current_user)):
         exiger_admin(user)
-        filtre: Dict[str, Any] = {"modele": MODELE}
+        filtre: Dict[str, Any] = {"modele": {"$in": list(MODELES)}}
         if user.get("role") != "admin":
             filtre["client_id"] = user.get("client_id") or user["id"]
         formes = await db.forms.find(filtre, {"_id": 0, "pages": 0}).sort("created_at", -1).to_list(200)
@@ -378,8 +401,9 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
         """Crée le formulaire « Spécifications de votre automate » pour une clinique (public dès la création)."""
         exiger_admin(user)
         identite = nettoyer_identite(payload.organisation, payload.logo_url, payload.message)
-        titre = f"Spécifications de votre automate — {identite['organisation']}"
-        if await db.forms.find_one({"modele": MODELE, "title": {"$regex": f"^{re.escape(titre)}$", "$options": "i"}}, {"_id": 0, "id": 1}):
+        modele = payload.modele if payload.modele in MODELES else MODELE
+        titre = titre_formulaire(modele, identite["organisation"])
+        if await db.forms.find_one({"modele": modele, "title": {"$regex": f"^{re.escape(titre)}$", "$options": "i"}}, {"_id": 0, "id": 1}):
             raise HTTPException(status_code=409, detail="Un formulaire existe déjà pour cette clinique : modifiez-le au lieu d'en créer un second")
         client = await db.users.find_one({"id": user["id"]}, {"_id": 0, "client_code": 1, "company": 1, "full_name": 1})
         brut = (client or {}).get("client_code") or re.sub(r"[^A-Z0-9]", "", ((client or {}).get("company") or (client or {}).get("full_name") or "X").upper())[:6] or "X"
@@ -388,8 +412,8 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
         doc = {
             "id": nouvel_id(), "client_id": user.get("client_id") or user["id"], "client_code": brut,   # même rattachement que les formulaires ordinaires (page Formulaires, fonction « Formulaires et Sondages »)
              "number": f"FORM-{brut}-{numero:04d}", "title": titre,
-            "description": description_formulaire(identite["organisation"], identite["message"]), "is_public": True, "category_id": None, "access_client_ids": [],
-            "pages": pages_modele(), "modele": MODELE, "branding": identite,
+            "description": description_du_modele(modele, identite["organisation"], identite["message"]), "is_public": True, "category_id": None, "access_client_ids": [],
+            "pages": pages_du_modele(modele), "modele": modele, "branding": identite,
             "created_by_id": user["id"], "created_by_label": user.get("full_name") or user.get("email"), "created_at": maintenant(), "updated_at": maintenant(), "uses_count": 0,
         }
         await db.forms.insert_one(doc.copy())
@@ -399,18 +423,19 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
     @api.put("/admin/formulaire-automates/{form_id}", tags=["Formulaire automates"])
     async def modifier(form_id: str, payload: IdentiteModification, request: Request, user: dict = Depends(get_current_user)):
         exiger_admin(user)
-        form = await db.forms.find_one({"id": form_id, "modele": MODELE}, {"_id": 0})
+        form = await db.forms.find_one({"id": form_id, "modele": {"$in": list(MODELES)}}, {"_id": 0})
         if not form:
             raise HTTPException(status_code=404, detail="Formulaire introuvable")
         actuel = form.get("branding") or {}
         identite = nettoyer_identite(payload.organisation if payload.organisation is not None else actuel.get("organisation", ""),
                                      payload.logo_url if payload.logo_url is not None else actuel.get("logo_url", ""),
                                      payload.message if payload.message is not None else actuel.get("message", ""))
-        maj: Dict[str, Any] = {"branding": identite, "title": f"Spécifications de votre automate — {identite['organisation']}",
-                               "description": description_formulaire(identite["organisation"], identite["message"]), "updated_at": maintenant()}
+        modele_form = form.get("modele") or MODELE
+        maj: Dict[str, Any] = {"branding": identite, "title": titre_formulaire(modele_form, identite["organisation"]),
+                               "description": description_du_modele(modele_form, identite["organisation"], identite["message"]), "updated_at": maintenant()}
         if payload.is_public is not None:
             maj["is_public"] = payload.is_public
-        autre = await db.forms.find_one({"modele": MODELE, "id": {"$ne": form_id}, "title": {"$regex": f"^{re.escape(maj['title'])}$", "$options": "i"}}, {"_id": 0, "id": 1})
+        autre = await db.forms.find_one({"modele": modele_form, "id": {"$ne": form_id}, "title": {"$regex": f"^{re.escape(maj['title'])}$", "$options": "i"}}, {"_id": 0, "id": 1})
         if autre:
             raise HTTPException(status_code=409, detail="Un autre formulaire porte déjà ce nom de clinique")
         await db.forms.update_one({"id": form_id}, {"$set": maj})
@@ -420,7 +445,7 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
     async def reponses(form_id: str, format: Optional[str] = None, user: dict = Depends(get_current_user)):
         """Réponses du formulaire : liste lisible (JSON) ou, avec ?format=csv, toutes les colonnes."""
         exiger_admin(user)
-        form = await db.forms.find_one({"id": form_id, "modele": MODELE}, {"_id": 0})
+        form = await db.forms.find_one({"id": form_id, "modele": {"$in": list(MODELES)}}, {"_id": 0})
         if not form:
             raise HTTPException(status_code=404, detail="Formulaire introuvable")
         soumissions = await db.form_submissions.find({"form_id": form_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
@@ -428,8 +453,8 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
         if format == "csv":
             return Response(content=export_csv(form, lignes).encode("utf-8"), media_type="text/csv; charset=utf-8",
                             headers={"Content-Disposition": f'attachment; filename="automates_{form.get("number", "formulaire")}.csv"'})
-        champs = [{"id": f["id"], "label": f["label"]} for p in form.get("pages", []) for f in p.get("fields", [])]
+        champs = [{"id": f["id"], "label": f["label"]} for p in form.get("pages", []) for f in p.get("fields", []) if f.get("type") != "info"]
         return {"titre": form.get("title"), "champs": champs, "reponses": lignes}
 
 
-__all__ = ["attach_formulaire_automates_routes", "pages_modele", "nettoyer_identite", "contenu_conforme", "lignes_reponses", "export_csv", "MODELE"]
+__all__ = ["attach_formulaire_automates_routes", "pages_modele", "pages_du_modele", "titre_formulaire", "MODELES", "MODELE_LABO", "nettoyer_identite", "contenu_conforme", "lignes_reponses", "export_csv", "MODELE"]

@@ -11,6 +11,7 @@ import {
   Upload, Pencil, FileSpreadsheet, UserPlus, X, MapPin, Image as ImageIcon,
   Eye, Package, Tags, Download, Plus, Trash2, FileJson, Tag, Globe2, Loader2,
 } from "lucide-react";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 const STATUS_LABEL = {
   pending: { text: "En attente", color: "bg-amber-50 text-amber-700 ring-amber-200" },
@@ -791,7 +792,7 @@ function LinkClientModal({ officine, onClose, onDone }) {
         <div className="p-5 space-y-3">
           <label className="block text-xs font-medium text-slate-700">Email du client CRM existant</label>
           <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-            placeholder="client@example.com"
+            placeholder={`Ex. ${EXEMPLE_EMAIL}`}
             className="w-full border rounded px-3 py-2 text-sm"
             data-testid="link-client-email" />
         </div>

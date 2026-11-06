@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 // Libellés et couleurs des états d'une demande
 const STATUTS = {
@@ -126,7 +127,7 @@ export default function AvisClaudeSection() {
           </label>
           <label className="text-xs text-slate-600">E-mail d'alerte (vide = e-mail de santé du serveur)
             <input value={reglages.email || ""} onChange={(e) => setReglages({ ...reglages, email: e.target.value })}
-                   className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" placeholder="vous@exemple.com" />
+                   className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" placeholder={`Ex. ${EXEMPLE_EMAIL}`} />
           </label>
           <label className="text-xs text-slate-600 sm:col-span-2">Dépôt GitHub de chaque plateforme (une ligne « code=propriétaire/dépôt »)
             <textarea rows={5} value={reglages.depotsTexte || ""} onChange={(e) => setReglages({ ...reglages, depotsTexte: e.target.value })}

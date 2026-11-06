@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372.3", "date": "2026-11-06",
+        "titre": "✍️ Exemples locaux dans les derniers formulaires",
+        "description": "Les champs nom et e-mail restants (accueil sans rendez-vous, connexion, suivi des incidents, catalogue, annonceurs, officines) affichent « BADINI Awa » et une adresse Gmail.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "372.2", "date": "2026-11-06",
         "titre": "📥 Documents reçus : nom avec l'expéditeur et la date",
         "description": "Le nom proposé à l'enregistrement d'un document de la conversation WhatsApp (ou d'une réponse de formulaire) est EXPÉDITEUR_date_heure, par exemple BADINI_Awa_2026-11-06_15h21.pdf.",

@@ -10,6 +10,7 @@ import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight, Share2, ShoppingCart, X, Tag, CheckCircle2 } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -326,7 +327,7 @@ function BuyModal({ product, onClose }) {
           </div>
           <label className="block text-xs text-slate-300">
             Email (pour la confirmation)
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" required className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white" data-testid="buy-modal-email" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={`Ex. ${EXEMPLE_EMAIL}`} required className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white" data-testid="buy-modal-email" />
           </label>
           <div className="flex gap-2">
             <label className="flex-1 block text-xs text-slate-300">

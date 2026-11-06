@@ -3,6 +3,7 @@ import axios from "axios";
 import { Link, useSearchParams } from "react-router-dom";
 import { Activity, Globe, Database, ShieldCheck, ArrowLeft, RefreshCw, AlertTriangle, AlertOctagon, Info, Clock, CheckCircle2, Mail, Bell } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -360,7 +361,7 @@ const SubscribeForm = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="vous@entreprise.com"
+                placeholder={`Ex. ${EXEMPLE_EMAIL}`}
                 disabled={state === "loading"}
                 className="w-full rounded-lg bg-white/10 border border-white/20 text-white placeholder:text-slate-400 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/30 disabled:opacity-50"
                 data-testid="subscribe-email-input"

@@ -55,3 +55,30 @@ export async function telechargerFichier(url, nomSuggere) {
     window.open(url, "_blank", "noopener");
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Nom proposé pour un document reçu ou envoyé dans une conversation : EXPÉDITEUR_AAAA-MM-JJ_HHhMM[_nom d'origine].extension
+// Demande du propriétaire (06/11/2026) : les PDF reçus par WhatsApp s'appellent tous « wa-inbound.pdf » ; on y met l'expéditeur et la date.
+//   - le nom d'origine n'est ajouté que s'il est parlant (pas « wa-inbound… », « document », « file »…) ;
+//   - date et heure en heure locale du navigateur ; extension reprise du nom d'origine, sinon du type MIME, sinon « .pdf ».
+const NOMS_GENERIQUES = /^(wa-inbound|wa_inbound|document|file|fichier|media|attachment)([-_ ()0-9]*)$/i;
+const EXT_PAR_MIME = {
+  "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "text/plain": "txt", "text/csv": "csv",
+  "application/zip": "zip", "application/msword": "doc", "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+};
+
+export function nomDocumentConversation({ expediteur, dateIso, nomOrigine, mime }) {
+  const pointe = (nomOrigine || "").lastIndexOf(".");
+  const base = pointe > 0 ? nomOrigine.slice(0, pointe) : (nomOrigine || "");
+  const extOrigine = pointe > 0 ? nomOrigine.slice(pointe + 1).toLowerCase() : "";
+  const ext = /^[a-z0-9]{1,5}$/.test(extOrigine) ? extOrigine : (EXT_PAR_MIME[(mime || "").toLowerCase()] || "pdf");
+  const exp = (expediteur || "").trim().replace(/\s+/g, "_");
+  const d = dateIso ? new Date(dateIso) : null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const date = d && !Number.isNaN(d.getTime()) ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}h${pad(d.getMinutes())}` : "";
+  const parlant = base.trim() && !NOMS_GENERIQUES.test(base.trim()) ? base.trim().replace(/\s+/g, "_") : "";
+  const parties = [exp, date, parlant].filter(Boolean);
+  return `${parties.length ? parties.join("_") : "document"}.${ext}`;
+}

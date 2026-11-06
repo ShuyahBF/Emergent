@@ -31,7 +31,7 @@ import TransfertMessagesWa from "@/components/TransfertMessagesWa";             
 import { fusionnerNotes, BulleNoteSysteme } from "@/components/NoteSystemeConversation";   // Lot 262 : messages système (visibles côté utilisateur seulement)
 import { majFiche } from "@/lib/majContact";                                         // lot 263 : mise à jour d'une seule fiche
 import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";           // Lot 260 : envoi d'un carrousel enregistré à ce contact
-import { telechargerFichier } from "@/lib/telechargement";   // lot 372.1
+import { telechargerFichier, nomDocumentConversation } from "@/lib/telechargement";   // lots 372.1 et 372.2
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -3008,7 +3008,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
               ? <BulleNoteSysteme key={m.id} n={m} />
               : m.__appel
               ? <BulleAppelWa key={m.id} a={m} />
-              : <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo}
+              : <MessageBubble key={m.id} m={m} contact={contact} allMessages={messages} onReply={setReplyTo}
                   onForward={(x) => setATransferer([x])}
                   selection={selection} onToggleSelect={basculerSelection} />))
           )}
@@ -3443,7 +3443,7 @@ const SaveToLibraryButton = ({ messageId, testid }) => {
 };
 
 // --- Chat bubble ---
-const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = null, onToggleSelect }) => {
+const MessageBubble = ({ m, contact = null, allMessages = [], onReply, onForward, selection = null, onToggleSelect }) => {
   const outbound = m.direction === "outbound";
   // Lot 71 — appui long (mobile) sur la bulle : ouvre le transfert ; en mode sélection : coche la bulle
   const appuiLong = React.useRef(null);
@@ -3632,7 +3632,7 @@ const MessageBubble = ({ m, allMessages = [], onReply, onForward, selection = nu
                 target="_blank"
                 rel="noreferrer"
                 // Lot 372.1 : ouvre la fenêtre « Enregistrer sous » (lieu et nom au choix) au lieu d'ouvrir le document
-                onClick={(e) => { e.preventDefault(); telechargerFichier(mediaUrl, m.media_filename); }}
+                onClick={(e) => { e.preventDefault(); telechargerFichier(mediaUrl, nomDocumentConversation({ expediteur: outbound ? (m.sender_label || "Envoye") : (contact?.name || contact?.phone), dateIso: primaryTs, nomOrigine: m.media_filename, mime: m.media_mime_type })); }}
                 className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs ring-1 ${outbound ? "bg-white/10 ring-white/30 text-white hover:bg-white/20" : "bg-slate-50 ring-slate-300 text-slate-800 hover:bg-slate-100"}`}
                 data-testid={`msg-doc-${m.id}`}
               >

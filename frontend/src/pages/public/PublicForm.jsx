@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -28,6 +28,11 @@ export default function PublicForm() {
   const [error, setError] = useState(null);
   // Lot 371 — identité de la clinique qui demande les informations (logo + nom + message) ; vide pour un formulaire ordinaire
   const [identite, setIdentite] = useState(null);
+  // Lot 372 — brouillon : tout ce que le visiteur saisit est gardé sur son appareil (localStorage) et revient s'il rouvre le lien
+  // (onglet fermé, connexion coupée, téléphone qui redémarre). Effacé après l'envoi ou la réinitialisation. Aucune donnée n'est envoyée au serveur.
+  const cleBrouillon = `sawali-brouillon-formulaire:${jeton || fid}`;
+  const [brouillonRestaure, setBrouillonRestaure] = useState(false);
+  const brouillonPret = useRef(false);   // vrai une fois le brouillon lu : évite d'écraser le brouillon par un état vide au chargement
 
   useEffect(() => {
     axios.get(source)
@@ -46,7 +51,35 @@ export default function PublicForm() {
     }
   }, [source, jeton, fid]);
 
-  const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) setData({}); };
+  // Lecture du brouillon (une seule fois, quand le formulaire est chargé)
+  useEffect(() => {
+    if (!form || brouillonPret.current) return;
+    try {
+      const brut = window.localStorage.getItem(cleBrouillon);
+      if (brut) {
+        const b = JSON.parse(brut);
+        if (b && typeof b === "object" && b.data && Object.keys(b.data).length + Object.values(b.meta || {}).filter(Boolean).length > 0) {
+          setData(b.data);
+          setMeta({ respondent_name: b.meta?.respondent_name || "", respondent_email: b.meta?.respondent_email || "" });
+          setActivePage(Math.min(Math.max(0, b.page || 0), form.pages.length - 1));
+          setBrouillonRestaure(true);
+        }
+      }
+    } catch { /* stockage indisponible ou brouillon illisible : on repart d'un formulaire vide */ }
+    brouillonPret.current = true;
+  }, [form, cleBrouillon]);
+
+  // Écriture du brouillon à chaque changement (après la lecture ci-dessus)
+  useEffect(() => {
+    if (!brouillonPret.current || done) return;
+    try {
+      window.localStorage.setItem(cleBrouillon, JSON.stringify({ data, meta, page: activePage, enregistre_le: new Date().toISOString() }));
+    } catch { /* stockage plein ou refusé : le formulaire reste utilisable */ }
+  }, [data, meta, activePage, done, cleBrouillon]);
+
+  const effacerBrouillon = () => { try { window.localStorage.removeItem(cleBrouillon); } catch { /* sans effet */ } };
+
+  const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) { setData({}); setMeta({ respondent_name: "", respondent_email: "" }); setBrouillonRestaure(false); effacerBrouillon(); } };
 
   const submit = async () => {
     // Validate required fields (all pages)
@@ -55,6 +88,7 @@ export default function PublicForm() {
     setSending(true);
     try {
       await axios.post(`${source}/submission`, { data, geo, ...meta });
+      effacerBrouillon();   // la réponse est enregistrée sur le serveur : le brouillon n'a plus lieu d'être
       setDone(true);
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur d'envoi"); }
     finally { setSending(false); }
@@ -112,6 +146,12 @@ export default function PublicForm() {
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-5">
         {form.description && <p className="text-sm text-slate-300 whitespace-pre-line">{form.description}</p>}
+        {brouillonRestaure && (
+          <div className="rounded-xl bg-sky-500/10 ring-1 ring-sky-400/40 px-4 py-2 text-xs text-sky-100 flex items-center gap-3 flex-wrap" data-testid="public-form-brouillon">
+            <span className="flex-1 min-w-0">Votre saisie précédente a été retrouvée sur cet appareil. Vos réponses sont gardées automatiquement tant que vous n'avez pas cliqué sur « Envoyer ».</span>
+            <button type="button" onClick={() => setBrouillonRestaure(false)} className="underline">Compris</button>
+          </div>
+        )}
 
         {/* Respondent info */}
         <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-5 grid sm:grid-cols-2 gap-3">

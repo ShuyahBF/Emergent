@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "371.4"
-LOT_LIBELLE = "Exemples locaux dans les champs nom et e-mail des formulaires où la personne s'identifie : « BADINI Awa » et une adresse Gmail, au lieu de « Jean Dupont » (règle permanente)."
+LOT = "372"
+LOT_LIBELLE = "Brouillon automatique des formulaires publics : ce que le visiteur saisit (réponses, nom, e-mail, page, documents déjà envoyés) est gardé sur son appareil et retrouvé s'il rouvre le lien ; effacé après l'envoi."

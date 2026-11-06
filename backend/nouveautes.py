@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "371", "date": "2026-11-06",
+        "titre": "📋 Formulaire « Spécifications de votre automate » (lien public)",
+        "description": "Un seul lien à envoyer aux propriétaires et fournisseurs d'automates, aux couleurs de la clinique (logo et nom) : marque, modèle, connexion USB / série / réseau, protocole, tests et documents PDF. Réponses et export CSV ici.",
+        "rubrique": "📋 Spécifications des automates (formulaire public)",
+    },
+    {
         "lot": "370", "date": "2026-11-04",
         "titre": "🖐️ Connexion par l'agent biométrique Loois (postes partagés)",
         "description": "Sur un poste partagé (accueil, laboratoire), chacun se connecte avec SON doigt : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée, sans jamais envoyer l'empreinte. À régler ici : agents, comptes liés, activation.",

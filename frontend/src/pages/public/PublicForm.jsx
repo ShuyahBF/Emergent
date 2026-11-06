@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Send, RotateCcw, CheckCircle2, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, Send, RotateCcw, CheckCircle2, MapPin, Paperclip, Loader2, X } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 // Lot 36 — tableaux et signature : même rendu que le formulaire du portail
 import { FieldInput } from "@/pages/portal/FormRunner";
@@ -25,18 +25,25 @@ export default function PublicForm() {
   const [geo, setGeo] = useState(null);
   const [meta, setMeta] = useState({ respondent_name: "", respondent_email: "" });
   const [error, setError] = useState(null);
+  // Lot 371 — identité de la clinique qui demande les informations (logo + nom + message) ; vide pour un formulaire ordinaire
+  const [identite, setIdentite] = useState(null);
 
   useEffect(() => {
     axios.get(source)
       .then((r) => setForm(r.data))
       .catch((e) => setError(e?.response?.data?.detail || (jeton ? "Lien invalide ou expiré" : "Formulaire introuvable ou non public")));
+    if (fid && !jeton) {
+      axios.get(`${API}/public/forms/${fid}/identite`)
+        .then((r) => { if (r.data?.organisation || r.data?.logo_url) setIdentite(r.data); })
+        .catch(() => {});
+    }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (p) => setGeo({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
         () => {}, { timeout: 4000 }
       );
     }
-  }, [source, jeton]);
+  }, [source, jeton, fid]);
 
   const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) setData({}); };
 
@@ -83,10 +90,19 @@ export default function PublicForm() {
   return (
     <div className="min-h-screen bg-[#0E1F3D] text-white" data-testid="public-form-page">
       <header className="border-b border-white/10 bg-black/20">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-          <img src={LOGO_URL} alt="SAWALI" className="h-9 w-9 rounded-md ring-1 ring-white/20" />
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3" data-testid="public-form-header">
+          {/* Lot 371 : logo de la clinique (sur fond blanc pour rester lisible) ; à défaut, logo SAWALI */}
+          {identite?.logo_url ? (
+            <span className="h-12 w-12 shrink-0 rounded-lg bg-white p-1 flex items-center justify-center">
+              <img src={identite.logo_url} alt={identite.organisation || "Logo"} className="max-h-full max-w-full object-contain" data-testid="public-form-logo" />
+            </span>
+          ) : (
+            <img src={LOGO_URL} alt="SAWALI" className="h-9 w-9 rounded-md ring-1 ring-white/20" />
+          )}
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-sawali-blue-light">{jeton ? "Formulaire" : "Formulaire public"}</p>
+            {identite?.organisation
+              ? <p className="text-xs font-semibold text-sawali-blue-light truncate" data-testid="public-form-organisation">{identite.organisation}</p>
+              : <p className="text-[10px] uppercase tracking-[0.3em] text-sawali-blue-light">{jeton ? "Formulaire" : "Formulaire public"}</p>}
             <h1 className="text-base font-display font-bold truncate">{form.title}</h1>
           </div>
           <code className="text-[10px] font-mono bg-white/10 px-2 py-0.5 rounded">{form.number}</code>
@@ -94,7 +110,7 @@ export default function PublicForm() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-5">
-        {form.description && <p className="text-sm text-slate-300">{form.description}</p>}
+        {form.description && <p className="text-sm text-slate-300 whitespace-pre-line">{form.description}</p>}
 
         {/* Respondent info */}
         <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-5 grid sm:grid-cols-2 gap-3">
@@ -125,7 +141,7 @@ export default function PublicForm() {
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">
                 {f.label}{f.required && <span className="text-rose-300 ml-1">*</span>}
               </label>
-              <Input f={f} v={data[f.id]} onChange={(v) => setData((d) => ({ ...d, [f.id]: v }))} />
+              <Input f={f} v={data[f.id]} onChange={(v) => setData((d) => ({ ...d, [f.id]: v }))} formId={jeton ? null : fid} />
             </div>
           ))}
         </div>
@@ -141,13 +157,26 @@ export default function PublicForm() {
   );
 }
 
-const Input = ({ f, v, onChange }) => {
+const Input = ({ f, v, onChange, formId }) => {
   const cls = "w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-sawali-blue-light";
   switch (f.type) {
     case "textarea": return <textarea rows={4} value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
     case "boolean": return <select value={v === true ? "true" : v === false ? "false" : ""} onChange={(e) => onChange(e.target.value === "true" ? true : e.target.value === "false" ? false : null)} className={cls}><option value="" className="text-slate-900">—</option><option value="true" className="text-slate-900">Oui</option><option value="false" className="text-slate-900">Non</option></select>;
     case "select": return <select value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls}><option value="" className="text-slate-900">— Choisir —</option>{(f.options || []).map((o) => <option key={o} value={o} className="text-slate-900">{o}</option>)}</select>;
-    case "multiselect": return <select multiple value={v || []} onChange={(e) => onChange(Array.from(e.target.selectedOptions).map((o) => o.value))} className={cls + " min-h-[80px]"}>{(f.options || []).map((o) => <option key={o} value={o} className="text-slate-900">{o}</option>)}</select>;
+    // Lot 371 : cases à cocher (plus simples qu'une liste à choix multiples pour un visiteur extérieur)
+    case "multiselect": return (
+      <div className="grid gap-1.5">
+        {(f.options || []).map((o) => {
+          const choisi = (v || []).includes(o);
+          return (
+            <label key={o} className="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={choisi} className="mt-0.5" onChange={() => onChange(choisi ? (v || []).filter((x) => x !== o) : [...(v || []), o])} />
+              <span>{o}</span>
+            </label>
+          );
+        })}
+      </div>
+    );
     case "date": return <input type="date" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
     case "datetime": return <input type="datetime-local" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
     case "number": return <input type="number" value={v ?? ""} onChange={(e) => onChange(e.target.value === "" ? null : parseFloat(e.target.value))} className={cls} />;
@@ -159,7 +188,48 @@ const Input = ({ f, v, onChange }) => {
     case "signature":
       return <div className="rounded-lg bg-white p-1 text-slate-900"><FieldInput field={f} value={v} onChange={onChange} /></div>;
     case "file":
-      return <p className="rounded-lg border border-dashed border-white/30 px-3 py-2 text-xs text-slate-300">Pièce jointe : à transmettre directement à l'organisateur (envoi de fichier non disponible sur ce lien).</p>;
+      // Lot 371 : dépôt de document sur un lien public (formulaire sans lien crypté) ; sinon l'ancien message
+      return formId
+        ? <DepotFichier f={f} v={v} onChange={onChange} formId={formId} />
+        : <p className="rounded-lg border border-dashed border-white/30 px-3 py-2 text-xs text-slate-300">Pièce jointe : à transmettre directement à l'organisateur (envoi de fichier non disponible sur ce lien).</p>;
     default: return <input type="text" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
   }
+};
+
+// Lot 371 — dépôt d'un document (PDF, Word, Excel, image…, 15 Mo au plus) sur un formulaire public.
+// Le fichier part tout de suite vers le serveur ; la réponse mémorise son adresse, qui sera transmise avec le formulaire.
+const DepotFichier = ({ f, v, onChange, formId }) => {
+  const [envoi, setEnvoi] = useState(false);
+  const choisir = async (e) => {
+    const fichier = e.target.files?.[0];
+    e.target.value = "";
+    if (!fichier) return;
+    if (fichier.size > 15 * 1024 * 1024) { toast.error("Fichier trop volumineux (15 Mo au plus). Utilisez le champ « Lien de téléchargement »."); return; }
+    setEnvoi(true);
+    const corps = new FormData();
+    corps.append("file", fichier);
+    try {
+      const r = await axios.post(`${API}/public/forms/${formId}/upload`, corps);
+      onChange({ file_id: r.data.file_id, filename: r.data.filename, size: r.data.size, public_url: r.data.public_url });
+      toast.success("Document reçu");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Envoi impossible");
+    } finally { setEnvoi(false); }
+  };
+  if (v?.public_url) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-400/50 px-3 py-2 text-sm" data-testid={`depot-${f.id}`}>
+        <Paperclip className="h-4 w-4 text-emerald-300 shrink-0" />
+        <span className="flex-1 min-w-0 truncate">{v.filename}</span>
+        <button type="button" onClick={() => onChange(null)} className="text-slate-300 hover:text-white" aria-label="Retirer le document"><X className="h-4 w-4" /></button>
+      </div>
+    );
+  }
+  return (
+    <label className="flex items-center gap-2 rounded-lg border border-dashed border-white/30 px-3 py-2 text-sm text-slate-200 cursor-pointer hover:bg-white/5">
+      {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+      <span>{envoi ? "Patientez… envoi en cours" : "Choisir un document"}</span>
+      <input type="file" accept={f.accept || undefined} className="sr-only" onChange={choisir} disabled={envoi} data-testid={`depot-input-${f.id}`} />
+    </label>
+  );
 };

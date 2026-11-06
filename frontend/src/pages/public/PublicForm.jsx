@@ -177,14 +177,20 @@ export default function PublicForm() {
         {/* 12-col grid */}
         <div className="grid grid-cols-12 gap-3 rounded-xl bg-white/5 ring-1 ring-white/10 p-5" data-testid="pub-form-grid">
           {page.fields.length === 0 && <p className="col-span-12 text-sm text-slate-400 italic">Aucun champ sur cette page.</p>}
-          {page.fields.map((f) => (
+          {page.fields.map((f) => (f.type === "info" ? (
+            // Lot 372.5 : bloc d'information (titre numéroté + consigne), sans saisie
+            <div key={f.id} className="col-span-12 min-w-0 border-t border-white/15 pt-3 mt-1" data-testid={`pub-form-info-${f.id}`}>
+              <h3 className="text-sm font-display font-bold text-sawali-blue-light">{f.label}</h3>
+              {f.placeholder && <p className="text-xs text-slate-300 mt-1 whitespace-pre-line">{f.placeholder}</p>}
+            </div>
+          ) : (
             <div key={f.id} className="min-w-0" style={{ gridColumnStart: f.col_start || 1, gridColumn: `span ${Math.min(12, f.col_span || 12)} / span ${Math.min(12, f.col_span || 12)}` }}>
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-300 mb-1">
                 {f.label}{f.required && <span className="text-rose-300 ml-1">*</span>}
               </label>
               <Input f={f} v={data[f.id]} onChange={(v) => setData((d) => ({ ...d, [f.id]: v }))} formId={jeton ? null : fid} />
             </div>
-          ))}
+          )))}
         </div>
 
         {geo && <p className="text-[11px] text-emerald-300 inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> Position enregistrée ({geo.lat.toFixed(4)}, {geo.lng.toFixed(4)})</p>}

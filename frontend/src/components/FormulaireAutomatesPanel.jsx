@@ -20,6 +20,7 @@ export default function FormulaireAutomatesPanel() {
   const [organisation, setOrganisation] = useState("");
   const [logo, setLogo] = useState("");
   const [message, setMessage] = useState("");
+  const [modele, setModele] = useState("automate");   // lot 372.5 : « automate » (fournisseurs) ou « laboratoire » (checklist du laboratoire)
   const [enCours, setEnCours] = useState(false);
   const [reponses, setReponses] = useState(null);         // { titre, champs, reponses } du formulaire consulté
   const [ouvertId, setOuvertId] = useState(null);
@@ -66,7 +67,7 @@ export default function FormulaireAutomatesPanel() {
       const corps = { organisation, logo_url: logo, message };
       const r = selection
         ? await apiClient.put(`/admin/formulaire-automates/${selection.id}`, corps)
-        : await apiClient.post("/admin/formulaire-automates", corps);
+        : await apiClient.post("/admin/formulaire-automates", { ...corps, modele });
       toast.success(selection ? "Clinique mise à jour." : "Formulaire créé : copiez son lien ci-dessous.");
       editer(selection ? r.data : null);
       await charger();
@@ -114,13 +115,20 @@ export default function FormulaireAutomatesPanel() {
   return (
     <div className="space-y-5" data-testid="formulaire-automates-section">
       <p className="text-sm text-slate-600 dark:text-slate-300">
-        Envoyez un seul lien aux propriétaires et fournisseurs d'automates : ils indiquent la marque, le modèle, la connexion (USB, série ou réseau),
-        le protocole, les tests et joignent les documents du constructeur. Le formulaire porte le logo et le nom de la clinique qui demande ces informations.
+        Deux modèles de formulaire public : « Spécifications d'un automate » (un lien pour les propriétaires et fournisseurs d'automates : marque, modèle, connexion, protocole, tests, documents) et « Checklist laboratoire » (numérotée, à remplir par le responsable et les techniciens). Chaque formulaire porte le logo et le nom de la clinique.
       </p>
 
       {/* Saisie : nouvelle clinique ou modification */}
       <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4 grid gap-3 max-w-xl">
         <h4 className="font-semibold text-sm flex items-center gap-2"><ClipboardList className="h-4 w-4" /> {selection ? `Modifier : ${selection.branding?.organisation}` : "Nouveau formulaire pour une clinique"}</h4>
+        {!selection && (
+          <label className="grid gap-1 text-xs font-semibold">Modèle de formulaire
+            <select value={modele} onChange={(e) => setModele(e.target.value)} className={cls} data-testid="fa-modele">
+              <option value="automate">Spécifications d'un automate (à envoyer aux propriétaires et fournisseurs)</option>
+              <option value="laboratoire">Checklist laboratoire (à remplir par le responsable et les techniciens)</option>
+            </select>
+          </label>
+        )}
         <label className="grid gap-1 text-xs font-semibold">Nom de la clinique
           <input value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={120} className={cls} placeholder="ex. Clinique Philadelphie" data-testid="fa-organisation" />
         </label>
@@ -152,13 +160,13 @@ export default function FormulaireAutomatesPanel() {
         <table className="w-full text-sm tableau">
           <thead>
             <tr className="text-left">
-              <th className="py-2 pr-3">Clinique</th><th className="py-2 pr-3">Lien à envoyer</th>
+              <th className="py-2 pr-3">Clinique</th><th className="py-2 pr-3">Modèle</th><th className="py-2 pr-3">Lien à envoyer</th>
               <th className="py-2 pr-3 text-right">Réponses</th><th className="py-2 pr-3">Lien</th><th className="py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {formulaires === null && <tr><td colSpan={5} className="py-3 text-slate-500">Patientez…</td></tr>}
-            {formulaires?.length === 0 && <tr><td colSpan={5} className="py-3 text-slate-500">Aucun formulaire : créez-en un ci-dessus.</td></tr>}
+            {formulaires === null && <tr><td colSpan={6} className="py-3 text-slate-500">Patientez…</td></tr>}
+            {formulaires?.length === 0 && <tr><td colSpan={6} className="py-3 text-slate-500">Aucun formulaire : créez-en un ci-dessus.</td></tr>}
             {(formulaires || []).map((f) => (
               <tr key={f.id} aria-selected={ouvertId === f.id} className="border-t border-slate-200 dark:border-white/10">
                 <td className="py-2 pr-3">
@@ -167,6 +175,7 @@ export default function FormulaireAutomatesPanel() {
                     <button onClick={() => editer(f)} className="underline text-left">{f.branding?.organisation || f.title}</button>
                   </span>
                 </td>
+                <td className="py-2 pr-3 text-xs">{f.modele === "laboratoire" ? "Checklist laboratoire" : "Spécifications d'automate"}</td>
                 <td className="py-2 pr-3 max-w-[18rem]"><code className="text-xs break-all select-all">{f.lien}</code></td>
                 <td className="py-2 pr-3 text-right tabular-nums">{f.reponses}</td>
                 <td className="py-2 pr-3">{f.is_public ? "Actif" : "Désactivé"}</td>
@@ -193,7 +202,7 @@ export default function FormulaireAutomatesPanel() {
           {reponses.reponses.map((l) => (
             <details key={l.id} className="rounded-xl border border-slate-200 dark:border-white/10 p-3">
               <summary className="cursor-pointer text-sm font-medium">
-                {l.valeurs.f_fournisseur || l.repondant || "Réponse"} — {l.valeurs.f_constructeur} {l.valeurs.f_modele} <span className="text-xs text-slate-500">({dateHeure(l.date)})</span>
+                {l.valeurs.f_fournisseur || l.valeurs.q_7_1_1a || l.repondant || "Réponse"} {l.valeurs.f_constructeur} {l.valeurs.f_modele} <span className="text-xs text-slate-500">({dateHeure(l.date)})</span>
               </summary>
               <dl className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-[minmax(0,16rem)_1fr] text-sm">
                 {reponses.champs.filter((c) => l.valeurs[c.id]).map((c) => (

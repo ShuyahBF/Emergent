@@ -495,7 +495,7 @@ export default function App() {
             <Route path="health" element={<AdminHealthDashboard />} />
             <Route path="db-explorer" element={<AdminDbExplorer />} />
             <Route path="formations" element={<AdminFormations />} />
-            <Route path="forms" element={<FormsList />} />
+            <Route path="forms" element={<FormsList automates />} />
             <Route path="forms/analytics" element={<FormsAnalytics />} />
             <Route path="forms/:fid/edit" element={<FormEditor />} />
             <Route path="forms/:fid/fill" element={<FormRunner />} />

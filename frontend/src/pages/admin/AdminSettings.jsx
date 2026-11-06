@@ -9,7 +9,6 @@ import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
 import AgentBioAdminSection from "@/pages/admin/sections/AgentBioAdminSection";   // Lot 370
-import FormulaireAutomatesSection from "@/pages/admin/sections/FormulaireAutomatesSection";   // Lot 371
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
@@ -129,7 +128,6 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "📋 Spécifications des automates (formulaire public)": "371",   // lot 371 : formulaire public « Spécifications de votre automate »
   "🖐️ Agent biométrique Loois (postes partagés)": "370",   // lot 370 : agent biométrique Loois pour les postes partagés
   "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
   "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
@@ -200,7 +198,6 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
-  "📋 Spécifications des automates (formulaire public)": "2026-11-06",   // lot 371
   "🖐️ Agent biométrique Loois (postes partagés)": "2026-11-04",   // lot 370
   "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
   "📲 Application Android d'administration": "2026-10-18",   // lot 243
@@ -315,7 +312,6 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
-  "📋 Spécifications des automates (formulaire public)": "Un lien public à envoyer aux propriétaires d'automates, aux couleurs de la clinique (logo et nom) : marque, modèle, connexion USB / série / réseau, protocole, tests et documents PDF ; réponses et export CSV (lot 371).",
   "🖐️ Agent biométrique Loois (postes partagés)": "Connexion d'un doigt sur un poste partagé : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés, activation (lot 370).",
   "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
   "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",
@@ -1537,11 +1533,6 @@ export default function AdminSettings() {
       {/* Lot 369 — connexion par empreinte digitale (passkeys / WebAuthn) : activation, domaine, comptes, révocation */}
       <Filterable title="🔐 Connexion par empreinte digitale (passkeys)" anchorId="s-passkeys" category="auth">
         <PasskeysAdminSection />
-      </Filterable>
-
-      {/* Lot 371 — formulaire public « Spécifications de votre automate » : logo et nom de la clinique, lien, réponses */}
-      <Filterable title="📋 Spécifications des automates (formulaire public)" anchorId="s-formulaire-automates" category="integrations">
-        <FormulaireAutomatesSection />
       </Filterable>
 
       {/* Lot 370 — agent biométrique Loois (postes partagés) : agents, comptes liés, activation */}

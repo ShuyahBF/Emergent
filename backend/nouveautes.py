@@ -10,29 +10,36 @@
 #   titre        : titre court de la carte
 #   description  : une ligne : ce que le lot apporte
 #   rubrique     : titre EXACT de la rubrique de la page Paramètres où se règle la nouveauté (ouverte au clic)
-#   lien         : seulement "/admin/settings" (nouveauté qui concerne la page Paramètres elle-même)
+#   lien         : "/admin/settings" (nouveauté de la page Paramètres elle-même) ou, exception décidée par le propriétaire le 06/11/2026
+#                  (formulaire des automates), "/admin/forms?automates=1" : la nouveauté vit dans la page Formulaires, pas dans les Paramètres
 # Règle (07/10/2026) : une carte ne mène JAMAIS hors des Paramètres. Si la nouveauté n'a pas encore de rubrique,
 # on la crée dans AdminSettings.jsx (réglages, état, bouton vers l'écran d'utilisation). Contrôlé par le test.
 # Les plus récentes en premier.
 
 NOUVEAUTES = [
     {
+        "lot": "371.3", "date": "2026-11-06",
+        "titre": "📋 Spécifications d'automate : déplacé dans la page Formulaires",
+        "description": "Création (logo et nom de la clinique), lien à envoyer, réponses avec documents et export CSV : tout se fait maintenant depuis la page Formulaires (bouton « Spécifications d'automate »). La rubrique des Paramètres est supprimée.",
+        "lien": "/admin/forms?automates=1",
+    },
+    {
         "lot": "371.2", "date": "2026-11-06",
-        "titre": "📋 Formulaire des automates : rattaché au compte client (visible dans « Formulaires »)",
+        "titre": "📋 Formulaire des automates : rattaché au compte client",
         "description": "Le formulaire est maintenant rattaché au compte client de celui qui le crée, comme tout formulaire : il apparaît dans la page Formulaires et son lien public suit la fonction « Formulaires et Sondages ».",
-        "rubrique": "📋 Spécifications des automates (formulaire public)",
+        "lien": "/admin/forms?automates=1",
     },
     {
         "lot": "371.1", "date": "2026-11-06",
         "titre": "📋 Formulaire des automates : accessible aussi au compte support@",
-        "description": "La rubrique « Spécifications des automates » est maintenant utilisable par les comptes d'administration reconnus par leur rôle de suivi (support@), pas seulement par le rôle administrateur.",
-        "rubrique": "📋 Spécifications des automates (formulaire public)",
+        "description": "Le formulaire « Spécifications des automates » est maintenant utilisable par les comptes d'administration reconnus par leur rôle de suivi (support@), pas seulement par le rôle administrateur.",
+        "lien": "/admin/forms?automates=1",
     },
     {
         "lot": "371", "date": "2026-11-06",
         "titre": "📋 Formulaire « Spécifications de votre automate » (lien public)",
         "description": "Un seul lien à envoyer aux propriétaires et fournisseurs d'automates, aux couleurs de la clinique (logo et nom) : marque, modèle, connexion USB / série / réseau, protocole, tests et documents PDF. Réponses et export CSV ici.",
-        "rubrique": "📋 Spécifications des automates (formulaire public)",
+        "lien": "/admin/forms?automates=1",
     },
     {
         "lot": "370", "date": "2026-11-04",
@@ -811,7 +818,7 @@ NOUVEAUTES = [
     {
         "lot": "243", "date": "2026-10-18",
         "titre": "📲 Administration en application Android",
-        "description": "L'espace d'administration s'installe comme une application « SAWALI Admin » et peut devenir un APK avec PWABuilder ; bouton d'installation et état dans les Paramètres.",
+        "description": "L'espace d'administration s'installe comme une application « SAWALI Admin » et peut devenir un APK avec PWABuilder ; bouton d'installation et état dans la page Formulaires.",
         "rubrique": "📲 Application Android d'administration",
     },
     {

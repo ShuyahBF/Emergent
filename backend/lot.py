@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "371.2"
-LOT_LIBELLE = "Formulaire public « Spécifications de votre automate » aux couleurs de la clinique (logo et nom) : marque, modèle, connexion USB / série / réseau, protocole, tests et documents PDF ; lien à envoyer aux propriétaires d'automates, réponses et export CSV dans les Paramètres."
+LOT = "371.3"
+LOT_LIBELLE = "Formulaire public « Spécifications de votre automate » (logo et nom de la clinique, connexion USB / série / réseau, protocole, tests, documents PDF) : désormais créé et lu depuis la page Formulaires (bouton « Spécifications d'automate »), rubrique des Paramètres supprimée."

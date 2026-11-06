@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372.6", "date": "2026-11-06",
+        "titre": "🔵🟤 Checklist laboratoire : pastilles de profil",
+        "description": "Chaque question porte une pastille : bleue pour le technicien, marron pour le responsable. Pour un formulaire déjà créé : page Formulaires › Automates : formulaires publics › « Mettre à jour les questions ».",
+        "lien": "/admin/forms?automates=1",
+    },
+    {
         "lot": "372.5", "date": "2026-11-06",
         "titre": "📝 Checklist laboratoire : formulaire public numéroté",
         "description": "Nouveau modèle dans « Automates : formulaires publics » (page Formulaires) : la checklist du laboratoire, aux questions numérotées (ex. 2.4.1b), avec dépôt des exports et des photos, à remplir sur téléphone ou ordinateur.",

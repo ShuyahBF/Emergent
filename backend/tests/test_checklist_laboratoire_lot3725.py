@@ -110,3 +110,36 @@ def test_les_reponses_et_le_csv_ignorent_les_blocs_d_information(client):
     assert j["reponses"][0]["valeurs"]["q_2_1_1a"] == "D-123"
     csv = client.get(f"/api/admin/formulaire-automates/{b['id']}/reponses?format=csv", headers=ADMIN).text
     assert "1.2.1 — Adresse IP du PC" in csv and "192.168.1.10" in csv and "D-123" in csv
+
+
+def test_chaque_question_de_la_checklist_porte_son_profil_dans_le_formulaire():
+    """Lot 372.6 : pastille bleue = technicien, marron = responsable ; le profil accompagne le champ du formulaire."""
+    champs = [f for p in cl.pages_formulaire() for f in p["fields"] if f["type"] != "info"]
+    profils = {f["qui"] for f in champs if f.get("qui")}
+    assert profils == {"Technicien", "Responsable"}
+    par_numero = {f["label"].split(" — ")[0]: f.get("qui") for f in champs}
+    assert par_numero["2.1.1a"] == "Technicien" and par_numero["2.1.1b"] == "Technicien"          # dossiers : techniciens
+    assert par_numero["1.2.1"] == "Responsable" and par_numero["5.1.1"] == "Responsable"
+    assert par_numero["7.1.1a"] is None                                                          # coordonnées : toute personne
+    assert "pastille" in cl.DESCRIPTION.lower() and "bleue" in cl.DESCRIPTION and "marron" in cl.DESCRIPTION
+
+
+def test_actualiser_un_formulaire_deja_cree_garde_les_reponses(client):
+    """Un formulaire créé avant l'ajout des pastilles reçoit le contenu courant du modèle ; les réponses restent."""
+    import asyncio
+    b = client.post("/api/admin/formulaire-automates", json={"organisation": "Clinique A", "modele": "laboratoire"}, headers=ADMIN).json()
+    boucle = asyncio.new_event_loop()
+    # on simule un ancien formulaire : sans profil dans les champs
+    boucle.run_until_complete(client.db.forms.update_one({"id": b["id"]}, {"$set": {"pages": [{"id": "pg_lab_1", "title": "1. Ancien", "fields": [
+        {"id": "q_1_1_1", "type": "select", "label": "1.1.1 — Mise à jour de Loois", "options": ["Fait"], "required": False}]}]}}))
+    boucle.run_until_complete(client.db.form_submissions.insert_one({"id": "s9", "form_id": b["id"], "created_at": "2026-11-06T12:00:00", "data": {"q_1_1_1": "Fait"}}))
+    r = client.post(f"/api/admin/formulaire-automates/{b['id']}/actualiser", headers=ADMIN)
+    assert r.status_code == 200, r.text
+    form = boucle.run_until_complete(client.db.forms.find_one({"id": b["id"]}))
+    champs = [f for p in form["pages"] for f in p["fields"] if f["type"] != "info"]
+    assert len(form["pages"]) == 7 and any(f.get("qui") == "Technicien" for f in champs) and any(f.get("qui") == "Responsable" for f in champs)
+    assert "q_1_1_1" in {f["id"] for f in champs}                                                  # l'identifiant est stable
+    sub = boucle.run_until_complete(client.db.form_submissions.find_one({"id": "s9"}))
+    assert sub["data"]["q_1_1_1"] == "Fait"                                                        # réponse conservée
+    assert client.post("/api/admin/formulaire-automates/inconnu/actualiser", headers=ADMIN).status_code == 404
+    assert client.post(f"/api/admin/formulaire-automates/{b['id']}/actualiser", headers={"X-Role": "client"}).status_code == 403

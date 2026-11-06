@@ -46,3 +46,18 @@ def test_compte_inconnu_refuse_et_delier_possible(env):
     fiche = t.creer(c)["fiche"]
     assert c.put(f"/api/admin/loois-cles-clients/{fiche['id']}", json={"tenant_id": "absent"}).status_code == 422
     assert c.put(f"/api/admin/loois-cles-clients/{fiche['id']}", json={"tenant_id": ""}).status_code == 200
+
+
+def test_les_comptes_sans_contrat_sont_proposes_apres_ceux_qui_ont_un_contrat(env):
+    """Lot 372.4 : un compte client sans contrat peut être lié à une clé ; il est rangé après les comptes sous contrat."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot3724"]
+    _compte(db, id="c1", company="Zéta sans contrat", email="z@x.bf")
+    _compte(db, id="c2", company="Alpha sous contrat", email="a@x.bf", contract_number="C-1")
+    _compte(db, id="c3", full_name="Suivi", email="s@x.bf", parent_client_id="c1")           # utilisateur suivi : jamais proposé
+    t.lancer(db.users.insert_one({"id": "a1", "role": "admin", "email": "adm@x.bf", "company": "Administrateur"}))   # pas un compte client
+    c = t.application(db)
+    fiche = t.creer(c)["fiche"]
+    r = c.get("/api/admin/loois-cles-clients").json()
+    assert [(x["id"], x["avec_contrat"]) for x in r["comptes_clients"]] == [("c2", True), ("c1", False)]
+    # lier la clé au compte sans contrat est accepté ; le contrat reste « à anonymiser » tant qu'il n'est pas actif
+    assert c.put(f"/api/admin/loois-cles-clients/{fiche['id']}", json={"tenant_id": "c1"}).status_code == 200

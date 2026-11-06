@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/api";
 import ImageAnnotator from "@/components/ImageAnnotator";
 // Lot 87.1 — joindre le lien de mes disponibilités (agenda) à la légende de l'image
 import CalendrierModal from "@/components/CalendrierModal";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 // Libellés des styles et des formats proposés (mêmes clés que le serveur)
 const STYLES = { illustration: "Illustration", photo: "Photo réaliste", schema: "Schéma / pictogrammes", libre: "Libre (sans consigne)" };
@@ -354,7 +355,7 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
               </div>
             )}
             {canal === "email" && (
-              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="adresse@exemple.com"
+              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={`Ex. ${EXEMPLE_EMAIL}`}
                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm" data-testid="image-ia-email" />
             )}
             <input value={legendeT} onChange={(e) => setLegendeT(e.target.value)} maxLength={500} placeholder="Message joint (facultatif)"

@@ -78,6 +78,7 @@ import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import PlagesEnvoiSection from "@/pages/admin/sections/PlagesEnvoiSection";   // lot 42
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import TemplatesOtpSection from "@/pages/admin/sections/TemplatesOtpSection";
 import IncidentsAndCountrySection from "@/pages/admin/sections/IncidentsAndCountrySection";
@@ -4629,7 +4630,7 @@ const ClientDataDiagnosticSection = () => {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && inspect()}
-          placeholder="user@exemple.com"
+          placeholder={`Ex. ${EXEMPLE_EMAIL}`}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           data-testid="cdd-email-input"
         />

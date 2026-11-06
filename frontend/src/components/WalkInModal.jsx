@@ -13,6 +13,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { X, Loader2, Save, Trash2, UserPlus } from "lucide-react";
+import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 export default function WalkInModal({ open, onClose, onSaved, onDeleted, defaultDate, doctors, existing }) {
   const [saving, setSaving] = useState(false);
@@ -129,7 +130,7 @@ export default function WalkInModal({ open, onClose, onSaved, onDeleted, default
               value={form.patient}
               onChange={(e) => setForm((f) => ({ ...f, patient: e.target.value }))}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-              placeholder="Ex. Jean Dupont"
+              placeholder={`Ex. ${EXEMPLE_NOM}`}
               data-testid="walk-in-patient-input"
               autoFocus
             />

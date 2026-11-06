@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "371.2", "date": "2026-11-06",
+        "titre": "📋 Formulaire des automates : rattaché au compte client (visible dans « Formulaires »)",
+        "description": "Le formulaire est maintenant rattaché au compte client de celui qui le crée, comme tout formulaire : il apparaît dans la page Formulaires et son lien public suit la fonction « Formulaires et Sondages ».",
+        "rubrique": "📋 Spécifications des automates (formulaire public)",
+    },
+    {
         "lot": "371.1", "date": "2026-11-06",
         "titre": "📋 Formulaire des automates : accessible aussi au compte support@",
         "description": "La rubrique « Spécifications des automates » est maintenant utilisable par les comptes d'administration reconnus par leur rôle de suivi (support@), pas seulement par le rôle administrateur.",

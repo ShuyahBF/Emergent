@@ -358,7 +358,10 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
     @api.get("/admin/formulaire-automates", tags=["Formulaire automates"])
     async def lister(request: Request, user: dict = Depends(get_current_user)):
         exiger_admin(user)
-        formes = await db.forms.find({"modele": MODELE}, {"_id": 0, "pages": 0}).sort("created_at", -1).to_list(200)
+        filtre: Dict[str, Any] = {"modele": MODELE}
+        if user.get("role") != "admin":
+            filtre["client_id"] = user.get("client_id") or user["id"]
+        formes = await db.forms.find(filtre, {"_id": 0, "pages": 0}).sort("created_at", -1).to_list(200)
         return {"formulaires": [vue(f, request) for f in formes]}
 
     @api.post("/admin/formulaire-automates/logo", tags=["Formulaire automates"])
@@ -383,7 +386,8 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
         compteur = await db.counters.find_one_and_update({"_id": f"form_{brut}"}, {"$inc": {"value": 1}}, upsert=True, return_document=True)
         numero = (compteur or {}).get("value", 1)
         doc = {
-            "id": nouvel_id(), "client_id": user["id"], "client_code": brut, "number": f"FORM-{brut}-{numero:04d}", "title": titre,
+            "id": nouvel_id(), "client_id": user.get("client_id") or user["id"], "client_code": brut,   # même rattachement que les formulaires ordinaires (page Formulaires, fonction « Formulaires et Sondages »)
+             "number": f"FORM-{brut}-{numero:04d}", "title": titre,
             "description": description_formulaire(identite["organisation"], identite["message"]), "is_public": True, "category_id": None, "access_client_ids": [],
             "pages": pages_modele(), "modele": MODELE, "branding": identite,
             "created_by_id": user["id"], "created_by_label": user.get("full_name") or user.get("email"), "created_at": maintenant(), "updated_at": maintenant(), "uses_count": 0,

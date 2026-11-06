@@ -76,7 +76,7 @@ def client(tmp_path):
     async def utilisateur(x_role: str = Header(default=""), x_tracked: str = Header(default="")):
         if not x_role:
             raise HTTPException(status_code=401, detail="Non connecté")
-        return {"id": "u1", "role": x_role, "email": "a@b.test", "full_name": "Admin", "client_code": "SAW", "tracked_role": x_tracked}
+        return {"id": "u1", "role": x_role, "email": "a@b.test", "full_name": "Admin", "client_code": "SAW", "tracked_role": x_tracked, "client_id": "compte-client"}
 
     async def toujours_active(compte, cle):
         return True
@@ -165,3 +165,13 @@ def test_reponses_json_et_csv(client):
     assert j["reponses"][0]["valeurs"]["f_modele"] == "SPIN 200E"
     c = client.get(f"/api/admin/formulaire-automates/{f['id']}/reponses?format=csv", headers=ADMIN)
     assert c.status_code == 200 and "SPIN 200E" in c.text and c.headers["content-type"].startswith("text/csv")
+
+
+def test_rattache_au_compte_client(client):
+    """Le formulaire porte le client_id du compte client (comme les formulaires ordinaires), pas l'identifiant personnel."""
+    import asyncio
+    f = creer(client)
+    doc = asyncio.new_event_loop().run_until_complete(client.db.forms.find_one({"id": f["id"]}))
+    assert doc["client_id"] == "compte-client" and doc["created_by_id"] == "u1"
+    # le superviseur du même compte le retrouve, un autre compte non
+    assert len(client.get("/api/admin/formulaire-automates", headers={"X-Role": "superviseur"}).json()["formulaires"]) == 1

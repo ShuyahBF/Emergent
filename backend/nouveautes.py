@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "372", "date": "2026-11-06",
+        "titre": "💾 Formulaires publics : brouillon automatique",
+        "description": "Ce que le visiteur saisit est gardé sur son appareil et retrouvé s'il ferme l'onglet ou perd sa connexion avant d'envoyer ; effacé dès l'envoi réussi.",
+        "lien": "/admin/forms",
+    },
+    {
         "lot": "371.4", "date": "2026-11-06",
         "titre": "✍️ Formulaires : exemples locaux pour le nom et l'e-mail",
         "description": "Dans les champs d'identification des formulaires (formulaires publics, requêtes, paiement, rapports), l'exemple affiché est « BADINI Awa » et une adresse Gmail, plus « Jean Dupont ».",

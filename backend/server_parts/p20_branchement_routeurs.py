@@ -1585,3 +1585,19 @@ async def admin_clear_suggestion_override(
     except Exception:  # noqa: BLE001
         pass
     return {"ok": True, "deleted": res.deleted_count or 0}
+
+
+# Lot 371 — Formulaire public « Spécifications de votre automate » (logo + nom de la clinique, dépôt de documents, réponses en CSV)
+from routes.formulaire_automates import attach_formulaire_automates_routes as _attach_formulaire_automates  # noqa: E402
+_attach_formulaire_automates(
+    api, db=db,
+    helpers={
+        "get_current_user": get_current_user,
+        "_uuid": _uuid,
+        "_now": _now,
+        "public_base_url": _public_base_url,
+        "client_ip": _client_ip_from_request,
+        "upload_dir": UPLOAD_DIR,
+        "fonction_active_pour_compte": _fonction_active_pour_compte,
+    },
+)

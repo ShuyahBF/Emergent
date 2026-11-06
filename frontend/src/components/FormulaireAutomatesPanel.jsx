@@ -1,5 +1,5 @@
 // ============================================================================
-// Lot 371 — Formulaire « Spécifications de votre automate » : création, logo, liens et réponses depuis les Paramètres.
+// Lot 371.3 — Formulaire « Spécifications de votre automate » : création, logo, liens et réponses, dans la page Formulaires.
 //   - une clinique = un formulaire PUBLIC (le lien se partage à tous les propriétaires et fournisseurs d'automates) ;
 //   - le formulaire porte le LOGO et le NOM de la clinique qui demande les informations ;
 //   - les réponses (interface USB / série / TCP, protocole, tests, documents PDF…) se lisent ici, avec export CSV.
@@ -13,7 +13,7 @@ import { apiClient } from "@/lib/api";
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
 
-export default function FormulaireAutomatesSection() {
+export default function FormulaireAutomatesPanel() {
   const [formulaires, setFormulaires] = useState(null);   // null = chargement en cours
   const [selection, setSelection] = useState(null);       // formulaire en cours d'édition (null = nouveau)
   const [organisation, setOrganisation] = useState("");

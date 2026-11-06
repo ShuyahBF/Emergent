@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star, Send } from "lucide-react";
+import { ClipboardList, FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star, Send } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 import EnvoisFormulaireModal from "@/components/EnvoisFormulaireModal";   // lot 42
 import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 import ImportDocumentModal from "@/components/ImportDocumentModal";
+import FormulaireAutomatesPanel from "@/components/FormulaireAutomatesPanel";   // lot 371.3
 import { lireNouveautes, titrePuce } from "@/lib/nouveautesFormulaires";   // lot 41
 
 // Form catalogue : user's forms + public forms from other clients
-export default function FormsList() {
+export default function FormsList({ automates = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("mine");
@@ -32,6 +33,9 @@ export default function FormsList() {
   // Lot 41 — formulaires qui ont reçu des données non consultées : {id: nombre}
   const [nouveaux, setNouveaux] = useState({});
   const navigate = useNavigate();
+  // Lot 371.3 — « Spécifications de votre automate » (administration) : panneau ouvert par le bouton ou par le lien ?automates=1 (carte Nouveautés)
+  const [params] = useSearchParams();
+  const [automatesOuvert, setAutomatesOuvert] = useState(params.get("automates") === "1");
 
   const load = async () => {
     setLoading(true);
@@ -143,6 +147,15 @@ export default function FormsList() {
         >
           <FileUp className="h-4 w-4" /> Créer depuis un document
         </button>
+        {automates && (
+          <button
+            onClick={() => setAutomatesOuvert((o) => !o)}
+            className="inline-flex items-center gap-2 rounded-lg ring-1 ring-sawali-blue/40 text-sawali-blue px-4 py-2 text-sm hover:bg-sawali-blue/5"
+            data-testid="form-automates-btn"
+          >
+            <ClipboardList className="h-4 w-4" /> Spécifications d'automate
+          </button>
+        )}
         <button
           onClick={openCreate}
           disabled={creating}
@@ -153,6 +166,14 @@ export default function FormsList() {
         </button>
         </div>
       </div>
+
+      {/* Lot 371.3 — formulaire public « Spécifications de votre automate » (logo + nom de la clinique, lien, réponses, CSV) */}
+      {automates && automatesOuvert && (
+        <div className="rounded-xl ring-1 ring-sawali-blue/30 p-4" data-testid="forms-automates-panel">
+          <h2 className="font-display font-bold mb-3 flex items-center gap-2"><ClipboardList className="h-4 w-4 text-sawali-blue" /> Spécifications de votre automate</h2>
+          <FormulaireAutomatesPanel />
+        </div>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <Link

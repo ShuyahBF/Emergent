@@ -75,5 +75,6 @@ def test_chaque_carte_ouvre_une_rubrique_des_parametres():
         if n.get("rubrique"):
             assert n["rubrique"] in rubriques, f"rubrique introuvable dans les Paramètres : {n['rubrique']} ({n['titre']})"
         else:
-            assert n.get("lien") == "/admin/settings", (
+            # Exception du propriétaire (06/11/2026) : le formulaire des automates vit dans la page Formulaires
+            assert n.get("lien") in ("/admin/settings", "/admin/forms?automates=1"), (
                 f"la carte « {n['titre']} » ouvre {n.get('lien')} hors des Paramètres : créez sa rubrique")

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import AudioRequete from "@/components/AudioRequete";
 import { COULEUR_ETAT, Enregistreur, Evaluation, ImagesRequete, SelecteurImages, dateHeure, erreur } from "@/components/RequeteOutils";
+import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règle du 06/11/2026)
 
 export default function EspaceRequetes({ api, demanderNom = false }) {
   const [donnees, setDonnees] = useState(null);
@@ -59,7 +60,7 @@ export default function EspaceRequetes({ api, demanderNom = false }) {
         <div className="grid gap-2 sm:grid-cols-3">
           {demanderNom && (
             <label className="text-xs"><span className="font-semibold">Votre nom</span>
-              <input value={f.auteur_nom} onChange={(e) => setF({ ...f, auteur_nom: e.target.value })} className={champ} placeholder="Prénom Nom" /></label>
+              <input value={f.auteur_nom} onChange={(e) => setF({ ...f, auteur_nom: e.target.value })} className={champ} placeholder={`Ex. ${EXEMPLE_NOM}`} /></label>
           )}
           <label className="text-xs"><span className="font-semibold">Catégorie</span>
             <select value={f.categorie} onChange={(e) => setF({ ...f, categorie: e.target.value })} className={champ}>

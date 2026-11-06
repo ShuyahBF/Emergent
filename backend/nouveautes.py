@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "371.4", "date": "2026-11-06",
+        "titre": "✍️ Formulaires : exemples locaux pour le nom et l'e-mail",
+        "description": "Dans les champs d'identification des formulaires (formulaires publics, requêtes, paiement, rapports), l'exemple affiché est « BADINI Awa » et une adresse Gmail, plus « Jean Dupont ».",
+        "lien": "/admin/forms",
+    },
+    {
         "lot": "371.3", "date": "2026-11-06",
         "titre": "📋 Spécifications d'automate : déplacé dans la page Formulaires",
         "description": "Création (logo et nom de la clinique), lien à envoyer, réponses avec documents et export CSV : tout se fait maintenant depuis la page Formulaires (bouton « Spécifications d'automate »). La rubrique des Paramètres est supprimée.",

@@ -73,10 +73,10 @@ def client(tmp_path):
     app = FastAPI()
     api = APIRouter(prefix="/api")
 
-    async def utilisateur(x_role: str = Header(default="")):
+    async def utilisateur(x_role: str = Header(default=""), x_tracked: str = Header(default="")):
         if not x_role:
             raise HTTPException(status_code=401, detail="Non connecté")
-        return {"id": "u1", "role": x_role, "email": "a@b.test", "full_name": "Admin", "client_code": "SAW"}
+        return {"id": "u1", "role": x_role, "email": "a@b.test", "full_name": "Admin", "client_code": "SAW", "tracked_role": x_tracked}
 
     async def toujours_active(compte, cle):
         return True
@@ -107,6 +107,13 @@ def test_creation_reservee_admin_et_doublon(client):
     assert f["lien"].startswith("https://sawali.test/f/") and f["is_public"] and f["branding"]["organisation"] == "Clinique Philadelphie"
     assert client.post("/api/admin/formulaire-automates", json={"organisation": "clinique philadelphie"}, headers=ADMIN).status_code == 409
     assert len(client.get("/api/admin/formulaire-automates", headers=ADMIN).json()["formulaires"]) == 1
+
+
+def test_compte_suivi_administrateur_accepte(client):
+    """Le compte support@ (rôle client, suivi « Administrateur ») doit pouvoir gérer le formulaire."""
+    r = client.get("/api/admin/formulaire-automates", headers={"X-Role": "client", "X-Tracked": "Administrateur"})
+    assert r.status_code == 200
+    assert client.get("/api/admin/formulaire-automates", headers={"X-Role": "client", "X-Tracked": "Client"}).status_code == 403
 
 
 def test_identite_publique_et_prive(client):

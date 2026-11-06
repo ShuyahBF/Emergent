@@ -265,8 +265,12 @@ def attach_formulaire_automates_routes(api: APIRouter | FastAPI, *, db, helpers:
     depots: Dict[str, List[float]] = {}
 
     def exiger_admin(user: dict) -> None:
-        if user.get("role") not in ("admin", "superviseur"):
-            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        # Même règle que les autres écrans d'administration : rôle admin / superviseur / modérateur, OU rôle de suivi élevé
+        # (cas du compte support@, « Administrateur » par son rôle de suivi)
+        role_ok = user.get("role") in ("admin", "superviseur", "moderateur", "moderator")
+        suivi_ok = user.get("tracked_role") in ("Administrateur", "Superviseur", "Moderation")
+        if not (role_ok or suivi_ok):
+            raise HTTPException(status_code=403, detail="Réservé à l'administration")
 
     def limiter(request: Request) -> None:
         """20 dépôts par heure et par adresse IP : un robot ne peut pas remplir le stockage."""

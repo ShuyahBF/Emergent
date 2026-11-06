@@ -17,6 +17,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "371.1", "date": "2026-11-06",
+        "titre": "📋 Formulaire des automates : accessible aussi au compte support@",
+        "description": "La rubrique « Spécifications des automates » est maintenant utilisable par les comptes d'administration reconnus par leur rôle de suivi (support@), pas seulement par le rôle administrateur.",
+        "rubrique": "📋 Spécifications des automates (formulaire public)",
+    },
+    {
         "lot": "371", "date": "2026-11-06",
         "titre": "📋 Formulaire « Spécifications de votre automate » (lien public)",
         "description": "Un seul lien à envoyer aux propriétaires et fournisseurs d'automates, aux couleurs de la clinique (logo et nom) : marque, modèle, connexion USB / série / réseau, protocole, tests et documents PDF. Réponses et export CSV ici.",

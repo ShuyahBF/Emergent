@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 import VersionStamp from "@/components/VersionStamp";
 import EtatConnexion from "@/components/EtatConnexion";
+import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règle du 06/11/2026)
 
 export default function Login() {
   const { login, user } = useAuth();
@@ -420,7 +421,7 @@ export default function Login() {
                     type="text" value={waName}
                     onChange={(e) => setWaName(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-                    placeholder="Prénom Nom"
+                    placeholder={`Ex. ${EXEMPLE_NOM}`}
                     data-testid="login-wa-name-input"
                   />
                 </div>

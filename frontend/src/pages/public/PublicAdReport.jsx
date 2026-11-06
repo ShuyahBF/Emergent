@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
+import { EXEMPLE_NOM, EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle du 06/11/2026)
 
 const REFRESH_INTERVAL_MS = 30000; // auto-refresh every 30s
 
@@ -563,7 +564,7 @@ function RenewCampaignWidget({ slug, token, apiBase, currency, currentBudget, re
               type="text" value={form.contact_name}
               onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
               className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
-              placeholder="Votre nom"
+              placeholder={`Ex. ${EXEMPLE_NOM}`}
               data-testid="renew-contact-name"
             />
           </label>
@@ -573,7 +574,7 @@ function RenewCampaignWidget({ slug, token, apiBase, currency, currentBudget, re
               type="email" value={form.contact_email}
               onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
               className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
-              placeholder="vous@entreprise.com"
+              placeholder={`Ex. ${EXEMPLE_EMAIL}`}
               data-testid="renew-contact-email"
             />
           </label>
@@ -792,7 +793,7 @@ function OnlineRenewalCheckout({ slug, token, apiBase, currency, currentBudget }
             type="email"
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
-            placeholder="vous@entreprise.com"
+            placeholder={`Ex. ${EXEMPLE_EMAIL}`}
             className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
             data-testid="ads-report-pay-email"
           />

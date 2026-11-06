@@ -6,6 +6,7 @@ import {
   CreditCard, ShieldCheck, CheckCircle2, AlertCircle, Clock, Loader2, Lock,
 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
+import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règle du 06/11/2026)
 
 /*
   Public branded payment landing page.
@@ -254,7 +255,7 @@ export default function PayLink() {
                   <p className="text-sm text-emerald-700 font-semibold">Merci ! Nous vérifions la réception de votre virement ; votre formulaire sera mis en ligne dès confirmation.</p>
                 ) : (
                   <>
-                    <input value={payerName} onChange={(e) => setPayerName(e.target.value.slice(0, 80))} placeholder="Votre nom (optionnel)"
+                    <input value={payerName} onChange={(e) => setPayerName(e.target.value.slice(0, 80))} placeholder={`Ex. ${EXEMPLE_NOM}`}
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                     <button onClick={declarerPispi} disabled={submitting} data-testid="pay-pispi-btn"
                       className="w-full rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-3 text-base font-semibold disabled:opacity-60">
@@ -302,7 +303,7 @@ export default function PayLink() {
               <input
                 value={payerName}
                 onChange={(e) => setPayerName(e.target.value.slice(0, 80))}
-                placeholder="Pour vous identifier sur le reçu"
+                placeholder={`Ex. ${EXEMPLE_NOM}`}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 data-testid="pay-name"
               />

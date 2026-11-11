@@ -166,7 +166,7 @@ const NEW_LOTS = {
   "📅 Agenda d'appels de Liluvine et anniversaires": "106",
   "Sauvegarde complète (base de secours Atlas + R2)": "133",   // lot 133 : mode R2 seulement ; lot 107 : suppression des anciennes sauvegardes R2 ; lot 112 : contrôle par collection triable   // lot 70 ; lot 106 : appels demandés par les plateformes
   "💬 Conversations WhatsApp — transfert et en-tête": "104.4",   // lots 104.3-104.4 : retrouver un numéro, espace de réception
-  "🔄 Loois — synchronisation des tables et clés clients": "68",
+  "🔄 Loois — synchronisation des tables et clés clients": "373",   // lot 373 : sécurité des postes clients (onglet + état) ; lots 68-68.1 : tables et clés
   "🖥️ Postes et serveurs — signal de présence": "65",
   "⚡ Santé du serveur — blocages": "71.1",
   "📈 Disponibilité (/uptime) — journal des sondes": "95",
@@ -236,7 +236,7 @@ const NEW_SECTIONS = {
   "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-10",
   "Sauvegarde complète (base de secours Atlas + R2)": "2026-10-12",
   "💬 Conversations WhatsApp — transfert et en-tête": "2026-10-10",
-  "🔄 Loois — synchronisation des tables et clés clients": "2026-10-07",
+  "🔄 Loois — synchronisation des tables et clés clients": "2026-11-11",   // lot 373 (créée au lot 71.3)
   "🖥️ Postes et serveurs — signal de présence": "2026-10-07",
   "⚡ Santé du serveur — blocages": "2026-10-07",
   "📈 Disponibilité (/uptime) — journal des sondes": "2026-10-09",

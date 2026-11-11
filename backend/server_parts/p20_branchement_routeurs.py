@@ -258,6 +258,9 @@ _setup_loois_cles_clients(db=db, api=api, get_current_user=get_current_user)
 # Lot 89 — alerte administrateur + superviseur : postes Loois sans clé client valable (aucun message sur le poste)
 from routes.loois_postes_sans_cle import setup_loois_postes_sans_cle_routes as _setup_loois_postes_sans_cle  # noqa: E402
 _setup_loois_postes_sans_cle(db=db, api=api, get_current_user=get_current_user)
+# Lot 373 — sécurité des postes clients : alertes du service Windows Loois (programmes inconnus, port HFSQL, clés USB), approbation par le propriétaire
+from routes.securite_postes import setup_securite_postes_routes as _setup_securite_postes  # noqa: E402
+_setup_securite_postes(db=db, api=api, get_current_user=get_current_user)
 # Lot 79.11 — mots de passe HFSQL saisis dans SAWALI (chiffrés) et remis à Loois avec sa clé client
 from routes.loois_secrets_hfsql import setup_loois_secrets_hfsql_routes as _setup_loois_secrets_hfsql  # noqa: E402
 _setup_loois_secrets_hfsql(db=db, api=api, get_current_user=get_current_user)

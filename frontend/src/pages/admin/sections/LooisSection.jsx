@@ -9,10 +9,12 @@ import { apiClient } from "@/lib/api";
 export default function LooisSection() {
   const [donnees, setDonnees] = useState(null);
   const [occupe, setOccupe] = useState(false);
+  const [securite, setSecurite] = useState(null);   // lot 373 : alertes de sécurité des postes clients (nombre à traiter)
 
   // Lecture des clés (sans empreinte) et des réglages
   const charger = () => apiClient.get("/admin/loois-cles-clients").then((r) => setDonnees(r.data)).catch(() => setDonnees({ erreur: true }));
   useEffect(() => { charger(); }, []);
+  useEffect(() => { apiClient.get("/admin/securite-postes").then((r) => setSecurite(r.data)).catch(() => setSecurite(null)); }, []);
 
   // Bascule du réglage de transition (clé commune acceptée pour la synchro)
   const basculer = async (valeur) => {
@@ -45,12 +47,17 @@ export default function LooisSection() {
         {etat(donnees.poivre_configure, donnees.poivre_configure ? "Poivre des clés configuré (LOOIS_CLES_PEPPER)" : "Poivre facultatif non configuré (LOOIS_CLES_PEPPER)")}
         {etat(true, donnees.cle_commune_configuree ? "Clé commune du support configurée (LOOIS_SUPPORT_CLE)" : "Clé commune du support non configurée")}
       </ul>
+      {/* Lot 373 : sécurité des postes clients (alertes du service Windows Loois, approbation par le propriétaire) */}
+      {securite && etat(securite.nouvelles === 0, securite.nouvelles ? `🛡️ ${securite.nouvelles} alerte(s) de sécurité de postes à traiter` : "🛡️ Sécurité des postes : aucune alerte à traiter")}
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" disabled={occupe} checked={!!donnees.reglages?.accepter_cle_commune_synchro}
           onChange={(e) => basculer(e.target.checked)} />
         Transition : accepter encore la clé commune pour la synchro des tables (déconseillé une fois les clés par client saisies)
       </label>
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2 boutons-distincts">
+        <Link to="/admin/loois-synchro?onglet=securite" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" data-testid="lien-securite-postes">
+          🛡️ Sécurité des postes ↗
+        </Link>
         <Link to="/admin/loois-synchro" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
           Tables, clés et données : Loois → Synchro ↗
         </Link>

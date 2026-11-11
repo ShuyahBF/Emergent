@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "373", "date": "2026-11-11",
+        "titre": "🛡️ Sécurité des postes clients",
+        "description": "Alertes du service Windows Loois : nouveaux logiciels, programmes inconnus, port HFSQL occupé, clés USB ; vous seul approuvez (onglet Loois › Synchro › Sécurité des postes).",
+        "rubrique": "🔄 Loois — synchronisation des tables et clés clients",
+    },
+    {
         "lot": "372.6", "date": "2026-11-06",
         "titre": "🔵🟤 Checklist laboratoire : pastilles de profil",
         "description": "Chaque question porte une pastille : bleue pour le technicien, marron pour le responsable. Pour un formulaire déjà créé : page Formulaires › Automates : formulaires publics › « Mettre à jour les questions ».",

@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import LooisClesClients from "./LooisClesClients";
+import SecuritePostes from "./SecuritePostes";   // lot 373 : onglet « Sécurité des postes »
 
 const BASE = "/admin/loois-synchro";
 const APPLICATIONS = [["eKol", "e-Kol"], ["Aizenta", "Aizenta"], ["Biolog", "Biolog"]];
@@ -47,7 +48,8 @@ const cellule = (v) => {
 const versListe = (texte) => (texte || "").split(",").map((s) => s.trim()).filter(Boolean);
 
 export default function LooisSynchro() {
-  const [onglet, setOnglet] = useState("tables");       // lot 68.1 : « tables » (synchro) ou « cles » (clés clients)
+  // lot 68.1 : « tables » (synchro) ou « cles » (clés clients) ; lot 373 : « securite » (alertes des postes), ouvrable par ?onglet=securite
+  const [onglet, setOnglet] = useState(() => (new URLSearchParams(window.location.search).get("onglet") === "securite" ? "securite" : "tables"));
   const [application, setApplication] = useState("eKol");
   const [catalogue, setCatalogue] = useState(null);     // schéma de référence (tables, clé détectée)
   const [vue, setVue] = useState(null);                 // configuration commune + clients
@@ -171,7 +173,7 @@ export default function LooisSynchro() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Lot 68.1 : onglets de la page (tables / clés clients) */}
-          {[["tables", "📋 Tables et données"], ["cles", "🔑 Clés clients"]].map(([code, libelle]) => (
+          {[["tables", "📋 Tables et données"], ["cles", "🔑 Clés clients"], ["securite", "🛡️ Sécurité des postes"]].map(([code, libelle]) => (
             <button key={code} type="button" onClick={() => setOnglet(code)}
               className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${onglet === code ? "bg-slate-800 text-white" : "border border-slate-300 bg-white hover:bg-slate-50"}`}
               data-testid={`onglet-page-${code}`}>
@@ -196,6 +198,8 @@ export default function LooisSynchro() {
 
       {/* Lot 68.1 : onglet « Clés clients » */}
       {onglet === "cles" && <LooisClesClients />}
+      {/* Lot 373 : onglet « Sécurité des postes » */}
+      {onglet === "securite" && <SecuritePostes />}
 
       {onglet === "tables" && <>
       {!vue && <p className="text-sm text-slate-500"><Jauge /> Patientez…</p>}

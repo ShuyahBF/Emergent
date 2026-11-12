@@ -18,6 +18,7 @@
 //   - un refus (403 / 429 : module non activé, quota atteint) est affiché.
 // Les autres pages (Fiche produit, Posologie, Analyse prescription)
 // utilisent ce composant exactement comme avant.
+import { Pastille } from "@/components/vidal/PastilleType";   // lot 376 : pastille verte = spécialité
 import React, { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Loader2, Search, X } from "lucide-react";
@@ -142,7 +143,8 @@ export default function VidalMedicationSearch({
                 className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2"
                 data-testid={`${testId}-result-${i}`}
               >
-                <span className="truncate text-slate-800 dark:text-slate-100">
+                <span className="truncate text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5">
+                  <Pastille type="SPECIALITE" />
                   {highlightMatch(item.title, query)}
                   {item.galenic_form ? <span className="text-slate-400"> — {item.galenic_form}</span> : null}
                 </span>

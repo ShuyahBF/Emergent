@@ -592,6 +592,17 @@ export const NIVEAUX_DFG = {
   LEGEREMENT_DIMINUE: { libelle: "Légèrement diminué", couleur: "#d97706", fond: "rgba(217,119,6,0.10)" },
   DIMINUE: { libelle: "Diminué", couleur: "#e0392b", fond: "rgba(224,57,43,0.10)" },
 };
+/** Stade KDIGO (G1, G2, G3a, G3b, G4, G5) d'après le DFG (ml/min/1,73 m²) ; null si le DFG est vide ou illisible. Aperçu local (lot 376). */
+export function stadeKdigoDepuisDfg(dfg) {
+  const d = Number(dfg);
+  if (dfg === "" || dfg == null || Number.isNaN(d)) return null;
+  if (d >= 90) return "G1";
+  if (d >= 60) return "G2";
+  if (d >= 45) return "G3a";
+  if (d >= 30) return "G3b";
+  if (d >= 15) return "G4";
+  return "G5";
+}
 export function groupeDfgParDefaut(groupes) {
   const actifs = (groupes || []).filter((g) => g.actif).sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   return actifs.find((g) => g.par_defaut) || actifs[0] || null;

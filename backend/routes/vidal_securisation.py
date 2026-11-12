@@ -58,7 +58,7 @@ from vidal_v2.groupes_dfg import configuration_dfg_par_defaut, controler_configu
 from vidal_v2.historique_clinique import resume_gravites
 from vidal_v2.modeles import traduire_erreurs, valider_payload_securisation
 from vidal_v2.parseurs import parser_entrees_atom, parser_entrees_categorisees, parser_indicateurs
-from vidal_v2.referentiels import BORNES, RESSOURCES_API_MEDICAMENT, SEXES, referentiels_en_dict
+from vidal_v2.referentiels import BORNES, RESSOURCES_API_MEDICAMENT, SEXES, referentiels_en_dict, trier_par_code
 from vidal_v2.traitements_en_cours import lignes_traitements_en_cours
 from vidal_v2.xml_securisation import ORDRE_SEVERITE, construire_xml_prescription, extraire_patient_envoye, parser_reponse_alertes
 
@@ -273,6 +273,9 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
             else:
                 resultats.append({"label": e["title"], "ref": e.get("uri") or f"vidal://{spec['schema']}/{e['vidal_id']}",
                                   "type": kind.upper(), "code": e.get("code")})
+        if kind == "pathology":
+            # Lot 376 — saisie d'un CODE CIM-10 (I10, E11.9…) : les pathologies dont le code commence par la saisie passent en premier
+            resultats = trier_par_code(resultats, q)
         return {"kind": kind, "query": q, "results": resultats}
 
     # ---- Listes propres à un médicament (sur la ressource de SON type) ----

@@ -281,3 +281,29 @@ def correspond_forme_galenique(code_forme: str, titre: str, forme_api: str | Non
         if re.search(rf"(?<![\wéèêàùûôîç]){re.escape(motif.lower())}(?![\wéèêàùûôîç])", texte):
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Lot 376 — recherche d'une pathologie par son CODE CIM-10 (remarque VIDAL n°2)
+# ---------------------------------------------------------------------------
+_MOTIF_CODE_CIM10 = re.compile(r"^[A-Za-z]\d{1,2}(?:\.?\d{0,2})?$")
+
+
+def requete_est_code_cim10(q: str) -> bool:
+    """Vrai si la saisie ressemble à un code CIM-10 (I10, E11, E11.9, e119, A00.1) et non à un mot."""
+    return bool(_MOTIF_CODE_CIM10.match((q or "").strip()))
+
+
+def _code_net(code: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", code or "").upper()
+
+
+def trier_par_code(resultats: list, q: str) -> list:
+    """Pathologies dont le code commence par la saisie d'abord (sans tenir compte du point ni de la casse), puis les autres ;
+    l'ordre de VIDAL est conservé à l'intérieur de chaque groupe. Saisie qui n'est pas un code : liste inchangée."""
+    if not requete_est_code_cim10(q):
+        return list(resultats)
+    cible = _code_net(q)
+    avec = [r for r in resultats if _code_net(r.get("code") or "").startswith(cible)]
+    sans = [r for r in resultats if r not in avec]
+    return avec + sans

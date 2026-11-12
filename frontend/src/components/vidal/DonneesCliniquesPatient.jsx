@@ -41,7 +41,7 @@ import {
   ALLAITEMENTS, optionsInsuffisanceHepatique, INSUFFISANCES_RENALES, BORNES, GROUPES_DFG_DEFAUT, SEUILS_DFG_DEFAUT, optionsDepuis,
   optionsSexe, donneesFemmeAutorisees, aujourdhuiISO, ageEnAnnees, formatDateFr, formatDateISO, mapperGenreVidal, saDepuisDdr,
   ddrDepuisSa, categorieAllaitementDepuisDate, mgDlVersUmolL, arrondi2, calculerFonctionRenaleLocale, avertissementsCliniques,
-  groupeDfgParDefaut, interpreterDfg, messageErreurApi,
+  groupeDfgParDefaut, interpreterDfg, messageErreurApi, stadeKdigoDepuisDfg,
 } from "@/lib/vidalReferentiels";
 
 const DELAI_CALCULATEUR_MS = 700;
@@ -101,7 +101,6 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
   }, []);
   const groupesActifs = (configDfg.groupes || []).filter((g) => g.actif).sort((a, b) => (a.ordre || 0) - (b.ordre || 0));
   const groupeDfg = groupesActifs.find((g) => g.id === c.groupeReferenceDfg) || groupeDfgParDefaut(configDfg.groupes);
-  const interpretationDfg = groupeDfg ? interpreterDfg(c.glomerularFiltrationRate, groupeDfg.valeur_normale, configDfg.seuils) : null;
   const age = ageEnAnnees(c.dateOfBirth);
   const imc = c.weight && c.height ? Number(c.weight) / (Number(c.height) / 100) ** 2 : null;
   const creatUmol = c.creatinineSaisie === "" || c.creatinineSaisie == null
@@ -114,6 +113,19 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
     () => (creatUmol && c.dateOfBirth && c.weight ? calculerFonctionRenaleLocale({ dateOfBirth: c.dateOfBirth, gender: c.gender, weight: c.weight, creatUmol }) : null),
     [creatUmol, c.dateOfBirth, c.gender, c.weight],
   );
+  // § Lot 376 (remarque VIDAL n°1) — APERÇU LOCAL EN TEMPS RÉEL : dès qu'une donnée change (âge, sexe, poids, créatininémie, unité, groupe de
+  // référence), TOUTE la ligne de la fonction rénale se met à jour sur-le-champ — créatininémie dans les deux unités, clairance, DFG, stade KDIGO,
+  // catégorie d'insuffisance rénale et appréciation par rapport au groupe de référence. En attendant la réponse des calculateurs VIDAL (ou en mode
+  // validation, où aucune valeur calculée localement n'est TRANSMISE), ces valeurs s'affichent en aperçu (grisé, marqué « aperçu ») ; seule la
+  // valeur de `c` (calculateurs VIDAL ou saisie manuelle) part vers VIDAL.
+  const apercu = !c.saisieManuelleRenale && calculLocal && calculLocal.creatin != null ? calculLocal : null;
+  const apercuActif = !!apercu && (c.calculRenalEnCours || c.creatin === "" || !!c.erreurRenal);
+  const clairanceAffichee = apercuActif ? String(apercu.creatin) : c.creatin;
+  const dfgAffiche = apercuActif ? (apercu.glomerularFiltrationRate == null ? "" : String(apercu.glomerularFiltrationRate)) : c.glomerularFiltrationRate;
+  const stadeAffiche = apercuActif ? stadeKdigoDepuisDfg(dfgAffiche) : c.stadeKdigo;
+  const insuffisanceAffichee = apercuActif ? apercu.insuffisanceRenale : c.insuffisanceRenale;
+  const interpretationDfg = groupeDfg ? interpreterDfg(dfgAffiche, groupeDfg.valeur_normale, configDfg.seuils) : null;
+  const creatMgDl = creatUmol ? Math.round((creatUmol / 88.4) * 100) / 100 : null;
   const idCalculRef = useRef(0);
   // § mode validation VIDAL : AUCUNE valeur calculée localement — les 3
   // valeurs viennent des calculateurs VIDAL ou restent vides avec l'erreur
@@ -270,15 +282,20 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
                 <option value="mg_dl">mg/dL</option>
               </select>
             </div>
-            {c.creatinineUnite === "mg_dl" && creatUmol ? <div style={{ fontSize: 10.5, color: "var(--vidal-gris)", marginTop: 3 }}>Transmise à VIDAL : {arrondi2(creatUmol)} µmol/L</div> : null}
+            {creatUmol ? (
+              <div style={{ fontSize: 10.5, color: "var(--vidal-gris)", marginTop: 3 }} data-testid="creat-deux-unites">
+                = {arrondi2(creatUmol)} µmol/L · {creatMgDl} mg/dL{c.creatinineUnite === "mg_dl" ? " — transmise à VIDAL en µmol/L" : ""}
+              </div>
+            ) : null}
             <MessageErreur message={erreurs.creatinineSaisie} />
           </div>
           <div>
             <Libelle>Clairance de la créatinine (ml/min)</Libelle>
             <ChampNombre className="champ-saisie" step="1" min={BORNES.clairance_ml_min.min} max={BORNES.clairance_ml_min.max}
               readOnly={!c.saisieManuelleRenale} tabIndex={c.saisieManuelleRenale ? 0 : -1}
-              value={c.creatin} onChange={(e) => onChange({ creatin: e.target.value, renalDate: aujourdhui })}
-              style={styleChamp(erreurs.creatin, !c.saisieManuelleRenale)} placeholder={c.saisieManuelleRenale ? "Entier de 1 à 120" : "Calculée"} />
+              value={clairanceAffichee} onChange={(e) => onChange({ creatin: e.target.value, renalDate: aujourdhui })}
+              style={{ ...styleChamp(erreurs.creatin, !c.saisieManuelleRenale), ...(apercuActif ? { fontStyle: "italic", color: "var(--vidal-gris-fonce)" } : {}) }} placeholder={c.saisieManuelleRenale ? "Entier de 1 à 120" : "Calculée"} />
+            {apercuActif && <div style={{ fontSize: 10.5, color: "var(--vidal-orange)", marginTop: 3 }} data-testid="apercu-clairance">Aperçu local en temps réel — en attente du calcul VIDAL (non transmis).</div>}
             {c.plafonnee && !c.saisieManuelleRenale && (
               <div style={{ fontSize: 10.5, color: "var(--vidal-gris-fonce)", marginTop: 3 }}>
                 Calculée : {c.creatinCalculee} ml/min — transmise à {BORNES.clairance_ml_min.max} ml/min (borne VIDAL : fonction rénale normale).
@@ -287,8 +304,8 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
             {!c.plafonnee && c.creatinCalculee != null && !c.saisieManuelleRenale && (
               <div style={{ fontSize: 10.5, color: "var(--vidal-gris)", marginTop: 3 }}>Calculée : {c.creatinCalculee} ml/min (transmise arrondie à l'entier).</div>
             )}
-            {c.insuffisanceRenale && !c.saisieManuelleRenale && (
-              <div style={{ fontSize: 10.5, color: c.insuffisanceRenale === "NONE" ? "var(--vidal-gris-fonce)" : "var(--vidal-orange)", marginTop: 3 }}>{INSUFFISANCES_RENALES[c.insuffisanceRenale]}</div>
+            {insuffisanceAffichee && !c.saisieManuelleRenale && (
+              <div style={{ fontSize: 10.5, color: insuffisanceAffichee === "NONE" ? "var(--vidal-gris-fonce)" : "var(--vidal-orange)", marginTop: 3 }}>{INSUFFISANCES_RENALES[insuffisanceAffichee]}</div>
             )}
             <MessageErreur message={erreurs.creatin} />
           </div>
@@ -296,9 +313,9 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
             <Libelle>Débit de filtration glomérulaire (ml/min/1,73 m²)</Libelle>
             <ChampNombre className="champ-saisie" step="0.1" min={BORNES.dfg_ml_min_173.min} max={BORNES.dfg_ml_min_173.max}
               readOnly={!c.saisieManuelleRenale} tabIndex={c.saisieManuelleRenale ? 0 : -1}
-              value={c.glomerularFiltrationRate} onChange={(e) => onChange({ glomerularFiltrationRate: e.target.value, renalDate: aujourdhui })}
-              style={styleChamp(erreurs.glomerularFiltrationRate, !c.saisieManuelleRenale)} placeholder={c.saisieManuelleRenale ? "0 à 200" : "Calculé"} />
-            {c.stadeKdigo && !c.saisieManuelleRenale && <div style={{ fontSize: 10.5, color: "var(--vidal-gris)", marginTop: 3 }}>Stade KDIGO (VIDAL) : {c.stadeKdigo}</div>}
+              value={dfgAffiche} onChange={(e) => onChange({ glomerularFiltrationRate: e.target.value, renalDate: aujourdhui })}
+              style={{ ...styleChamp(erreurs.glomerularFiltrationRate, !c.saisieManuelleRenale), ...(apercuActif ? { fontStyle: "italic", color: "var(--vidal-gris-fonce)" } : {}) }} placeholder={c.saisieManuelleRenale ? "0 à 200" : "Calculé"} />
+            {stadeAffiche && !c.saisieManuelleRenale && <div style={{ fontSize: 10.5, color: "var(--vidal-gris)", marginTop: 3 }} data-testid="stade-kdigo">Stade KDIGO {apercuActif ? "(aperçu local)" : "(VIDAL)"} : {stadeAffiche}</div>}
             <MessageErreur message={erreurs.glomerularFiltrationRate} />
           </div>
           {/* § demande utilisateur : le médecin précise le GROUPE de référence
@@ -316,7 +333,7 @@ export default function DonneesCliniquesPatient({ clinique: c, onChange, erreurs
         </div>
         {interpretationDfg && (
           <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 8, fontSize: 12.5, background: interpretationDfg.fond, color: interpretationDfg.couleur, borderLeft: `3px solid ${interpretationDfg.couleur}` }}>
-            <strong>{interpretationDfg.libelle}</strong> — DFG {c.glomerularFiltrationRate} (ml/min/1,73 m²) — référence {groupeDfg.valeur_normale} (ml/min/1,73 m²) — {String(interpretationDfg.pourcentage).replace(".", ",")} % de la référence
+            <strong>{interpretationDfg.libelle}</strong> — DFG {dfgAffiche}{apercuActif ? " (aperçu)" : ""} (ml/min/1,73 m²) — référence {groupeDfg.valeur_normale} (ml/min/1,73 m²) — {String(interpretationDfg.pourcentage).replace(".", ",")} % de la référence
             <span style={{ color: "var(--vidal-gris-fonce)" }}> (aide visuelle, pas un diagnostic)</span>
           </div>
         )}

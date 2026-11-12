@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "377", "date": "2026-11-13",
+        "titre": "💊 VIDAL : posologies proposées et schémas de prise complexes (2e série)",
+        "description": "Posologies proposées par VIDAL (alerte, jamais un blocage, si âge, sexe ou poids manquent) ; schéma de prise par paliers (matin / midi / soir, avant ou après repas) ; posologies dégressives et progressives, la dose la plus élevée étant transmise à VIDAL.",
+        "rubrique": "💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)",
+    },
+    {
         "lot": "376", "date": "2026-11-12",
         "titre": "💊 VIDAL : remarques de la démonstration (1re série)",
         "description": "Fonction rénale recalculée en temps réel sur toute la ligne ; code CIM-10 des pathologies (saisie par nom ou par code) ; pastilles de couleur par type (rouge = classe, bleu = molécule…) ; Posologie : avertissement si âge, sexe ou poids manquent, et choix présentation / VMP / UCD.",

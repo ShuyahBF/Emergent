@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import Depends, HTTPException, Query, Response
+from fastapi import Body, Depends, HTTPException, Query, Response
 
 # Hôtes VIDAL publics autorisés pour /documents/proxy — jamais un proxy
 # ouvert : uniquement les domaines vus dans les URLs renvoyées par
@@ -315,6 +315,38 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         if ressource not in ("package", "vmp", "ucd") or not ident.isdigit():
             raise HTTPException(status_code=400, detail="Type d'élément (package, vmp, ucd) ou identifiant non valide.")
         return await _relayer_posologie(user, ressource, ident, route, indication)
+
+    # Lot 377 (remarques VIDAL 5 et 8) — posologies proposées par VIDAL pour un élément (spécialité, présentation, VMP, UCD) ET un patient.
+    # Appel validé par Ster : POST avec corps XML <posology-request><patient>. L'âge, le sexe et le poids NE BLOQUENT JAMAIS : s'ils manquent,
+    # on ne sollicite pas VIDAL (qui répondrait 400) et on renvoie une alerte lisible à afficher à l'utilisateur.
+    @api.post("/vidal/{ressource}/{ident}/posology-descriptors", tags=["VIDAL"])
+    async def posologies_proposees(
+        ressource: str, ident: str, payload: Dict[str, Any] = Body(default_factory=dict),
+        user: dict = Depends(get_current_user),
+    ):
+        from vidal_v2.posologie import (
+            construire_xml_posology_request, message_manquants, parser_descripteurs_posologie, patient_manquants,
+        )
+        if ressource not in ("product", "package", "vmp", "ucd") or not ident.isdigit():
+            raise HTTPException(status_code=400, detail="Type d'élément (product, package, vmp, ucd) ou identifiant non valide.")
+        patient = payload.get("patient") or {}
+        manquants = patient_manquants(patient)
+        if manquants:
+            return {"descripteurs": [], "manquants": manquants, "message": message_manquants(manquants), "data": None}
+        cfg = await _ensure_tenant_can_access(db, user)
+        _ensure_active(cfg)
+        await _quota_check_and_increment(db, user["id"], cfg)
+        from routes.vidal_appels import appeler_vidal
+        corps = construire_xml_posology_request(patient, payload.get("route"))
+        data = await appeler_vidal(db, cfg, user, "POST", f"/{ressource}/{ident}/posology-descriptors",
+                                   corps_xml=corps, patient_id=payload.get("patient_id"))
+        if data.get("_erreur"):
+            # VIDAL n'a rien retourné (ex. aucune posologie référencée) : message clair, pas de page d'erreur brute.
+            return {"descripteurs": [], "manquants": [], "data": None,
+                    "message": "VIDAL ne propose aucune posologie pour cet élément et ce patient (vous pouvez saisir la posologie vous-même)."}
+        descripteurs = parser_descripteurs_posologie(data.get("raw"))
+        return {"descripteurs": descripteurs, "manquants": [], "data": data,
+                "message": None if descripteurs else "VIDAL ne propose aucune posologie pour cet élément et ce patient (vous pouvez saisir la posologie vous-même)."}
 
     async def _relayer_posologie(user, ressource: str, ident: str, route: Optional[str], indication: Optional[str]):
         cfg = await _ensure_tenant_can_access(db, user)

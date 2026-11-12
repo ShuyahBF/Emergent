@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "376"
-LOT_LIBELLE = "VIDAL — remarques de la démonstration (1re série) : fonction rénale recalculée en temps réel sur toute la ligne, code CIM-10 des pathologies (saisie par nom ou par code), pastilles de couleur par type (classe, molécule, spécialité, VMP, UCD), Posologie : avertissement si âge, sexe ou poids manquent et choix du type d'élément (présentation, VMP, UCD)."
+LOT = "377"
+LOT_LIBELLE = "VIDAL — remarques de la démonstration (2e série) : posologies proposées par VIDAL (appel validé par Ster, alerte non bloquante si âge, sexe ou poids manquent), schéma de prise complexe par paliers (moments de la journée, avant / après repas), posologies dégressives et progressives (dose la plus élevée transmise à VIDAL)."

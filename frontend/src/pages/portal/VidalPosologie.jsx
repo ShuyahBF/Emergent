@@ -137,18 +137,18 @@ export default function VidalPosologie() {
       toast.warning("Sélectionnez d'abord un médicament dans la recherche.");
       return;
     }
-    if (manquants.length) {
-      toast.warning(`VIDAL ne propose aucune posologie sans ${manquants.join(", ")} : complétez le profil du patient.`);
-      return;
-    }
     setSearching(true);
     setResult(null);
     try {
       const ressource = RESSOURCE_POSOLOGIE[typeElement] || "product";
-      const r = await apiClient.get(`/vidal/${ressource}/${medication.vidal_id}/posology-descriptors`, {
-        params: {
-          route: routeId || undefined,
-          indication: indicationRef || undefined,
+      // Lot 377 : POST avec le profil du patient (corps XML construit côté serveur, validé par Ster). Âge / sexe / poids absents : jamais bloquant,
+      // le serveur renvoie `message` (alerte) à afficher.
+      const r = await apiClient.post(`/vidal/${ressource}/${medication.vidal_id}/posology-descriptors`, {
+        route: routeId || undefined,
+        patient: {
+          dateOfBirth: patient.dob || undefined, gender: patient.gender || undefined,
+          weight: patient.weight || undefined, height: patient.height || undefined,
+          hepaticInsufficiency: patient.hepatic || undefined,
         },
       });
       setResult(r.data);
@@ -342,7 +342,7 @@ export default function VidalPosologie() {
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
             <strong>Profil patient incomplet.</strong> VIDAL ne propose <strong>aucune posologie</strong> sans l'âge, le poids et le sexe du patient :
-            il manque {manquants.join(", ")}. La recherche n'est lancée que lorsque ces informations sont renseignées.
+            il manque {manquants.join(", ")}. Ce n'est pas bloquant : vous pouvez lancer la recherche, mais VIDAL n'en proposera aucune tant que ces informations manquent.
           </span>
         </div>
       )}
@@ -358,12 +358,21 @@ export default function VidalPosologie() {
       {result && (
         <Card data-testid="poso-result">
           <CardHeader>
-            <CardTitle className="text-sm text-amber-700 dark:text-amber-300">Résultat (expérimental)</CardTitle>
+            <CardTitle className="text-sm">Posologies proposées par VIDAL</CardTitle>
           </CardHeader>
-          <CardContent>
-            <pre className="text-[11px] bg-muted rounded p-3 overflow-auto max-h-96">
-              {JSON.stringify(result.data?.raw ? { raw: result.data.raw } : result.data, null, 2).slice(0, 8000)}
-            </pre>
+          <CardContent className="space-y-2 text-sm">
+            {result.message && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 flex items-start gap-2" data-testid="poso-message">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /><span>{result.message}</span>
+              </div>
+            )}
+            {(result.descripteurs || []).map((d, i) => (
+              <div key={i} className="rounded border p-2" data-testid={`poso-descripteur-${i}`}>
+                {d.indication && <div className="font-medium">{d.indication}{d.route ? ` — ${d.route}` : ""}</div>}
+                {d.doses.map((x) => <div key={x}>{x}</div>)}
+                {d.frequence && <div className="text-muted-foreground">{d.frequence}</div>}
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

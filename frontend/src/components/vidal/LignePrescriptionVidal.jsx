@@ -24,6 +24,7 @@
 // L'état est porté par le parent ; `ligneVide` / `ligneDepuis...` en bas
 // de fichier créent cet état.
 
+import SchemaPosologie from "@/components/vidal/SchemaPosologie";   // lot 377 : schéma de prise complexe (paliers, moments, repas)
 import { Pastille, typeVisuel } from "@/components/vidal/PastilleType";   // lot 376 : pastille de couleur du type de médicament
 import { useEffect, useState } from "react";
 import { X, Loader2, Plus, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
@@ -88,6 +89,7 @@ function chargerFormesGaleniques() {
 // en cours » (le médecin veut par exemple changer les prises d'un traitement en cours).
 export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, onBasculer = null, erreurs = {}, estTraitementEnCours = false }) {
   const [intervallesOuverts, setIntervallesOuverts] = useState((ligne.dosages || []).length > 0);
+  const [schemaOuvert, setSchemaOuvert] = useState((ligne.schema || []).length > 0);   // lot 377
   const [formesApi, setFormesApi] = useState([]);
   const [aldsProposees, setAldsProposees] = useState([]);
   const [modeValidation, setModeValidation] = useState(null);
@@ -362,6 +364,15 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, onB
             </button>
           </div>
         )}
+      </div>
+
+      {/* Lot 377 (remarques VIDAL 4 et 6) : schéma de prise détaillé (paliers, moments de la journée, repas) — dégressif / progressif */}
+      <div style={{ marginTop: 8 }}>
+        <button type="button" onClick={() => setSchemaOuvert(!schemaOuvert)}
+          style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--vidal-bleu)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {schemaOuvert ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Schéma de prise détaillé ({(ligne.schema || []).length} palier{(ligne.schema || []).length > 1 ? "s" : ""})
+        </button>
+        {schemaOuvert && <SchemaPosologie schema={ligne.schema || []} unite={ligne.unitLabel || ""} onChange={onChange} />}
       </div>
     </div>
   );

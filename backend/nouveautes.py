@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "376", "date": "2026-11-12",
+        "titre": "💊 VIDAL : remarques de la démonstration (1re série)",
+        "description": "Fonction rénale recalculée en temps réel sur toute la ligne ; code CIM-10 des pathologies (saisie par nom ou par code) ; pastilles de couleur par type (rouge = classe, bleu = molécule…) ; Posologie : avertissement si âge, sexe ou poids manquent, et choix présentation / VMP / UCD.",
+        "rubrique": "💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)",
+    },
+    {
         "lot": "375", "date": "2026-11-12",
         "titre": "🔔 Automations vocales Alexa (Automations, Superviseur)",
         "description": "Alexa annonce une phrase à une date, quelques minutes avant un rendez-vous ou à l'arrivée d'un message WhatsApp ; activation et test par règle, aussi pour le Superviseur (Automations vocales).",

@@ -24,6 +24,7 @@
 // L'état est porté par le parent ; `ligneVide` / `ligneDepuis...` en bas
 // de fichier créent cet état.
 
+import { Pastille, typeVisuel } from "@/components/vidal/PastilleType";   // lot 376 : pastille de couleur du type de médicament
 import { useEffect, useState } from "react";
 import { X, Loader2, Plus, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
@@ -174,6 +175,7 @@ export default function LignePrescriptionVidal({ ligne, onChange, onRetirer, onB
         </div>
         <div>
           <Libelle>Type de médicament</Libelle>
+          <Pastille type={typeVisuel(ligne.drugType || "PRODUCT", null)} style={{ marginRight: 4 }} />
           <select className="champ-saisie" style={{ fontSize: 12.5 }} value={ligne.drugType || "PRODUCT"}
             onChange={(e) => onChange({ drugType: e.target.value, units: [], unitId: "", unitLabel: "", routes: [], route: "", indications: [], indication: "", indicateurs: [], listesChargees: false, chargementListes: false })}>
             {optionsDepuis(TYPES_MEDICAMENT).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

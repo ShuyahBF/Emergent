@@ -302,6 +302,21 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         que l'UI affiche systématiquement un avertissement plutôt que de
         présenter le résultat comme fiable.
         """
+        return await _relayer_posologie(user, "product", product_id, route, indication)
+
+    # Lot 376 (remarque VIDAL n°8) — le module Posologie accepte aussi une présentation (package), un VMP ou une UCD : même relais, ressource du
+    # même type que l'élément choisi (comme pour les unités, voies et indications). EXPÉRIMENTAL comme la version « produit ».
+    @api.get("/vidal/{ressource}/{ident}/posology-descriptors", tags=["VIDAL"])
+    async def posology_descriptors_autre_type(
+        ressource: str, ident: str,
+        route: Optional[str] = Query(None), indication: Optional[str] = Query(None),
+        user: dict = Depends(get_current_user),
+    ):
+        if ressource not in ("package", "vmp", "ucd") or not ident.isdigit():
+            raise HTTPException(status_code=400, detail="Type d'élément (package, vmp, ucd) ou identifiant non valide.")
+        return await _relayer_posologie(user, ressource, ident, route, indication)
+
+    async def _relayer_posologie(user, ressource: str, ident: str, route: Optional[str], indication: Optional[str]):
         cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
@@ -310,7 +325,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
             params["route"] = route
         if indication:
             params["indication"] = indication
-        path = f"/product/{product_id}/posology-descriptors"
+        path = f"/{ressource}/{ident}/posology-descriptors"
         data = await _call_and_log(cfg, "GET", path, params, user.get("email"))
         # Lot 15 — `_vidal_call` ne lève jamais sur une erreur VIDAL (>= 400) :
         # elle attache `_error` à `data` et renvoie 200, pour l'usage
@@ -321,7 +336,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         if isinstance(data, dict) and data.get("_error"):
             raise HTTPException(
                 status_code=502,
-                detail="VIDAL n'a pas retourné de posologie pour ce produit (endpoint expérimental).",
+                detail="VIDAL n'a pas retourné de posologie pour cet élément (endpoint expérimental).",
             )
         return {"experimental": True, "data": data}
 

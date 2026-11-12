@@ -34,6 +34,8 @@ import { X } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 // § règle commune : portions correspondant à la saisie en rouge.
 import { highlightMatch } from "@/lib/highlightMatch";
+// Lot 376 — pastilles de couleur par type (rouge = classe, bleu = molécule, turquoise = pathologie…) et code des pathologies
+import { Pastille, LegendePastilles, typeVisuel } from "@/components/vidal/PastilleType";
 
 // Recherches fréquentes proposées à l'ouverture du champ (ce ne sont que des
 // TERMES DE RECHERCHE : seul le libellé renvoyé par VIDAL est ajouté).
@@ -53,7 +55,7 @@ function noterRecent(kind, item) {
   if (!item?.ref) return;
   try {
     const liste = [item, ...lireRecents(kind).filter((r) => r.ref !== item.ref)].slice(0, MAX_RECENTS);
-    localStorage.setItem(cleRecents(kind), JSON.stringify(liste.map(({ label, ref, type }) => ({ label, ref, type }))));
+    localStorage.setItem(cleRecents(kind), JSON.stringify(liste.map(({ label, ref, type, code }) => ({ label, ref, type, code }))));
   } catch { /* stockage indisponible */ }
 }
 
@@ -103,7 +105,7 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange, re
   }
   function ajouterResultat(item) {
     if (item.ref && values.some((v) => v.ref === item.ref)) { setOuvert(false); return; } // déjà présent
-    onChange([...values, { label: item.label, ref: item.ref }]);
+    onChange([...values, { label: item.label, ref: item.ref, ...(item.code ? { code: item.code } : {}) }]);
     noterRecent(kind, item);
     setBrouillon(""); setOuvert(false); setResultats([]); setEtat("");
   }
@@ -125,6 +127,8 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange, re
         {values.map((v, i) => (
           <span key={i} title={v.ref ? "Référence VIDAL résolue — transmise à l'analyse" : "Texte libre — informatif, non transmis à VIDAL"}
             className={`badge ${v.ref ? "badge-bleu" : "badge-vert"}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontStyle: String(v.ref || "").startsWith("vidal://allergy/") ? "italic" : "normal" }}>
+            <Pastille type={v.ref ? (typeVisuel(null, v.ref) !== "AUTRE" ? typeVisuel(null, v.ref) : kind === "pathology" ? "PATHOLOGIE" : kind === "molecule" ? "MOLECULE" : "AUTRE") : "AUTRE"} />
+            {v.code ? <code style={{ fontSize: 10.5, fontWeight: 700 }}>{v.code}</code> : null}
             {v.label}
             <span onClick={() => onChange(values.filter((_, j) => j !== i))} style={{ cursor: "pointer", display: "inline-flex" }}><X size={11} /></span>
           </span>
@@ -148,7 +152,11 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange, re
           {etat === "erreur" && <div style={{ ...styleLigne, cursor: "default", color: "var(--vidal-rouge)" }}>Recherche VIDAL momentanément indisponible — continuez à taper pour réessayer.</div>}
           {resultats.map((r, i) => (
             <div key={i} onMouseDown={(e) => { e.preventDefault(); ajouterResultat(r); }} style={styleLigne} {...survol}>
-              <span style={{ fontStyle: r.type === "ALLERGY" ? "italic" : "normal" }}>{highlightMatch(r.label, brouillon || termeCherche)}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Pastille type={typeVisuel(r.type, r.ref)} />
+                {r.code ? <code style={{ fontSize: 11, fontWeight: 700, minWidth: 44, color: "var(--vidal-texte)" }} data-testid="code-pathologie">{highlightMatch(r.code, brouillon || termeCherche)}</code> : null}
+                <span style={{ fontStyle: r.type === "ALLERGY" ? "italic" : "normal" }}>{highlightMatch(r.label, brouillon || termeCherche)}</span>
+              </span>
               {r.type === "MOLECULE" && <span style={{ fontSize: 10.5, color: "var(--vidal-gris)" }}> — substance</span>}
               {r.type === "ALLERGY" && <span style={{ fontSize: 10.5, color: "var(--vidal-gris)" }}> — classe d'allergie</span>}
             </div>
@@ -164,7 +172,11 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange, re
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--vidal-gris)", padding: "4px 9px" }}>CHOISIS RÉCEMMENT (référence VIDAL)</div>
               {recents.map((r) => (
                 <div key={r.ref} onMouseDown={(e) => { e.preventDefault(); ajouterResultat(r); }} style={styleLigne} {...survol}>
-                  <span style={{ fontStyle: r.type === "ALLERGY" ? "italic" : "normal" }}>{r.label}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Pastille type={typeVisuel(r.type, r.ref)} />
+                    {r.code ? <code style={{ fontSize: 11, fontWeight: 700 }}>{r.code}</code> : null}
+                    <span style={{ fontStyle: r.type === "ALLERGY" ? "italic" : "normal" }}>{r.label}</span>
+                  </span>
                 </div>
               ))}
             </>
@@ -186,8 +198,10 @@ export default function ChampTagsReferentiel({ label, kind, values, onChange, re
       )}
 
       <div style={{ fontSize: 10, color: "var(--vidal-gris)", marginTop: 3 }}>
-        {aide || "Un résultat choisi porte une vraie référence VIDAL ; sinon reste informatif."}
+        {aide || (kind === "pathology" ? "Tapez le nom OU le code CIM-10 (ex. I10). Un résultat choisi porte une vraie référence VIDAL ; sinon reste informatif."
+          : "Un résultat choisi porte une vraie référence VIDAL ; sinon reste informatif.")}
       </div>
+      <LegendePastilles style={{ marginTop: 3 }} types={kind === "pathology" ? ["PATHOLOGIE"] : kind === "allergy" ? ["CLASSE", "MOLECULE"] : kind === "molecule" ? ["MOLECULE"] : ["CLASSE", "MOLECULE", "SPECIALITE", "VMP", "UCD"]} />
     </div>
   );
 }

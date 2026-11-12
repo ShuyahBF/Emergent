@@ -5,6 +5,7 @@
 // VIDAL, voir /vidal/product/{id}/detail et /vidal/product/{id}/indications),
 // et recherche de posologie EXPÉRIMENTALE (endpoint /posology-descriptors
 // jamais validé en réel, contrairement aux deux listes ci-dessus).
+import { Pastille, LegendePastilles } from "@/components/vidal/PastilleType";   // lot 376
 import React, { useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -36,6 +37,14 @@ const PROFILES = {
 
 const emptyPatient = { dob: "", gender: "UNKNOWN", hepatic: "NONE", height: "", weight: "" };
 
+const TYPES_ELEMENT = {
+  PRODUCT: { libelle: "Spécialité", pastille: "SPECIALITE" },
+  PACK: { libelle: "Présentation", pastille: "PRESENTATION" },
+  VMP: { libelle: "VMP", pastille: "VMP" },
+  UCD: { libelle: "UCD", pastille: "UCD" },
+};
+const RESSOURCE_POSOLOGIE = { PRODUCT: "product", PACK: "package", VMP: "vmp", UCD: "ucd" };
+
 export default function VidalPosologie() {
   const { vidalAdminNotes } = useVidalUiSettings();
   const [patient, setPatient] = useState(emptyPatient);
@@ -43,6 +52,9 @@ export default function VidalPosologie() {
   const [pathologies, setPathologies] = useState("");
   const [molecules, setMolecules] = useState("");
 
+  // Lot 376 (remarque VIDAL n°8) — type d'élément à prescrire : spécialité (recherche), présentation, VMP, UCD (identifiant VIDAL saisi)
+  const [typeElement, setTypeElement] = useState("PRODUCT");
+  const [idSaisi, setIdSaisi] = useState("");
   const [medQuery, setMedQuery] = useState("");
   const [medication, setMedication] = useState(null); // {vidal_id, title}
   const [routes, setRoutes] = useState([]);
@@ -95,15 +107,45 @@ export default function VidalPosologie() {
     setIndicationsLoading(false);
   };
 
+  // Présentation, VMP ou UCD : l'utilisateur choisit le type dans la liste et saisit l'identifiant VIDAL ; voies et indications se chargent
+  // sur la ressource du même type (comme pour la prescription).
+  const chargerElement = async () => {
+    const id = idSaisi.trim();
+    if (!/^\d+$/.test(id)) { toast.warning("Saisissez l'identifiant VIDAL de l'élément (un nombre)."); return; }
+    setMedication({ vidal_id: id, title: `${TYPES_ELEMENT[typeElement].libelle} n° ${id}` });
+    setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef("");
+    setRoutesLoading(true); setIndicationsLoading(true);
+    const [voies, indic] = await Promise.allSettled([
+      apiClient.get(`/vidal/medicament/${typeElement}/${id}/routes`),
+      apiClient.get(`/vidal/medicament/${typeElement}/${id}/indications`),
+    ]);
+    if (voies.status === "fulfilled") setRoutes((voies.value.data?.routes || []).map((r) => ({ id: r.id, name: r.label })));
+    else toast.error(voies.reason?.response?.data?.detail || "Voies d'administration indisponibles");
+    if (indic.status === "fulfilled") setIndications(indic.value.data?.indications || []);
+    setRoutesLoading(false); setIndicationsLoading(false);
+  };
+
+  // Lot 376 (remarque VIDAL n°5) — VIDAL ne propose AUCUNE posologie sans l'âge, le poids et le sexe du patient : l'utilisateur en est informé
+  const manquants = [
+    !patient.dob ? "l'âge (date de naissance)" : null,
+    patient.gender !== "MALE" && patient.gender !== "FEMALE" ? "le sexe (Homme ou Femme)" : null,
+    !patient.weight ? "le poids" : null,
+  ].filter(Boolean);
+
   const runSearch = async () => {
     if (!medication?.vidal_id) {
       toast.warning("Sélectionnez d'abord un médicament dans la recherche.");
       return;
     }
+    if (manquants.length) {
+      toast.warning(`VIDAL ne propose aucune posologie sans ${manquants.join(", ")} : complétez le profil du patient.`);
+      return;
+    }
     setSearching(true);
     setResult(null);
     try {
-      const r = await apiClient.get(`/vidal/product/${medication.vidal_id}/posology-descriptors`, {
+      const ressource = RESSOURCE_POSOLOGIE[typeElement] || "product";
+      const r = await apiClient.get(`/vidal/${ressource}/${medication.vidal_id}/posology-descriptors`, {
         params: {
           route: routeId || undefined,
           indication: indicationRef || undefined,
@@ -230,13 +272,35 @@ export default function VidalPosologie() {
           <CardTitle className="text-sm flex items-center gap-2"><Pill className="h-4 w-4" /> Médicament</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <VidalMedicationSearch
+          <div className="grid sm:grid-cols-[220px_1fr] gap-3" data-testid="poso-type-element">
+            <div>
+              <Label className="text-xs flex items-center gap-1"><Pastille type={TYPES_ELEMENT[typeElement].pastille} /> Type d'élément</Label>
+              <Select value={typeElement} onValueChange={(v) => { setTypeElement(v); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); setIdSaisi(""); }}>
+                <SelectTrigger data-testid="poso-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TYPES_ELEMENT).map(([k, t]) => <SelectItem key={k} value={k}>{t.libelle}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {typeElement !== "PRODUCT" && (
+              <div>
+                <Label className="text-xs">Identifiant VIDAL du {TYPES_ELEMENT[typeElement].libelle}</Label>
+                <div className="flex gap-2">
+                  <Input value={idSaisi} inputMode="numeric" onChange={(e) => setIdSaisi(e.target.value)} placeholder="ex. 12345" data-testid="poso-id-element"
+                         onKeyDown={(e) => { if (e.key === "Enter") chargerElement(); }} />
+                  <Button type="button" variant="outline" onClick={chargerElement} data-testid="poso-charger-element">Charger</Button>
+                </div>
+              </div>
+            )}
+          </div>
+          {typeElement === "PRODUCT" && <VidalMedicationSearch
             query={medication?.title ? medication.title : medQuery}
             onQueryChange={(q) => { setMedQuery(q); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); }}
             onSelect={selectMedication}
             onClear={() => { setMedQuery(""); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); }}
             testId="poso-med-search"
-          />
+          />}
+          {medication?.title && typeElement !== "PRODUCT" && <div className="text-xs text-muted-foreground flex items-center gap-1"><Pastille type={TYPES_ELEMENT[typeElement].pastille} /> {medication.title}</div>}
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
               <Label className="text-xs flex items-center gap-1">
@@ -273,6 +337,16 @@ export default function VidalPosologie() {
       {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
           (échantillonné sur capture réelle), pleine largeur — remplace le
           bleu par défaut, pour un rendu identique à Sécurisation. */}
+      {manquants.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex items-start gap-2" data-testid="poso-profil-incomplet">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            <strong>Profil patient incomplet.</strong> VIDAL ne propose <strong>aucune posologie</strong> sans l'âge, le poids et le sexe du patient :
+            il manque {manquants.join(", ")}. La recherche n'est lancée que lorsque ces informations sont renseignées.
+          </span>
+        </div>
+      )}
+      <div className="flex justify-end"><LegendePastilles types={["SPECIALITE", "PRESENTATION", "VMP", "UCD"]} /></div>
       <Button
         onClick={runSearch} disabled={searching} data-testid="poso-search-submit"
         className="w-full bg-[#9C1616] hover:bg-[#7F1212] text-white"

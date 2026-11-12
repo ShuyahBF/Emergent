@@ -109,10 +109,10 @@ export default function VidalPosologie() {
 
   // Présentation, VMP ou UCD : l'utilisateur choisit le type dans la liste et saisit l'identifiant VIDAL ; voies et indications se chargent
   // sur la ressource du même type (comme pour la prescription).
-  const chargerElement = async () => {
-    const id = idSaisi.trim();
+  const chargerElement = async (idDirect = null, titre = null) => {
+    const id = String(idDirect ?? idSaisi).trim();
     if (!/^\d+$/.test(id)) { toast.warning("Saisissez l'identifiant VIDAL de l'élément (un nombre)."); return; }
-    setMedication({ vidal_id: id, title: `${TYPES_ELEMENT[typeElement].libelle} n° ${id}` });
+    setMedication({ vidal_id: id, title: titre || `${TYPES_ELEMENT[typeElement].libelle} n° ${id}` });
     setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef("");
     setRoutesLoading(true); setIndicationsLoading(true);
     const [voies, indic] = await Promise.allSettled([
@@ -288,7 +288,7 @@ export default function VidalPosologie() {
                 <div className="flex gap-2">
                   <Input value={idSaisi} inputMode="numeric" onChange={(e) => setIdSaisi(e.target.value)} placeholder="ex. 12345" data-testid="poso-id-element"
                          onKeyDown={(e) => { if (e.key === "Enter") chargerElement(); }} />
-                  <Button type="button" variant="outline" onClick={chargerElement} data-testid="poso-charger-element">Charger</Button>
+                  <Button type="button" variant="outline" onClick={() => chargerElement()} data-testid="poso-charger-element">Charger</Button>
                 </div>
               </div>
             )}
@@ -299,6 +299,15 @@ export default function VidalPosologie() {
             onSelect={selectMedication}
             onClear={() => { setMedQuery(""); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); }}
             testId="poso-med-search"
+          />}
+          {/* Lot 378 (remarque 8) : recherche PAR NOM d'une présentation, d'un VMP ou d'une UCD (l'identifiant reste saisissable ci-dessus) */}
+          {typeElement !== "PRODUCT" && <VidalMedicationSearch
+            key={typeElement}
+            typeRecherche={RESSOURCE_POSOLOGIE[typeElement]} pastille={TYPES_ELEMENT[typeElement].pastille}
+            placeholder={`Nom du ${TYPES_ELEMENT[typeElement].libelle.toLowerCase()}…`}
+            query={medQuery} onQueryChange={setMedQuery} onClear={() => setMedQuery("")}
+            onSelect={(item) => { setMedQuery(item.title); chargerElement(item.vidal_id, item.title); }}
+            testId="poso-element-search"
           />}
           {medication?.title && typeElement !== "PRODUCT" && <div className="text-xs text-muted-foreground flex items-center gap-1"><Pastille type={TYPES_ELEMENT[typeElement].pastille} /> {medication.title}</div>}
           <div className="grid sm:grid-cols-2 gap-3">

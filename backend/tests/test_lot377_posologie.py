@@ -67,3 +67,12 @@ def test_trois_moments_dans_la_journee():
 def test_schema_invalide_detecte():
     assert valider_schema([{"debut_jour": 0, "fin_jour": 5, "prises": []}, {"debut_jour": 3, "fin_jour": None, "prises": []}])
     assert valider_schema([{"debut_jour": 0, "fin_jour": None, "prises": [{"moment": "nuit", "quantite": 1}]}])
+
+
+def test_ordonnance_imprime_le_schema_complet():
+    """Lot 378 : le schéma de prise figure sous le nom du médicament, la colonne Dose renvoie au schéma."""
+    from routes.vidal_ordonnance import _fmt_line
+    cellules = _fmt_line({"label": "Prednisolone", "dose": "2", "unit": "comprimé", "schema": SCHEMA_COMPLEXE})
+    assert "Prednisolone" in cellules[0] and "jour 6" in cellules[0] and "le matin" in cellules[0]
+    assert cellules[1] == "selon schéma"
+    assert _fmt_line({"label": "A", "dose": "1"})[0] == "A"          # sans schéma : inchangé

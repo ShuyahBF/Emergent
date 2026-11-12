@@ -433,6 +433,7 @@ export default function VidalSecurisation() {
       duration: l.duration || null, durationType: l.durationType ? (TYPES_DUREE[l.durationType] || l.durationType).toLowerCase() : null,
       frequency: l.frequencyType ? TYPES_FREQUENCE[l.frequencyType] || l.frequencyType : null,
       route: (l.routes || []).find((r) => r.id === l.route)?.label || null,
+      schema: (l.schema || []).length ? l.schema : undefined,   // lot 378 : schéma de prise détaillé imprimé sur l'ordonnance
     }));
     if (!lignes.length) {
       toast.warning("Ajoutez au moins un médicament avant d'imprimer l'ordonnance.");

@@ -106,7 +106,18 @@ def _fmt_line(l: Dict[str, Any]) -> List[str]:
     dose = " ".join(parts) or "—"
     freq = l.get("frequency") or "—"
     duration = " ".join([p for p in [l.get("duration"), l.get("durationType")] if p]) or "—"
-    return [l.get("label") or "—", dose, freq, duration, l.get("route") or "—"]
+    label = l.get("label") or "—"
+    schema = l.get("schema") or []
+    if schema:
+        # Lot 378 : un palier par ligne sous le nom ; la colonne Dose renvoie au schéma si plusieurs paliers.
+        from xml.sax.saxutils import escape
+        from vidal_v2.posologie import libelle_schema
+        texte = libelle_schema(schema, l.get("unit") or "")
+        if texte:
+            label += "<br/><font size='6.5'>" + "<br/>".join(escape(x) for x in texte.split("\n")) + "</font>"
+            if len(schema) > 1:
+                dose = "selon schéma"
+    return [label, dose, freq, duration, l.get("route") or "—"]
 
 
 def reference_ordonnance(data: Dict[str, Any]) -> str:

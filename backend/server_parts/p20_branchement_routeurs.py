@@ -1074,6 +1074,10 @@ _setup_docs_routes(api=api, get_current_user=get_current_user)
 from routes.voice_notifications import setup_voice_notifications_routes as _setup_voice_notif_routes  # noqa: E402
 _setup_voice_notif_routes(app=api, db=db, get_current_user=get_current_user)
 
+# Lot 374 — rappels vocaux programmés sur Alexa (Voice Monkey)
+from routes.rappels_vocaux import setup_rappels_vocaux_routes as _setup_rappels_vocaux_routes  # noqa: E402
+_setup_rappels_vocaux_routes(app=api, db=db, get_current_user=get_current_user)
+
 # Iter38r-fix9u — AI subscription renewal reminders (WhatsApp + Email)
 from routes.ai_subscriptions import setup_ai_subscriptions_routes as _setup_ai_subs_routes  # noqa: E402
 async def _email_adapter(*, to: str, subject: str, body_text: str):

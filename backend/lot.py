@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "373.1"
-LOT_LIBELLE = "VIDAL : le rapport de sécurisation HTML complet s'ouvre de nouveau (VIDAL refusait la requête, 406) ; les clés d'API n'apparaissent plus dans les journaux du serveur."
+LOT = "374"
+LOT_LIBELLE = "Rappels vocaux programmés : une phrase, une date et une heure (GMT), annoncée à voix haute par Alexa à l'heure dite (Paramètres › Rappels vocaux Alexa)."

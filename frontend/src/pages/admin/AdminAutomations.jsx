@@ -5,6 +5,7 @@ import {
   Zap, Plus, Trash2, Edit, Power, Wand2, AlertTriangle, CheckCircle2, Clock, ArrowRight, MessageCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import AutomationsVocales from "@/components/admin/AutomationsVocales";   // lot 375 : annonces Alexa (rappel, rendez-vous, message)
 
 /*
   Admin → Automations
@@ -106,6 +107,12 @@ export default function AdminAutomations() {
             <Plus className="h-4 w-4" /> Nouvelle automation
           </button>
         </div>
+      </div>
+
+      {/* Lot 375 — Automations vocales Alexa : à une date, avant un rendez-vous, à l'arrivée d'un message (programmation + test) */}
+      <div className="rounded-xl border border-sky-200 bg-white p-4" data-testid="automations-vocales-bloc">
+        <h2 className="text-lg font-semibold mb-2">🔔 Annonces vocales Alexa</h2>
+        <AutomationsVocales />
       </div>
 
       {!templates.configured && (

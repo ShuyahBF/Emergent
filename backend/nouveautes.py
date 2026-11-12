@@ -18,7 +18,13 @@
 
 NOUVEAUTES = [
     {
-        "lot": "374", "date": "2026-11-13",
+        "lot": "375", "date": "2026-11-12",
+        "titre": "🔔 Automations vocales Alexa (Automations, Superviseur)",
+        "description": "Alexa annonce une phrase à une date, quelques minutes avant un rendez-vous ou à l'arrivée d'un message WhatsApp ; activation et test par règle, aussi pour le Superviseur (Automations vocales).",
+        "rubrique": "🔔 Rappels vocaux Alexa (annonces programmées)",
+    },
+    {
+        "lot": "374", "date": "2026-11-12",
         "titre": "🔔 Rappels vocaux Alexa",
         "description": "Programmez une phrase, une date et une heure (GMT) : Alexa l'annonce à voix haute à l'heure dite, une fois ou chaque jour / semaine.",
         "rubrique": "🔔 Rappels vocaux Alexa (annonces programmées)",

@@ -88,6 +88,7 @@ import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes
 import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
 import AdminSyntheseSupport from "@/pages/admin/AdminSyntheseSupport";   // Lot 92 : synthèse du support
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
+import AutomationsVocalesPage from "@/pages/portal/AutomationsVocalesPage";   // lot 375 — Superviseur
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
 import MessagesBloquesWa from "@/pages/admin/MessagesBloquesWa";   // Lot 79.6 — messages retenus par la barrière WA
 import VidalApiLogs from "@/pages/admin/VidalApiLogs";
@@ -391,6 +392,7 @@ export default function App() {
             <Route path="surveys/:sid/results" element={<SurveyResults />} />
             <Route path="portfolio-invoices" element={<PortfolioInvoices />} />
             {/* Lot 70 — agenda d'appels de Liluvine (superviseurs : même écran que l'administration) */}
+            <Route path="automations-vocales" element={<AutomationsVocalesPage />} />
             <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}
             <Route path="liluvine-messages-bloques" element={<MessagesBloquesWa />} />

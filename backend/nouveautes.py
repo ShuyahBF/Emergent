@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "374", "date": "2026-11-13",
+        "titre": "🔔 Rappels vocaux Alexa",
+        "description": "Programmez une phrase, une date et une heure (GMT) : Alexa l'annonce à voix haute à l'heure dite, une fois ou chaque jour / semaine.",
+        "rubrique": "🔔 Rappels vocaux Alexa (annonces programmées)",
+    },
+    {
         "lot": "373.1", "date": "2026-11-12",
         "titre": "💊 VIDAL : rapport HTML complet rétabli",
         "description": "Le Rapport de sécurisation VIDAL (HTML) s'ouvre de nouveau (VIDAL refusait la demande) ; un motif d'erreur clair s'affiche, et les clés d'API ne figurent plus dans les journaux du serveur.",

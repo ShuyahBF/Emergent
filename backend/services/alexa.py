@@ -69,6 +69,37 @@ async def alexa_notify(db: "AsyncIOMotorDatabase", event_type: str, message: str
         logger.warning("[alexa] notify failed: %s", exc)
 
 
+async def alexa_annoncer(db: "AsyncIOMotorDatabase", message: str) -> tuple[bool, str]:
+    """Annonce vocale IMMÉDIATE sur l'Alexa de SAWALI (Voice Monkey), pour un rappel programmé (lot 374).
+
+    Contrairement à `alexa_notify`, aucun abonnement à un type d'événement n'est exigé : programmer un rappel est une
+    demande explicite. Il faut seulement qu'Alexa soit activée et que l'adresse Voice Monkey soit renseignée (Paramètres).
+    Retourne (réussite, motif en clair) ; ne lève jamais d'exception.
+    """
+    try:
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "alexa_enabled": 1, "alexa_webhook_url": 1}) or {}
+        if not s.get("alexa_enabled"):
+            return False, "Alexa n'est pas activée dans les Paramètres."
+        url = (s.get("alexa_webhook_url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return False, "L'adresse Voice Monkey d'Alexa n'est pas renseignée dans les Paramètres."
+        payload = {
+            "event": "rappel_vocal",
+            "event_label": "Rappel vocal programmé",
+            "announcement": (message or "")[:200],
+            "source": "sawali-portal",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        async with httpx.AsyncClient(timeout=8) as http:
+            r = await http.post(url, json=payload, headers={"Accept": "application/json"})
+        if 200 <= r.status_code < 300:
+            return True, ""
+        return False, f"Voice Monkey a répondu HTTP {r.status_code}."
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[alexa] annonce impossible : %s", exc)
+        return False, "Voice Monkey injoignable."
+
+
 def alexa_notify_async(db: "AsyncIOMotorDatabase", event_type: str, message: str) -> None:
     """Sync wrapper that schedules the async notify in the running loop."""
     try:

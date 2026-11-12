@@ -989,6 +989,17 @@ async def _start_scheduler():
                 replace_existing=True,
                 misfire_grace_time=120,
             )
+            # Lot 374 — rappels vocaux programmés : chaque minute, annonce sur Alexa ceux dont l'heure est arrivée.
+            async def _run_rappels_vocaux():
+                from services.rappels_vocaux import executer_rappels_dus
+                await executer_rappels_dus(db)
+            _safe_add_job(
+                _run_rappels_vocaux,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="rappels_vocaux_minutely",
+                replace_existing=True,
+                misfire_grace_time=120,
+            )
             # Hourly appointment reminders (J-1 window).
             _safe_add_job(
                 _appointment_reminder_cron,

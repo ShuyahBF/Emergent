@@ -1760,7 +1760,7 @@ async def traiter_webhook_wa_en_arriere_plan(request: Request) -> Dict[str, Any]
     return {"ok": True}
 
 
-async def _alexa_si_non_relaye(message_id: Optional[str], phrase: str) -> None:
+async def _alexa_si_non_relaye(message_id: Optional[str], phrase: str, expediteur: str = "", texte: str = "") -> None:
     """Lot 270 — annonce vocale (Alexa) d'un WhatsApp reçu, SAUF s'il a été relayé à une plateforme ou confié à son assistant
     (champs `relaye_a` / `assistant_plateforme`, posés par la suite du traitement dans les secondes qui suivent)."""
     try:
@@ -1770,6 +1770,9 @@ async def _alexa_si_non_relaye(message_id: Optional[str], phrase: str) -> None:
         if d and (d.get("relaye_a") or d.get("assistant_plateforme")):
             return
         _alexa_notify_async("wa_inbound", phrase)
+        # Lot 375 — automations vocales « à l'arrivée d'un message WhatsApp » (page Automations, accessibles au Superviseur)
+        from services.rappels_vocaux import declencher_evenement
+        await declencher_evenement(db, "message_whatsapp", {"expediteur": expediteur, "message": (texte or "")[:80]})
     except Exception:  # noqa: BLE001 — l'annonce vocale ne bloque et ne casse jamais rien
         logger.warning("[alexa] annonce WhatsApp non envoyée", exc_info=True)
 
@@ -2469,7 +2472,8 @@ async def whatsapp_webhook_incoming(request: Request):
                     if not _sur_ligne_dediee:
                         import asyncio as _aio_alexa
                         _aio_alexa.create_task(_alexa_si_non_relaye(
-                            doc.get("id"), f"Nouveau WhatsApp reçu de {profile_name or from_num}"))
+                            doc.get("id"), f"Nouveau WhatsApp reçu de {profile_name or from_num}",
+                            expediteur=str(profile_name or from_num or ""), texte=str(text_body or "")))
                     # Persist the latest profile name on the contact (or create a
                     # "wa_unmapped" record so the admin can review and import it).
                     if profile_name:

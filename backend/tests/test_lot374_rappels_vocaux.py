@@ -1,4 +1,4 @@
-"""Lot 374 — rappels vocaux programmés sur Alexa : validation, prochaine occurrence, exécution à l'heure dite, API.
+"""Lots 374 / 375 — automations vocales sur Alexa : rappels programmés, rendez-vous qui approchent, messages WhatsApp ; validation, exécution, API.
 Sans réseau ni vraie base (mongomock_motor) ; l'annonce Alexa est simulée.
 Lancer : cd backend && python -m pytest tests/test_lot374_rappels_vocaux.py -q
 """
@@ -151,3 +151,101 @@ def test_api_reservee_aux_administrateurs_programmer_lister_supprimer():
     assert c.delete("/api/admin/rappels-vocaux/inconnu").status_code == 404
     utilisateur["role"] = "client"
     assert c.get("/api/admin/rappels-vocaux").status_code == 403
+
+
+# ---------------------------------------------------------------------------- lot 375 : rendez-vous, messages WhatsApp, activation, test
+
+def test_phrase_avec_variables_et_validation_des_declencheurs():
+    assert rv.rendre("RDV {rdv_objet} à {rdv_heure} {inconnue}", {"rdv_objet": "Consultation", "rdv_heure": "09:30"}) == "RDV Consultation à 09:30"
+    ok = rv.valider_rappel({"declencheur": "rendez_vous", "texte": "Rendez-vous dans 30 minutes", "minutes_avant": "30"}, MAINTENANT)
+    assert ok["declencheur"] == "rendez_vous" and ok["minutes_avant"] == 30 and ok["quand"] is None
+    assert rv.valider_rappel({"declencheur": "message_whatsapp", "texte": "Nouveau message de {expediteur}"}, MAINTENANT)["declencheur"] == "message_whatsapp"
+    for mauvais, message in [({"declencheur": "rendez_vous", "texte": "x"}, "minutes"),
+                             ({"declencheur": "rendez_vous", "texte": "x", "minutes_avant": 5000}, "entre 1 et"),
+                             ({"declencheur": "autre", "texte": "x"}, "Déclencheur inconnu")]:
+        with pytest.raises(ValueError, match=message):
+            rv.valider_rappel(mauvais, MAINTENANT)
+
+
+def test_rendez_vous_annonce_une_seule_fois_avant_l_heure_et_seulement_si_regle_active():
+    async def scenario():
+        db = _db()
+        dit = []
+
+        async def annoncer(texte):
+            dit.append(texte)
+            return True, ""
+        regle = await rv.ajouter(db, {"declencheur": "rendez_vous", "texte": "Rendez-vous {rdv_objet} à {rdv_heure}", "minutes_avant": 30})
+        t = datetime(2026, 11, 13, 9, 0, tzinfo=UTC)
+        await db.appointments.insert_many([
+            {"id": "a1", "scheduled_at": (t + timedelta(minutes=20)).isoformat(), "subject": "Consultation", "status": "confirmed"},
+            {"id": "a2", "scheduled_at": (t + timedelta(minutes=90)).isoformat(), "subject": "Plus tard", "status": "confirmed"},
+            {"id": "a3", "scheduled_at": (t + timedelta(minutes=10)).isoformat(), "subject": "Annulé", "status": "cancelled"},
+        ])
+        assert await rv.executer_rendez_vous(db, t, annoncer) == 1
+        assert dit == ["Rendez-vous Consultation à 09:20"]
+        assert await rv.executer_rendez_vous(db, t + timedelta(minutes=1), annoncer) == 0            # jamais deux fois
+        assert await rv.executer_rendez_vous(db, t + timedelta(minutes=65), annoncer) == 1            # a2 entre dans la fenêtre plus tard
+        assert dit[-1] == "Rendez-vous Plus tard à 10:30"
+        assert await rv.basculer(db, regle["id"], False)
+        await db.appointments.insert_one({"id": "a4", "scheduled_at": (t + timedelta(minutes=100)).isoformat(), "subject": "x", "status": "confirmed"})
+        assert await rv.executer_rendez_vous(db, t + timedelta(minutes=80), annoncer) == 0           # règle désactivée
+        (r,) = await rv.lister(db)
+        assert r["nb_declenchements"] == 2 and r["actif"] is False
+    asyncio.run(scenario())
+
+
+def test_message_whatsapp_declenche_les_regles_actives_avec_expediteur_et_message():
+    async def scenario():
+        db = _db()
+        dit = []
+
+        async def annoncer(texte):
+            dit.append(texte)
+            return True, ""
+        a = await rv.ajouter(db, {"declencheur": "message_whatsapp", "texte": "Message de {expediteur} : {message}"})
+        b = await rv.ajouter(db, {"declencheur": "message_whatsapp", "texte": "Deuxième règle"})
+        await rv.basculer(db, b["id"], False)
+        assert await rv.declencher_evenement(db, "message_whatsapp", {"expediteur": "Awa", "message": "Bonjour"}, annoncer) == 1
+        assert dit == ["Message de Awa : Bonjour"]
+        # un événement d'un autre type ne déclenche rien
+        assert await rv.declencher_evenement(db, "rendez_vous", {}, annoncer) == 0
+        (ra, rb) = sorted(await rv.lister(db), key=lambda r: r["id"] != a["id"])
+        assert ra["nb_declenchements"] == 1 and rb["nb_declenchements"] == 0
+    asyncio.run(scenario())
+
+
+def test_tester_une_regle_annonce_la_phrase_avec_des_exemples():
+    async def scenario():
+        db = _db()
+        dit = []
+
+        async def annoncer(texte):
+            dit.append(texte)
+            return True, ""
+        r = await rv.ajouter(db, {"declencheur": "message_whatsapp", "texte": "Message de {expediteur}"})
+        assert await rv.tester(db, r["id"], annoncer) == (True, "", "Message de Awa Badini")
+        with pytest.raises(KeyError):
+            await rv.tester(db, "inconnu", annoncer)
+    asyncio.run(scenario())
+
+
+def test_api_creer_regle_rendez_vous_activer_et_tester():
+    db = _db()
+    utilisateur = {"role": "superviseur", "id": "u2", "email": "sup@test"}              # le Superviseur y a accès
+    from routes.rappels_vocaux import setup_rappels_vocaux_routes
+    routeur = APIRouter(prefix="/api")
+    setup_rappels_vocaux_routes(app=routeur, db=db, get_current_user=lambda: utilisateur)
+    app = FastAPI()
+    app.include_router(routeur)
+    c = TestClient(app)
+    r = c.post("/api/admin/rappels-vocaux", json={"declencheur": "rendez_vous", "texte": "Rendez-vous dans {rdv_heure}", "minutes_avant": 15})
+    assert r.status_code == 200 and r.json()["statut"] == "actif"
+    infos = c.get("/api/admin/rappels-vocaux").json()
+    assert set(infos["declencheurs"]) == {"date", "rendez_vous", "message_whatsapp"} and "rdv_heure" in infos["jetons"]["rendez_vous"]
+    rid = r.json()["id"]
+    assert c.put(f"/api/admin/rappels-vocaux/{rid}", json={"actif": False}).status_code == 200
+    assert c.get("/api/admin/rappels-vocaux").json()["rappels"][0]["actif"] is False
+    assert c.put("/api/admin/rappels-vocaux/inconnu", json={"actif": True}).status_code == 404
+    assert c.post(f"/api/admin/rappels-vocaux/{rid}/tester").status_code == 502                # Alexa non configurée : motif renvoyé
+    assert c.post("/api/admin/rappels-vocaux/inconnu/tester").status_code == 404

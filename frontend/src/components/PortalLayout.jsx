@@ -64,6 +64,8 @@ const clientLinks = [
   // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
   // Lot 70 — agenda d'appels de Liluvine (superviseurs ; l'administrateur l'a dans son menu)
+  // Lot 375 — automations vocales Alexa (rappel, rendez-vous, message) : administrateur et Superviseur
+  { to: "/portal/automations-vocales", label: "Automations vocales (Alexa)", icon: Zap, adminOrSup: true },
   { to: "/portal/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, adminOrSup: true, groupe: "liluvine", partage: "agenda" },
   // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
   { to: "/portal/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, adminOrSup: true, groupe: "liluvine", partage: "bloques" },

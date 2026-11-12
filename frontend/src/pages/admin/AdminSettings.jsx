@@ -130,7 +130,7 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
-  "🔔 Rappels vocaux Alexa (annonces programmées)": "374",   // lot 374
+  "🔔 Rappels vocaux Alexa (annonces programmées)": "375",   // lot 374 ; lot 375 : déplacé dans la page Automations (état ici)
   "🖐️ Agent biométrique Loois (postes partagés)": "370",   // lot 370 : agent biométrique Loois pour les postes partagés
   "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
   "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
@@ -201,7 +201,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
-  "🔔 Rappels vocaux Alexa (annonces programmées)": "2026-11-13",   // lot 374
+  "🔔 Rappels vocaux Alexa (annonces programmées)": "2026-11-12",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "2026-11-04",   // lot 370
   "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
   "📲 Application Android d'administration": "2026-10-18",   // lot 243
@@ -316,7 +316,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
-  "🔔 Rappels vocaux Alexa (annonces programmées)": "Une phrase, une date et une heure (GMT) : Alexa l'annonce à voix haute à l'heure dite (lot 374).",   // lot 374
+  "🔔 Rappels vocaux Alexa (annonces programmées)": "Alexa annonce une phrase à une date, avant un rendez-vous ou à l'arrivée d'un message ; programmation et tests dans la page Automations (lot 375).",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "Connexion d'un doigt sur un poste partagé : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés, activation (lot 370).",
   "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
   "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",

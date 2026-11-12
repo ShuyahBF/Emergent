@@ -511,7 +511,11 @@ export function versPayloadLigne(l) {
 
 /** Message lisible d'une erreur API (422 détaillé {message, erreurs[]} ou texte simple). */
 export function messageErreurApi(err, defaut = "Erreur inconnue.") {
-  const detail = err?.response?.data?.detail;
+  // Lot 373.1 : pour une requête en responseType « text » (rapport HTML), le corps d'erreur arrive en TEXTE brut :
+  // on le relit en JSON pour retrouver le motif au lieu d'afficher « Request failed with status code 502 ».
+  let corps = err?.response?.data;
+  if (typeof corps === "string") { try { corps = JSON.parse(corps); } catch { corps = null; } }
+  const detail = corps?.detail;
   if (!detail) return err?.message || defaut;
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) return detail.map((d) => d.msg || String(d)).join(" ; ");

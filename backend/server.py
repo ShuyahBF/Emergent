@@ -220,6 +220,10 @@ def _alexa_notify_async(event_type: str, message: str) -> None:
     _alexa_notify_async_impl(db, event_type, message)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# Lot 373.1 : httpx écrit l'URL complète de chaque appel au niveau INFO, clés d'API comprises (ex. app_key de VIDAL en paramètre de requête) :
+# on le remonte à WARNING pour qu'aucune clé n'apparaisse plus dans les journaux (les erreurs restent journalisées).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 # Lot 78.2 — aucun jeton (access_token=…, input_token=…) en clair dans les journaux
 import masque_jetons as _masque_jetons  # noqa: E402
 _masque_jetons.installer()

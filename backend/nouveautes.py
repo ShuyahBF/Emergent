@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "373.1", "date": "2026-11-12",
+        "titre": "💊 VIDAL : rapport HTML complet rétabli",
+        "description": "Le Rapport de sécurisation VIDAL (HTML) s'ouvre de nouveau (VIDAL refusait la demande) ; un motif d'erreur clair s'affiche, et les clés d'API ne figurent plus dans les journaux du serveur.",
+        "rubrique": "💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)",
+    },
+    {
         "lot": "373", "date": "2026-11-11",
         "titre": "🛡️ Sécurité des postes clients",
         "description": "Alertes du service Windows Loois : nouveaux logiciels, programmes inconnus, port HFSQL occupé, clés USB ; vous seul approuvez (onglet Loois › Synchro › Sécurité des postes).",

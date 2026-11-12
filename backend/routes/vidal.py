@@ -730,12 +730,17 @@ async def _vidal_call(
                 # Iter43-fix24y — Sécurisation prescriptions VIDAL utilise POST
                 # avec Content-Type: text/xml et un body XML. Si l'appelant
                 # passe `body` en tant que `str`, on l'envoie tel quel comme XML.
+                # Lot 373.1 (12/11/2026) — le rapport « /alerts/full/html » est un document HTML : avec l'en-tête Accept
+                # XML seul, VIDAL répondait « 406 Not Acceptable » (rapport HTML complet impossible à ouvrir, 502 côté portail).
+                # Les chemins qui se terminent par « /html » demandent donc du HTML ; tous les autres restent en Atom/XML.
+                accept = ("text/html, application/xhtml+xml, */*;q=0.5"
+                          if path.rstrip("/").lower().endswith("/html") else "application/atom+xml, application/xml")
                 r = await client.post(
                     url,
                     params=qp,
                     content=body.encode("utf-8"),
                     headers={
-                        "Accept": "application/atom+xml, application/xml",
+                        "Accept": accept,
                         "Content-Type": "text/xml; charset=utf-8",
                     },
                 )

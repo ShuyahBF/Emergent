@@ -36,6 +36,8 @@ export default function VidalMedicationSearch({
   disabled = false,
   forme = null,
   rechercheAutomatique = false,
+  typeRecherche = null,        // lot 378 : "package" | "vmp" | "ucd" -> recherche par nom de cet élément (null = spécialité)
+  pastille = "SPECIALITE",     // type de pastille de couleur affichée devant chaque résultat
 }) {
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
@@ -69,7 +71,9 @@ export default function VidalMedicationSearch({
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await apiClient.get("/vidal/search/parsed", { params: { q, forme: forme || undefined } });
+        const r = typeRecherche
+          ? await apiClient.get(`/vidal/recherche-element/${typeRecherche}`, { params: { q } })   // lot 378
+          : await apiClient.get("/vidal/search/parsed", { params: { q, forme: forme || undefined } });
         if (requestIdRef.current !== myRequestId) return; // réponse obsolète
         setRefus("");
         setResults(r.data?.results || []);
@@ -144,7 +148,7 @@ export default function VidalMedicationSearch({
                 data-testid={`${testId}-result-${i}`}
               >
                 <span className="truncate text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5">
-                  <Pastille type="SPECIALITE" />
+                  <Pastille type={pastille} />
                   {highlightMatch(item.title, query)}
                   {item.galenic_form ? <span className="text-slate-400"> — {item.galenic_form}</span> : null}
                 </span>

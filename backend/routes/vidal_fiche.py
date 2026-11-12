@@ -218,6 +218,29 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         results = parser_entrees_atom((data or {}).get("raw"))
         return {"query": q, "forme": forme, "results": _filtrer_par_forme(results, forme), "source": "temps_reel"}
 
+    # Lot 378 (remarque VIDAL n°8) — recherche PAR NOM d'une présentation, d'un VMP ou d'une UCD (collections /packages, /vmps, /ucds de l'API
+    # REST VIDAL). Si la collection dédiée est refusée, repli sur /products?filter=<type>. Même forme de réponse que /vidal/search/parsed.
+    COLLECTION_PAR_TYPE = {"package": "/packages", "vmp": "/vmps", "ucd": "/ucds"}
+
+    @api.get("/vidal/recherche-element/{type_element}", tags=["VIDAL"])
+    async def rechercher_element(
+        type_element: str, q: str = Query(..., min_length=2), user: dict = Depends(get_current_user),
+    ):
+        if type_element not in COLLECTION_PAR_TYPE:
+            raise HTTPException(status_code=400, detail="Type d'élément non valide (package, vmp ou ucd).")
+        cfg = await _ensure_tenant_can_access(db, user)
+        _ensure_active(cfg)
+        await _quota_check_and_increment(db, user["id"], cfg)
+        from vidal_v2.parseurs import parser_entrees_atom
+        chemin = COLLECTION_PAR_TYPE[type_element]
+        data = await _call_and_log(cfg, "GET", chemin, {"q": q}, user.get("email"))
+        if isinstance(data, dict) and data.get("_error"):
+            # Repli : la recherche générale filtrée sur le type.
+            data = await _call_and_log(cfg, "GET", "/products", {"q": q, "filter": type_element}, user.get("email"))
+        if isinstance(data, dict) and data.get("_error"):
+            raise HTTPException(status_code=502, detail="VIDAL n'a pas retourné de résultat pour cette recherche.")
+        return {"query": q, "type": type_element, "results": parser_entrees_atom((data or {}).get("raw")), "source": "temps_reel"}
+
     # ---- Fiche produit : voies d'administration + documents + vmp_id ----
     @api.get("/vidal/product/{product_id}/detail", tags=["VIDAL"])
     async def product_detail(product_id: str, user: dict = Depends(get_current_user)):

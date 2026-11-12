@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "378", "date": "2026-11-13",
+        "titre": "💊 VIDAL : recherche par nom (VMP, UCD, présentation) et schéma de prise sur l'ordonnance",
+        "description": "Dans Posologie, recherche par nom d'une présentation, d'un VMP ou d'une UCD (l'identifiant reste possible) ; le schéma de prise détaillé (paliers, moments de la journée, repas) est imprimé sur l'ordonnance PDF.",
+        "rubrique": "💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)",
+    },
+    {
         "lot": "377", "date": "2026-11-13",
         "titre": "💊 VIDAL : posologies proposées et schémas de prise complexes (2e série)",
         "description": "Posologies proposées par VIDAL (alerte, jamais un blocage, si âge, sexe ou poids manquent) ; schéma de prise par paliers (matin / midi / soir, avant ou après repas) ; posologies dégressives et progressives, la dose la plus élevée étant transmise à VIDAL.",

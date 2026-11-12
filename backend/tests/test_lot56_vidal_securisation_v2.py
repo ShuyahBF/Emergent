@@ -553,6 +553,8 @@ def test_endpoint_rapport_html(ctx):
     r = ctx.client.post("/api/vidal/securisation/rapport-html", json={"patient": {"gender": "MALE"}, "new_prescription_lines": [LIGNE]})
     assert r.status_code == 200 and "menu_posology" in r.text and r.headers["content-type"].startswith("text/html")
     corps = ctx.appels[0].content.decode()
+    # Lot 373.1 : le rapport est du HTML, VIDAL répond « 406 Not Acceptable » si l'en-tête Accept ne l'admet pas
+    assert "text/html" in ctx.appels[0].headers["accept"]
     assert "alert-types" not in corps and "alert-display-types" not in corps  # rapport exhaustif
     ctx.client.post("/api/vidal/securisation/rapport-html", json={"patient": {}, "new_prescription_lines": [LIGNE], "alert_display_types": ["POSOLOGY", "ALLERGY"]})
     assert ("<alert-display-types><alert-display-type>POSOLOGY</alert-display-type><alert-display-type>ALLERGY</alert-display-type>"

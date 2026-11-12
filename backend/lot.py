@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "373"
-LOT_LIBELLE = "Sécurité des postes clients : alertes du service Windows Loois (nouveaux logiciels, programmes inconnus, port HFSQL occupé, clés USB) reçues et approuvées par le propriétaire (Plateformes › Loois › Synchro › Sécurité des postes)."
+LOT = "373.1"
+LOT_LIBELLE = "VIDAL : le rapport de sécurisation HTML complet s'ouvre de nouveau (VIDAL refusait la requête, 406) ; les clés d'API n'apparaissent plus dans les journaux du serveur."

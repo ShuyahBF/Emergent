@@ -93,7 +93,7 @@ export default function AdminTransactionsSms() {
   const [selection, setSelection] = useState(null);
   const [nomTel, setNomTel] = useState("");
   const [cleAffichee, setCleAffichee] = useState(null);       // { id, cle } montrée UNE SEULE FOIS
-  const [lien, setLien] = useState({ cle: "", plateforme: "", client_id: "", libelle: "" });
+  const [lien, setLien] = useState({ cle: "", pays: "226", plateforme: "", client_id: "", libelle: "" });
   const [suggestions, setSuggestions] = useState([]);       // payeurs de numéro connu (client de SAWALI) pas encore associés
 
   const erreur = (e) => toast.error(e?.response?.data?.detail || "Action impossible");
@@ -123,7 +123,7 @@ export default function AdminTransactionsSms() {
 
   const creerTel = async () => { try { const { data } = await apiClient.post("/admin/transactions-sms/sources", { nom: nomTel }); setCleAffichee(data); setNomTel(""); chargerEtat(); } catch (e) { erreur(e); } };
   const retirerTel = async (s) => { if (window.confirm(`Retirer « ${s.nom} » ? Il ne pourra plus envoyer (les transactions reçues sont conservées).`)) { try { await apiClient.delete(`/admin/transactions-sms/sources/${s.id}`); chargerEtat(); } catch (e) { erreur(e); } } };
-  const creerLien = async () => { try { await apiClient.post("/admin/transactions-sms/liens", lien); setLien({ cle: "", plateforme: lien.plateforme, client_id: "", libelle: "" }); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
+  const creerLien = async () => { try { await apiClient.post("/admin/transactions-sms/liens", lien); setLien({ cle: "", pays: lien.pays, plateforme: lien.plateforme, client_id: "", libelle: "" }); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
   const associerSuggestion = async (x) => { try { await apiClient.post("/admin/transactions-sms/liens", { cle: x.numero, client_id: x.client_id }); await chargerEtat(); charger(nb); toast.success(`Numéro associé à ${x.client_nom}`); } catch (e) { erreur(e); } };
   const retirerLien = async (l) => { try { await apiClient.delete(`/admin/transactions-sms/liens/${l.id}`); await chargerEtat(); charger(nb); } catch (e) { erreur(e); } };
   const exporter = async () => {
@@ -166,7 +166,7 @@ export default function AdminTransactionsSms() {
             <option value="">Toutes</option><option value="*lie">Associées à une plateforme</option><option value="*non_lie">Non associées</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}
             {clientsAssocies.map((c) => <option key={c.id} value={`client:${c.id}`}>Client : {c.nom}</option>)}</select></label>
           <label className="text-sm sm:col-span-2 lg:col-span-3">Bénéficiaire, numéro, transaction ou texte du SMS
-            <input className={select} value={recherche} placeholder="Ex. : pharmacie, 70 11 22 33, MP261113" onChange={(e) => setRecherche(e.target.value)} /></label>
+            <input className={select} value={recherche} placeholder="Ex. : pharmacie, +226 70 11 22 33, MP261113" onChange={(e) => setRecherche(e.target.value)} /></label>
         </div>
         <div className="boutons-distincts flex flex-wrap gap-2">
           <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={() => { chargerEtat(); charger(nb); }}>↻ Actualiser</button>
@@ -249,7 +249,7 @@ export default function AdminTransactionsSms() {
                 <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className="cursor-pointer border-t border-slate-100" onClick={() => setSelection(`${p.ms}-${i}`)}>
                   <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}</td><td className="p-2">{p.operateur}</td>
                   <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
-                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero} <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero })); }}>⛓</button></>) : "—"}</td>
+                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}>⛓</button></>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
                   <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>))}</tbody>
             </table>
@@ -261,18 +261,19 @@ export default function AdminTransactionsSms() {
       {/* Associer un numéro (ou un nom) à une plateforme : celle-ci retrouve ses paiements sans les ressaisir */}
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="liens">
         <h2 className="text-lg font-bold">Associer un numéro à un client ou à une plateforme</h2>
-        <p className="text-sm text-slate-600">Le numéro (8 chiffres, lu dans le SMS) ou le nom du payeur est lié à un CLIENT de SAWALI (liste « Clients ») et / ou à une PLATEFORME (ALBARKA…). Une plateforme liée à un client (fiche de l'émetteur) retrouve les paiements des numéros de ce client sans les ressaisir (ex. Services Web d'ALBARKA) ; elle ne voit jamais le texte des SMS.</p>
+        <p className="text-sm text-slate-600">Le numéro (avec ou sans indicatif : choisissez le pays, ou écrivez « +indicatif » dans le champ) ou le nom du payeur est lié à un CLIENT de SAWALI (liste « Clients ») et / ou à une PLATEFORME (ALBARKA…). Une plateforme liée à un client (fiche de l'émetteur) retrouve les paiements des numéros de ce client sans les ressaisir (ex. Services Web d'ALBARKA) ; elle ne voit jamais le texte des SMS.</p>
         {suggestions.length > 0 && (
           <div className="space-y-2 rounded-lg border border-sky-300 bg-sky-50 p-3" data-testid="suggestions">
             <div className="text-sm font-semibold">Payeurs de numéro connu, pas encore associés</div>
             <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro</th><th className="p-2">Client de SAWALI</th><th className="p-2 text-right">Paiements</th><th className="p-2 text-right">Reçu (FCFA)</th><th className="p-2" /></tr></thead>
-              <tbody>{suggestions.map((x) => (<tr key={x.numero + x.client_id} className="border-t border-sky-100"><td className="p-2 font-mono text-xs">{x.numero}</td><td className="p-2">{x.client_nom}</td>
+              <tbody>{suggestions.map((x) => (<tr key={x.numero + x.client_id} className="border-t border-sky-100"><td className="p-2 font-mono text-xs">{x.numero_affiche || x.numero}</td><td className="p-2">{x.client_nom}</td>
                 <td className="p-2 text-right tabular-nums">{x.nombre}</td><td className="p-2 text-right tabular-nums">{Number(x.total).toLocaleString("fr-FR")}</td>
                 <td className="p-2 text-right"><button type="button" className="underline" onClick={() => associerSuggestion(x)}>Associer à ce client</button></td></tr>))}</tbody></table>
           </div>
         )}
-        <div className="grid gap-3 md:grid-cols-5">
-          <label className="text-sm">Numéro ou nom<input className={select} value={lien.cle} placeholder="70 11 22 33" onChange={(e) => setLien({ ...lien, cle: e.target.value })} data-testid="lien-cle" /></label>
+        <div className="grid gap-3 md:grid-cols-6">
+          <label className="text-sm">Pays (indicatif)<select className={select} value={lien.pays} onChange={(e) => setLien({ ...lien, pays: e.target.value })} data-testid="lien-pays">{etat.pays.map((x) => <option key={x.code} value={x.ind}>{x.nom} (+{x.ind})</option>)}</select></label>
+          <label className="text-sm">Numéro ou nom<input className={select} value={lien.cle} placeholder="70 11 22 33 ou +33 6 12 34 56 78" onChange={(e) => setLien({ ...lien, cle: e.target.value })} data-testid="lien-cle" /></label>
           <label className="text-sm">Client de SAWALI<select className={select} value={lien.client_id} onChange={(e) => setLien({ ...lien, client_id: e.target.value })} data-testid="lien-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></label>
           <label className="text-sm">Plateforme<select className={select} value={lien.plateforme} onChange={(e) => setLien({ ...lien, plateforme: e.target.value })} data-testid="lien-plateforme"><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></label>
           <label className="text-sm">Libellé (facultatif)<input className={select} value={lien.libelle} placeholder="Ex. Cabinet Dr BADINI" onChange={(e) => setLien({ ...lien, libelle: e.target.value })} /></label>
@@ -280,7 +281,7 @@ export default function AdminTransactionsSms() {
         </div>
         {etat.liens.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro / nom</th><th className="p-2">Client de SAWALI</th><th className="p-2">Plateforme</th><th className="p-2">Libellé</th><th className="p-2" /></tr></thead>
-            <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle}</td><td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
+            <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td><td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
               <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerLien(l)}>Retirer</button></td></tr>))}</tbody></table>
         )}
       </section>

@@ -278,6 +278,9 @@ from routes.officines_portal import make_get_current_officine as _make_gco_paiem
 from auth import JWT_SECRET as _JWT_SECRET_PAY, JWT_ALGORITHM as _JWT_ALGO_PAY  # noqa: E402
 _setup_paiement_officine(db=db, api=api, get_current_user=get_current_user,
                          get_current_officine=_make_gco_paiement(db=db, jwt_secret=_JWT_SECRET_PAY, jwt_algorithm=_JWT_ALGO_PAY))
+# Lot 387 — présence et parcours par balises Bluetooth (cas 3 : badges des visiteurs, récepteurs fixes, contrat v1)
+from routes.presence_balises import setup_presence_balises_routes as _setup_presence_balises  # noqa: E402
+_setup_presence_balises(db=db, api=api, get_current_user=get_current_user)
 # Lot 138 — nom de profil WhatsApp d'un numéro, lu (signé) par une plateforme : POST /api/webhook/plateforme-profils-wa
 from routes.profils_wa import setup_profils_wa_routes as _setup_profils_wa  # noqa: E402
 _setup_profils_wa(db=db, api=api)

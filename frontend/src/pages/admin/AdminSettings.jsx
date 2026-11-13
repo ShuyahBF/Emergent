@@ -36,6 +36,7 @@ import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection"
 import ApplicationAndroidSection from "@/pages/admin/sections/ApplicationAndroidSection";   // Lot 243
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
+import DemandesPlateformesSection from "@/pages/admin/sections/DemandesPlateformesSection";   // Lot 384
 import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
 import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSection";   // Lot 88
 import PostesSansCleSection from "@/pages/admin/sections/PostesSansCleSection";   // Lot 89
@@ -161,6 +162,7 @@ const NEW_LOTS = {
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
+  "📮 Demandes des plateformes": "384",   // lot 384 : demandes des plateformes (ALBARKA…), numéro et suivi
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
@@ -233,6 +235,7 @@ const NEW_SECTIONS = {
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
+  "📮 Demandes des plateformes": "2026-11-14",   // lot 384
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
@@ -1747,6 +1750,11 @@ export default function AdminSettings() {
       {/* Lot 86 — requêtes des clients : état du module et lien vers l'écran de traitement */}
       <Filterable title="🧾 Requêtes des clients" anchorId="s-requetes-clients" category="modules">
         <RequetesClientsSection />
+      </Filterable>
+
+      {/* Lot 384 — demandes des plateformes clientes (ALBARKA…) : numéro DEM-…, statut, commentaire, date */}
+      <Filterable title="📮 Demandes des plateformes" anchorId="s-demandes-plateformes" category="modules">
+        <DemandesPlateformesSection />
       </Filterable>
 
       {/* Lot 81 — contrats des plateformes clientes (état, montant dû) et lien vers « Plateformes en temps réel » */}

@@ -87,6 +87,7 @@ import AdminControleDistance from "@/pages/admin/AdminControleDistance";   // Lo
 import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
 import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
 import AdminSyntheseSupport from "@/pages/admin/AdminSyntheseSupport";   // Lot 92 : synthèse du support
+import AdminTransactionsSms from "@/pages/admin/AdminTransactionsSms";   // Lot 389 : transactions SMS (administrateur)
 import AdminLieuxBalises from "@/pages/admin/AdminLieuxBalises";   // Lot 388 : lieux « Vous êtes ici » (administrateur + superviseur)
 import LieuBalise from "@/pages/public/LieuBalise";   // Lot 388 : page publique d'un lieu
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
@@ -537,6 +538,7 @@ export default function App() {
             <Route path="evaluations-loois" element={<AdminEvaluationsLoois />} />
             <Route path="synthese-support" element={<AdminSyntheseSupport />} />
             <Route path="lieux-balises" element={<AdminLieuxBalises />} />   {/* lot 388 */}
+            <Route path="transactions-sms" element={<AdminTransactionsSms />} />   {/* lot 389 */}
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
             {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}

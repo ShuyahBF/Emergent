@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "389", "date": "2026-11-14",
+        "titre": "💬 Transactions SMS : les paiements lus dans les SMS d'un téléphone, avec filtres et statistiques",
+        "description": "Nouvelle option de menu « Transactions SMS » (administrateur) : mêmes filtres que l'historique d'auRor, et association d'un numéro à une plateforme (ALBARKA) pour retrouver ses paiements sans les ressaisir.",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "388", "date": "2026-11-14",
         "titre": "📍 « Vous êtes ici » : une page publique par lieu, ouverte par QR code",
         "description": "Le superviseur crée un lieu (rayon, couloir, salle), écrit ce que le visiteur y trouve et imprime le QR code ; les visites sont comptées (QR ou application).",

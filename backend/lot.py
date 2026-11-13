@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "384"
-LOT_LIBELLE = "Demandes des plateformes : ALBARKA remonte ses corrections et nouveautés, SAWALI attribue un numéro DEM-… et retourne statut, commentaire et date."
+LOT = "385"
+LOT_LIBELLE = "Demandes des plateformes : modification et suppression par la plateforme tant que SAWALI n'a pas validé (réalisée ou refusée)."

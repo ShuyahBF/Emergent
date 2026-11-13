@@ -63,6 +63,11 @@ def vue_pour_plateforme(d: Dict[str, Any]) -> Dict[str, Any]:
             "commentaire": d.get("commentaire"), "realisee_le": d.get("realisee_le"), "prevue_le": d.get("prevue_le")}
 
 
+def modifiable(demande: Dict[str, Any]) -> bool:
+    """Une demande reste modifiable / supprimable par la plateforme tant que SAWALI ne l'a pas VALIDÉE (réalisée ou refusée)."""
+    return (demande.get("statut") or "remontee") == "remontee"
+
+
 def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any]:
     """Champs à enregistrer quand l'administrateur traite une demande ; ValueError (message lisible) si incohérent."""
     statut = corps.get("statut")
@@ -119,6 +124,26 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
         except ValueError:
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         existantes = emetteur.get("demandes") or []
+        refus: List[Dict[str, Any]] = []
+        # Lot 385 : modifications et suppressions demandées par la plateforme, acceptées seulement si SAWALI n'a pas encore validé
+        for m in nettoyer_envoi((donnees or {}).get("modifications")):
+            cible = next((d for d in existantes if d.get("ref_locale") == m["ref_locale"]), None)
+            if cible is None or not modifiable(cible):
+                refus.append({"ref_locale": m["ref_locale"], "motif": "Demande introuvable ou déjà validée par SAWALI"})
+                continue
+            await db.liluvine_emetteurs.update_one({"code": code, "demandes.ref_locale": m["ref_locale"]},
+                                                   {"$set": {"demandes.$.texte": m["texte"], "demandes.$.type": m["type"],
+                                                             "demandes.$.modifiee_le": datetime.now(timezone.utc).isoformat()}})
+            cible["texte"], cible["type"] = m["texte"], m["type"]
+        for ref in [str(r).strip()[:80] for r in ((donnees or {}).get("suppressions") or [])[:MAX_PAR_ENVOI]]:
+            cible = next((d for d in existantes if d.get("ref_locale") == ref), None)
+            if cible is None:
+                continue                                   # déjà supprimée : rien à faire
+            if not modifiable(cible):
+                refus.append({"ref_locale": ref, "motif": "Demande déjà validée par SAWALI : suppression impossible"})
+                continue
+            await db.liluvine_emetteurs.update_one({"code": code}, {"$pull": {"demandes": {"ref_locale": ref}}})
+            existantes = [d for d in existantes if d.get("ref_locale") != ref]
         deja = {d.get("ref_locale") for d in existantes}
         nouvelles = [d for d in nettoyer_envoi((donnees or {}).get("demandes")) if d["ref_locale"] not in deja]
         if nouvelles:
@@ -131,7 +156,7 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
                       "commentaire": None, "realisee_le": None, "prevue_le": None} for i, d in enumerate(nouvelles)]
             await db.liluvine_emetteurs.update_one({"code": code}, {"$push": {"demandes": {"$each": ajout}}})
             existantes = existantes + ajout
-        return {"demandes": [vue_pour_plateforme(d) for d in existantes]}
+        return {"demandes": [vue_pour_plateforme(d) for d in existantes], "refus": refus}
 
     @api.get("/admin/plateformes/demandes", tags=["Plateformes — demandes"])
     async def lister(q: str = "", user: dict = Depends(get_current_user)):

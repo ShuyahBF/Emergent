@@ -88,3 +88,27 @@ def test_parcours_complet():
     # Recherche côté SAWALI, refusées comprises
     assert [x["numero"] for x in c.get("/api/admin/plateformes/demandes", params={"q": "hors périmètre"}).json()["demandes"]] == ["DEM-ALBARKA-0002"]
     assert len(c.get("/api/admin/plateformes/demandes").json()["demandes"]) == 3
+
+
+def test_modification_et_suppression_tant_que_non_validee():
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot385"]
+    asyncio.get_event_loop().run_until_complete(db.liluvine_emetteurs.insert_one(
+        {"code": "albarka", "nom": "ALBARKA", "secret": "cle-albarka", "actif": True}))
+    role = {"v": "admin"}
+    app, api = FastAPI(), APIRouter(prefix="/api")
+    dp.setup_demandes_plateformes_routes(db=db, api=api, get_current_user=lambda: {"role": role["v"]})
+    app.include_router(api)
+    c = TestClient(app)
+    _appel(c, [{"ref_locale": "a", "type": "correction", "texte": "Texte A"}, {"ref_locale": "b", "type": "nouveaute", "texte": "Texte B"},
+               {"ref_locale": "c", "type": "correction", "texte": "Texte C"}])
+    c.put("/api/admin/plateformes/albarka/demandes/DEM-ALBARKA-0002", json={"statut": "realisee"})            # B validée par SAWALI
+    corps = json.dumps({"demandes": [], "modifications": [{"ref_locale": "a", "type": "nouveaute", "texte": "Texte A modifié"},
+                                                          {"ref_locale": "b", "type": "correction", "texte": "Texte B modifié"}],
+                        "suppressions": ["c", "b", "inconnue"]}, ensure_ascii=False).encode()
+    r = c.post("/api/webhook/plateforme-demandes", content=corps, headers=_signer("cle-albarka", corps)).json()
+    # A modifiée ; B (validée) refusée pour la modification ET la suppression ; C supprimée ; l'inconnue ignorée
+    assert {d["ref_locale"] for d in r["demandes"]} == {"a", "b"}
+    assert sorted(x["ref_locale"] for x in r["refus"]) == ["b", "b"]
+    restantes = {x["numero"]: x for x in c.get("/api/admin/plateformes/demandes").json()["demandes"]}
+    assert restantes["DEM-ALBARKA-0001"]["texte"] == "Texte A modifié" and restantes["DEM-ALBARKA-0001"]["type"] == "nouveaute"
+    assert restantes["DEM-ALBARKA-0002"]["texte"] == "Texte B" and "DEM-ALBARKA-0003" not in restantes

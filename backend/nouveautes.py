@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "385", "date": "2026-11-14",
+        "titre": "📮 Demandes des plateformes : modification et suppression tant que non validées",
+        "description": "ALBARKA peut modifier ou supprimer une demande remontée tant que vous ne l'avez pas validée (réalisée ou refusée) ; après validation, SAWALI la garde telle quelle.",
+        "rubrique": "📮 Demandes des plateformes",
+    },
+    {
         "lot": "384", "date": "2026-11-14",
         "titre": "📮 Demandes des plateformes : numéro et suivi des corrections et nouveautés demandées par ALBARKA",
         "description": "ALBARKA remonte ses demandes ; SAWALI leur attribue un numéro DEM-… et leur retourne le commentaire et la date de réalisation (ou la date prévue), refusées comprises, avec recherche.",

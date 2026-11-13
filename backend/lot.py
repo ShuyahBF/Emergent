@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "386"
-LOT_LIBELLE = "Paiement au comptoir des officines : QR code, code marchand par opérateur et séquence USSD Orange / Moov Africa / Telecel Faso."
+LOT = "386.1"
+LOT_LIBELLE = "Paiement au comptoir : source des séquences USSD précisée (auRor = mobile-payments) ; règle auRor ajoutée au CLAUDE.md."

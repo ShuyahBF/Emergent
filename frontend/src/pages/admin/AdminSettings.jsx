@@ -174,7 +174,7 @@ const NEW_LOTS = {
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
-  "Contrats — Seuil de retard de paiement (par défaut)": "129",   // lot 129 : même règle (échéance) pour Admin → Clients, alertes, Liluvine + filtre contrat ; lot 128.1 : formes juridiques ignorées ; lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
+  "Contrats — Seuil de retard de paiement (par défaut)": "390",   // lot 129 : même règle (échéance) pour Admin → Clients, alertes, Liluvine + filtre contrat ; lot 128.1 : formes juridiques ignorées ; lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
   "🤖 Liluvine — partage avec les superviseurs": "73",   // lot 73 : partage de Liluvine par superviseur
   // Lot 71.3 — rubriques de paramétrage des nouveautés des lots 65 à 71.2 (les cartes y mènent)
   "📅 Agenda d'appels de Liluvine et anniversaires": "106",
@@ -251,7 +251,7 @@ const NEW_SECTIONS = {
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
-  "Contrats — Seuil de retard de paiement (par défaut)": "2026-10-12",   // lot 120 (créée au lot 79.7)
+  "Contrats — Seuil de retard de paiement (par défaut)": "2026-11-14",   // lot 120 (créée au lot 79.7)
   "🤖 Liluvine — partage avec les superviseurs": "2026-10-07",   // lot 73
   // Lot 71.3 (07/10/2026) — chaque carte « Nouveautés » ouvre désormais SA rubrique de paramétrage
   "📅 Agenda d'appels de Liluvine et anniversaires": "2026-10-10",
@@ -344,7 +344,7 @@ const NEW_DESCRIPTIONS = {
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
-  "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124).",
+  "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124). Lot 390 : la validité du contrat se calcule d'après la PÉRIODE PAYÉE (fiche client → Paiements : « Ce paiement règle… »), pas d'après la date du dernier paiement : un client qui paie hier une facture de janvier reste en retard pour les mois suivants.",
   "🚨 Bandeau d'incident et historique (/uptime)": "Historique des incidents de /uptime : Résoudre, Supprimer, Réinitialiser ; un bandeau « Info » est une annonce et ne crée plus d'incident (lot 115).",
   "🧹 Libérer l'Espace": "Un seul bouton : analyse des sauvegardes R2 et des bases Atlas obsolètes, sélection selon la règle de rétention, espace et collections libérés, nettoyage après confirmation (lot 113).",
   "🧮 Consommation de l'IA (requêtes à Claude)": "Tableau de toutes les requêtes à l'IA, fonction par fonction : appels, jetons, coût estimé, et où se règle chaque fonction (lot 98).",

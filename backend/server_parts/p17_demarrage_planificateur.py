@@ -463,7 +463,7 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
         ],
     }
     cursor = db.users.find(q, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1,
-                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1,
+                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1, "couvert_jusqu_au": 1,
                                 "contract_signed_at": 1, "contract_number": 1,
                                 "contract_amount": 1, "contract_currency": 1,
                                 "contract_overdue_days": 1,
@@ -644,7 +644,7 @@ async def _run_recurring_billing_reminders() -> Dict[str, Any]:
         ],
     }
     cursor = db.users.find(q, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1,
-                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1,
+                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1, "couvert_jusqu_au": 1,
                                 "contract_signed_at": 1, "contract_billing_period": 1,
                                 "contract_amount": 1, "contract_currency": 1,
                                 "contract_number": 1})
@@ -654,14 +654,11 @@ async def _run_recurring_billing_reminders() -> Dict[str, Any]:
         period_days = PERIOD_DAYS_MAP.get(period)
         if not period_days:
             continue
-        ref_iso = (u.get("last_payment_at") or u.get("contract_signed_at") or "")[:10]
-        if not ref_iso:
+        # Lot 390 : prochaine échéance = lendemain de la fin de la période PAYÉE (couverture), sinon dernier règlement + période
+        from couverture_paiements import echeance_client
+        next_billing = echeance_client(u, period_days)
+        if not next_billing:
             continue
-        try:
-            ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
-        except Exception:  # noqa: BLE001
-            continue
-        next_billing = ref_date + timedelta(days=period_days)
         days_to_billing = (next_billing - today).days
         # Fire reminder in the [0, 3] day window before due date.
         if days_to_billing < 0 or days_to_billing > 3:

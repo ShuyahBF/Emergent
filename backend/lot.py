@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "381"
-LOT_LIBELLE = "Ma famille : événements chiffrés entre proches vérifiés (rappels de médicaments pris ou oubliés ; base commune pour les repas et la caméra)."
+LOT = "382"
+LOT_LIBELLE = "Ma famille : caméra partagée — dernière image chiffrée de bout en bout, envoyée seulement quand un proche regarde (signal « je regarde »), effacée à l'arrêt ou après 10 minutes."

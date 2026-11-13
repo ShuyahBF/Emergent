@@ -20,6 +20,7 @@ export default function FamilleSection() {
           <li>Messages chiffrés conservés : <strong>{etat.messages}</strong></li>
           <li>Positions partagées en ce moment : <strong>{etat.positions_partagees ?? 0}</strong> (chiffrées, dernière position seulement)</li>
           <li>Événements chiffrés conservés (médicaments, repas…) : <strong>{etat.evenements ?? 0}</strong> (30 jours)</li>
+          <li>Images de caméra partagées en ce moment : <strong>{etat.images_partagees ?? 0}</strong> (chiffrées, dernière image seulement, 10 minutes)</li>
           <li>Invitations en cours (valables 15 minutes) : <strong>{etat.invitations_en_cours}</strong></li>
         </ul>
       )}

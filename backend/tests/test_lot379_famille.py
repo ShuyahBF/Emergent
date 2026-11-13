@@ -180,3 +180,37 @@ def test_evenements_chiffres_entre_proches_verifies():
     c.delete(f"/api/famille/liens/{lien}", headers=b)
     import asyncio
     assert asyncio.get_event_loop().run_until_complete(db.famille_evenements.count_documents({})) == 0
+
+
+def test_camera_image_chiffree_et_signal_regard():
+    """Lot 382 : une seule image par personne et par lien (remplacée), visible de l'autre seulement ; le signal « je regarde » dit si l'autre regarde ; tout est effacé avec le lien."""
+    c, db = _client()
+    a, ida, b, idb, lien = _lier(c)
+    img = {"nonce": base64.b64encode(b"n" * 12).decode(), "chiffre": base64.b64encode(b"image chiffree").decode()}
+    assert c.put(f"/api/famille/liens/{lien}/image", json=img, headers=a).status_code == 403                 # lien pas vérifié
+    c.post(f"/api/famille/liens/{lien}/verifier", headers=a); c.post(f"/api/famille/liens/{lien}/verifier", headers=b)
+    # signal « je regarde » : B regarde la caméra de A
+    assert c.get(f"/api/famille/liens/{lien}/regard", headers=a).json()["regarde"] is False
+    assert c.put(f"/api/famille/liens/{lien}/regard", headers=b).status_code == 200
+    assert c.get(f"/api/famille/liens/{lien}/regard", headers=a).json()["regarde"] is True                   # A voit que B regarde
+    assert c.get(f"/api/famille/liens/{lien}/regard", headers=b).json()["regarde"] is False                  # B ne se voit pas lui-même
+    # image
+    assert c.get(f"/api/famille/liens/{lien}/image", headers=b).json()["image"] is None
+    assert c.put(f"/api/famille/liens/{lien}/image", json=img, headers=a).status_code == 200
+    img2 = {**img, "chiffre": base64.b64encode(b"image suivante").decode()}
+    assert c.put(f"/api/famille/liens/{lien}/image", json=img2, headers=a).status_code == 200
+    vue = c.get(f"/api/famille/liens/{lien}/image", headers=b).json()["image"]
+    assert vue["chiffre"] == img2["chiffre"] and vue["maj_le"]
+    assert c.get(f"/api/famille/liens/{lien}/image", headers=a).json()["image"] is None
+    for mauvais in [{"nonce": "", "chiffre": ""}, {"nonce": img["nonce"], "chiffre": "A" * 400_004}, {"nonce": "%%", "chiffre": img["chiffre"]}]:
+        assert c.put(f"/api/famille/liens/{lien}/image", json=mauvais, headers=a).status_code == 422
+    tiers, _ = _inscrire(c, "Intrus")
+    assert c.get(f"/api/famille/liens/{lien}/image", headers=tiers).status_code == 404
+    assert c.put(f"/api/famille/liens/{lien}/regard", headers=tiers).status_code == 404
+    assert c.delete(f"/api/famille/liens/{lien}/image", headers=a).status_code == 200
+    assert c.get(f"/api/famille/liens/{lien}/image", headers=b).json()["image"] is None
+    c.put(f"/api/famille/liens/{lien}/image", json=img, headers=a)
+    c.delete(f"/api/famille/liens/{lien}", headers=b)
+    import asyncio
+    boucle = asyncio.get_event_loop()
+    assert boucle.run_until_complete(db.famille_images.count_documents({})) == 0 and boucle.run_until_complete(db.famille_regards.count_documents({})) == 0

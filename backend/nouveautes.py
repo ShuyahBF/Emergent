@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "382", "date": "2026-11-13",
+        "titre": "👪 Ma famille : caméra partagée",
+        "description": "Application Personnel de maison : photo de la caméra d'un téléphone rafraîchie toutes les X secondes, visible à distance par les proches choisis ; chiffrée de bout en bout, envoyée seulement quand un proche regarde, effacée à l'arrêt ou après 10 minutes.",
+        "rubrique": "👪 Ma famille (Personnel de maison)",
+    },
+    {
         "lot": "381", "date": "2026-11-13",
         "titre": "👪 Ma famille : rappels de médicaments partagés",
         "description": "Application Personnel de maison : rappels de médicaments (heures, jours) dont la prise, ou l'oubli, est signalée aux proches choisis ; événements chiffrés de bout en bout, conservés 30 jours.",

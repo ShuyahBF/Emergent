@@ -170,7 +170,9 @@ async def supprimer_lien(db, compte: dict, lien_id: str) -> None:
     lien = await _lien_du_compte(db, compte, lien_id)
     await db.famille_messages.delete_many({"lien_id": lien["_id"]})
     await db.famille_positions.delete_many({"lien_id": lien["_id"]})
+    await db.famille_regards.delete_many({"lien_id": lien["_id"]})
     await db.famille_evenements.delete_many({"lien_id": lien["_id"]})
+    await db.famille_images.delete_many({"lien_id": lien["_id"]})
     await db.famille_liens.delete_one({"_id": lien["_id"]})
 
 
@@ -286,6 +288,68 @@ async def lire_evenements(db, compte: dict, lien_id: str, apres: int = 0, type_:
     return [{"seq": d["seq"], "type": d["type"], "nonce": d["nonce"], "chiffre": d["chiffre"], "cree_le": d["cree_le"].replace(tzinfo=UTC).isoformat()} for d in docs]
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Caméra partagée : dernière IMAGE (chiffrée de bout en bout) et signal « je regarde »
+# --------------------------------------------------------------------------------------------------------------------
+IMAGE_MAX = 400_000                  # taille maximale du texte chiffré (base64) : une photo réduite de 40 à 100 Ko
+IMAGE_VALIDITE_MIN = 10              # une image non renouvelée disparaît après 10 minutes
+PING_VALIDITE_S = 60                 # un proche « regarde » si son signal date de moins de 60 secondes
+
+
+async def deposer_image(db, compte: dict, lien_id: str, nonce: Any, chiffre: Any) -> Dict[str, Any]:
+    """Je dépose MA dernière image (chiffrée sur mon téléphone) pour ce lien ; elle remplace la précédente. Lien vérifié seulement."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    if lien["statut"] != "verifie":
+        raise PermissionError("Le partage de la caméra n'est ouvert qu'aux liens vérifiés.")
+    n, c = str(nonce or ""), str(chiffre or "")
+    if not n or not c or len(c) > IMAGE_MAX or len(n) > 64:
+        raise ValueError("Image mal formée ou trop grande.")
+    for morceau in (n, c):
+        try:
+            base64.b64decode(morceau, validate=True)
+        except Exception:
+            raise ValueError("Image mal formée (base64 attendu).")
+    maintenant = _maintenant()
+    await db.famille_images.update_one(
+        {"_id": f"{lien['_id']}:{compte['_id']}"},
+        {"$set": {"lien_id": lien["_id"], "de": compte["_id"], "nonce": n, "chiffre": c, "maj_le": maintenant, "expire_le": maintenant + timedelta(minutes=IMAGE_VALIDITE_MIN)}},
+        upsert=True)
+    return {"ok": True, "maj_le": maintenant.isoformat()}
+
+
+async def lire_image(db, compte: dict, lien_id: str) -> Optional[Dict[str, Any]]:
+    """La dernière image (chiffrée) de l'AUTRE personne du lien, ou None."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    autre = next(c for c in lien["comptes"] if c != compte["_id"])
+    d = await db.famille_images.find_one({"_id": f"{lien['_id']}:{autre}"})
+    if not d:
+        return None
+    return {"nonce": d["nonce"], "chiffre": d["chiffre"], "maj_le": d["maj_le"].replace(tzinfo=UTC).isoformat()}
+
+
+async def effacer_image(db, compte: dict, lien_id: str) -> None:
+    """J'arrête de partager ma caméra : mon image est effacée du serveur."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    await db.famille_images.delete_one({"_id": f"{lien['_id']}:{compte['_id']}"})
+
+
+async def signaler_regard(db, compte: dict, lien_id: str) -> Dict[str, Any]:
+    """« Je regarde ta caméra » : signal à renouveler toutes les ~20 secondes tant que l'écran est ouvert (le téléphone qui partage n'envoie d'images que si on le regarde)."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    maintenant = _maintenant()
+    await db.famille_regards.update_one({"_id": f"{lien['_id']}:{compte['_id']}"},
+                                        {"$set": {"lien_id": lien["_id"], "de": compte["_id"], "maj_le": maintenant, "expire_le": maintenant + timedelta(seconds=PING_VALIDITE_S * 5)}}, upsert=True)
+    return {"ok": True}
+
+
+async def quelqu_un_regarde(db, compte: dict, lien_id: str) -> bool:
+    """L'AUTRE personne du lien regarde-t-elle ma caméra (signal de moins de 60 secondes) ?"""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    autre = next(c for c in lien["comptes"] if c != compte["_id"])
+    d = await db.famille_regards.find_one({"_id": f"{lien['_id']}:{autre}"})
+    return bool(d) and (_maintenant() - d["maj_le"].replace(tzinfo=UTC)).total_seconds() < PING_VALIDITE_S
+
+
 async def assurer_index(db) -> None:
     """Index utiles (règle 7) : messages par lien et curseur, liens par compte, invitations qui expirent."""
     await db.famille_messages.create_index([("lien_id", 1), ("seq", 1)])
@@ -294,3 +358,5 @@ async def assurer_index(db) -> None:
     await db.famille_positions.create_index("expire_le", expireAfterSeconds=0)
     await db.famille_evenements.create_index([("lien_id", 1), ("seq", 1)])
     await db.famille_evenements.create_index("expire_le", expireAfterSeconds=0)
+    await db.famille_images.create_index("expire_le", expireAfterSeconds=0)
+    await db.famille_regards.create_index("expire_le", expireAfterSeconds=0)

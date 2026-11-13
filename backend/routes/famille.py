@@ -11,6 +11,11 @@
   PUT    /api/famille/liens/{id}/position         {nonce, chiffre} ma dernière position chiffrée (lien vérifié)
   GET    /api/famille/liens/{id}/position         la dernière position (chiffrée) de l'autre personne
   DELETE /api/famille/liens/{id}/position         j'arrête de partager (effacée)
+  PUT    /api/famille/liens/{id}/image            {nonce, chiffre} ma dernière image de caméra (chiffrée, lien vérifié)
+  GET    /api/famille/liens/{id}/image            la dernière image (chiffrée) de l'autre personne
+  DELETE /api/famille/liens/{id}/image            j'arrête de partager ma caméra (effacée)
+  PUT    /api/famille/liens/{id}/regard           « je regarde ta caméra » (signal à renouveler)
+  GET    /api/famille/liens/{id}/regard           l'autre personne regarde-t-elle ma caméra ?
   POST   /api/famille/liens/{id}/evenements       {type, nonce, chiffre} événement chiffré (médicament, repas, caméra) pour l'autre personne
   GET    /api/famille/liens/{id}/evenements?apres=&type=  événements de l'autre personne après le curseur
 """
@@ -142,6 +147,46 @@ def setup_famille_routes(app, db, get_current_user=None):
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
+    @api.put("/famille/liens/{lien_id}/image", tags=["Ma famille"])
+    async def deposer_img(lien_id: str, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
+        try:
+            return await fam.deposer_image(db, compte, lien_id, donnees.get("nonce"), donnees.get("chiffre"))
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @api.get("/famille/liens/{lien_id}/image", tags=["Ma famille"])
+    async def lire_img(lien_id: str, compte: dict = Depends(_compte)):
+        try:
+            return {"image": await fam.lire_image(db, compte, lien_id)}
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    @api.delete("/famille/liens/{lien_id}/image", tags=["Ma famille"])
+    async def effacer_img(lien_id: str, compte: dict = Depends(_compte)):
+        try:
+            await fam.effacer_image(db, compte, lien_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        return {"ok": True}
+
+    @api.put("/famille/liens/{lien_id}/regard", tags=["Ma famille"])
+    async def regard(lien_id: str, compte: dict = Depends(_compte)):
+        try:
+            return await fam.signaler_regard(db, compte, lien_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    @api.get("/famille/liens/{lien_id}/regard", tags=["Ma famille"])
+    async def regarde(lien_id: str, compte: dict = Depends(_compte)):
+        try:
+            return {"regarde": await fam.quelqu_un_regarde(db, compte, lien_id)}
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
     # État pour la rubrique des Paramètres (administrateur / superviseur) : COMPTAGES seulement, jamais un nom, une clé ou un message.
     if get_current_user is not None:
         @api.get("/admin/famille/etat", tags=["Ma famille"])
@@ -155,5 +200,6 @@ def setup_famille_routes(app, db, get_current_user=None):
                 "messages": await db.famille_messages.count_documents({}),
                 "positions_partagees": await db.famille_positions.count_documents({}),
                 "evenements": await db.famille_evenements.count_documents({}),
+                "images_partagees": await db.famille_images.count_documents({}),
                 "invitations_en_cours": await db.famille_invitations.count_documents({}),
             }

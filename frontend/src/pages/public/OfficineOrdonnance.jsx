@@ -10,7 +10,7 @@
 // (jamais son nom ni son numéro). Le nom et la ville de l'officine sont mémorisés
 // sur l'appareil (lib/memoirePharmacie.js) pour ne pas les ressaisir.
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Pill, ShieldAlert, ShieldCheck } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { effacerOfficineMemorisee, lireOfficineMemorisee, memoriserOfficine } from "@/lib/memoirePharmacie";
@@ -30,6 +30,7 @@ function dateFr(valeur) {
 
 export default function OfficineOrdonnance() {
   const { jeton } = useParams();
+  const src = new URLSearchParams(useLocation().search).get("src");      // lot 383 : canal d'accès (« nfc » si l'étiquette a ouvert la page), pour le journal du médecin
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
   const [chargement, setChargement] = useState(true);
@@ -46,7 +47,7 @@ export default function OfficineOrdonnance() {
 
   // Lecture de l'ordonnance (relue en direct : retours des autres officines compris)
   useEffect(() => {
-    apiClient.get(`/public/vidal-ordonnance/${jeton}`)
+    apiClient.get(`/public/vidal-ordonnance/${jeton}`, { params: src ? { src } : {} })
       .then((r) => {
         setDonnees(r.data);
         // Une ligne par produit prescrit, « Servi » par défaut, quantité 1 à ajuster
@@ -126,13 +127,23 @@ export default function OfficineOrdonnance() {
               </div>
             )}
 
+            {/* Lot 383 : ordonnance entièrement servie = lisible, mais plus aucun retour n'est possible */}
+            {donnees.cloturee && !resultat && (
+              <div className="mb-3 rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-sm text-amber-900" data-testid="ordonnance-cloturee">
+                <b>Ordonnance entièrement servie.</b> {donnees.etat_acces?.message || "Aucun nouveau retour n'est possible."}
+              </div>
+            )}
+            {donnees.etat_acces?.expire_le && !donnees.cloturee && !resultat && (
+              <div className="mb-2 text-xs text-slate-500 text-center">Valable jusqu'au {new Date(donnees.etat_acces.expire_le).toLocaleDateString("fr-FR")}</div>
+            )}
+
             {resultat ? (
               <div className="text-center py-5 text-emerald-700">
                 <CheckCircle2 className="h-8 w-8 mx-auto mb-1" />
                 <div className="font-semibold">Merci, votre retour est enregistré ({resultat.libelle}).</div>
                 <div className="text-xs text-slate-500 mt-1">Le médecin prescripteur en est informé.</div>
               </div>
-            ) : (
+            ) : donnees.cloturee ? null : (
               <div className="border-t border-slate-200 pt-3">
                 {officineMemorisee && (
                   <div className="text-xs text-slate-600 mb-2">

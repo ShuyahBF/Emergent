@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "388", "date": "2026-11-14",
+        "titre": "📍 « Vous êtes ici » : une page publique par lieu, ouverte par QR code",
+        "description": "Le superviseur crée un lieu (rayon, couloir, salle), écrit ce que le visiteur y trouve et imprime le QR code ; les visites sont comptées (QR ou application).",
+        "rubrique": "📍 Lieux — Vous êtes ici",
+    },
+    {
         "lot": "387.1", "date": "2026-11-14",
         "titre": "📍 Présence par balises : libellé saisi avant d'enregistrer un badge, et badges renommables sur place",
         "description": "Un badge détecté s'enregistre avec son libellé (ex. Visiteur 12) ; un badge déjà enregistré se renomme en modifiant son libellé, sans le retirer.",

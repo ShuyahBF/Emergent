@@ -39,6 +39,7 @@ import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateform
 import DemandesPlateformesSection from "@/pages/admin/sections/DemandesPlateformesSection";   // Lot 384
 import PaiementOfficinesSection from "@/pages/admin/sections/PaiementOfficinesSection";   // Lot 386
 import PresenceBalisesSection from "@/pages/admin/sections/PresenceBalisesSection";   // Lot 387
+import LieuxBalisesSection from "@/pages/admin/sections/LieuxBalisesSection";   // Lot 388
 import RequetesClientsSection from "@/pages/admin/sections/RequetesClientsSection";   // Lot 86
 import EvaluationsLooisSection from "@/pages/admin/sections/EvaluationsLooisSection";   // Lot 88
 import PostesSansCleSection from "@/pages/admin/sections/PostesSansCleSection";   // Lot 89
@@ -164,6 +165,7 @@ const NEW_LOTS = {
   "📋 Évaluations Loois (sondages du support)": "88",   // lot 88 : sondages « Evaluation Loois », blocage des demandes, ticket à l'initiative du support
   "🎨 Images IA du chat de support": "87.3",   // lot 87.3 : trombone ; lot 87.2 : barre d'outils au-dessus de la saisie ; lot 87.1 : + partage des disponibilités (agenda) ; lot 87 : image IA dans le chat de support (annoter, envoyer, transférer, planifier)
   "🧾 Requêtes des clients": "86.3",   // lots 86-86.1 : requêtes écrites, vocales ou en images, lots, évaluation, lien WhatsApp
+  "📍 Lieux — Vous êtes ici": "388",   // lot 388 : une page publique par lieu (QR / balise), gérée par l'administrateur et le superviseur
   "📍 Présence par balises": "387",   // lot 387 : badges Bluetooth, récepteurs fixes, parcours
   "💳 Paiement au comptoir des officines": "386",   // lot 386 : QR + séquence USSD
   "📮 Demandes des plateformes": "384",   // lot 384 : demandes des plateformes (ALBARKA…), numéro et suivi
@@ -239,6 +241,7 @@ const NEW_SECTIONS = {
   "📋 Évaluations Loois (sondages du support)": "2026-10-09",   // lot 88
   "🎨 Images IA du chat de support": "2026-10-09",   // lot 87
   "🧾 Requêtes des clients": "2026-10-09",   // lot 86
+  "📍 Lieux — Vous êtes ici": "2026-11-14",   // lot 388
   "📍 Présence par balises": "2026-11-14",   // lot 387
   "💳 Paiement au comptoir des officines": "2026-11-14",   // lot 386
   "📮 Demandes des plateformes": "2026-11-14",   // lot 384
@@ -1756,6 +1759,11 @@ export default function AdminSettings() {
       {/* Lot 86 — requêtes des clients : état du module et lien vers l'écran de traitement */}
       <Filterable title="🧾 Requêtes des clients" anchorId="s-requetes-clients" category="modules">
         <RequetesClientsSection />
+      </Filterable>
+
+      {/* Lot 388 — « Vous êtes ici » : une page publique par lieu, ouverte par QR code ou par la balise la plus proche */}
+      <Filterable title="📍 Lieux — Vous êtes ici" anchorId="s-lieux-balises" category="modules">
+        <LieuxBalisesSection />
       </Filterable>
 
       {/* Lot 387 — présence et parcours par balises Bluetooth (badges des visiteurs, récepteurs fixes) */}

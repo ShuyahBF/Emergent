@@ -87,6 +87,8 @@ import AdminControleDistance from "@/pages/admin/AdminControleDistance";   // Lo
 import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
 import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
 import AdminSyntheseSupport from "@/pages/admin/AdminSyntheseSupport";   // Lot 92 : synthèse du support
+import AdminLieuxBalises from "@/pages/admin/AdminLieuxBalises";   // Lot 388 : lieux « Vous êtes ici » (administrateur + superviseur)
+import LieuBalise from "@/pages/public/LieuBalise";   // Lot 388 : page publique d'un lieu
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
 import AutomationsVocalesPage from "@/pages/portal/AutomationsVocalesPage";   // lot 375 — Superviseur
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
@@ -341,6 +343,7 @@ export default function App() {
           <Route path="/suivi-rdv" element={<SuiviRdv />} />
           <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
           <Route path="/requete/:jeton" element={<PublicRequete />} />   {/* lot 86.1 */}
+          <Route path="/lieu/:code" element={<LieuBalise />} />   {/* lot 388 : page publique « Vous êtes ici » */}
           <Route path="/officine/payer/:jeton" element={<OfficinePaiement />} />   {/* lot 386 : page publique de paiement */}
           <Route path="/officine/ordonnance/:jeton" element={<OfficineOrdonnance />} />   {/* lot 57 : page publique de l'officine */}
           <Route path="/restauration" element={<Restauration />} />   {/* lot 49 */}
@@ -533,6 +536,7 @@ export default function App() {
             <Route path="requetes" element={<AdminRequetes />} />
             <Route path="evaluations-loois" element={<AdminEvaluationsLoois />} />
             <Route path="synthese-support" element={<AdminSyntheseSupport />} />
+            <Route path="lieux-balises" element={<AdminLieuxBalises />} />   {/* lot 388 */}
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
             {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}

@@ -2,12 +2,13 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LOGO_URL } from "@/lib/brand";
-import { LayoutDashboard, Boxes, KeyRound, History, LogOut } from "lucide-react";
+import { LayoutDashboard, Boxes, KeyRound, History, LogOut, Smartphone } from "lucide-react";
 import { loadOfficineSession, clearOfficineSession } from "@/lib/officineApi";
 
 const TABS = [
   { to: "/officines", label: "Tableau de bord", icon: LayoutDashboard, end: true },
   { to: "/officines/inventory", label: "Inventaire", icon: Boxes },
+  { to: "/officines/paiement", label: "Paiement", icon: Smartphone },   // lot 386 : QR + séquence USSD au comptoir
   { to: "/officines/secret", label: "Clé HMAC", icon: KeyRound },
   { to: "/officines/history", label: "Historique", icon: History },
 ];

@@ -169,6 +169,7 @@ async def supprimer_lien(db, compte: dict, lien_id: str) -> None:
     """Rompt le lien (l'un ou l'autre) et efface les messages échangés."""
     lien = await _lien_du_compte(db, compte, lien_id)
     await db.famille_messages.delete_many({"lien_id": lien["_id"]})
+    await db.famille_positions.delete_many({"lien_id": lien["_id"]})
     await db.famille_liens.delete_one({"_id": lien["_id"]})
 
 
@@ -201,8 +202,52 @@ async def lire_messages(db, compte: dict, lien_id: str, apres: int = 0, limite: 
     return [{"seq": d["seq"], "de": d["de"], "nonce": d["nonce"], "chiffre": d["chiffre"], "cree_le": d["cree_le"].isoformat()} for d in docs]
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Position (chiffrée de bout en bout, une seule position — la dernière — par personne et par lien)
+# --------------------------------------------------------------------------------------------------------------------
+POSITION_VALIDITE_H = 24             # une position non renouvelée disparaît d'elle-même après 24 h (le suivi est arrêté ou le téléphone éteint)
+
+
+async def deposer_position(db, compte: dict, lien_id: str, nonce: Any, chiffre: Any) -> Dict[str, Any]:
+    """Je dépose MA dernière position (déjà chiffrée sur mon téléphone) pour ce lien ; elle remplace la précédente. Lien vérifié seulement."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    if lien["statut"] != "verifie":
+        raise PermissionError("Le partage de position n'est ouvert qu'aux liens vérifiés.")
+    n, c = str(nonce or ""), str(chiffre or "")
+    if not n or not c or len(c) > 2000 or len(n) > 64:
+        raise ValueError("Position mal formée.")
+    for morceau in (n, c):
+        try:
+            base64.b64decode(morceau, validate=True)
+        except Exception:
+            raise ValueError("Position mal formée (base64 attendu).")
+    maintenant = _maintenant()
+    await db.famille_positions.update_one(
+        {"_id": f"{lien['_id']}:{compte['_id']}"},
+        {"$set": {"lien_id": lien["_id"], "de": compte["_id"], "nonce": n, "chiffre": c, "maj_le": maintenant, "expire_le": maintenant + timedelta(hours=POSITION_VALIDITE_H)}},
+        upsert=True)
+    return {"ok": True, "maj_le": maintenant.isoformat()}
+
+
+async def lire_position(db, compte: dict, lien_id: str) -> Optional[Dict[str, Any]]:
+    """La dernière position de l'AUTRE personne du lien (chiffrée), ou None si elle ne partage pas / plus."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    autre = next(c for c in lien["comptes"] if c != compte["_id"])
+    d = await db.famille_positions.find_one({"_id": f"{lien['_id']}:{autre}"})
+    if not d:
+        return None
+    return {"nonce": d["nonce"], "chiffre": d["chiffre"], "maj_le": d["maj_le"].replace(tzinfo=UTC).isoformat()}
+
+
+async def effacer_position(db, compte: dict, lien_id: str) -> None:
+    """J'arrête de partager : ma position est effacée du serveur."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    await db.famille_positions.delete_one({"_id": f"{lien['_id']}:{compte['_id']}"})
+
+
 async def assurer_index(db) -> None:
     """Index utiles (règle 7) : messages par lien et curseur, liens par compte, invitations qui expirent."""
     await db.famille_messages.create_index([("lien_id", 1), ("seq", 1)])
     await db.famille_liens.create_index("comptes")
     await db.famille_invitations.create_index("expire_le", expireAfterSeconds=0)
+    await db.famille_positions.create_index("expire_le", expireAfterSeconds=0)

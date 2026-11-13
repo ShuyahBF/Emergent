@@ -46,6 +46,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from fastapi import Query, Request   # lot 383 : au niveau du module (annotations différées : FastAPI doit pouvoir résoudre ces noms)
 from pydantic import BaseModel
 
 logger = logging.getLogger("sawali.vidal.ordonnance")
@@ -248,7 +249,27 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
     passées depuis `server.py` → `routes/vidal.py::attach_vidal_routes`.
     Optionnelles : sans elles, "Envoi WA" renvoie une 503 explicite plutôt
     que de planter — même règle que pour les autres modules VIDAL."""
-    from fastapi import Body, Depends, HTTPException, Response
+    from fastapi import Body, Depends, HTTPException, Query, Request, Response
+    from datetime import timedelta
+    from vidal_v2 import ordonnance_acces as oa
+
+    index_pret = {"ok": False}
+
+    async def _journaliser(doc_id: str, action: str, request: Optional[Request], src: Optional[str] = None, officine: Optional[str] = None) -> None:
+        """Lot 383 — journal d'accès de l'ordonnance (lecture, service, refus, étiquette écrite). Jamais bloquant : une erreur de journal n'empêche pas la réponse."""
+        try:
+            if not index_pret["ok"]:
+                index_pret["ok"] = True
+                await db.vidal_ordonnance_acces.create_index([("ordonnance_id", 1), ("date", -1)])
+                await db.vidal_ordonnance_acces.create_index("expire_le", expireAfterSeconds=0)
+            ip = oa.adresse_client(request.headers.get("x-forwarded-for") if request else None, request.client.host if request and request.client else None)
+            await db.vidal_ordonnance_acces.insert_one({
+                "ordonnance_id": doc_id, "date": _now(), "action": action, "canal": oa.canal(src), "ip_masquee": oa.masquer_ip(ip),
+                "agent": ((request.headers.get("user-agent") or "")[:80] if request else ""), "officine": officine,
+                "expire_le": _now() + timedelta(days=365),
+            })
+        except Exception:  # noqa: BLE001
+            logger.exception("[vidal_ordonnance] journal d'accès non écrit (%s)", action)
 
     def _public_base_url() -> str:
         import os
@@ -279,6 +300,7 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
             "patient_name": payload.patient_name, "patient_whatsapp": payload.patient_whatsapp,
             "patient": payload.patient, "lines": [l.model_dump() for l in payload.lines],
             "alerts_summary": payload.alerts_summary, "created_at": _now(),
+            "expire_le": _now() + timedelta(days=oa.validite_jours()), "revoquee": False,     # lot 383 : validité limitée, révocable
         }
         await db.vidal_ordonnances.insert_one(dict(doc_data))
 
@@ -345,16 +367,23 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
         return [{k: s.get(k) for k in ("nom_officine", "ville", "lignes", "commentaire", "date_service")} for s in services]
 
     @api.get("/public/vidal-ordonnance/{token}", tags=["VIDAL — officine"])
-    async def lire_ordonnance_officine(token: str):
+    async def lire_ordonnance_officine(token: str, request: Request, src: Optional[str] = Query(None)):
         """Public (sans compte) — ouvert par l'officine en scannant le QR. Patient
         ANONYMISÉ (jamais son nom ni son numéro) ; lignes prescrites et retours
         déjà enregistrés par d'autres officines, relus en direct."""
         doc = await db.vidal_ordonnances.find_one({"qr_token": token}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Ordonnance introuvable ou invalide")
+        # Lot 383 : révoquée ou expirée = plus lisible (410) ; clôturée = lisible mais plus servable
+        etat = oa.etat_acces(doc, _now())
+        if etat["code"] in ("revoquee", "expiree"):
+            await _journaliser(doc["id"], "refus_" + etat["code"], request, src)
+            raise HTTPException(status_code=410, detail=etat["message"])
+        await _journaliser(doc["id"], "lecture", request, src)
         services = await db.vidal_ordonnance_services.find({"ordonnance_id": doc["id"]}, {"_id": 0}).sort("date_service", 1).to_list(50)
         patient = doc.get("patient") or {}
         return {
+            "etat_acces": etat, "cloturee": etat["code"] == "cloturee",
             "reference": reference_ordonnance(doc),
             "date": doc.get("created_at"),
             "prescripteur": doc.get("doctor_name"),
@@ -367,13 +396,17 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
         }
 
     @api.post("/public/vidal-ordonnance/{token}/servir", tags=["VIDAL — officine"])
-    async def servir_ordonnance_officine(token: str, payload: ServiceOfficinePayload = Body(...)):
+    async def servir_ordonnance_officine(token: str, request: Request, payload: ServiceOfficinePayload = Body(...), src: Optional[str] = Query(None)):
         """Public (sans compte) — l'officine enregistre, pour chaque produit, ce qu'elle a
         servi (quantité), servi en partie, ou « en rupture ». L'ordonnance vient
         EXCLUSIVEMENT du jeton imprimé dans le QR, jamais du formulaire."""
         doc = await db.vidal_ordonnances.find_one({"qr_token": token}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Ordonnance introuvable ou invalide")
+        etat = oa.etat_acces(doc, _now())
+        if etat["code"] != "ok":                                   # révoquée, expirée ou déjà entièrement servie
+            await _journaliser(doc["id"], "refus_" + etat["code"], request, src)
+            raise HTTPException(status_code=409 if etat["code"] == "cloturee" else 410, detail=etat["message"])
         nom = (payload.nom_officine or "").strip().upper()[:120]
         if not nom:
             raise HTTPException(status_code=422, detail="Le nom de l'officine est obligatoire.")
@@ -404,7 +437,8 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
         services = await db.vidal_ordonnance_services.find({"ordonnance_id": doc["id"]}, {"_id": 0}).to_list(50)
         resume = _resume_services(services, nb_lignes)
         await db.vidal_ordonnances.update_one({"id": doc["id"]}, {"$set": {"etat_service": resume["etat"], "dernier_service_at": _now(), "retour_lu": False}})
-        return {"ok": True, "etat": resume["etat"], "libelle": resume["libelle"]}
+        await _journaliser(doc["id"], "service", request, src, officine=nom)
+        return {"ok": True, "etat": resume["etat"], "libelle": resume["libelle"], "cloturee": resume["etat"] == "servie"}
 
     @api.get("/vidal/ordonnances", tags=["VIDAL"])
     async def mes_ordonnances(user: dict = Depends(get_current_user)):
@@ -416,10 +450,15 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
         par_ordonnance: Dict[str, List[Dict[str, Any]]] = {}
         async for s in db.vidal_ordonnance_services.find({"ordonnance_id": {"$in": ids}}, {"_id": 0}).sort("date_service", 1):
             par_ordonnance.setdefault(s["ordonnance_id"], []).append(s)
+        acces_par_ordonnance: Dict[str, List[Dict[str, Any]]] = {}
+        async for a in db.vidal_ordonnance_acces.find({"ordonnance_id": {"$in": ids}}, {"_id": 0}).sort("date", -1).limit(3000):
+            acces_par_ordonnance.setdefault(a["ordonnance_id"], []).append(a)
         resultat = []
         for d in docs:
             services = par_ordonnance.get(d["id"], [])
             resultat.append({
+                "etat_acces": oa.etat_acces(d, _now()), "revoquee": bool(d.get("revoquee")),
+                "acces": oa.analyse_acces(acces_par_ordonnance.get(d["id"], []), _now()),
                 "id": d["id"], "reference": reference_ordonnance(d), "date": d.get("created_at"),
                 "patient_name": d.get("patient_name"),
                 "lignes": [l.get("label") for l in d.get("lines") or []],
@@ -429,6 +468,53 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
             })
         non_lus = sum(1 for r in resultat if not r["retour_lu"])
         return {"ordonnances": resultat, "retours_non_lus": non_lus, "statuts": STATUTS_LIGNE}
+
+    async def _ordonnance_du_medecin(ordonnance_id: str, user: dict) -> Dict[str, Any]:
+        doc = await db.vidal_ordonnances.find_one({"id": ordonnance_id, "user_id": user["id"]}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Ordonnance introuvable")
+        return doc
+
+    @api.get("/vidal/ordonnances/{ordonnance_id}/nfc", tags=["VIDAL"])
+    async def lien_nfc(ordonnance_id: str, user: dict = Depends(get_current_user)):
+        """Lot 383 — lien à écrire sur une étiquette NFC (même page de l'officine que le QR, canal « nfc »), avec la place qu'il occupe et les étiquettes compatibles.
+        Refusé si l'ordonnance est révoquée ou expirée."""
+        doc = await _ordonnance_du_medecin(ordonnance_id, user)
+        etat = oa.etat_acces(doc, _now())
+        if etat["code"] in ("revoquee", "expiree"):
+            raise HTTPException(status_code=409, detail=etat["message"])
+        url = oa.url_nfc(_url_officine(doc["qr_token"]))
+        return {"url": url, "expire_le": etat["expire_le"], **oa.compatibilite_etiquettes(url)}
+
+    @api.post("/vidal/ordonnances/{ordonnance_id}/nfc-ecrite", tags=["VIDAL"])
+    async def etiquette_ecrite(ordonnance_id: str, request: Request, user: dict = Depends(get_current_user)):
+        """Lot 383 — le médecin signale qu'une étiquette vient d'être écrite et vérifiée (journal d'accès)."""
+        doc = await _ordonnance_du_medecin(ordonnance_id, user)
+        await _journaliser(doc["id"], "etiquette_ecrite", request, "nfc")
+        return {"ok": True}
+
+    @api.get("/vidal/ordonnances/{ordonnance_id}/acces", tags=["VIDAL"])
+    async def journal_acces(ordonnance_id: str, user: dict = Depends(get_current_user)):
+        """Lot 383 — journal d'accès de l'ordonnance (50 derniers événements) et résumé (réutilisation suspecte)."""
+        doc = await _ordonnance_du_medecin(ordonnance_id, user)
+        evenements = await db.vidal_ordonnance_acces.find({"ordonnance_id": doc["id"]}, {"_id": 0, "ordonnance_id": 0, "expire_le": 0}).sort("date", -1).to_list(200)
+        return {"resume": oa.analyse_acces(evenements, _now()), "evenements": evenements[:50]}
+
+    @api.post("/vidal/ordonnances/{ordonnance_id}/revoquer", tags=["VIDAL"])
+    async def revoquer(ordonnance_id: str, request: Request, donnees: Dict[str, Any] = Body(default_factory=dict), user: dict = Depends(get_current_user)):
+        """Lot 383 — le prescripteur annule l'ordonnance (perdue, erreur) : plus aucune officine ne peut la lire ni la servir."""
+        doc = await _ordonnance_du_medecin(ordonnance_id, user)
+        await db.vidal_ordonnances.update_one({"id": doc["id"]}, {"$set": {"revoquee": True, "revoquee_le": _now(), "revoquee_motif": str(donnees.get("motif") or "")[:200]}})
+        await _journaliser(doc["id"], "revoquee", request)
+        return {"ok": True}
+
+    @api.post("/vidal/ordonnances/{ordonnance_id}/retablir", tags=["VIDAL"])
+    async def retablir(ordonnance_id: str, request: Request, user: dict = Depends(get_current_user)):
+        """Lot 383 — le prescripteur rétablit une ordonnance révoquée par erreur."""
+        doc = await _ordonnance_du_medecin(ordonnance_id, user)
+        await db.vidal_ordonnances.update_one({"id": doc["id"]}, {"$set": {"revoquee": False}, "$unset": {"revoquee_le": "", "revoquee_motif": ""}})
+        await _journaliser(doc["id"], "retablie", request)
+        return {"ok": True}
 
     @api.post("/vidal/ordonnances/retours-lus", tags=["VIDAL"])
     async def marquer_retours_lus(user: dict = Depends(get_current_user)):

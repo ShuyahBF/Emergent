@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "383", "date": "2026-11-13",
+        "titre": "💊 Ordonnance sécurisée : étiquette NFC, validité, annulation et journal d'accès",
+        "description": "Le médecin écrit le lien de l'officine sur une étiquette NFC (depuis Chrome, avec suivi pas à pas) à coller sur l'ordonnance ; l'ordonnance est valable 30 jours, peut être annulée, se clôture quand elle est entièrement servie, et son journal d'accès (QR ou NFC) signale une réutilisation suspecte.",
+        "rubrique": "💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)",
+    },
+    {
         "lot": "382", "date": "2026-11-13",
         "titre": "👪 Ma famille : caméra partagée",
         "description": "Application Personnel de maison : photo de la caméra d'un téléphone rafraîchie toutes les X secondes, visible à distance par les proches choisis ; chiffrée de bout en bout, envoyée seulement quand un proche regarde, effacée à l'arrêt ou après 10 minutes.",

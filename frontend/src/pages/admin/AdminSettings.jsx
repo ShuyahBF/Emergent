@@ -66,6 +66,7 @@ import LiluvineAgentsSection from "@/components/admin/LiluvineAgentsSection";
 import LiluvineVidalSubscriptionSection from "@/components/admin/LiluvineVidalSubscriptionSection";
 import VidalReferentielSyncSection from "@/components/admin/VidalReferentielSyncSection";
 import RappelsVocauxSection from "@/components/admin/RappelsVocauxSection";   // lot 374
+import FamilleSection from "@/components/admin/FamilleSection";   // lot 379
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
 import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
 import IntegrationHealthSection from "@/pages/admin/sections/IntegrationHealthSection";
@@ -130,6 +131,7 @@ import { correspondanceRecherche as correspondance_ } from "@/pages/admin/recher
 // ============================================================
 // Lot 64.6 — numéro du lot de chaque nouveauté, affiché entre parenthèses dans le titre de sa carte
 const NEW_LOTS = {
+  "👪 Ma famille (Personnel de maison)": "379",   // lot 379 : comptes famille, liens vérifiés, messagerie chiffrée
   "🔔 Rappels vocaux Alexa (annonces programmées)": "375",   // lot 374 ; lot 375 : déplacé dans la page Automations (état ici)
   "🖐️ Agent biométrique Loois (postes partagés)": "370",   // lot 370 : agent biométrique Loois pour les postes partagés
   "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
@@ -201,6 +203,7 @@ const NEW_LOTS = {
 };
 
 const NEW_SECTIONS = {
+  "👪 Ma famille (Personnel de maison)": "2026-11-13",   // lot 379
   "🔔 Rappels vocaux Alexa (annonces programmées)": "2026-11-12",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "2026-11-04",   // lot 370
   "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
@@ -316,6 +319,7 @@ const NEW_SECTIONS = {
 };
 // Lot 64 — résumé d'une ligne affiché sur les cartes « Nouveautés » (haut de la page)
 const NEW_DESCRIPTIONS = {
+  "👪 Ma famille (Personnel de maison)": "Application Personnel de maison : « Ma famille » relie les téléphones d'une famille (liens vérifiés par numéro de sécurité) avec une messagerie chiffrée de bout en bout ; état des comptes, liens et messages (lot 379).",
   "🔔 Rappels vocaux Alexa (annonces programmées)": "Alexa annonce une phrase à une date, avant un rendez-vous ou à l'arrivée d'un message ; programmation et tests dans la page Automations (lot 375).",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "Connexion d'un doigt sur un poste partagé : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés, activation (lot 370).",
   "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
@@ -1847,6 +1851,11 @@ export default function AdminSettings() {
       {/* Portage site-meetafrican — Cache local du référentiel produits VIDAL */}
       <Filterable title="🗂️ S058g — Référentiel produits VIDAL (cache local)" anchorId="s-s058g-vidal-referentiel-sync">
         <VidalReferentielSyncSection />
+      </Filterable>
+
+      {/* Lot 379 — Ma famille (Personnel de maison) */}
+      <Filterable title="👪 Ma famille (Personnel de maison)" anchorId="s-ma-famille">
+        <FamilleSection />
       </Filterable>
 
       {/* Lot 374 — Rappels vocaux programmés sur Alexa */}

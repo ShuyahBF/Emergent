@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "390"
-LOT_LIBELLE = "Validité du contrat : calculée d'après la PÉRIODE payée (couverture continue) et non la date du dernier paiement ; un paiement règle la plus ancienne période impayée ou des prestations précises."
+LOT = "390.1"
+LOT_LIBELLE = "Règle 15 : un pictogramme sur chaque action (Lieux, Transactions SMS, Présence par balises) ; le libellé d'un badge s'enregistre par un bouton explicite."

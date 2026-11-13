@@ -4,6 +4,7 @@
 // du lieu s'ouvre. Les visites sont comptées par jour et par provenance (QR / application). Voir backend/routes/lieux_balises.py.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Plus, X, Save, Pencil, Trash2, Copy, ExternalLink, QrCode } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient, API } from "@/lib/api";
 
 const VIDE = { nom: "", texte: "", balise: "", liens: [] };
@@ -80,18 +81,18 @@ export default function LieuxBalisesSection() {
               <input className="w-40 rounded border border-slate-300 px-2 py-1 text-sm" placeholder="Libellé" value={l.libelle} onChange={(e) => lien(i, "libelle", e.target.value)} />
               <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" placeholder="https://…" value={l.url} onChange={(e) => lien(i, "url", e.target.value)} />
               <button type="button" className="rounded border border-slate-300 px-2 text-sm" aria-label="Retirer ce lien"
-                onClick={() => setForm((f) => ({ ...f, liens: f.liens.filter((_, j) => j !== i) }))}>✕</button>
+                onClick={() => setForm((f) => ({ ...f, liens: f.liens.filter((_, j) => j !== i) }))}><X className="mr-1 inline h-4 w-4" />Retirer</button>
             </div>
           ))}
           {form.liens.length < 10 && (
-            <button type="button" className="rounded border border-slate-300 px-2 py-1 text-sm" onClick={() => setForm((f) => ({ ...f, liens: [...f.liens, { libelle: "", url: "" }] }))}>+ Ajouter un lien</button>
+            <button type="button" className="rounded border border-slate-300 px-2 py-1 text-sm" onClick={() => setForm((f) => ({ ...f, liens: [...f.liens, { libelle: "", url: "" }] }))}><Plus className="mr-1 inline h-4 w-4" />Ajouter un lien</button>
           )}
         </div>
         {/* Boutons côte à côte : mince filet de couleur (règle 8) */}
         <div className="boutons-distincts flex flex-wrap gap-2">
           <button type="button" disabled={occupe || form.nom.trim().length < 2} onClick={enregistrer}
-            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" data-testid="lieu-enregistrer">{code ? "Enregistrer les modifications" : "Créer le lieu"}</button>
-          {code && <button type="button" onClick={nouveau} className="rounded border border-slate-300 px-3 py-1.5 text-sm">Annuler</button>}
+            className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" data-testid="lieu-enregistrer">{code ? <><Save className="mr-1 inline h-4 w-4" />Enregistrer les modifications</> : <><Plus className="mr-1 inline h-4 w-4" />Créer le lieu</>}</button>
+          {code && <button type="button" onClick={nouveau} className="rounded border border-slate-300 px-3 py-1.5 text-sm"><X className="mr-1 inline h-4 w-4" />Annuler</button>}
         </div>
       </div>
 
@@ -116,8 +117,8 @@ export default function LieuxBalisesSection() {
                 <td className="p-2 text-right tabular-nums">{l.visites_sources?.qr || 0}</td>
                 <td className="p-2 text-right tabular-nums">{l.visites_sources?.app || 0}</td>
                 <td className="p-2 text-right whitespace-nowrap">
-                  <button type="button" className="mr-2 underline" onClick={(e) => { e.stopPropagation(); modifier(l); }}>Modifier</button>
-                  <button type="button" className="underline" onClick={(e) => { e.stopPropagation(); supprimer(l); }}>Supprimer</button>
+                  <button type="button" className="mr-2 underline" onClick={(e) => { e.stopPropagation(); modifier(l); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
+                  <button type="button" className="underline" onClick={(e) => { e.stopPropagation(); supprimer(l); }}><Trash2 className="mr-1 inline h-4 w-4" />Supprimer</button>
                 </td>
               </tr>
             ))}
@@ -134,9 +135,9 @@ export default function LieuxBalisesSection() {
             <div className="font-semibold">{choisi.nom}</div>
             <div className="break-all font-mono text-xs text-slate-600">{choisi.adresse}</div>
             <div className="boutons-distincts flex flex-wrap gap-2">
-              <button type="button" className="rounded border border-slate-300 px-2 py-1" onClick={() => copier(choisi.adresse)}>Copier l'adresse</button>
-              <a className="rounded border border-slate-300 px-2 py-1" href={choisi.adresse} target="_blank" rel="noreferrer">Voir la page du visiteur</a>
-              <a className="rounded border border-slate-300 px-2 py-1" href={`${API}/lieux-balises/${choisi.code}/qr.png`} target="_blank" rel="noreferrer">Ouvrir le QR (à imprimer)</a>
+              <button type="button" className="rounded border border-slate-300 px-2 py-1" onClick={() => copier(choisi.adresse)}><Copy className="mr-1 inline h-4 w-4" />Copier l'adresse</button>
+              <a className="rounded border border-slate-300 px-2 py-1" href={choisi.adresse} target="_blank" rel="noreferrer"><ExternalLink className="mr-1 inline h-4 w-4" />Voir la page du visiteur</a>
+              <a className="rounded border border-slate-300 px-2 py-1" href={`${API}/lieux-balises/${choisi.code}/qr.png`} target="_blank" rel="noreferrer"><QrCode className="mr-1 inline h-4 w-4" />Ouvrir le QR (à imprimer)</a>
             </div>
           </div>
         </div>

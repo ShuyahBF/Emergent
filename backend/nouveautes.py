@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "390.1", "date": "2026-11-14",
+        "titre": "🖼️ Un pictogramme sur chaque action, et plus d'enregistrement silencieux",
+        "description": "Lieux, Transactions SMS et Présence par balises : chaque bouton a son pictogramme ; le libellé d'un badge s'enregistre par un bouton Enregistrer avec la mention « modifié, non enregistré ».",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "390", "date": "2026-11-14",
         "titre": "🧾 Validité du contrat : calculée d'après la période PAYÉE, pas la date du dernier paiement",
         "description": "Un paiement règle la plus ancienne période impayée (ou des prestations précises) : le client qui paie hier une facture de janvier n'est plus « à jour » à tort. Choix dans Admin → Clients → Paiements.",

@@ -5,10 +5,27 @@
 // POST /api/presence-balises/v1/detections (voir routes/presence_balises.py).
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Plus, Trash2, Copy, Check, Save, Route, X } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 const duree = (s) => (s == null ? "—" : s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 const heure = (iso) => new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" });
+
+// Règle 15 — le libellé d'un badge n'est JAMAIS enregistré « en silence » à la sortie du champ : bouton Enregistrer (actif si modifié) + mention « modifié, non enregistré ».
+function LibelleBadge({ badge, surEnregistrer }) {
+  const [saisie, setSaisie] = useState(badge.libelle);
+  useEffect(() => { setSaisie(badge.libelle); }, [badge.libelle]);
+  const modifie = saisie.trim() !== "" && saisie.trim() !== badge.libelle;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input value={saisie} onChange={(e) => setSaisie(e.target.value)} onKeyDown={(e) => e.key === "Enter" && modifie && surEnregistrer(saisie)}
+        className="w-40 rounded border border-slate-300 px-2 py-0.5 font-semibold" aria-label={`Libellé du badge ${badge.id}`} data-testid="presence-libelle-badge" />
+      <button type="button" disabled={!modifie} onClick={() => surEnregistrer(saisie)} title="Enregistrer le libellé" aria-label="Enregistrer le libellé"
+        className="rounded bg-sky-700 px-2 py-0.5 text-white disabled:opacity-40"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button>
+      {modifie && <span className="text-[11px] text-orange-700">modifié, non enregistré</span>}
+    </span>
+  );
+}
 
 export default function PresenceBalisesSection() {
   const [sites, setSites] = useState([]);
@@ -91,7 +108,7 @@ export default function PresenceBalisesSection() {
           {sites.map((s) => <option key={s.id} value={s.id}>{s.nom}</option>)}
         </select>
         <input value={nomSite} onChange={(e) => setNomSite(e.target.value)} placeholder="Nom d'un nouveau site" className={champ} data-testid="presence-nouveau-site" />
-        <button type="button" onClick={creerSite} disabled={!nomSite.trim()} className={bouton}>Créer le site</button>
+        <button type="button" onClick={creerSite} disabled={!nomSite.trim()} className={bouton}><Plus className="mr-1 inline h-4 w-4" />Créer le site</button>
       </div>
 
       {site && (
@@ -122,7 +139,7 @@ export default function PresenceBalisesSection() {
                       <span className="font-mono">{i.badge}</span> · vu il y a {duree(i.dernier_signal_s)}
                       <input value={libellesInconnus[i.badge] || ""} onChange={(e) => setLibellesInconnus({ ...libellesInconnus, [i.badge]: e.target.value })}
                         placeholder="Libellé (ex. Visiteur 12)" className="w-40 rounded border border-amber-300 px-2 py-0.5" data-testid="presence-libelle-inconnu" />
-                      <button type="button" className="rounded bg-amber-600 px-2 py-0.5 text-white" onClick={() => { ajouterBadge(i.badge, libellesInconnus[i.badge] || ""); setLibellesInconnus({ ...libellesInconnus, [i.badge]: "" }); }}>Enregistrer</button>
+                      <button type="button" className="rounded bg-amber-600 px-2 py-0.5 text-white" onClick={() => { ajouterBadge(i.badge, libellesInconnus[i.badge] || ""); setLibellesInconnus({ ...libellesInconnus, [i.badge]: "" }); }}><Save className="mr-1 inline h-4 w-4" />Enregistrer</button>
                     </li>
                   ))}
                 </ul>
@@ -142,8 +159,8 @@ export default function PresenceBalisesSection() {
           {/* ---- 1. ZONES ---- */}
           <div className="space-y-1">
             <p className="text-sm font-semibold text-slate-800">1. Zones (pièces, salles, entrée…)</p>
-            <div className="flex flex-wrap gap-2">{site.zones.map((z) => <span key={z.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs">{z.nom} <button type="button" className="ml-1 text-rose-700" onClick={() => retirerZone(z.id)} aria-label={`Retirer ${z.nom}`}>×</button></span>)}</div>
-            <div className="flex gap-2 boutons-distincts"><input value={nomZone} onChange={(e) => setNomZone(e.target.value)} placeholder="Nom de la zone (ex. Accueil)" className={champ} /><button type="button" onClick={ajouterZone} className={bouton}>Ajouter la zone</button></div>
+            <div className="flex flex-wrap gap-2">{site.zones.map((z) => <span key={z.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs">{z.nom} <button type="button" className="ml-1 text-rose-700" onClick={() => retirerZone(z.id)} aria-label={`Retirer ${z.nom}`}><X className="mr-1 inline h-4 w-4" />Retirer</button></span>)}</div>
+            <div className="flex gap-2 boutons-distincts"><input value={nomZone} onChange={(e) => setNomZone(e.target.value)} placeholder="Nom de la zone (ex. Accueil)" className={champ} /><button type="button" onClick={ajouterZone} className={bouton}><Plus className="mr-1 inline h-4 w-4" />Ajouter la zone</button></div>
           </div>
 
           {/* ---- 2. RÉCEPTEURS ---- */}
@@ -152,7 +169,7 @@ export default function PresenceBalisesSection() {
             <ul className="text-xs">
               {etat?.recepteurs.map((r) => (
                 <li key={r.id} className="flex items-center gap-2">{r.nom} → {site.zones.find((z) => z.id === r.zone_id)?.nom} · dernier envoi : {r.dernier_envoi_s == null ? "jamais" : `il y a ${duree(r.dernier_envoi_s)}`}
-                  <button type="button" className="text-rose-700 underline" onClick={() => retirerRecepteur(r.id)}>Retirer</button></li>
+                  <button type="button" className="text-rose-700 underline" onClick={() => retirerRecepteur(r.id)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></li>
               ))}
             </ul>
             <div className="flex flex-wrap gap-2 boutons-distincts">
@@ -160,14 +177,14 @@ export default function PresenceBalisesSection() {
               <select value={recepteur.zone_id} onChange={(e) => setRecepteur({ ...recepteur, zone_id: e.target.value })} className={champ} data-testid="presence-recepteur-zone">
                 <option value="">Zone…</option>{site.zones.map((z) => <option key={z.id} value={z.id}>{z.nom}</option>)}
               </select>
-              <button type="button" onClick={ajouterRecepteur} disabled={!recepteur.nom.trim() || !recepteur.zone_id} className={bouton}>Créer le récepteur</button>
+              <button type="button" onClick={ajouterRecepteur} disabled={!recepteur.nom.trim() || !recepteur.zone_id} className={bouton}><Plus className="mr-1 inline h-4 w-4" />Créer le récepteur</button>
             </div>
             {cleAffichee && (
               <div className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-xs" data-testid="presence-cle">
                 <p className="font-semibold text-rose-900">À saisir UNE SEULE FOIS dans l'application du récepteur (elle ne sera plus affichée) :</p>
-                <p>Identifiant : <span className="font-mono">{cleAffichee.identifiant}</span> <button type="button" className="underline" onClick={() => copier(cleAffichee.identifiant)}>Copier</button></p>
-                <p>Clé : <span className="font-mono break-all">{cleAffichee.cle}</span> <button type="button" className="underline" onClick={() => copier(cleAffichee.cle)}>Copier</button></p>
-                <button type="button" className="mt-1 underline" onClick={() => setCleAffichee(null)}>J'ai noté la clé</button>
+                <p>Identifiant : <span className="font-mono">{cleAffichee.identifiant}</span> <button type="button" className="underline" onClick={() => copier(cleAffichee.identifiant)}><Copy className="mr-1 inline h-4 w-4" />Copier</button></p>
+                <p>Clé : <span className="font-mono break-all">{cleAffichee.cle}</span> <button type="button" className="underline" onClick={() => copier(cleAffichee.cle)}><Copy className="mr-1 inline h-4 w-4" />Copier</button></p>
+                <button type="button" className="mt-1 underline" onClick={() => setCleAffichee(null)}><Check className="mr-1 inline h-4 w-4" />J'ai noté la clé</button>
               </div>
             )}
           </div>
@@ -177,17 +194,16 @@ export default function PresenceBalisesSection() {
             <p className="text-sm font-semibold text-slate-800">3. Badges (balises remises aux visiteurs)</p>
             <ul className="space-y-1 text-xs">{site.badges.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center gap-2">
-                <input defaultValue={b.libelle} key={b.libelle} onBlur={(e) => renommerBadge(b.id, e.target.value)} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                  className="w-40 rounded border border-slate-300 px-2 py-0.5 font-semibold" aria-label={`Libellé du badge ${b.id}`} data-testid="presence-libelle-badge" />
+                <LibelleBadge badge={b} surEnregistrer={(v) => renommerBadge(b.id, v)} />
                 <span className="font-mono text-slate-500">{b.id}</span>
-                <button type="button" className="text-sky-700 underline" onClick={() => voirParcours(b.id)}>Parcours</button>
-                <button type="button" className="text-rose-700 underline" onClick={() => retirerBadge(b.id)}>Retirer</button>
+                <button type="button" className="text-sky-700 underline" onClick={() => voirParcours(b.id)}><Route className="mr-1 inline h-4 w-4" />Parcours</button>
+                <button type="button" className="text-rose-700 underline" onClick={() => retirerBadge(b.id)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button>
               </li>))}</ul>
-            <p className="text-[11px] text-slate-500">Pour renommer un badge, modifiez son libellé puis quittez le champ (ou Entrée).</p>
+            <p className="text-[11px] text-slate-500">Pour renommer un badge, modifiez son libellé puis appuyez sur le bouton Enregistrer (ou Entrée) : rien n'est enregistré tant que vous ne l'avez pas fait.</p>
             <div className="flex flex-wrap gap-2 boutons-distincts">
               <input value={badge.id} onChange={(e) => setBadge({ ...badge, id: e.target.value })} placeholder="Identifiant (ex. ib:…) — ou « Enregistrer » ci-dessus" className={`${champ} w-72`} />
               <input value={badge.libelle} onChange={(e) => setBadge({ ...badge, libelle: e.target.value })} placeholder="Libellé (ex. Visiteur 12)" className={champ} />
-              <button type="button" onClick={() => ajouterBadge(badge.id, badge.libelle)} disabled={!badge.id.trim()} className={bouton}>Ajouter le badge</button>
+              <button type="button" onClick={() => ajouterBadge(badge.id, badge.libelle)} disabled={!badge.id.trim()} className={bouton}><Plus className="mr-1 inline h-4 w-4" />Ajouter le badge</button>
             </div>
           </div>
         </>

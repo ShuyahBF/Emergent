@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "381", "date": "2026-11-13",
+        "titre": "👪 Ma famille : rappels de médicaments partagés",
+        "description": "Application Personnel de maison : rappels de médicaments (heures, jours) dont la prise, ou l'oubli, est signalée aux proches choisis ; événements chiffrés de bout en bout, conservés 30 jours.",
+        "rubrique": "👪 Ma famille (Personnel de maison)",
+    },
+    {
         "lot": "380", "date": "2026-11-13",
         "titre": "👪 Ma famille : partage de position chiffré",
         "description": "Application Personnel de maison : partage de position entre proches liés et vérifiés, chiffré de bout en bout ; seule la dernière position est gardée (effacée à l'arrêt du partage ou après 24 h).",

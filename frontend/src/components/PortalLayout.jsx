@@ -226,6 +226,7 @@ const adminLinks = [
   { to: "/admin/evaluations-loois", label: "Évaluations Loois", icon: ClipboardList, adminOrSup: true },   // lot 88 : sondages du support
   { to: "/admin/synthese-support", label: "Synthèse du support", icon: LifeBuoy, adminOrSup: true },   // lot 92 : non répondues, totaux, Claude
   { to: "/admin/lieux-balises", label: "Lieux (balises)", icon: IconeLieu, adminOrSup: true },   // lot 388 : « Vous êtes ici » (QR + balises), superviseur compris
+  { to: "/admin/transactions-sms", label: "Transactions SMS", icon: MessageSquareWarning, adminOnly: true },   // lot 389 : paiements lus dans les SMS d'un téléphone (administrateur)
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)

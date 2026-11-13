@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "383"
-LOT_LIBELLE = "Pharmacie (lot P1) : ordonnance sécurisée — validité de 30 jours, annulation par le prescripteur, clôture quand elle est entièrement servie, journal d'accès (QR ou NFC) avec alerte de réutilisation suspecte, et écriture du lien de l'officine sur une étiquette NFC depuis Chrome avec suivi pas à pas."
+LOT = "384"
+LOT_LIBELLE = "Demandes des plateformes : ALBARKA remonte ses corrections et nouveautés, SAWALI attribue un numéro DEM-… et retourne statut, commentaire et date."

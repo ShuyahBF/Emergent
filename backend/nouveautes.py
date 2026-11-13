@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "384", "date": "2026-11-14",
+        "titre": "📮 Demandes des plateformes : numéro et suivi des corrections et nouveautés demandées par ALBARKA",
+        "description": "ALBARKA remonte ses demandes ; SAWALI leur attribue un numéro DEM-… et leur retourne le commentaire et la date de réalisation (ou la date prévue), refusées comprises, avec recherche.",
+        "rubrique": "📮 Demandes des plateformes",
+    },
+    {
         "lot": "383", "date": "2026-11-13",
         "titre": "💊 Ordonnance sécurisée : étiquette NFC, validité, annulation et journal d'accès",
         "description": "Le médecin écrit le lien de l'officine sur une étiquette NFC (depuis Chrome, avec suivi pas à pas) à coller sur l'ordonnance ; l'ordonnance est valable 30 jours, peut être annulée, se clôture quand elle est entièrement servie, et son journal d'accès (QR ou NFC) signale une réutilisation suspecte.",

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "387"
-LOT_LIBELLE = "Présence par balises Bluetooth : badges des visiteurs, récepteurs fixes, présence par zone et parcours (contrat d'échange v1)."
+LOT = "387.1"
+LOT_LIBELLE = "Présence par balises : libellé saisi avant l'enregistrement d'un badge détecté, badges renommables sur place."

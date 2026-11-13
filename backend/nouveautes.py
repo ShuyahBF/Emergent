@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "386.1", "date": "2026-11-14",
+        "titre": "💳 Paiement au comptoir : source des séquences USSD précisée (auRor)",
+        "description": "Les séquences Orange, Moov et Telecel viennent d'auRor (mobile-payments) : le code SAWALI le signale pour les corriger ensemble si un opérateur change.",
+        "rubrique": "💳 Paiement au comptoir des officines",
+    },
+    {
         "lot": "386", "date": "2026-11-14",
         "titre": "💳 Paiement au comptoir des officines : QR code et séquence USSD Orange, Moov, Telecel",
         "description": "Chaque pharmacie enregistre son code marchand et imprime un QR : le client choisit son opérateur et son montant et obtient la séquence à composer (copie sur iPhone).",

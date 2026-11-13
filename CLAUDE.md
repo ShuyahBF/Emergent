@@ -126,11 +126,14 @@ modifier), cloner UNE fois (`git clone --depth 1`, délai généreux), puis `reg
 | Portail e-Kol (élèves et parents) | `ShuyahBF/ekol-portail` | `main` |
 | adLyn | `ShuyahBF/telecom-boutique` | `main` |
 | beAuthentik | `ShuyahBF/site-meetafrican` | `main` |
-| ALBARKA | `ShuyahBF/albarka-portal` | `main` |
+| ALBARKA | `ShuyahBF/albarka-portal` | PR vers `render-production` (Render y déploie) |
 | Ster (= DentalCare, confirmé par le propriétaire le 14/10/2026) | `ShuyahBF/dentalcare` | `main` |
 | Loois (logiciel Windows) et sa mise à jour | `ShuyahBF/Loois`, `ShuyahBF/Loois-MAJ` | `main` |
 | Aizenta (analyse qualité des stocks) | `ShuyahBF/Aizenta-Analyse-Qualit-Gestion-Stocks` | voir ses règles |
 | BF Mobility (VTC) | `ShuyahBF/sawali-bfmobility` | `main` |
+| auRor (= mobile-payments : paiements mobiles, séquences USSD des opérateurs) | `ShuyahBF/Claude` (dossiers `mobile-payments-web` et `mobile-payments-app`) | voir ses règles |
+
+auRor et mobile-payments désignent la MÊME plateforme (précisé par le propriétaire le 14/11/2026) : ses séquences USSD sont la source de référence ; toute copie dans une autre plateforme (ex. SAWALI, paiement au comptoir des officines) doit être corrigée en même temps.
 
 Autres dépôts utiles : `ShuyahBF/Claude` (règles techniques, `TECHNICAL_RULES.md`), `ShuyahBF/reglesmetier_claude` (règles métier).
 Dépôt refusé par le contrôle d'accès de la session (ex. `shuyah-mirror`) : ne pas insister, le dire au propriétaire.

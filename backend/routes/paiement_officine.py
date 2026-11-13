@@ -29,7 +29,10 @@ from fastapi import Depends, HTTPException, Request  # noqa: F401  (Request au n
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-# Catalogue des paiements marchands (clé = nom affiché dans la liste déroulante)
+# Catalogue des paiements marchands (clé = nom affiché dans la liste déroulante).
+# ATTENTION — COPIE : la SOURCE DE RÉFÉRENCE de ces séquences est la plateforme auRor (= mobile-payments, dépôt ShuyahBF/Claude,
+# fichier mobile-payments-web/backend/catalogue_defaut.py). Si un opérateur change une séquence, la corriger À LA FOIS dans auRor et ici
+# (précisé par le propriétaire le 14/11/2026). Le test test_sequences_validees_par_le_proprietaire garde les valeurs actuelles.
 CATALOGUE = {
     "Orange": "*144*10*{code}*{montant}#",
     "Moov Africa": "*555*2*{code}*{montant}#",

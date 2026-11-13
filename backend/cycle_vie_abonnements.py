@@ -852,7 +852,7 @@ async def reouvrir(client_id: str, adm: dict, reference: str = "") -> Dict[str, 
     await db.users.update_one({"id": client_id}, {
         "$set": {"cycle_vie": nouveau_cv, "last_payment_at": aujourdhui, "account_status": "active",
                  "updated_at": _iso()},
-        "$unset": {"abonnement_grace_renouvellements": ""}})
+        "$unset": {"abonnement_grace_renouvellements": "", "couvert_jusqu_au": ""}})   # lot 390 : nouvelle référence = aujourd'hui
     abo.vider_cache(client_id)
     await journaliser("REOUVERTURE", client, adm, frais=frais, reference=reference or None,
                       documents=sum(restaures.values()), cle=arch.get("cle"))

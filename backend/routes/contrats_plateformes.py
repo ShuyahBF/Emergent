@@ -237,7 +237,7 @@ def contrat_de(emetteur: Dict[str, Any], client: Optional[Dict[str, Any]]) -> Di
 CHAMPS_CLIENT = {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "client_code": 1,
                  "contract_number": 1, "contract_amount": 1, "contract_currency": 1, "contract_signed_at": 1,
                  "contract_start_at": 1, "contract_end_at": 1, "contract_lignes": 1,
-                 "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "last_payment_at": 1,
+                 "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "last_payment_at": 1, "couvert_jusqu_au": 1,
                  "contract_services_suspendus": 1}
 
 

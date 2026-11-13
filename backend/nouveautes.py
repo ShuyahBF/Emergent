@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "390", "date": "2026-11-14",
+        "titre": "🧾 Validité du contrat : calculée d'après la période PAYÉE, pas la date du dernier paiement",
+        "description": "Un paiement règle la plus ancienne période impayée (ou des prestations précises) : le client qui paie hier une facture de janvier n'est plus « à jour » à tort. Choix dans Admin → Clients → Paiements.",
+        "rubrique": "Contrats — Seuil de retard de paiement (par défaut)",
+    },
+    {
         "lot": "389.2", "date": "2026-11-14",
         "titre": "💬 Transactions SMS : numéros avec les indicatifs des pays",
         "description": "On choisit le pays (indicatif) ou on écrit +indicatif / 00indicatif ; les numéros étrangers sont lus dans les SMS et associés comme les numéros du Burkina Faso.",

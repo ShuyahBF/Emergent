@@ -51,6 +51,43 @@ class TenantPaymentCreate(BaseModel):
     payment_method_label: Optional[str] = None
     notes: Optional[str] = None
     send_confirmation: Optional[bool] = True
+    # Lot 390 — QUELLE période ce paiement règle-t-il ? (validité du contrat : date de paiement ≠ période payée)
+    #   "date_paiement" (défaut, ancien mode) · "plus_ancienne" (règle la plus ancienne période impayée, `nb_periodes` périodes) · "periode" (prestations du … au …)
+    imputation: Optional[str] = "date_paiement"
+    nb_periodes: Optional[int] = 1
+    periode_debut: Optional[str] = None
+    periode_fin: Optional[str] = None
+
+
+async def _recalculer_couverture(client_id: str) -> Optional[str]:
+    """Lot 390 — recalcule `users.couvert_jusqu_au` d'après les paiements (None = ancien calcul : le champ est retiré). Rend la date (ISO) ou None."""
+    from couverture_paiements import couvert_jusqu_au, jours_periode
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "contract_billing_period": 1}) or {}
+    paiements = await db.tenant_payments.find({"tenant_id": client_id}, {"_id": 0}).to_list(2000)
+    c = couvert_jusqu_au(paiements, jours_periode(u))
+    if c:
+        await db.users.update_one({"id": client_id}, {"$set": {"couvert_jusqu_au": c.isoformat()}})
+    else:
+        await db.users.update_one({"id": client_id}, {"$unset": {"couvert_jusqu_au": ""}})
+    return c.isoformat() if c else None
+
+
+@api.get("/admin/clients/{client_id}/payments/couverture", tags=["Admin"])
+async def admin_client_couverture(client_id: str, imputation: str = "plus_ancienne", nb_periodes: int = 1, periode_debut: str = "", periode_fin: str = "",
+                                  payment_date: str = "", _: dict = Depends(get_current_admin)):
+    """Lot 390 — APERÇU avant d'enregistrer : situation actuelle (couvert jusqu'au, échéance) et période que réglerait le paiement ; rien n'est modifié."""
+    from couverture_paiements import echeance_client, fin_de_couverture_actuelle, jour, jours_periode, periode_a_imputer
+    await _ensure_client_exists(client_id)
+    u = await db.users.find_one({"id": client_id}, {"_id": 0}) or {}
+    paiements = await db.tenant_payments.find({"tenant_id": client_id}, {"_id": 0}).to_list(2000)
+    actuelle = fin_de_couverture_actuelle(u, paiements)
+    try:
+        d, f = periode_a_imputer(imputation, u, paiements, jour(payment_date) or datetime.now().date(), nb_periodes, jour(periode_debut), jour(periode_fin))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ech = echeance_client(u, jours_periode(u))
+    return {"couvert_jusqu_au": actuelle.isoformat() if actuelle else None, "periode_debut": d.isoformat() if d else None, "periode_fin": f.isoformat() if f else None,
+            "echeance_actuelle": ech.isoformat() if ech else None}
 
 
 @api.get("/admin/clients/{client_id}/payments", tags=["Admin"])
@@ -94,6 +131,15 @@ async def admin_create_client_payment(
     amount = float(payload.amount_paid or 0)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="`amount_paid` doit être > 0")
+    # Lot 390 — période de prestations réglée par ce paiement (None = ancien mode : la période commence à la date du paiement)
+    from couverture_paiements import jour as _jour_cp, periode_a_imputer
+    client_cv = await db.users.find_one({"id": client_id}, {"_id": 0, "contract_billing_period": 1, "last_payment_at": 1, "contract_signed_at": 1}) or {}
+    anciens = await db.tenant_payments.find({"tenant_id": client_id}, {"_id": 0}).to_list(2000)
+    try:
+        p_debut, p_fin = periode_a_imputer(payload.imputation or "date_paiement", client_cv, anciens, _jour_cp(pdate), payload.nb_periodes or 1,
+                                           _jour_cp(payload.periode_debut), _jour_cp(payload.periode_fin))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     doc = {
         "id": _uuid(),
         "tenant_id": client_id,
@@ -107,6 +153,9 @@ async def admin_create_client_payment(
         "created_by_id": admin_user.get("id"),
         "created_by_email": admin_user.get("email"),
         "created_at": _now(),
+        "imputation": payload.imputation or "date_paiement",
+        "periode_debut": p_debut.isoformat() if p_debut else None,
+        "periode_fin": p_fin.isoformat() if p_fin else None,
     }
     await db.tenant_payments.insert_one(doc.copy())
     try:
@@ -126,6 +175,7 @@ async def admin_create_client_payment(
             {"id": client_id},
             {"$set": update_fields},
         )
+        await _recalculer_couverture(client_id)
     except Exception:  # noqa: BLE001
         pass
     wa_result: Optional[dict] = None
@@ -211,6 +261,7 @@ async def admin_delete_client_payment(
             {"id": client_id},
             {"$set": {"last_payment_at": (latest or {}).get("payment_date") or None, "updated_at": _now()}},
         )
+        await _recalculer_couverture(client_id)
     except Exception:  # noqa: BLE001
         pass
     return {"ok": True, "deleted": res.deleted_count}

@@ -146,10 +146,12 @@ def etat_client(client: dict, a: Optional[datetime] = None) -> Dict[str, Any]:
             "grace_jours": grace, "renouvellements": 0, "renouvellements_max": RENOUVELLEMENTS_MAX,
             "contrat": {"numero": client.get("contract_number") or None, "montant": client.get("contract_amount"),
                         "devise": client.get("contract_currency") or None}}
-    if not jours or not ref:
+    if not jours or not (ref or client.get("couvert_jusqu_au")):
         return {**base, "statut": SANS_ECHEANCE, "echeance": None, "impayee_depuis": None, "fin_grace": None,
                 "jours_restants": None, "secondes_restantes": None}
-    echeance = ref + timedelta(days=jours)
+    # Lot 390 : échéance = lendemain de la fin de la période PAYÉE (couverture), sinon dernier règlement + période
+    from couverture_paiements import echeance_client
+    echeance = echeance_client(client, jours) or (ref + timedelta(days=jours))
     impayee = _minuit(echeance + timedelta(days=1))
     ren = client.get("abonnement_grace_renouvellements") or {}
     nb = int(ren.get("nombre") or 0) if ren.get("echeance") == echeance.isoformat() else 0

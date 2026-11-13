@@ -67,7 +67,7 @@ CHAMPS_CLIENT = {
     "_id": 0, "id": 1, "email": 1, "phone": 1, "whatsapp_number": 1, "company": 1, "client_code": 1,
     "full_name": 1, "role": 1, "parent_client_id": 1, "client_id": 1, "account_status": 1,
     "contract_number": 1, "contract_status": 1, "contract_signed_at": 1, "contract_start_at": 1,
-    "contract_end_at": 1, "last_payment_at": 1, "contract_overdue_days": 1, "contract_billing_period": 1,
+    "contract_end_at": 1, "last_payment_at": 1, "couvert_jusqu_au": 1, "contract_overdue_days": 1, "contract_billing_period": 1,
     "contract_alerte_avant_jours": 1, "contract_alerte_apres_jours": 1, "contract_services_suspendus": 1,
     "cycle_vie.statut": 1,
     "pseudo_contrat_valide_jusqu_au": 1,      # lot 159 : case « Pseudo contrat VALIDE » (5 jours), aucun montant
@@ -162,7 +162,9 @@ def fiche_contrat(client: Optional[Dict[str, Any]], aujourdhui: date,
     echeance = None
     # Lot 127.3 — périodicité inconnue : mensuelle par défaut (cas le plus fréquent) pour calculer l'échéance
     jours_periode = PERIODES_JOURS.get(periode, PERIODES_JOURS["monthly"])
-    d_echeance = (ref + timedelta(days=jours_periode)) if ref else None
+    # Lot 390 : échéance = lendemain de la fin de la période PAYÉE (couverture), sinon dernier règlement + période
+    from couverture_paiements import echeance_client
+    d_echeance = echeance_client(c, jours_periode) if ref or c.get("couvert_jusqu_au") else None
     # Affichage (inchangé) : échéance du règlement si la périodicité est connue, sinon fin du contrat
     if periode in PERIODES_JOURS and d_echeance:
         echeance = d_echeance.isoformat()

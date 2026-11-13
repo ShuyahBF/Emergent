@@ -1492,7 +1492,10 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
     payment_method_label: "",
     notes: "",
     send_confirmation: true,
+    // Lot 390 : quelle période ce paiement règle-t-il ? (la date du paiement n'est pas la période payée)
+    imputation: "date_paiement", nb_periodes: 1, periode_debut: "", periode_fin: "",
   });
+  const [apercu, setApercu] = useState(null);      // lot 390 : couvert jusqu'au / période réglée par ce paiement
 
   const load = async () => {
     setLoading(true);
@@ -1527,6 +1530,21 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
 
+  // Lot 390 — aperçu de la période réglée (rien n'est enregistré). À l'ouverture du formulaire : si le client est déjà en retard, on propose
+  // « la plus ancienne période impayée » (cas du client qui paie hier une facture de janvier) ; sinon l'ancien fonctionnement.
+  useEffect(() => {
+    if (!showForm) return undefined;
+    let actif = true;
+    apiClient.get(`/admin/clients/${client.id}/payments/couverture`, { params: { imputation: draft.imputation, nb_periodes: draft.nb_periodes || 1, periode_debut: draft.periode_debut, periode_fin: draft.periode_fin, payment_date: draft.payment_date } })
+      .then((r) => actif && setApercu(r.data)).catch((e) => actif && setApercu({ erreur: e?.response?.data?.detail || "Aperçu indisponible" }));
+    return () => { actif = false; };
+  }, [showForm, client.id, draft.imputation, draft.nb_periodes, draft.periode_debut, draft.periode_fin, draft.payment_date]);
+  useEffect(() => {
+    if (!showForm || !apercu?.echeance_actuelle || draft.imputation !== "date_paiement") return;
+    if (apercu.echeance_actuelle < new Date().toISOString().slice(0, 10) && !draft._choisi) setDraft((d) => ({ ...d, imputation: "plus_ancienne" }));
+    // eslint-disable-next-line
+  }, [showForm, apercu?.echeance_actuelle]);
+
   const save = async () => {
     if (!draft.payment_date || !draft.amount_paid) {
       toast.error("Date et montant payé requis");
@@ -1543,6 +1561,10 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
         payment_method_label: draft.payment_method_label || null,
         notes: draft.notes || null,
         send_confirmation: !!draft.send_confirmation,
+        imputation: draft.imputation,
+        nb_periodes: Number(draft.nb_periodes) || 1,
+        periode_debut: draft.imputation === "periode" ? draft.periode_debut || null : null,
+        periode_fin: draft.imputation === "periode" ? draft.periode_fin || null : null,
       };
       const r = await apiClient.post(`/admin/clients/${client.id}/payments`, payload);
       const wa = r.data?.wa_confirmation;
@@ -1557,7 +1579,7 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
         payment_date: new Date().toISOString().slice(0, 10),
         invoice_ref: "", amount_due: "", amount_paid: "",
         payment_method_id: "", payment_method_label: "", notes: "",
-        send_confirmation: true,
+        send_confirmation: true, imputation: "date_paiement", nb_periodes: 1, periode_debut: "", periode_fin: "",
       });
       await load();
       await onChanged?.();
@@ -1648,6 +1670,34 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                 </div>
                 <Input label="Notes (optionnel)" value={draft.notes} onChange={(v) => setDraft({ ...draft, notes: v })} testid="payments-notes" />
               </div>
+              {/* Lot 390 — la DATE du paiement n'est pas la PÉRIODE payée : on indique ce que ce paiement règle */}
+              <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2" data-testid="payments-imputation">
+                <label className="block text-xs font-semibold text-slate-700">Ce paiement règle
+                  <select value={draft.imputation} onChange={(e) => setDraft({ ...draft, imputation: e.target.value, _choisi: true })}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="payments-imputation-select">
+                    <option value="plus_ancienne">La plus ancienne période impayée (client qui paie en retard)</option>
+                    <option value="periode">Des prestations précises (du … au …)</option>
+                    <option value="date_paiement">La période qui commence à la date du paiement (ancien fonctionnement)</option>
+                  </select>
+                </label>
+                {draft.imputation === "plus_ancienne" && (
+                  <Input label="Nombre de périodes réglées" type="number" value={draft.nb_periodes} onChange={(v) => setDraft({ ...draft, nb_periodes: v })} testid="payments-nb-periodes" />
+                )}
+                {draft.imputation === "periode" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input label="Prestations du" type="date" value={draft.periode_debut} onChange={(v) => setDraft({ ...draft, periode_debut: v })} testid="payments-periode-debut" />
+                    <Input label="au" type="date" value={draft.periode_fin} onChange={(v) => setDraft({ ...draft, periode_fin: v })} testid="payments-periode-fin" />
+                  </div>
+                )}
+                {apercu && (apercu.erreur
+                  ? <p className="text-xs text-rose-600">{apercu.erreur}</p>
+                  : (
+                    <p className="text-xs text-slate-600" data-testid="payments-apercu">
+                      Actuellement payé jusqu'au <b>{apercu.couvert_jusqu_au || "—"}</b>.
+                      {apercu.periode_debut ? <> Ce paiement règle du <b>{apercu.periode_debut}</b> au <b>{apercu.periode_fin}</b>.</> : <> Ce paiement règle la période qui commence à sa date.</>}
+                    </p>
+                  ))}
+              </div>
               <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
                 <input
                   type="checkbox"
@@ -1698,7 +1748,7 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                   return (
                   <tr key={p.id} className="hover:bg-slate-50" data-testid={`payment-row-${p.id}`}>
                     <td className="px-2 py-1.5 font-mono text-xs">{p.payment_date}</td>
-                    <td className="px-2 py-1.5">{p.invoice_ref || "—"}</td>
+                    <td className="px-2 py-1.5">{p.invoice_ref || "—"}{p.periode_debut && <div className="text-[10px] text-slate-500">prestations {p.periode_debut} → {p.periode_fin}</div>}</td>
                     <td className="px-2 py-1.5 text-right text-slate-600 font-mono text-xs">{formatMoney(p.amount_due, currency)}</td>
                     <td className="px-2 py-1.5 text-right text-teal-700 font-semibold font-mono text-xs">{formatMoney(p.amount_paid, currency)}</td>
                     <td className="px-2 py-1.5 text-xs text-slate-600">{resolvedType}</td>

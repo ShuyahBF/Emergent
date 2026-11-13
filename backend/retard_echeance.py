@@ -1,7 +1,7 @@
 """Lot 129 — règle UNIQUE du retard de paiement d'un client (même règle que la puce de contrat, lot 127.3).
 
 Le retard se compte à partir de l'ÉCHÉANCE, et non plus du jour du dernier règlement :
-    échéance = dernier règlement (`last_payment_at`, à défaut `contract_signed_at`) + périodicité
+    échéance = fin de la période PAYÉE + 1 jour (`couvert_jusqu_au`, lot 390), sinon dernier règlement (`last_payment_at`, à défaut `contract_signed_at`) + périodicité
                (`contract_billing_period` : mensuel 30 j — par défaut —, trimestriel 90 j, annuel 365 j)
     retard   = jours écoulés depuis l'échéance (0 tant qu'elle n'est pas passée)
 Le client est « en retard » quand ce retard atteint son seuil (`contract_overdue_days`, sinon le seuil global).
@@ -37,14 +37,16 @@ def retard_client(u: Dict[str, Any], aujourdhui: Optional[date] = None) -> Optio
       - echeance_iso : date d'échéance calculée
     """
     aujourdhui = aujourdhui or datetime.now(timezone.utc).date()
-    ref_field = "last_payment_at" if u.get("last_payment_at") else "contract_signed_at"
-    ref = _jour(u.get(ref_field))
+    # Lot 390 : si le client a une COUVERTURE (paiements avec période de prestations), l'échéance en part ; sinon ancien calcul
+    couvert = _jour(u.get("couvert_jusqu_au"))
+    ref_field = "couvert_jusqu_au" if couvert else ("last_payment_at" if u.get("last_payment_at") else "contract_signed_at")
+    ref = couvert or _jour(u.get(ref_field))
     if not ref:
         return None
     # Périodicité inconnue → mensuelle (comme la puce de contrat)
     periode = str(u.get("contract_billing_period") or "").strip().lower()
     periode_jours = PERIODES_JOURS.get(periode, PERIODES_JOURS["monthly"])
-    echeance = ref + timedelta(days=periode_jours)
+    echeance = ref + timedelta(days=1) if couvert else ref + timedelta(days=periode_jours)
     return {
         "jours": max(0, (aujourdhui - echeance).days),
         "ref_iso": ref.isoformat(), "ref_field": ref_field,

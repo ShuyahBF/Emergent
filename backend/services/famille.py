@@ -170,6 +170,7 @@ async def supprimer_lien(db, compte: dict, lien_id: str) -> None:
     lien = await _lien_du_compte(db, compte, lien_id)
     await db.famille_messages.delete_many({"lien_id": lien["_id"]})
     await db.famille_positions.delete_many({"lien_id": lien["_id"]})
+    await db.famille_evenements.delete_many({"lien_id": lien["_id"]})
     await db.famille_liens.delete_one({"_id": lien["_id"]})
 
 
@@ -245,9 +246,51 @@ async def effacer_position(db, compte: dict, lien_id: str) -> None:
     await db.famille_positions.delete_one({"_id": f"{lien['_id']}:{compte['_id']}"})
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Événements partagés (rappels de médicaments, repas, caméra…) : petits messages CHIFFRÉS de bout en bout destinés à notifier l'autre personne
+# --------------------------------------------------------------------------------------------------------------------
+TYPES_EVENEMENT = ("medicament", "repas", "camera", "autre")     # le type est en clair (le serveur ne lit jamais le contenu)
+EVENEMENT_VALIDITE_JOURS = 30
+
+
+async def deposer_evenement(db, compte: dict, lien_id: str, type_: Any, nonce: Any, chiffre: Any) -> Dict[str, Any]:
+    """J'ajoute un événement chiffré pour l'autre personne du lien (lien vérifié seulement)."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    if lien["statut"] != "verifie":
+        raise PermissionError("Les événements ne sont ouverts qu'aux liens vérifiés.")
+    t = str(type_ or "")
+    if t not in TYPES_EVENEMENT:
+        raise ValueError("Type d'événement inconnu.")
+    n, c = str(nonce or ""), str(chiffre or "")
+    if not n or not c or len(c) > 4000 or len(n) > 64:
+        raise ValueError("Événement mal formé.")
+    for morceau in (n, c):
+        try:
+            base64.b64decode(morceau, validate=True)
+        except Exception:
+            raise ValueError("Événement mal formé (base64 attendu).")
+    seq = time.time_ns()
+    maintenant = _maintenant()
+    await db.famille_evenements.insert_one({"_id": uuid.uuid4().hex, "lien_id": lien["_id"], "de": compte["_id"], "type": t, "nonce": n, "chiffre": c, "seq": seq,
+                                           "cree_le": maintenant, "expire_le": maintenant + timedelta(days=EVENEMENT_VALIDITE_JOURS)})
+    return {"seq": seq}
+
+
+async def lire_evenements(db, compte: dict, lien_id: str, apres: int = 0, type_: Optional[str] = None, limite: int = 100) -> List[Dict[str, Any]]:
+    """Les événements de l'AUTRE personne du lien, après le curseur `apres`, du plus ancien au plus récent."""
+    lien = await _lien_du_compte(db, compte, lien_id)
+    requete: Dict[str, Any] = {"lien_id": lien["_id"], "de": {"$ne": compte["_id"]}, "seq": {"$gt": int(apres or 0)}}
+    if type_:
+        requete["type"] = str(type_)
+    docs = await db.famille_evenements.find(requete).sort("seq", 1).to_list(max(1, min(limite, 300)))
+    return [{"seq": d["seq"], "type": d["type"], "nonce": d["nonce"], "chiffre": d["chiffre"], "cree_le": d["cree_le"].replace(tzinfo=UTC).isoformat()} for d in docs]
+
+
 async def assurer_index(db) -> None:
     """Index utiles (règle 7) : messages par lien et curseur, liens par compte, invitations qui expirent."""
     await db.famille_messages.create_index([("lien_id", 1), ("seq", 1)])
     await db.famille_liens.create_index("comptes")
     await db.famille_invitations.create_index("expire_le", expireAfterSeconds=0)
     await db.famille_positions.create_index("expire_le", expireAfterSeconds=0)
+    await db.famille_evenements.create_index([("lien_id", 1), ("seq", 1)])
+    await db.famille_evenements.create_index("expire_le", expireAfterSeconds=0)

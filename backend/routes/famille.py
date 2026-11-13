@@ -11,6 +11,8 @@
   PUT    /api/famille/liens/{id}/position         {nonce, chiffre} ma dernière position chiffrée (lien vérifié)
   GET    /api/famille/liens/{id}/position         la dernière position (chiffrée) de l'autre personne
   DELETE /api/famille/liens/{id}/position         j'arrête de partager (effacée)
+  POST   /api/famille/liens/{id}/evenements       {type, nonce, chiffre} événement chiffré (médicament, repas, caméra) pour l'autre personne
+  GET    /api/famille/liens/{id}/evenements?apres=&type=  événements de l'autre personne après le curseur
 """
 from __future__ import annotations
 
@@ -122,6 +124,24 @@ def setup_famille_routes(app, db, get_current_user=None):
             raise HTTPException(status_code=404, detail=str(exc))
         return {"ok": True}
 
+    @api.post("/famille/liens/{lien_id}/evenements", tags=["Ma famille"])
+    async def deposer_evt(lien_id: str, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
+        try:
+            return await fam.deposer_evenement(db, compte, lien_id, donnees.get("type"), donnees.get("nonce"), donnees.get("chiffre"))
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @api.get("/famille/liens/{lien_id}/evenements", tags=["Ma famille"])
+    async def lire_evt(lien_id: str, apres: int = Query(0), type: Optional[str] = Query(None), compte: dict = Depends(_compte)):
+        try:
+            return {"evenements": await fam.lire_evenements(db, compte, lien_id, apres, type)}
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
     # État pour la rubrique des Paramètres (administrateur / superviseur) : COMPTAGES seulement, jamais un nom, une clé ou un message.
     if get_current_user is not None:
         @api.get("/admin/famille/etat", tags=["Ma famille"])
@@ -134,5 +154,6 @@ def setup_famille_routes(app, db, get_current_user=None):
                 "liens_verifies": await db.famille_liens.count_documents({"statut": "verifie"}),
                 "messages": await db.famille_messages.count_documents({}),
                 "positions_partagees": await db.famille_positions.count_documents({}),
+                "evenements": await db.famille_evenements.count_documents({}),
                 "invitations_en_cours": await db.famille_invitations.count_documents({}),
             }

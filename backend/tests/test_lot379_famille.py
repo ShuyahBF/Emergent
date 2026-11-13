@@ -156,3 +156,27 @@ def test_position_chiffree_reservee_aux_liens_verifies_et_effacable():
     c.put(f"/api/famille/liens/{lien}/position", json=pos, headers=a)
     c.delete(f"/api/famille/liens/{lien}", headers=b)                                                        # rompre le lien efface la position
     assert asyncio.get_event_loop().run_until_complete(db.famille_positions.count_documents({})) == 0
+
+
+def test_evenements_chiffres_entre_proches_verifies():
+    """Lot 381 : un événement (ex. médicament oublié) ne va qu'à l'autre personne du lien vérifié ; type contrôlé ; curseur ; effacé avec le lien."""
+    c, db = _client()
+    a, ida, b, idb, lien = _lier(c)
+    evt = {"type": "medicament", "nonce": base64.b64encode(b"n" * 12).decode(), "chiffre": base64.b64encode(b"oublie").decode()}
+    assert c.post(f"/api/famille/liens/{lien}/evenements", json=evt, headers=a).status_code == 403            # lien pas vérifié
+    c.post(f"/api/famille/liens/{lien}/verifier", headers=a); c.post(f"/api/famille/liens/{lien}/verifier", headers=b)
+    s1 = c.post(f"/api/famille/liens/{lien}/evenements", json=evt, headers=a).json()["seq"]
+    s2 = c.post(f"/api/famille/liens/{lien}/evenements", json={**evt, "type": "repas"}, headers=a).json()["seq"]
+    assert s2 > s1
+    assert c.post(f"/api/famille/liens/{lien}/evenements", json={**evt, "type": "virus"}, headers=a).status_code == 422
+    assert c.post(f"/api/famille/liens/{lien}/evenements", json={**evt, "chiffre": "pas base64 !"}, headers=a).status_code == 422
+    vus = c.get(f"/api/famille/liens/{lien}/evenements", headers=b).json()["evenements"]
+    assert [e["type"] for e in vus] == ["medicament", "repas"] and vus[0]["chiffre"] == evt["chiffre"]
+    assert c.get(f"/api/famille/liens/{lien}/evenements", headers=a).json()["evenements"] == []                # pas d'écho vers l'émetteur
+    assert [e["seq"] for e in c.get(f"/api/famille/liens/{lien}/evenements?apres={s1}", headers=b).json()["evenements"]] == [s2]
+    assert [e["type"] for e in c.get(f"/api/famille/liens/{lien}/evenements?type=repas", headers=b).json()["evenements"]] == ["repas"]
+    tiers, _ = _inscrire(c, "Intrus")
+    assert c.get(f"/api/famille/liens/{lien}/evenements", headers=tiers).status_code == 404
+    c.delete(f"/api/famille/liens/{lien}", headers=b)
+    import asyncio
+    assert asyncio.get_event_loop().run_until_complete(db.famille_evenements.count_documents({})) == 0

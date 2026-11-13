@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "387.1", "date": "2026-11-14",
+        "titre": "📍 Présence par balises : libellé saisi avant d'enregistrer un badge, et badges renommables sur place",
+        "description": "Un badge détecté s'enregistre avec son libellé (ex. Visiteur 12) ; un badge déjà enregistré se renomme en modifiant son libellé, sans le retirer.",
+        "rubrique": "📍 Présence par balises",
+    },
+    {
         "lot": "387", "date": "2026-11-14",
         "titre": "📍 Présence par balises : qui est dans quelle zone, en direct, avec parcours des badges",
         "description": "Des badges Bluetooth portés par les visiteurs et des récepteurs fixes envoient leurs détections à SAWALI : présence par zone, sorties et parcours (contrat d'échange v1 pour brancher d'autres récepteurs ou écrans).",

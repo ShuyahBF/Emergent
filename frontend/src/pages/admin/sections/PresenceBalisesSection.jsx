@@ -19,6 +19,7 @@ export default function PresenceBalisesSection() {
   const [recepteur, setRecepteur] = useState({ nom: "", zone_id: "" });
   const [cleAffichee, setCleAffichee] = useState(null);       // { identifiant, cle } montrée UNE SEULE FOIS
   const [badge, setBadge] = useState({ id: "", libelle: "" });
+  const [libellesInconnus, setLibellesInconnus] = useState({});   // libellé saisi pour chaque badge détecté non enregistré
   const [parcoursBadge, setParcoursBadge] = useState("");
   const [passages, setPassages] = useState(null);
 
@@ -51,6 +52,12 @@ export default function PresenceBalisesSection() {
   const retirerZone = (id) => configurer({ zones: site.zones.filter((z) => z.id !== id) });
   const ajouterBadge = async (id, libelle) => { await configurer({ badges: [...site.badges, { id, libelle: libelle || id }] }); setBadge({ id: "", libelle: "" }); };
   const retirerBadge = (id) => configurer({ badges: site.badges.filter((b) => b.id !== id) });
+  // Renomme un badge (sans le retirer) : enregistré quand on quitte le champ, seulement si le libellé a changé
+  const renommerBadge = (id, libelle) => {
+    const nouveau = libelle.trim();
+    if (!nouveau || site.badges.find((b) => b.id === id)?.libelle === nouveau) return;
+    configurer({ badges: site.badges.map((b) => (b.id === id ? { ...b, libelle: nouveau } : b)) });
+  };
   const ajouterRecepteur = async () => {
     try {
       const { data } = await apiClient.post(`/admin/presence-balises/sites/${siteId}/recepteurs`, recepteur);
@@ -113,7 +120,9 @@ export default function PresenceBalisesSection() {
                   {etat.inconnus.map((i) => (
                     <li key={i.badge} className="flex items-center gap-2">
                       <span className="font-mono">{i.badge}</span> · vu il y a {duree(i.dernier_signal_s)}
-                      <button type="button" className="rounded bg-amber-600 px-2 py-0.5 text-white" onClick={() => ajouterBadge(i.badge, "")}>Enregistrer</button>
+                      <input value={libellesInconnus[i.badge] || ""} onChange={(e) => setLibellesInconnus({ ...libellesInconnus, [i.badge]: e.target.value })}
+                        placeholder="Libellé (ex. Visiteur 12)" className="w-40 rounded border border-amber-300 px-2 py-0.5" data-testid="presence-libelle-inconnu" />
+                      <button type="button" className="rounded bg-amber-600 px-2 py-0.5 text-white" onClick={() => { ajouterBadge(i.badge, libellesInconnus[i.badge] || ""); setLibellesInconnus({ ...libellesInconnus, [i.badge]: "" }); }}>Enregistrer</button>
                     </li>
                   ))}
                 </ul>
@@ -166,7 +175,15 @@ export default function PresenceBalisesSection() {
           {/* ---- 3. BADGES ---- */}
           <div className="space-y-1">
             <p className="text-sm font-semibold text-slate-800">3. Badges (balises remises aux visiteurs)</p>
-            <ul className="text-xs">{site.badges.map((b) => <li key={b.id}><b>{b.libelle}</b> <span className="font-mono text-slate-500">{b.id}</span> <button type="button" className="text-sky-700 underline" onClick={() => voirParcours(b.id)}>Parcours</button> <button type="button" className="text-rose-700 underline" onClick={() => retirerBadge(b.id)}>Retirer</button></li>)}</ul>
+            <ul className="space-y-1 text-xs">{site.badges.map((b) => (
+              <li key={b.id} className="flex flex-wrap items-center gap-2">
+                <input defaultValue={b.libelle} key={b.libelle} onBlur={(e) => renommerBadge(b.id, e.target.value)} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  className="w-40 rounded border border-slate-300 px-2 py-0.5 font-semibold" aria-label={`Libellé du badge ${b.id}`} data-testid="presence-libelle-badge" />
+                <span className="font-mono text-slate-500">{b.id}</span>
+                <button type="button" className="text-sky-700 underline" onClick={() => voirParcours(b.id)}>Parcours</button>
+                <button type="button" className="text-rose-700 underline" onClick={() => retirerBadge(b.id)}>Retirer</button>
+              </li>))}</ul>
+            <p className="text-[11px] text-slate-500">Pour renommer un badge, modifiez son libellé puis quittez le champ (ou Entrée).</p>
             <div className="flex flex-wrap gap-2 boutons-distincts">
               <input value={badge.id} onChange={(e) => setBadge({ ...badge, id: e.target.value })} placeholder="Identifiant (ex. ib:…) — ou « Enregistrer » ci-dessus" className={`${champ} w-72`} />
               <input value={badge.libelle} onChange={(e) => setBadge({ ...badge, libelle: e.target.value })} placeholder="Libellé (ex. Visiteur 12)" className={champ} />

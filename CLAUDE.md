@@ -167,3 +167,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
   e-mail Gmail « awa.badini@gmail.com ». Jamais « Jean Dupont », « Prénom Nom » ni « @entreprise.fr / @exemple.com ».
 - SAWALI : constantes uniques `EXEMPLE_NOM` / `EXEMPLE_EMAIL` dans `frontend/src/lib/exemplesIdentite.js`, importées par chaque formulaire.
   Même principe sur toute plateforme (une seule source par plateforme).
+
+## Compte rendu par e-mail : TOUJOURS, même pour un ajout ou une correction insignifiante (règle du propriétaire, 14/11/2026)
+- Après CHAQUE livraison, sans exception de taille (petite correction, changement de libellé, simple règle ajoutée au CLAUDE.md), envoyer l'e-mail HTML de
+  compte rendu à jfrancois.ouoba@gmail.com (`mcp__Gmail__send_message`, champ `htmlBody`) : date et heure, identification (dépôt, branche, commit, lot),
+  périmètre, comment vérifier, à activer, points d'attention, reste à faire. Ne jamais attendre que le propriétaire le demande.
+- Cette règle précise la règle « Livraison et déploiement » ; elle vaut aussi pour les recettes et vérifications faites sans changement de code.

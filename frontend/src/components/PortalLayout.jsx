@@ -7,7 +7,7 @@ import {
 import { ChevronDown, SlidersHorizontal } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
 import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
-import { LifeBuoy } from "lucide-react";   // lot 92 : synthèse du support
+import { LifeBuoy, MapPin as IconeLieu } from "lucide-react";   // lot 92 : synthèse du support ; lot 388 : lieux (balises)
 import { MonitorSmartphone } from "lucide-react";   // lot 135.1 : Plateformes → Contrôle à distance
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
@@ -225,6 +225,7 @@ const adminLinks = [
   { to: "/admin/requetes", label: "Requêtes clients", icon: MessageSquareWarning, adminOrSup: true },   // lot 86.3 : superviseurs aussi
   { to: "/admin/evaluations-loois", label: "Évaluations Loois", icon: ClipboardList, adminOrSup: true },   // lot 88 : sondages du support
   { to: "/admin/synthese-support", label: "Synthèse du support", icon: LifeBuoy, adminOrSup: true },   // lot 92 : non répondues, totaux, Claude
+  { to: "/admin/lieux-balises", label: "Lieux (balises)", icon: IconeLieu, adminOrSup: true },   // lot 388 : « Vous êtes ici » (QR + balises), superviseur compris
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)

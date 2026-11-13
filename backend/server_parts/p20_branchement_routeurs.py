@@ -272,6 +272,12 @@ from routes.contrats_plateformes import setup_contrats_plateformes_routes as _se
 _setup_contrats_plateformes(db=db, api=api, get_current_user=get_current_user)
 from routes.demandes_plateformes import setup_demandes_plateformes_routes as _setup_demandes_plateformes  # noqa: E402  (lot 384)
 _setup_demandes_plateformes(db=db, api=api, get_current_user=get_current_user)
+# Lot 386 — paiement mobile au comptoir des officines (QR + séquence USSD Orange / Moov / Telecel)
+from routes.paiement_officine import setup_paiement_officine_routes as _setup_paiement_officine  # noqa: E402
+from routes.officines_portal import make_get_current_officine as _make_gco_paiement  # noqa: E402
+from auth import JWT_SECRET as _JWT_SECRET_PAY, JWT_ALGORITHM as _JWT_ALGO_PAY  # noqa: E402
+_setup_paiement_officine(db=db, api=api, get_current_user=get_current_user,
+                         get_current_officine=_make_gco_paiement(db=db, jwt_secret=_JWT_SECRET_PAY, jwt_algorithm=_JWT_ALGO_PAY))
 # Lot 138 — nom de profil WhatsApp d'un numéro, lu (signé) par une plateforme : POST /api/webhook/plateforme-profils-wa
 from routes.profils_wa import setup_profils_wa_routes as _setup_profils_wa  # noqa: E402
 _setup_profils_wa(db=db, api=api)

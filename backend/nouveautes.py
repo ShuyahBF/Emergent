@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "386", "date": "2026-11-14",
+        "titre": "💳 Paiement au comptoir des officines : QR code et séquence USSD Orange, Moov, Telecel",
+        "description": "Chaque pharmacie enregistre son code marchand et imprime un QR : le client choisit son opérateur et son montant et obtient la séquence à composer (copie sur iPhone).",
+        "rubrique": "💳 Paiement au comptoir des officines",
+    },
+    {
         "lot": "385", "date": "2026-11-14",
         "titre": "📮 Demandes des plateformes : modification et suppression tant que non validées",
         "description": "ALBARKA peut modifier ou supprimer une demande remontée tant que vous ne l'avez pas validée (réalisée ou refusée) ; après validation, SAWALI la garde telle quelle.",

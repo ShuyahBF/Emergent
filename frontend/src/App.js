@@ -186,6 +186,8 @@ import DecouverteReseau from "@/pages/admin/DecouverteReseau";   // lot 80 : app
 import VersionsDeployees from "@/pages/admin/VersionsDeployees";   // lot 80 : « Postes et serveurs » dans « Équipements »
 import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
 import PublicRequete from "@/pages/public/PublicRequete";   // lot 86.1 : lien personnel des requêtes clients (sans connexion)
+import OfficinePaiement from "@/pages/public/OfficinePaiement";   // lot 386 : paiement au comptoir (QR + séquence USSD)
+import OfficinePaiementPortail from "@/pages/officines/Paiement";   // lot 386
 import OfficineOrdonnance from "@/pages/public/OfficineOrdonnance";   // lot 57 : délivrance en officine (QR de l'ordonnance)
 import Restauration from "@/pages/public/Restauration";   // lot 49 : restauration initiale d'un site neuf
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
@@ -339,6 +341,7 @@ export default function App() {
           <Route path="/suivi-rdv" element={<SuiviRdv />} />
           <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
           <Route path="/requete/:jeton" element={<PublicRequete />} />   {/* lot 86.1 */}
+          <Route path="/officine/payer/:jeton" element={<OfficinePaiement />} />   {/* lot 386 : page publique de paiement */}
           <Route path="/officine/ordonnance/:jeton" element={<OfficineOrdonnance />} />   {/* lot 57 : page publique de l'officine */}
           <Route path="/restauration" element={<Restauration />} />   {/* lot 49 */}
           <Route path="/pay/:slug" element={<PayLink />} />
@@ -369,6 +372,7 @@ export default function App() {
           <Route path="/officines" element={<OfficineLayout />}>
             <Route index element={<OfficineDashboard />} />
             <Route path="inventory" element={<OfficineInventory />} />
+            <Route path="paiement" element={<OfficinePaiementPortail />} />
             <Route path="secret" element={<OfficineSecret />} />
             <Route path="history" element={<OfficineHistory />} />
           </Route>

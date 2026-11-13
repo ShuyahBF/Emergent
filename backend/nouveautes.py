@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "387", "date": "2026-11-14",
+        "titre": "📍 Présence par balises : qui est dans quelle zone, en direct, avec parcours des badges",
+        "description": "Des badges Bluetooth portés par les visiteurs et des récepteurs fixes envoient leurs détections à SAWALI : présence par zone, sorties et parcours (contrat d'échange v1 pour brancher d'autres récepteurs ou écrans).",
+        "rubrique": "📍 Présence par balises",
+    },
+    {
         "lot": "386.1", "date": "2026-11-14",
         "titre": "💳 Paiement au comptoir : source des séquences USSD précisée (auRor)",
         "description": "Les séquences Orange, Moov et Telecel viennent d'auRor (mobile-payments) : le code SAWALI le signale pour les corriger ensemble si un opérateur change.",

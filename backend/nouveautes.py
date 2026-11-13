@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "379", "date": "2026-11-13",
+        "titre": "👪 Ma famille : comptes, liens vérifiés et messagerie chiffrée",
+        "description": "Application Personnel de maison : relier les téléphones d'une famille par invitation, vérifier le lien avec un numéro de sécurité, puis échanger des messages chiffrés de bout en bout ; état des comptes et liens dans les Paramètres.",
+        "rubrique": "👪 Ma famille (Personnel de maison)",
+    },
+    {
         "lot": "378", "date": "2026-11-13",
         "titre": "💊 VIDAL : recherche par nom (VMP, UCD, présentation) et schéma de prise sur l'ordonnance",
         "description": "Dans Posologie, recherche par nom d'une présentation, d'un VMP ou d'une UCD (l'identifiant reste possible) ; le schéma de prise détaillé (paliers, moments de la journée, repas) est imprimé sur l'ordonnance PDF.",

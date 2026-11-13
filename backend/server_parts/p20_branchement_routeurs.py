@@ -1078,6 +1078,10 @@ _setup_voice_notif_routes(app=api, db=db, get_current_user=get_current_user)
 from routes.rappels_vocaux import setup_rappels_vocaux_routes as _setup_rappels_vocaux_routes  # noqa: E402
 _setup_rappels_vocaux_routes(app=api, db=db, get_current_user=get_current_user)
 
+# Lot 379 — « Ma famille » (application Personnel de maison) : comptes, liens vérifiés, messagerie chiffrée de bout en bout
+from routes.famille import setup_famille_routes as _setup_famille_routes  # noqa: E402
+_setup_famille_routes(app=api, db=db, get_current_user=get_current_user)
+
 # Iter38r-fix9u — AI subscription renewal reminders (WhatsApp + Email)
 from routes.ai_subscriptions import setup_ai_subscriptions_routes as _setup_ai_subs_routes  # noqa: E402
 async def _email_adapter(*, to: str, subject: str, body_text: str):

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "389.1", "date": "2026-11-14",
+        "titre": "💬 Transactions SMS : association d'un numéro à un client de SAWALI, et numéros enfin bien lus",
+        "description": "Un numéro peut être associé à un client de la liste de SAWALI (et/ou à une plateforme) ; les payeurs de numéro connu sont suggérés ; la lecture des numéros des SMS est corrigée (ALBARKA retrouve ses paiements).",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "389", "date": "2026-11-14",
         "titre": "💬 Transactions SMS : les paiements lus dans les SMS d'un téléphone, avec filtres et statistiques",
         "description": "Nouvelle option de menu « Transactions SMS » (administrateur) : mêmes filtres que l'historique d'auRor, et association d'un numéro à une plateforme (ALBARKA) pour retrouver ses paiements sans les ressaisir.",

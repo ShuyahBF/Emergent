@@ -74,7 +74,7 @@ def operateur_de(adresse: str, corps: str) -> str:
 
 _TRANSACTION = re.compile(r"trans(?:action)?\s*id\s*:?\s*\S+", re.I)
 _SOLDE = re.compile(r"solde[^.\n]*", re.I)
-_TELEPHONE = re.compile(r"(?<![\d.,])(?:(?:\+|00)?226[\s.\-]?)?((?:[0-7]\d[\s.\-]?){3}\d\d)(?![\d])")
+_TELEPHONE = re.compile(r"(?<![\d.,])(?:(?:\+|00)?226[\s.\-]?)?([0-7]\d(?:[\s.\-]?\d\d){3})(?![\d])")   # 8 chiffres, le premier entre 0 et 7 (ex. 71828394, 70 11 22 33)
 _MONNAIE_APRES = re.compile(r"\s*(?:fcfa|f\s?cfa|xof|cfa)\b", re.I)
 
 
@@ -87,6 +87,15 @@ def numero_de(corps: str) -> Optional[str]:
             continue
         return re.sub(r"\D", "", m.group(1))
     return None
+
+
+_DE_NUMERO_NOM = re.compile(r"\b(?:du|de|from)\s+(?:\+?226[\s.\-]?)?(\d{2}(?:[\s.\-]?\d\d){3})\s*[,;:\-]\s*([^.\n]{2,40})", re.I)
+
+
+def tiers_de(corps: str, tiers: str) -> str:
+    """Nom de l'expéditeur : si le SMS dit « … du 71828394,awa. » on prend « awa » (la lecture du téléphone peut avoir retenu un morceau de phrase) ; sinon le nom enregistré."""
+    m = _DE_NUMERO_NOM.search(corps or "")
+    return m.group(2).strip().rstrip(".,;") if m else tiers
 
 
 def cle_lien(texte: str) -> Tuple[str, str]:
@@ -139,17 +148,20 @@ def jour_de(ms: int) -> str:
 
 
 def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Ajoute à une transaction son opérateur, le numéro lu dans le SMS et, s'il existe, la plateforme à laquelle elle est associée."""
+    """Ajoute à une transaction son opérateur, le numéro lu dans le SMS et l'association éventuelle : une PLATEFORME (code d'émetteur) et / ou un CLIENT de SAWALI."""
     numero = numero_de(p.get("corps") or "")
-    nom = normaliser(p.get("tiers") or "")
+    tiers = tiers_de(p.get("corps") or "", p.get("tiers") or "")
+    nom = normaliser(tiers)
     lien = next((l for l in liens if (l["type"] == "numero" and numero and l["cle"] == numero) or (l["type"] == "nom" and nom and l["cle"] == nom)), None)
-    return {**p, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero,
-            "plateforme": lien["plateforme"] if lien else None, "lien_libelle": lien["libelle"] if lien else None}
+    return {**p, "tiers": tiers, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero,
+            "plateforme": (lien or {}).get("plateforme") or None, "client_id": (lien or {}).get("client_id") or None,
+            "client_nom": (lien or {}).get("client_nom") or None, "lien_libelle": lien["libelle"] if lien else None,
+            "associe": bool(lien)}
 
 
 def filtrer(items: List[Dict[str, Any]], du_ms: Optional[int] = None, au_ms: Optional[int] = None, operateur: str = "", genre: str = "",
             q: str = "", source: str = "", plateforme: str = "") -> List[Dict[str, Any]]:
-    """Transactions (déjà enrichies) qui satisfont TOUS les critères, du plus récent au plus ancien. `au_ms` est exclu ; `plateforme` = code d'émetteur, ou « *lie » (toute
+    """Transactions (déjà enrichies) qui satisfont TOUS les critères, du plus récent au plus ancien. `au_ms` est exclu ; `plateforme` = code d'émetteur, « client:<id> » (client de SAWALI), « *lie » (toute
     transaction associée) ou « *non_lie ». Chaque mot du texte cherché doit se trouver dans le bénéficiaire, la référence, l'expéditeur, le numéro ou le SMS."""
     mots = [m for m in normaliser(q).split(" ") if m]
     sortie = []
@@ -164,11 +176,13 @@ def filtrer(items: List[Dict[str, Any]], du_ms: Optional[int] = None, au_ms: Opt
             continue
         if source and p.get("source") != source:
             continue
-        if plateforme == "*lie" and not p.get("plateforme"):
+        if plateforme == "*lie" and not p.get("associe"):
             continue
-        if plateforme == "*non_lie" and p.get("plateforme"):
+        if plateforme == "*non_lie" and p.get("associe"):
             continue
-        if plateforme and not plateforme.startswith("*") and p.get("plateforme") != plateforme:
+        if plateforme.startswith("client:") and p.get("client_id") != plateforme[7:]:
+            continue
+        if plateforme and not plateforme.startswith(("*", "client:")) and p.get("plateforme") != plateforme:
             continue
         if mots:
             botte = normaliser(" ".join([p.get("tiers") or "", p.get("reference") or "", p.get("adresse") or "", p.get("numero") or "", p.get("corps") or ""]))
@@ -224,7 +238,7 @@ def csv_de(items: List[Dict[str, Any]]) -> str:
     for p in items:
         w.writerow([datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%d/%m/%Y %H:%M"), p["operateur"], "Recette" if p["genre"] == "RECETTE" else "Dépense",
                     p["montant"], p.get("tiers") or "", p.get("numero") or "", p.get("solde") if p.get("solde") is not None else "", p.get("reference") or "",
-                    p.get("plateforme") or "", p.get("lien_libelle") or ""])
+                    p.get("plateforme") or "", p.get("client_nom") or p.get("lien_libelle") or ""])
     return "﻿" + sortie.getvalue()
 
 
@@ -232,7 +246,7 @@ def vue_plateforme(p: Dict[str, Any]) -> Dict[str, Any]:
     """Ce que reçoit une plateforme : champs structurés SEULEMENT (jamais le texte du SMS ni l'expéditeur brut)."""
     return {"id": p["k"], "recu_le": datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).isoformat(), "sens": "entree" if p["genre"] == "RECETTE" else "sortie",
             "montant": p["montant"], "tiers": p.get("tiers") or "", "numero": p.get("numero"), "reference": p.get("reference"),
-            "operateur": p["operateur"], "client": p.get("lien_libelle")}
+            "operateur": p["operateur"], "client": p.get("lien_libelle") or p.get("client_nom")}
 
 
 def hacher_cle(cle: str) -> str:
@@ -336,12 +350,22 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
     async def _emetteurs() -> List[Dict[str, str]]:
         return [{"code": e["code"], "nom": e.get("nom") or e["code"]} async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1, "nom": 1}) if e.get("code")]
 
+    async def _clients() -> List[Dict[str, Any]]:
+        """Clients de SAWALI (liste de « Clients » du menu) : identifiant, nom affiché et numéros connus (téléphone, WhatsApp)."""
+        sortie = []
+        async for u in db.users.find({"role": {"$in": ["client", "admin"]}, "email": {"$nin": ["admin@sawalismartsystems.com"]}},
+                                     {"_id": 0, "id": 1, "full_name": 1, "company": 1, "phone": 1, "whatsapp_number": 1}):
+            if u.get("id"):
+                sortie.append({"id": u["id"], "nom": (u.get("company") or u.get("full_name") or u["id"]).strip(), "numeros": [x for x in (u.get("phone"), u.get("whatsapp_number")) if x]})
+        return sorted(sortie, key=lambda c: c["nom"].lower())
+
     @api.get("/admin/transactions-sms/etat", tags=["Transactions SMS — écran"])
     async def etat(user: dict = Depends(get_current_user)):
         _admin(user)
         cfg = await _lire_config()
         return {"sources": [{k: s.get(k) for k in ("id", "nom", "dernier_envoi", "recues")} for s in cfg["sources"]], "liens": cfg["liens"],
-                "plateformes": await _emetteurs(), "operateurs": OPERATEURS, "mois": await _mois_existants()}
+                "plateformes": await _emetteurs(), "clients": [{"id": c["id"], "nom": c["nom"]} for c in await _clients()],
+                "operateurs": OPERATEURS, "mois": await _mois_existants()}
 
     @api.post("/admin/transactions-sms/sources", tags=["Transactions SMS — écran"])
     async def creer_source(request: Request, user: dict = Depends(get_current_user)):
@@ -367,7 +391,8 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
 
     @api.post("/admin/transactions-sms/liens", tags=["Transactions SMS — écran"])
     async def creer_lien(request: Request, user: dict = Depends(get_current_user)):
-        """Associe un numéro (ou un nom) à une plateforme (émetteur) avec un libellé de client."""
+        """Associe un numéro (ou un nom) à une PLATEFORME (émetteur) et / ou à un CLIENT de SAWALI. Au moins l'un des deux. Une plateforme liée à un client
+        (champ client_id de son fiche d'émetteur) retrouve aussi les paiements des numéros associés à ce client."""
         _admin(user)
         corps = (await request.json()) or {}
         try:
@@ -375,16 +400,45 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         plateforme = str(corps.get("plateforme") or "").strip().lower()
-        if plateforme not in {e["code"] for e in await _emetteurs()}:
+        client_id = str(corps.get("client_id") or "").strip()
+        if not plateforme and not client_id:
+            raise HTTPException(status_code=422, detail="Choisissez une plateforme ou un client de SAWALI")
+        if plateforme and plateforme not in {e["code"] for e in await _emetteurs()}:
             raise HTTPException(status_code=422, detail="Choisissez une plateforme de la liste")
-        libelle = str(corps.get("libelle") or "").strip()[:80] or plateforme
+        client = next((c for c in await _clients() if c["id"] == client_id), None) if client_id else None
+        if client_id and not client:
+            raise HTTPException(status_code=422, detail="Choisissez un client de la liste de SAWALI")
+        libelle = str(corps.get("libelle") or "").strip()[:80] or (client["nom"] if client else plateforme)
         cfg = await _lire_config()
         if any(l["type"] == type_ and l["cle"] == cle for l in cfg["liens"]):
             raise HTTPException(status_code=409, detail="Ce numéro (ou ce nom) est déjà associé")
-        lien = {"id": uuid.uuid4().hex[:10], "type": type_, "cle": cle, "plateforme": plateforme, "libelle": libelle}
+        lien = {"id": uuid.uuid4().hex[:10], "type": type_, "cle": cle, "plateforme": plateforme or None, "libelle": libelle}
+        if client:
+            lien.update({"client_id": client["id"], "client_nom": client["nom"]})
         cfg["liens"].append(lien)
         await _ecrire_config(cfg)
         return lien
+
+    @api.get("/admin/transactions-sms/suggestions", tags=["Transactions SMS — écran"])
+    async def suggestions(user: dict = Depends(get_current_user)):
+        """Payeurs de numéro CONNU : numéros lus dans les SMS, pas encore associés, qui sont le téléphone ou le WhatsApp d'un client de SAWALI."""
+        _admin(user)
+        cfg = await _lire_config()
+        par_numero: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for c in await _clients():
+            for n in c["numeros"]:
+                chiffres = re.sub(r"\D", "", n)
+                if len(chiffres) >= 8:
+                    par_numero[chiffres[-8:]].append(c)
+        sortie: Dict[str, Dict[str, Any]] = {}
+        for p in await _toutes(None, None, cfg["liens"]):
+            if p.get("associe") or not p.get("numero") or p["numero"] not in par_numero:
+                continue
+            for c in par_numero[p["numero"]]:
+                x = sortie.setdefault(p["numero"] + c["id"], {"numero": p["numero"], "client_id": c["id"], "client_nom": c["nom"], "nombre": 0, "total": 0})
+                x["nombre"] += 1
+                x["total"] += p["montant"] if p["genre"] == "RECETTE" else 0
+        return {"suggestions": sorted(sortie.values(), key=lambda x: x["nombre"], reverse=True)}
 
     @api.delete("/admin/transactions-sms/liens/{lien_id}", tags=["Transactions SMS — écran"])
     async def supprimer_lien(lien_id: str, user: dict = Depends(get_current_user)):
@@ -436,5 +490,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         genre = {"entree": "RECETTE", "sortie": "DEPENSE"}.get(str(donnees.get("sens") or ""), "")
         limite = max(1, min(int(donnees.get("limite") or 200), 500))
         cfg = await _lire_config()
-        items = filtrer(await _toutes(du_ms, None, cfg["liens"]), du_ms, None, "", genre, "", "", code)
+        client_de_la_plateforme = emetteur.get("client_id")
+        items = [p for p in filtrer(await _toutes(du_ms, None, cfg["liens"]), du_ms, None, "", genre, "", "", "")
+                 if p.get("plateforme") == code or (client_de_la_plateforme and p.get("client_id") == client_de_la_plateforme)]
         return {"plateforme": code, "total": len(items), "transactions": [vue_plateforme(p) for p in items[:limite]]}

@@ -72,21 +72,121 @@ def operateur_de(adresse: str, corps: str) -> str:
     return "Autre"
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+# NUMÉROS DE TÉLÉPHONE AVEC INDICATIFS DES PAYS (lot 389.2). Forme de référence (« canonique ») = chiffres internationaux sans « + » : indicatif + numéro national,
+# ex. 22670112233 (Burkina Faso), 2250712345678 (Côte d'Ivoire), 33612345678 (France). Les deux côtés (SMS et association saisie) passent par la MÊME normalisation.
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+INDICATIF_DEFAUT = "226"      # Burkina Faso : pays des numéros écrits sans indicatif
+# lg = longueurs acceptées du numéro national ; tronc0 = le « 0 » de tête (préfixe national) est supprimé (ex. France 06 12… → 6 12…)
+PAYS: List[Dict[str, Any]] = [
+    {"code": "BF", "nom": "Burkina Faso", "ind": "226", "lg": [8], "tronc0": False},
+    {"code": "CI", "nom": "Côte d'Ivoire", "ind": "225", "lg": [8, 10], "tronc0": False},
+    {"code": "ML", "nom": "Mali", "ind": "223", "lg": [8], "tronc0": False},
+    {"code": "NE", "nom": "Niger", "ind": "227", "lg": [8], "tronc0": False},
+    {"code": "TG", "nom": "Togo", "ind": "228", "lg": [8], "tronc0": False},
+    {"code": "BJ", "nom": "Bénin", "ind": "229", "lg": [8, 10], "tronc0": False},
+    {"code": "SN", "nom": "Sénégal", "ind": "221", "lg": [9], "tronc0": False},
+    {"code": "GN", "nom": "Guinée", "ind": "224", "lg": [9], "tronc0": False},
+    {"code": "GH", "nom": "Ghana", "ind": "233", "lg": [9], "tronc0": True},
+    {"code": "NG", "nom": "Nigeria", "ind": "234", "lg": [10], "tronc0": True},
+    {"code": "CM", "nom": "Cameroun", "ind": "237", "lg": [9], "tronc0": False},
+    {"code": "GA", "nom": "Gabon", "ind": "241", "lg": [8, 9], "tronc0": False},
+    {"code": "CG", "nom": "Congo", "ind": "242", "lg": [9], "tronc0": False},
+    {"code": "CD", "nom": "RD Congo", "ind": "243", "lg": [9], "tronc0": True},
+    {"code": "MA", "nom": "Maroc", "ind": "212", "lg": [9], "tronc0": True},
+    {"code": "DZ", "nom": "Algérie", "ind": "213", "lg": [9], "tronc0": True},
+    {"code": "TN", "nom": "Tunisie", "ind": "216", "lg": [8], "tronc0": False},
+    {"code": "FR", "nom": "France", "ind": "33", "lg": [9], "tronc0": True},
+    {"code": "BE", "nom": "Belgique", "ind": "32", "lg": [8, 9], "tronc0": True},
+    {"code": "CH", "nom": "Suisse", "ind": "41", "lg": [9], "tronc0": True},
+    {"code": "DE", "nom": "Allemagne", "ind": "49", "lg": [10, 11], "tronc0": True},
+    {"code": "GB", "nom": "Royaume-Uni", "ind": "44", "lg": [10], "tronc0": True},
+    {"code": "ES", "nom": "Espagne", "ind": "34", "lg": [9], "tronc0": False},
+    {"code": "IT", "nom": "Italie", "ind": "39", "lg": [9, 10], "tronc0": False},
+    {"code": "CA", "nom": "Canada / États-Unis", "ind": "1", "lg": [10], "tronc0": False},
+    {"code": "CN", "nom": "Chine", "ind": "86", "lg": [11], "tronc0": False},
+]
+_PAYS_PAR_IND = {p["ind"]: p for p in PAYS}
+
+
+def _pays_par_prefixe(chiffres: str) -> Optional[Dict[str, Any]]:
+    """Pays dont l'indicatif commence ces chiffres (le plus long d'abord : 226 avant 22…, 1 en dernier)."""
+    for n in (3, 2, 1):
+        pays = _PAYS_PAR_IND.get(chiffres[:n])
+        if pays:
+            return pays
+    return None
+
+
+def _national(pays: Dict[str, Any], national: str) -> Optional[str]:
+    """Numéro national nettoyé (« 0 » de tête retiré si le pays le veut) ; None si sa longueur n'est pas celle du pays."""
+    if pays["tronc0"] and national.startswith("0"):
+        national = national[1:]
+    return national if len(national) in pays["lg"] else None
+
+
+def normaliser_numero(texte: str, indicatif_defaut: str = INDICATIF_DEFAUT) -> Optional[str]:
+    """Numéro saisi ou lu → forme canonique (indicatif + numéro national, chiffres seulement), ou None s'il est invalide.
+    « +226 70 11 22 33 », « 00226 70112233 », « 226 70 11 22 33 », « 70 11 22 33 » (indicatif par défaut), « +33 6 12 34 56 78 », « 06 12 34 56 78 » avec indicatif_defaut=33…"""
+    brut = (texte or "").strip()
+    chiffres = re.sub(r"\D", "", brut)
+    if not chiffres:
+        return None
+    if brut.startswith("+") or chiffres.startswith("00"):                       # indicatif écrit : international
+        chiffres = chiffres[2:] if (not brut.startswith("+") and chiffres.startswith("00")) else chiffres
+        pays = _pays_par_prefixe(chiffres)
+        if pays:
+            national = _national(pays, chiffres[len(pays["ind"]):])
+            return pays["ind"] + national if national else None
+        return chiffres if 8 <= len(chiffres) <= 15 else None                  # pays hors liste : accepté tel quel
+    defaut = _PAYS_PAR_IND.get(indicatif_defaut) or _PAYS_PAR_IND[INDICATIF_DEFAUT]
+    local = _national(defaut, chiffres)                                           # numéro du pays choisi, sans indicatif
+    if local:
+        return defaut["ind"] + local
+    pays = _pays_par_prefixe(chiffres)                                            # sans « + » mais avec un indicatif connu (ex. 22670112233)
+    if pays:
+        national = _national(pays, chiffres[len(pays["ind"]):])
+        if national:
+            return pays["ind"] + national
+    return None
+
+
+def formater_numero(canon: Optional[str]) -> str:
+    """22670112233 → « +226 70 11 22 33 » (groupes de deux chiffres en partant de la droite)."""
+    if not canon:
+        return ""
+    pays = _pays_par_prefixe(canon)
+    ind = pays["ind"] if pays else ""
+    reste = canon[len(ind):]
+    groupes: List[str] = []
+    while reste:
+        groupes.insert(0, reste[-2:])
+        reste = reste[:-2]
+    return "+" + ind + " " + " ".join(groupes)
+
+
 _TRANSACTION = re.compile(r"trans(?:action)?\s*id\s*:?\s*\S+", re.I)
 _SOLDE = re.compile(r"solde[^.\n]*", re.I)
-_TELEPHONE = re.compile(r"(?<![\d.,])(?:(?:\+|00)?226[\s.\-]?)?([0-7]\d(?:[\s.\-]?\d\d){3})(?![\d])")   # 8 chiffres, le premier entre 0 et 7 (ex. 71828394, 70 11 22 33)
+# local (Burkina) : 8 chiffres, le premier entre 0 et 7, avec ou sans indicatif 226 (ex. 71828394, 70 11 22 33, +226 70 11 22 33)
+_TELEPHONE = re.compile(r"(?<![\d.,])(?:(?:\+|00)?226[\s.\-]?)?([0-7]\d(?:[\s.\-]?\d\d){3})(?![\d])")
+# international : « + » ou « 00 », puis indicatif et numéro (ex. +33 6 12 34 56 78, 00225 07 12 34 56 78)
+_INTERNATIONAL = re.compile(r"(?<![\d.,])((?:\+|00)\d{1,3}(?:[\s.\-]?\d){7,12})(?![\d])")
 _MONNAIE_APRES = re.compile(r"\s*(?:fcfa|f\s?cfa|xof|cfa)\b", re.I)
 
 
 def numero_de(corps: str) -> Optional[str]:
-    """Numéro de téléphone (8 chiffres, sans l'indicatif 226) lu dans le texte du SMS, ou None. On écarte le numéro de transaction, la phrase du solde et tout nombre
-    suivi de « FCFA » (un montant). Écritures reconnues : 70112233, 70 11 22 33, 70-11-22-33, +226 70 11 22 33, 00226 70112233."""
+    """Numéro de téléphone lu dans le texte du SMS, en forme canonique (indicatif + numéro), ou None. Un numéro écrit sans indicatif est celui du Burkina Faso (226).
+    On écarte le numéro de transaction, la phrase du solde et tout nombre suivi de « FCFA » (un montant)."""
     t = _SOLDE.sub(" ", _TRANSACTION.sub(" ", corps or ""))
+    trouves = []
+    for m in _INTERNATIONAL.finditer(t):                                            # avec indicatif : prioritaire, s'il est valide
+        canon = normaliser_numero(m.group(1))
+        if canon and not _MONNAIE_APRES.match(t, m.end()):
+            trouves.append((m.start(), canon))
     for m in _TELEPHONE.finditer(t):
-        if _MONNAIE_APRES.match(t, m.end()):
-            continue
-        return re.sub(r"\D", "", m.group(1))
-    return None
+        if not _MONNAIE_APRES.match(t, m.end()):
+            trouves.append((m.start(), INDICATIF_DEFAUT + re.sub(r"\D", "", m.group(1))))
+    return min(trouves)[1] if trouves else None
 
 
 _DE_NUMERO_NOM = re.compile(r"\b(?:du|de|from)\s+(?:\+?226[\s.\-]?)?(\d{2}(?:[\s.\-]?\d\d){3})\s*[,;:\-]\s*([^.\n]{2,40})", re.I)
@@ -98,16 +198,26 @@ def tiers_de(corps: str, tiers: str) -> str:
     return m.group(2).strip().rstrip(".,;") if m else tiers
 
 
-def cle_lien(texte: str) -> Tuple[str, str]:
-    """Clé d'association saisie par l'administrateur : un NUMÉRO (≥ 8 chiffres → les 8 derniers) ou un NOM (normalisé). Lève ValueError si vide."""
+def cle_lien(texte: str, indicatif: str = INDICATIF_DEFAUT) -> Tuple[str, str]:
+    """Clé d'association saisie par l'administrateur : un NUMÉRO (forme canonique, avec l'indicatif du pays choisi si la saisie n'en porte pas) ou un NOM (normalisé).
+    Lève ValueError si la saisie est vide ou si le numéro n'a pas la longueur de son pays."""
     brut = (texte or "").strip()
     chiffres = re.sub(r"\D", "", brut)
-    if len(chiffres) >= 8 and re.fullmatch(r"[\d\s+().\-]+", brut):
-        return "numero", chiffres[-8:]
+    if chiffres and re.fullmatch(r"[\d\s+().\-]+", brut):                      # que des chiffres et séparateurs : c'est un numéro
+        canon = normaliser_numero(brut, indicatif)
+        if not canon:
+            raise ValueError("Numéro invalide pour ce pays : vérifiez le nombre de chiffres ou écrivez-le avec son indicatif (ex. +226 70 11 22 33)")
+        return "numero", canon
     nom = normaliser(brut)
     if len(nom) < 3:
-        raise ValueError("Saisissez un numéro (8 chiffres) ou un nom d'au moins 3 caractères")
+        raise ValueError("Saisissez un numéro (avec ou sans indicatif) ou un nom d'au moins 3 caractères")
     return "nom", nom[:80]
+
+
+def cle_canonique(lien: Dict[str, Any]) -> str:
+    """Clé d'un lien déjà enregistré : les anciens liens (lot 389) portent 8 chiffres sans indicatif = Burkina Faso."""
+    cle = lien.get("cle") or ""
+    return INDICATIF_DEFAUT + cle if lien.get("type") == "numero" and len(cle) == 8 else cle
 
 
 def nettoyer_paiement(d: Any) -> Optional[Dict[str, Any]]:
@@ -152,8 +262,8 @@ def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]]) -> Dict[str, Any]:
     numero = numero_de(p.get("corps") or "")
     tiers = tiers_de(p.get("corps") or "", p.get("tiers") or "")
     nom = normaliser(tiers)
-    lien = next((l for l in liens if (l["type"] == "numero" and numero and l["cle"] == numero) or (l["type"] == "nom" and nom and l["cle"] == nom)), None)
-    return {**p, "tiers": tiers, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero,
+    lien = next((l for l in liens if (l["type"] == "numero" and numero and cle_canonique(l) == numero) or (l["type"] == "nom" and nom and l["cle"] == nom)), None)
+    return {**p, "tiers": tiers, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero, "numero_affiche": formater_numero(numero),
             "plateforme": (lien or {}).get("plateforme") or None, "client_id": (lien or {}).get("client_id") or None,
             "client_nom": (lien or {}).get("client_nom") or None, "lien_libelle": lien["libelle"] if lien else None,
             "associe": bool(lien)}
@@ -185,7 +295,7 @@ def filtrer(items: List[Dict[str, Any]], du_ms: Optional[int] = None, au_ms: Opt
         if plateforme and not plateforme.startswith(("*", "client:")) and p.get("plateforme") != plateforme:
             continue
         if mots:
-            botte = normaliser(" ".join([p.get("tiers") or "", p.get("reference") or "", p.get("adresse") or "", p.get("numero") or "", p.get("corps") or ""]))
+            botte = normaliser(" ".join([p.get("tiers") or "", p.get("reference") or "", p.get("adresse") or "", p.get("numero") or "", p.get("numero_affiche") or "", p.get("corps") or ""]))
             if not all(m in botte for m in mots):
                 continue
         sortie.append(p)
@@ -237,7 +347,7 @@ def csv_de(items: List[Dict[str, Any]]) -> str:
     w.writerow(["Date", "Opérateur", "Sens", "Montant (FCFA)", "Bénéficiaire / expéditeur", "Numéro", "Solde après", "Transaction", "Plateforme", "Client"])
     for p in items:
         w.writerow([datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%d/%m/%Y %H:%M"), p["operateur"], "Recette" if p["genre"] == "RECETTE" else "Dépense",
-                    p["montant"], p.get("tiers") or "", p.get("numero") or "", p.get("solde") if p.get("solde") is not None else "", p.get("reference") or "",
+                    p["montant"], p.get("tiers") or "", p.get("numero_affiche") or "", p.get("solde") if p.get("solde") is not None else "", p.get("reference") or "",
                     p.get("plateforme") or "", p.get("client_nom") or p.get("lien_libelle") or ""])
     return "﻿" + sortie.getvalue()
 
@@ -245,7 +355,7 @@ def csv_de(items: List[Dict[str, Any]]) -> str:
 def vue_plateforme(p: Dict[str, Any]) -> Dict[str, Any]:
     """Ce que reçoit une plateforme : champs structurés SEULEMENT (jamais le texte du SMS ni l'expéditeur brut)."""
     return {"id": p["k"], "recu_le": datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).isoformat(), "sens": "entree" if p["genre"] == "RECETTE" else "sortie",
-            "montant": p["montant"], "tiers": p.get("tiers") or "", "numero": p.get("numero"), "reference": p.get("reference"),
+            "montant": p["montant"], "tiers": p.get("tiers") or "", "numero": p.get("numero_affiche") or None, "reference": p.get("reference"),
             "operateur": p["operateur"], "client": p.get("lien_libelle") or p.get("client_nom")}
 
 
@@ -363,9 +473,10 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
     async def etat(user: dict = Depends(get_current_user)):
         _admin(user)
         cfg = await _lire_config()
-        return {"sources": [{k: s.get(k) for k in ("id", "nom", "dernier_envoi", "recues")} for s in cfg["sources"]], "liens": cfg["liens"],
+        return {"sources": [{k: s.get(k) for k in ("id", "nom", "dernier_envoi", "recues")} for s in cfg["sources"]], "liens": [{**l, "cle_affichee": formater_numero(cle_canonique(l)) if l["type"] == "numero" else l["cle"]} for l in cfg["liens"]],
                 "plateformes": await _emetteurs(), "clients": [{"id": c["id"], "nom": c["nom"]} for c in await _clients()],
-                "operateurs": OPERATEURS, "mois": await _mois_existants()}
+                "operateurs": OPERATEURS, "mois": await _mois_existants(),
+                "pays": [{"code": x["code"], "nom": x["nom"], "ind": x["ind"]} for x in PAYS]}
 
     @api.post("/admin/transactions-sms/sources", tags=["Transactions SMS — écran"])
     async def creer_source(request: Request, user: dict = Depends(get_current_user)):
@@ -396,7 +507,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         _admin(user)
         corps = (await request.json()) or {}
         try:
-            type_, cle = cle_lien(str(corps.get("cle") or ""))
+            type_, cle = cle_lien(str(corps.get("cle") or ""), str(corps.get("pays") or INDICATIF_DEFAUT).lstrip("+"))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         plateforme = str(corps.get("plateforme") or "").strip().lower()
@@ -427,15 +538,15 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         par_numero: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for c in await _clients():
             for n in c["numeros"]:
-                chiffres = re.sub(r"\D", "", n)
-                if len(chiffres) >= 8:
-                    par_numero[chiffres[-8:]].append(c)
+                canon = normaliser_numero(n)
+                if canon:
+                    par_numero[canon].append(c)
         sortie: Dict[str, Dict[str, Any]] = {}
         for p in await _toutes(None, None, cfg["liens"]):
             if p.get("associe") or not p.get("numero") or p["numero"] not in par_numero:
                 continue
             for c in par_numero[p["numero"]]:
-                x = sortie.setdefault(p["numero"] + c["id"], {"numero": p["numero"], "client_id": c["id"], "client_nom": c["nom"], "nombre": 0, "total": 0})
+                x = sortie.setdefault(p["numero"] + c["id"], {"numero": p["numero"], "numero_affiche": p.get("numero_affiche"), "client_id": c["id"], "client_nom": c["nom"], "nombre": 0, "total": 0})
                 x["nombre"] += 1
                 x["total"] += p["montant"] if p["genre"] == "RECETTE" else 0
         return {"suggestions": sorted(sortie.values(), key=lambda x: x["nombre"], reverse=True)}

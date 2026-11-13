@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "389.1"
-LOT_LIBELLE = "Transactions SMS : numéros de téléphone bien lus (correction), association à un client de SAWALI en plus de la plateforme, suggestions pour les payeurs de numéro connu."
+LOT = "389.2"
+LOT_LIBELLE = "Transactions SMS : numéros de téléphone avec les indicatifs des pays (liste de pays, saisie en +indicatif ou 00indicatif, lecture dans les SMS)."

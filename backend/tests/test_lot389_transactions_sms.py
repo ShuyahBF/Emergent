@@ -28,24 +28,46 @@ def ms(a, m, j, h=12):
 
 # ----------------------------------------------------------------- logique pure
 def test_numero_lu_dans_le_sms():
-    assert ts.numero_de("Vous avez recu 25000 FCFA de 70112233. Solde: 40000 FCFA") == "70112233"
-    assert ts.numero_de("Transfert reçu de +226 70 11 22 33 le 12/11") == "70112233"
-    assert ts.numero_de("de 00226 70-11-22-33") == "70112233"
+    # forme de référence = indicatif + numéro (22670112233) ; sans indicatif écrit = Burkina Faso (226)
+    assert ts.numero_de("Vous avez recu 25000 FCFA de 70112233. Solde: 40000 FCFA") == "22670112233"
+    assert ts.numero_de("Transfert reçu de +226 70 11 22 33 le 12/11") == "22670112233"
+    assert ts.numero_de("de 00226 70-11-22-33") == "22670112233"
     assert ts.numero_de("Paiement de 2,150.00 FCFA a ALIMENTATION a ete effectue. Trans id: MP261113.1339.95787510. Votre solde est de 64030202 FCFA") is None
     assert ts.numero_de("Vous avez payé 15000000 FCFA à SONABEL") is None          # un montant n'est pas un numéro
     assert ts.numero_de("") is None
-    # SMS au format réel d'Orange Money (valeurs fictives) : le numéro est « 71828394 » (commence par 7, contient des chiffres > 7) et suivi d'une virgule et du nom
+    # autres pays, écrits avec leur indicatif
+    assert ts.numero_de("Reçu de +33 6 12 34 56 78 hier") == "33612345678"
+    assert ts.numero_de("Reçu de 00225 07 12 34 56 78") == "2250712345678"
+    assert ts.numero_de("de +233 24 123 4567") == "233241234567"
+    # SMS au format réel d'Orange Money (valeurs fictives) : le numéro contient des chiffres > 7 (ex. 71828394) et est suivi d'une virgule et du nom
     reel = "Vous avez recu 25000.0 FCFA, Frais:  FCFA, Taxe:  FCFA du 71828394,awa. Le solde de votre compte est de 25153.0202 FCFA Trans ID: PP261113.0926.00000001. Flashez le QR CODE marchand"
-    assert ts.numero_de(reel) == "71828394" and ts.tiers_de(reel, "votre compte est de") == "awa"
+    assert ts.numero_de(reel) == "22671828394" and ts.tiers_de(reel, "votre compte est de") == "awa"
     assert ts.tiers_de("Paiement de 2150 FCFA a ALIMENTATION", "ALIMENTATION") == "ALIMENTATION"
 
 
+def test_indicatifs_des_pays():
+    n = ts.normaliser_numero
+    assert n("+226 70 11 22 33") == n("00226 70 11 22 33") == n("226 70112233") == n("70 11 22 33") == n("(+226) 70-11-22-33") == "22670112233"
+    assert n("+33 6 12 34 56 78") == n("+33 06 12 34 56 78") == n("0033612345678") == "33612345678"       # le « 0 » de tête français est retiré
+    assert n("06 12 34 56 78", "33") == "33612345678"                                                       # indicatif du pays choisi
+    assert n("+225 07 12 34 56 78") == "2250712345678" and n("07 12 34 56 78", "225") == "2250712345678"
+    assert n("70 11 22 3") is None and n("+226 70 11 22") is None and n("") is None and n("abc") is None   # mauvaise longueur
+    assert n("+1 415 555 0123") == "14155550123"
+    assert n("+380 44 123 45 67") == "380441234567"                                                         # pays hors liste : accepté tel quel
+    assert ts.formater_numero("22670112233") == "+226 70 11 22 33" and ts.formater_numero("33612345678") == "+33 6 12 34 56 78" and ts.formater_numero(None) == ""
+
+
 def test_cles_de_lien():
-    assert ts.cle_lien("+226 70 11 22 33") == ("numero", "70112233")
-    assert ts.cle_lien("70112233") == ("numero", "70112233")
+    assert ts.cle_lien("+226 70 11 22 33") == ("numero", "22670112233")
+    assert ts.cle_lien("70112233") == ("numero", "22670112233")                                           # pays par défaut : Burkina Faso
+    assert ts.cle_lien("06 12 34 56 78", "33") == ("numero", "33612345678")                               # pays choisi : France
+    assert ts.cle_lien("+33 6 12 34 56 78", "226") == ("numero", "33612345678")                           # l'indicatif écrit l'emporte sur le pays choisi
     assert ts.cle_lien("OUEDRAOGO  Awa") == ("nom", "ouedraogo awa")
-    with pytest.raises(ValueError):
-        ts.cle_lien("ab")
+    for mauvais in ("ab", "70 11 22", "+226 12"):
+        with pytest.raises(ValueError):
+            ts.cle_lien(mauvais)
+    # anciens liens du lot 389 : 8 chiffres sans indicatif = Burkina Faso
+    assert ts.cle_canonique({"type": "numero", "cle": "70112233"}) == "22670112233" and ts.cle_canonique({"type": "numero", "cle": "33612345678"}) == "33612345678"
 
 
 def test_operateurs_et_nettoyage():
@@ -93,7 +115,7 @@ def test_csv_et_vue_plateforme():
     c = ts.csv_de(ITEMS).splitlines()
     assert c[0].startswith("﻿\"Date\";\"Opérateur\"") and "albarka" in c[-1] or "albarka" in "".join(c)
     v = ts.vue_plateforme(ITEMS[2])
-    assert v["sens"] == "entree" and v["numero"] == "70112233" and v["client"] == "Cabinet Dr X" and "corps" not in v and "adresse" not in v
+    assert v["sens"] == "entree" and v["numero"] == "+226 70 11 22 33" and v["client"] == "Cabinet Dr X" and "corps" not in v and "adresse" not in v
 
 
 # ----------------------------------------------------------------- routes
@@ -172,7 +194,7 @@ def test_association_a_un_client_sawali_et_suggestions():
     assert {x["id"] for x in etat["clients"]} == {"cli-albarka"}
     # suggestion : le numéro du SMS est le téléphone d'un client de SAWALI
     sug = c.get("/api/admin/transactions-sms/suggestions").json()["suggestions"]
-    assert sug == [{"numero": "71828394", "client_id": "cli-albarka", "client_nom": "Cabinet ALBARKA", "nombre": 1, "total": 25000}]
+    assert sug == [{"numero": "22671828394", "numero_affiche": "+226 71 82 83 94", "client_id": "cli-albarka", "client_nom": "Cabinet ALBARKA", "nombre": 1, "total": 25000}]
     # association à un CLIENT (sans plateforme) : refusée si le client est inconnu ou si rien n'est choisi
     assert c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394"}).status_code == 422
     assert c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394", "client_id": "inconnu"}).status_code == 422

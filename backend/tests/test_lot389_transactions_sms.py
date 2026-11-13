@@ -34,6 +34,10 @@ def test_numero_lu_dans_le_sms():
     assert ts.numero_de("Paiement de 2,150.00 FCFA a ALIMENTATION a ete effectue. Trans id: MP261113.1339.95787510. Votre solde est de 64030202 FCFA") is None
     assert ts.numero_de("Vous avez payé 15000000 FCFA à SONABEL") is None          # un montant n'est pas un numéro
     assert ts.numero_de("") is None
+    # SMS au format réel d'Orange Money (valeurs fictives) : le numéro est « 71828394 » (commence par 7, contient des chiffres > 7) et suivi d'une virgule et du nom
+    reel = "Vous avez recu 25000.0 FCFA, Frais:  FCFA, Taxe:  FCFA du 71828394,awa. Le solde de votre compte est de 25153.0202 FCFA Trans ID: PP261113.0926.00000001. Flashez le QR CODE marchand"
+    assert ts.numero_de(reel) == "71828394" and ts.tiers_de(reel, "votre compte est de") == "awa"
+    assert ts.tiers_de("Paiement de 2150 FCFA a ALIMENTATION", "ALIMENTATION") == "ALIMENTATION"
 
 
 def test_cles_de_lien():
@@ -96,7 +100,9 @@ def test_csv_et_vue_plateforme():
 def _app():
     db = mongomock_motor.AsyncMongoMockClient()["sawali_lot389"]
     asyncio.get_event_loop().run_until_complete(db.liluvine_emetteurs.insert_many([
-        {"code": "albarka", "nom": "ALBARKA", "secret": "cle-albarka", "actif": True}, {"code": "ster", "nom": "Ster", "secret": "cle-ster", "actif": True}]))
+        {"code": "albarka", "nom": "ALBARKA", "secret": "cle-albarka", "actif": True, "client_id": "cli-albarka"}, {"code": "ster", "nom": "Ster", "secret": "cle-ster", "actif": True}]))
+    asyncio.get_event_loop().run_until_complete(db.users.insert_one(
+        {"id": "cli-albarka", "role": "client", "email": "dg@albarka.bf", "full_name": "BADINI Awa", "company": "Cabinet ALBARKA", "phone": "+226 71 82 83 94"}))
     qui = {"role": "admin"}
     app, api = FastAPI(), APIRouter(prefix="/api")
 
@@ -154,3 +160,29 @@ def test_parcours_complet():
     assert c.delete(f"/api/admin/transactions-sms/sources/{src['id']}").status_code == 200
     assert c.post("/api/transactions-sms/v1/envoi", json=lot, headers=entetes).status_code == 401
     assert c.get("/api/admin/transactions-sms").json()["total"] == 3                    # les transactions reçues sont conservées
+
+
+def test_association_a_un_client_sawali_et_suggestions():
+    qui, c = _app()
+    src = c.post("/api/admin/transactions-sms/sources", json={"nom": "Téléphone du DG"}).json()
+    reel = "Vous avez recu 25000.0 FCFA du 71828394,awa. Le solde de votre compte est de 25153 FCFA Trans ID: PP261113.0926.00000001."
+    c.post("/api/transactions-sms/v1/envoi", headers={"X-Source": src["id"], "X-Cle": src["cle"]},
+           json={"paiements": [{"adresse": "OrangeMoney", "recu_le_ms": ms(2026, 11, 13), "genre": "RECETTE", "montant": 25000, "tiers": "votre compte est de", "reference": "PP261113.0926.00000001", "corps": reel}]})
+    etat = c.get("/api/admin/transactions-sms/etat").json()
+    assert {x["id"] for x in etat["clients"]} == {"cli-albarka"}
+    # suggestion : le numéro du SMS est le téléphone d'un client de SAWALI
+    sug = c.get("/api/admin/transactions-sms/suggestions").json()["suggestions"]
+    assert sug == [{"numero": "71828394", "client_id": "cli-albarka", "client_nom": "Cabinet ALBARKA", "nombre": 1, "total": 25000}]
+    # association à un CLIENT (sans plateforme) : refusée si le client est inconnu ou si rien n'est choisi
+    assert c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394"}).status_code == 422
+    assert c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394", "client_id": "inconnu"}).status_code == 422
+    assert c.post("/api/admin/transactions-sms/liens", json={"cle": "+226 71 82 83 94", "client_id": "cli-albarka"}).status_code == 200
+    assert c.get("/api/admin/transactions-sms/suggestions").json()["suggestions"] == []                 # n'est plus à associer
+    liste = c.get("/api/admin/transactions-sms", params={"plateforme": "client:cli-albarka"}).json()
+    assert liste["total"] == 1 and liste["transactions"][0]["client_nom"] == "Cabinet ALBARKA" and liste["transactions"][0]["tiers"] == "awa"
+    # ALBARKA (émetteur lié au client cli-albarka) retrouve ce paiement ; ZandGo (autre client) non
+    corps = json.dumps({"sens": "entree"}).encode()
+    pf = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-albarka", corps)).json()
+    assert pf["total"] == 1 and pf["transactions"][0]["client"] == "Cabinet ALBARKA" and pf["transactions"][0]["montant"] == 25000
+    ster = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-ster", corps, "ster")).json()
+    assert ster["total"] == 0

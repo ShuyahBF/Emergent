@@ -18,6 +18,7 @@ export default function FamilleSection() {
           <li>Comptes famille : <strong>{etat.comptes}</strong></li>
           <li>Liens : <strong>{etat.liens}</strong> dont <strong>{etat.liens_verifies}</strong> vérifié(s) des deux côtés</li>
           <li>Messages chiffrés conservés : <strong>{etat.messages}</strong></li>
+          <li>Positions partagées en ce moment : <strong>{etat.positions_partagees ?? 0}</strong> (chiffrées, dernière position seulement)</li>
           <li>Invitations en cours (valables 15 minutes) : <strong>{etat.invitations_en_cours}</strong></li>
         </ul>
       )}

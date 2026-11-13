@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "379"
-LOT_LIBELLE = "Ma famille (application Personnel de maison) : comptes famille, liens vérifiés par numéro de sécurité, messagerie chiffrée de bout en bout ; état dans les Paramètres."
+LOT = "380"
+LOT_LIBELLE = "Ma famille : partage de position chiffré de bout en bout entre liens vérifiés (dernière position seulement, effacée à l'arrêt ou après 24 h)."

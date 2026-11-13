@@ -130,3 +130,29 @@ def test_un_tiers_ne_voit_ni_le_lien_ni_les_messages_et_la_rupture_efface_tout()
     assert c.get("/api/famille/liens", headers=a).json()["liens"] == []
     import asyncio
     assert asyncio.get_event_loop().run_until_complete(db.famille_messages.count_documents({})) == 0
+
+
+def test_position_chiffree_reservee_aux_liens_verifies_et_effacable():
+    """Lot 380 : une seule position par personne et par lien, visible seulement par l'autre, effaçable, supprimée avec le lien."""
+    c, db = _client()
+    a, ida, b, idb, lien = _lier(c)
+    pos = {"nonce": base64.b64encode(b"n" * 12).decode(), "chiffre": base64.b64encode(b"position chiffree").decode()}
+    assert c.put(f"/api/famille/liens/{lien}/position", json=pos, headers=a).status_code == 403             # pas encore vérifié
+    c.post(f"/api/famille/liens/{lien}/verifier", headers=a); c.post(f"/api/famille/liens/{lien}/verifier", headers=b)
+    assert c.get(f"/api/famille/liens/{lien}/position", headers=b).json()["position"] is None             # A ne partage pas encore
+    assert c.put(f"/api/famille/liens/{lien}/position", json=pos, headers=a).status_code == 200
+    pos2 = {**pos, "chiffre": base64.b64encode(b"nouvelle position").decode()}
+    assert c.put(f"/api/famille/liens/{lien}/position", json=pos2, headers=a).status_code == 200            # remplace la précédente
+    vu_par_b = c.get(f"/api/famille/liens/{lien}/position", headers=b).json()["position"]
+    assert vu_par_b["chiffre"] == pos2["chiffre"] and vu_par_b["maj_le"]
+    assert c.get(f"/api/famille/liens/{lien}/position", headers=a).json()["position"] is None             # A ne voit pas sa propre position renvoyée
+    import asyncio
+    assert asyncio.get_event_loop().run_until_complete(db.famille_positions.count_documents({})) == 1
+    tiers, _ = _inscrire(c, "Intrus")
+    assert c.get(f"/api/famille/liens/{lien}/position", headers=tiers).status_code == 404
+    assert c.put(f"/api/famille/liens/{lien}/position", json={"nonce": "", "chiffre": ""}, headers=a).status_code == 422
+    assert c.delete(f"/api/famille/liens/{lien}/position", headers=a).status_code == 200
+    assert c.get(f"/api/famille/liens/{lien}/position", headers=b).json()["position"] is None
+    c.put(f"/api/famille/liens/{lien}/position", json=pos, headers=a)
+    c.delete(f"/api/famille/liens/{lien}", headers=b)                                                        # rompre le lien efface la position
+    assert asyncio.get_event_loop().run_until_complete(db.famille_positions.count_documents({})) == 0

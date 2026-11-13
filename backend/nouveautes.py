@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "380", "date": "2026-11-13",
+        "titre": "👪 Ma famille : partage de position chiffré",
+        "description": "Application Personnel de maison : partage de position entre proches liés et vérifiés, chiffré de bout en bout ; seule la dernière position est gardée (effacée à l'arrêt du partage ou après 24 h).",
+        "rubrique": "👪 Ma famille (Personnel de maison)",
+    },
+    {
         "lot": "379", "date": "2026-11-13",
         "titre": "👪 Ma famille : comptes, liens vérifiés et messagerie chiffrée",
         "description": "Application Personnel de maison : relier les téléphones d'une famille par invitation, vérifier le lien avec un numéro de sécurité, puis échanger des messages chiffrés de bout en bout ; état des comptes et liens dans les Paramètres.",

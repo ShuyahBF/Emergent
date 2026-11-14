@@ -226,3 +226,29 @@ def test_transactions_du_client_pour_son_historique():
     res = loop.run_until_complete(ts.transactions_du_client(db, "c1"))
     assert [p["k"] for p in res] == ["a", "d"] and all(p["client_id"] == "c1" for p in res)
     assert loop.run_until_complete(ts.transactions_du_client(db, "inconnu")) == []
+
+
+def test_modifier_intitule_du_telephone_et_client_lie():
+    """Lot 394 — l'intitulé d'un téléphone source et le client / la plateforme / le libellé d'une association se modifient (le reste ne change pas)."""
+    qui, c = _app()
+    src = c.post("/api/admin/transactions-sms/sources", json={"nom": "Téléphone du DG"}).json()
+    # Intitulé : renommé, identifiant et clé inchangés ; nom trop court ou téléphone inconnu refusés
+    assert c.put(f"/api/admin/transactions-sms/sources/{src['id']}", json={"nom": "Téléphone du DG ALBARKA"}).json()["nom"] == "Téléphone du DG ALBARKA"
+    assert c.put(f"/api/admin/transactions-sms/sources/{src['id']}", json={"nom": "x"}).status_code == 422
+    assert c.put("/api/admin/transactions-sms/sources/inconnu", json={"nom": "Autre nom"}).status_code == 404
+    etat = c.get("/api/admin/transactions-sms/etat").json()
+    assert [(s["id"], s["nom"]) for s in etat["sources"]] == [(src["id"], "Téléphone du DG ALBARKA")]
+    # Association créée avec la plateforme seule, puis liée à un client
+    lien = c.post("/api/admin/transactions-sms/liens", json={"cle": "+226 76 05 45 46", "plateforme": "albarka"}).json()
+    r = c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"client_id": "cli-albarka", "libelle": "DG ALBARKA"})
+    assert r.status_code == 200 and r.json()["client_nom"] == "Cabinet ALBARKA" and r.json()["libelle"] == "DG ALBARKA" and r.json()["plateforme"] == "albarka"
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"client_id": "inconnu"}).status_code == 422
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"plateforme": "inexistante"}).status_code == 422
+    # On peut retirer le client (la plateforme reste), mais pas les deux
+    assert "client_id" not in c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"client_id": ""}).json()
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"plateforme": ""}).status_code == 422
+    assert c.put("/api/admin/transactions-sms/liens/inconnu", json={"libelle": "x"}).status_code == 404
+    # Réservé à l'administrateur
+    qui["role"] = "client"
+    assert c.put(f"/api/admin/transactions-sms/sources/{src['id']}", json={"nom": "Pirate"}).status_code == 403
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"libelle": "Pirate"}).status_code == 403

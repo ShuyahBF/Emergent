@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "398"
-LOT_LIBELLE = "Transactions SMS : catégories de SMS (transaction, promo, alerte bancaire, message personnel) reconnues automatiquement et sorties du décompte, correction manuelle, association sans client ni plateforme avec confirmation."
+LOT = "399"
+LOT_LIBELLE = "Règle 18 : première lettre de chaque mot en majuscule dans tous les menus et sous-menus de la barre latérale (fonction titreMenu)."

@@ -363,6 +363,19 @@ def hacher_cle(cle: str) -> str:
     return hashlib.sha256((cle or "").encode()).hexdigest()
 
 
+async def transactions_du_client(db, client_id: str) -> List[Dict[str, Any]]:
+    """Lot 391 — paiements REÇUS (recettes) lus dans les SMS dont le numéro (ou le nom) est associé à ce CLIENT de SAWALI : de quoi alimenter son historique de
+    paiements sans les ressaisir. Chaque élément porte `k` (identité de la transaction, sert à ne l'utiliser qu'une fois). Lecture seule, du plus récent au plus ancien."""
+    config = await db.settings.find_one({"_id": PREFIXE_CONFIG}) or {}
+    liens = [l for l in (config.get("liens") or []) if l.get("client_id") == client_id]
+    if not liens:
+        return []
+    sortie: List[Dict[str, Any]] = []
+    async for doc in db.settings.find({"_id": {"$regex": r"^transactions-sms:\d{4}-\d{2}$"}}):
+        sortie += [enrichir(p, liens) for p in doc.get("items") or [] if p.get("genre") == "RECETTE"]
+    return sorted((p for p in sortie if p.get("associe")), key=lambda p: p["ms"], reverse=True)
+
+
 # =====================================================================================
 # Routes
 # =====================================================================================

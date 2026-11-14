@@ -252,3 +252,13 @@ def test_modifier_intitule_du_telephone_et_client_lie():
     qui["role"] = "client"
     assert c.put(f"/api/admin/transactions-sms/sources/{src['id']}", json={"nom": "Pirate"}).status_code == 403
     assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"libelle": "Pirate"}).status_code == 403
+
+
+def test_transaction_associee_porte_l_identifiant_du_lien():
+    """Lot 395 — une transaction déjà liée porte `associe` et `lien_id` (l'écran n'affiche plus « Associer » mais « Modifier »)."""
+    liens = [{"id": "L1", "type": "numero", "cle": "76648796", "plateforme": "albarka", "libelle": "Cabinet ALBARKA"}]
+    p = {"corps": "Vous avez reçu 25000 FCFA du 76648796,azize.", "tiers": "azize", "adresse": "OrangeMoney", "genre": "RECETTE", "montant": 25000, "ms": 1}
+    lie = ts.enrichir(p, liens)
+    assert lie["associe"] is True and lie["lien_id"] == "L1" and lie["plateforme"] == "albarka"
+    libre = ts.enrichir(p, [])
+    assert libre["associe"] is False and libre["lien_id"] is None

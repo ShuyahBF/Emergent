@@ -2,6 +2,7 @@
 // Les transactions elles-mêmes se consultent dans l'option de menu « Transactions SMS » (pas dans les Paramètres, demande du propriétaire du 14/11/2026).
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ExternalLink } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 export default function TransactionsSmsSection() {
@@ -20,7 +21,7 @@ export default function TransactionsSmsSection() {
           <li>{etat.liens.length} association(s) numéro → plateforme</li>
         </ul>
       )}
-      <Link to="/admin/transactions-sms" className="inline-block rounded border border-slate-300 px-3 py-1.5">Ouvrir « Transactions SMS »</Link>
+      <Link to="/admin/transactions-sms" className="inline-block rounded border border-slate-300 px-3 py-1.5"><ExternalLink className="mr-1 inline h-4 w-4" />Ouvrir « Transactions SMS »</Link>
     </div>
   );
 }

@@ -5,6 +5,7 @@
 // celle-ci retrouve ses paiements sans les ressaisir. Voir backend/routes/transactions_sms.py.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 const fcfa = (v) => `${Number(v || 0).toLocaleString("fr-FR")} FCFA`;
@@ -169,9 +170,9 @@ export default function AdminTransactionsSms() {
             <input className={select} value={recherche} placeholder="Ex. : pharmacie, +226 70 11 22 33, MP261113" onChange={(e) => setRecherche(e.target.value)} /></label>
         </div>
         <div className="boutons-distincts flex flex-wrap gap-2">
-          <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={() => { chargerEtat(); charger(nb); }}>↻ Actualiser</button>
-          {filtreActif && <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={() => { setFiltres(PAS_DE_FILTRE); setRecherche(""); setBarre(null); }}>Réinitialiser les filtres</button>}
-          <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={exporter}>⬇ Exporter en CSV</button>
+          <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={() => { chargerEtat(); charger(nb); }}><RefreshCw className="mr-1 inline h-4 w-4" />Actualiser</button>
+          {filtreActif && <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={() => { setFiltres(PAS_DE_FILTRE); setRecherche(""); setBarre(null); }}><RotateCcw className="mr-1 inline h-4 w-4" />Réinitialiser les filtres</button>}
+          <button type="button" className="rounded border border-slate-300 px-3 py-1 text-sm" onClick={exporter}><Download className="mr-1 inline h-4 w-4" />Exporter en CSV</button>
         </div>
       </section>
 
@@ -205,10 +206,10 @@ export default function AdminTransactionsSms() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold">Activité</h2>
             <div className="boutons-distincts flex flex-wrap gap-2 text-sm">
-              <button type="button" className={`rounded border px-2 py-1 ${!parMois ? "bg-slate-900 text-white" : ""}`} onClick={() => { setParMois(false); setBarre(null); }}>Par jour</button>
-              <button type="button" className={`rounded border px-2 py-1 ${parMois ? "bg-slate-900 text-white" : ""}`} onClick={() => { setParMois(true); setBarre(null); }}>Par mois</button>
-              <button type="button" className={`rounded border px-2 py-1 ${!enNombre ? "bg-slate-900 text-white" : ""}`} onClick={() => setEnNombre(false)}>Montant</button>
-              <button type="button" className={`rounded border px-2 py-1 ${enNombre ? "bg-slate-900 text-white" : ""}`} onClick={() => setEnNombre(true)}>Nombre</button>
+              <button type="button" className={`rounded border px-2 py-1 ${!parMois ? "bg-slate-900 text-white" : ""}`} onClick={() => { setParMois(false); setBarre(null); }}><Calendar className="mr-1 inline h-4 w-4" />Par jour</button>
+              <button type="button" className={`rounded border px-2 py-1 ${parMois ? "bg-slate-900 text-white" : ""}`} onClick={() => { setParMois(true); setBarre(null); }}><CalendarDays className="mr-1 inline h-4 w-4" />Par mois</button>
+              <button type="button" className={`rounded border px-2 py-1 ${!enNombre ? "bg-slate-900 text-white" : ""}`} onClick={() => setEnNombre(false)}><Banknote className="mr-1 inline h-4 w-4" />Montant</button>
+              <button type="button" className={`rounded border px-2 py-1 ${enNombre ? "bg-slate-900 text-white" : ""}`} onClick={() => setEnNombre(true)}><Hash className="mr-1 inline h-4 w-4" />Nombre</button>
             </div>
           </div>
           <Histogramme barres={stats.barres.slice(parMois ? -24 : -60)} enNombre={enNombre} choisie={barre} surChoix={choisirBarre} />
@@ -249,12 +250,12 @@ export default function AdminTransactionsSms() {
                 <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className="cursor-pointer border-t border-slate-100" onClick={() => setSelection(`${p.ms}-${i}`)}>
                   <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}</td><td className="p-2">{p.operateur}</td>
                   <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
-                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}>⛓</button></>) : "—"}</td>
+                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button></>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
                   <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>))}</tbody>
             </table>
           </div>
-          {donnees.total > nb && <button type="button" className="w-full rounded border border-slate-300 py-2 text-sm" onClick={plusDe}>Afficher plus ({donnees.total - nb} restantes)</button>}
+          {donnees.total > nb && <button type="button" className="w-full rounded border border-slate-300 py-2 text-sm" onClick={plusDe}><ChevronsDown className="mr-1 inline h-4 w-4" />Afficher plus ({donnees.total - nb} restantes)</button>}
         </section>
       </>)}
 
@@ -268,7 +269,7 @@ export default function AdminTransactionsSms() {
             <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro</th><th className="p-2">Client de SAWALI</th><th className="p-2 text-right">Paiements</th><th className="p-2 text-right">Reçu (FCFA)</th><th className="p-2" /></tr></thead>
               <tbody>{suggestions.map((x) => (<tr key={x.numero + x.client_id} className="border-t border-sky-100"><td className="p-2 font-mono text-xs">{x.numero_affiche || x.numero}</td><td className="p-2">{x.client_nom}</td>
                 <td className="p-2 text-right tabular-nums">{x.nombre}</td><td className="p-2 text-right tabular-nums">{Number(x.total).toLocaleString("fr-FR")}</td>
-                <td className="p-2 text-right"><button type="button" className="underline" onClick={() => associerSuggestion(x)}>Associer à ce client</button></td></tr>))}</tbody></table>
+                <td className="p-2 text-right"><button type="button" className="underline" onClick={() => associerSuggestion(x)}><Link2 className="mr-1 inline h-4 w-4" />Associer à ce client</button></td></tr>))}</tbody></table>
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-6">
@@ -277,12 +278,12 @@ export default function AdminTransactionsSms() {
           <label className="text-sm">Client de SAWALI<select className={select} value={lien.client_id} onChange={(e) => setLien({ ...lien, client_id: e.target.value })} data-testid="lien-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></label>
           <label className="text-sm">Plateforme<select className={select} value={lien.plateforme} onChange={(e) => setLien({ ...lien, plateforme: e.target.value })} data-testid="lien-plateforme"><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></label>
           <label className="text-sm">Libellé (facultatif)<input className={select} value={lien.libelle} placeholder="Ex. Cabinet Dr BADINI" onChange={(e) => setLien({ ...lien, libelle: e.target.value })} /></label>
-          <div className="flex items-end"><button type="button" className="w-full rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!lien.cle.trim() || (!lien.plateforme && !lien.client_id)} onClick={creerLien}>Associer</button></div>
+          <div className="flex items-end"><button type="button" className="w-full rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!lien.cle.trim() || (!lien.plateforme && !lien.client_id)} onClick={creerLien}><Link2 className="mr-1 inline h-4 w-4" />Associer</button></div>
         </div>
         {etat.liens.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro / nom</th><th className="p-2">Client de SAWALI</th><th className="p-2">Plateforme</th><th className="p-2">Libellé</th><th className="p-2" /></tr></thead>
             <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td><td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
-              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerLien(l)}>Retirer</button></td></tr>))}</tbody></table>
+              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
         )}
       </section>
 
@@ -292,21 +293,21 @@ export default function AdminTransactionsSms() {
         <p className="text-sm text-slate-600">Ajoutez un téléphone, puis saisissez son identifiant et sa clé dans Concentration (onglet Paiements → « Envoi à SAWALI »). La clé n'est montrée qu'une fois.</p>
         <div className="flex flex-wrap gap-2">
           <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" placeholder="Nom du téléphone (ex. Téléphone du bureau)" value={nomTel} onChange={(e) => setNomTel(e.target.value)} />
-          <button type="button" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={nomTel.trim().length < 2} onClick={creerTel}>Ajouter</button>
+          <button type="button" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={nomTel.trim().length < 2} onClick={creerTel}><Plus className="mr-1 inline h-4 w-4" />Ajouter</button>
         </div>
         {cleAffichee && (
           <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm" data-testid="cle-affichee">
             <div className="font-semibold">À noter maintenant : cette clé ne sera plus jamais affichée.</div>
             <div>Identifiant : <span className="font-mono font-bold">{cleAffichee.id}</span></div>
             <div>Clé : <span className="break-all font-mono font-bold">{cleAffichee.cle}</span></div>
-            <button type="button" className="underline" onClick={() => setCleAffichee(null)}>J'ai noté, fermer</button>
+            <button type="button" className="underline" onClick={() => setCleAffichee(null)}><Check className="mr-1 inline h-4 w-4" />J'ai noté, fermer</button>
           </div>
         )}
         {etat.sources.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Téléphone</th><th className="p-2">Identifiant</th><th className="p-2">Dernier envoi</th><th className="p-2 text-right">Reçues</th><th className="p-2" /></tr></thead>
             <tbody>{etat.sources.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{s.nom}</td><td className="p-2 font-mono text-xs">{s.id}</td>
               <td className="p-2">{s.dernier_envoi ? new Date(s.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais"}</td><td className="p-2 text-right tabular-nums">{s.recues || 0}</td>
-              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerTel(s)}>Retirer</button></td></tr>))}</tbody></table>
+              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerTel(s)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
         )}
       </section>
     </div>

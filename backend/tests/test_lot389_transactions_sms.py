@@ -208,3 +208,21 @@ def test_association_a_un_client_sawali_et_suggestions():
     assert pf["total"] == 1 and pf["transactions"][0]["client"] == "Cabinet ALBARKA" and pf["transactions"][0]["montant"] == 25000
     ster = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-ster", corps, "ster")).json()
     assert ster["total"] == 0
+
+
+def test_transactions_du_client_pour_son_historique():
+    """Lot 391 — les paiements reçus par SMS des numéros associés à un client de SAWALI (jamais ceux d'un autre client ni les dépenses)."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot391"]
+    loop = asyncio.get_event_loop()
+    item = lambda k, genre, corps, ms_: {"k": k, "source": "s1", "adresse": "OrangeMoney", "ms": ms_, "genre": genre, "montant": 25000, "tiers": "Payeur", "solde": None, "reference": k, "corps": corps}
+    loop.run_until_complete(db.settings.insert_many([
+        {"_id": "transactions-sms:config", "sources": [], "liens": [{"id": "1", "type": "numero", "cle": "22671828394", "plateforme": None, "libelle": "Cabinet", "client_id": "c1", "client_nom": "Cabinet"},
+                                                                  {"id": "2", "type": "numero", "cle": "70112233", "plateforme": "albarka", "libelle": "Autre"}]},
+        {"_id": "transactions-sms:2026-11", "mois": "2026-11", "items": [
+            item("a", "RECETTE", "Vous avez recu 25000 FCFA du 71828394,awa.", ms(2026, 11, 13)),
+            item("b", "DEPENSE", "Paiement de 25000 FCFA a 71828394", ms(2026, 11, 12)),             # une dépense : ignorée
+            item("c", "RECETTE", "Vous avez recu 25000 FCFA du 70112233,x.", ms(2026, 11, 11)),       # associé à une plateforme, pas à ce client
+            item("d", "RECETTE", "Vous avez recu 25000 FCFA du 71828394,awa.", ms(2026, 11, 2))]}]))
+    res = loop.run_until_complete(ts.transactions_du_client(db, "c1"))
+    assert [p["k"] for p in res] == ["a", "d"] and all(p["client_id"] == "c1" for p in res)
+    assert loop.run_until_complete(ts.transactions_du_client(db, "inconnu")) == []

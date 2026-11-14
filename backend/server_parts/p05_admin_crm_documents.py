@@ -54,9 +54,52 @@ class TenantPaymentCreate(BaseModel):
     # Lot 390 — QUELLE période ce paiement règle-t-il ? (validité du contrat : date de paiement ≠ période payée)
     #   "date_paiement" (défaut, ancien mode) · "plus_ancienne" (règle la plus ancienne période impayée, `nb_periodes` périodes) · "periode" (prestations du … au …)
     imputation: Optional[str] = "date_paiement"
+    sms_id: Optional[str] = None          # lot 391 : identité de la transaction SMS d'où vient ce paiement (une transaction ne sert qu'une fois)
     nb_periodes: Optional[int] = 1
     periode_debut: Optional[str] = None
     periode_fin: Optional[str] = None
+
+
+class SmsPaiementsCorps(BaseModel):
+    ids: List[str]
+    imputation: Optional[str] = "plus_ancienne"       # voir TenantPaymentCreate : à quelle période ces paiements s'imputent
+
+
+@api.get("/admin/clients/{client_id}/payments/sms", tags=["Admin"])
+async def admin_client_paiements_sms(client_id: str, _: dict = Depends(get_current_admin)):
+    """Lot 391 — paiements reçus par SMS (téléphone source, application Concentration) dont le numéro est associé à CE client dans Transactions SMS, avec leur état
+    « déjà enregistré dans l'historique » : le propriétaire n'a rien à ressaisir."""
+    from routes.transactions_sms import transactions_du_client
+    await _ensure_client_exists(client_id)
+    utilises = {p.get("sms_id") async for p in db.tenant_payments.find({"sms_id": {"$ne": None}}, {"_id": 0, "sms_id": 1})}
+    return {"paiements": [{"k": p["k"], "recu_le": datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%Y-%m-%d"), "montant": p["montant"], "tiers": p.get("tiers") or "",
+                           "numero": p.get("numero_affiche") or "", "reference": p.get("reference") or "", "operateur": p.get("operateur"), "deja_enregistre": p["k"] in utilises}
+                          for p in await transactions_du_client(db, client_id)]}
+
+
+@api.post("/admin/clients/{client_id}/payments/sms", tags=["Admin"])
+async def admin_client_enregistrer_paiements_sms(client_id: str, payload: SmsPaiementsCorps, admin_user: dict = Depends(get_current_admin)):
+    """Lot 391 — enregistre dans l'historique du client les paiements SMS choisis (montant, date et référence lus dans le SMS, jamais saisis) ; un paiement SMS
+    ne peut être enregistré qu'une fois. Même traitement qu'un paiement saisi à la main (dernier règlement, couverture du contrat, réactivation)."""
+    from routes.transactions_sms import transactions_du_client
+    await _ensure_client_exists(client_id)
+    disponibles = {p["k"]: p for p in await transactions_du_client(db, client_id)}
+    utilises = {p.get("sms_id") async for p in db.tenant_payments.find({"sms_id": {"$ne": None}}, {"_id": 0, "sms_id": 1})}
+    choisis = []
+    for k in dict.fromkeys(payload.ids):
+        p = disponibles.get(k)
+        if not p:
+            raise HTTPException(status_code=404, detail="Paiement SMS introuvable ou non associé à ce client")
+        if k in utilises:
+            raise HTTPException(status_code=409, detail="Ce paiement SMS est déjà enregistré dans un historique")
+        choisis.append(p)
+    choisis.sort(key=lambda p: p["ms"])                                      # du plus ancien au plus récent : chacun règle la plus ancienne période impayée
+    for p in choisis:
+        jour = datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%Y-%m-%d")
+        corps = TenantPaymentCreate(payment_date=jour, invoice_ref=p.get("reference") or None, amount_paid=float(p["montant"]), send_confirmation=False,
+                                    notes="Reçu par SMS" + (f" de {p['tiers']}" if p.get("tiers") else ""), imputation=payload.imputation or "plus_ancienne", sms_id=p["k"])
+        await admin_create_client_payment(client_id, corps, admin_user)
+    return {"enregistres": len(choisis)}
 
 
 async def _recalculer_couverture(client_id: str) -> Optional[str]:
@@ -154,6 +197,7 @@ async def admin_create_client_payment(
         "created_by_email": admin_user.get("email"),
         "created_at": _now(),
         "imputation": payload.imputation or "date_paiement",
+        "sms_id": (payload.sms_id or "").strip() or None,
         "periode_debut": p_debut.isoformat() if p_debut else None,
         "periode_fin": p_fin.isoformat() if p_fin else None,
     }

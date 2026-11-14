@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "391", "date": "2026-11-14",
+        "titre": "💬 Paiements SMS enregistrables dans l'historique du client",
+        "description": "Les paiements lus sur votre téléphone, dont le numéro est associé à un client, s'enregistrent en un clic dans son historique (Admin → Clients → Paiements), sans ressaisie.",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "390.1", "date": "2026-11-14",
         "titre": "🖼️ Un pictogramme sur chaque action, et plus d'enregistrement silencieux",
         "description": "Lieux, Transactions SMS et Présence par balises : chaque bouton a son pictogramme ; le libellé d'un badge s'enregistre par un bouton Enregistrer avec la mention « modifié, non enregistré ».",

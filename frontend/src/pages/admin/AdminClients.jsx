@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench, Wallet, Eye } from "lucide-react";
+import { Smartphone, Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench, Wallet, Eye } from "lucide-react";
 import { toast } from "sonner";
 // Lot 44 — « Voir en tant que » (Admin)
 import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
@@ -1496,6 +1496,10 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
     imputation: "date_paiement", nb_periodes: 1, periode_debut: "", periode_fin: "",
   });
   const [apercu, setApercu] = useState(null);      // lot 390 : couvert jusqu'au / période réglée par ce paiement
+  // Lot 391 — paiements REÇUS PAR SMS (téléphone source) dont le numéro est associé à ce client : à enregistrer en un clic, sans ressaisie
+  const [smsListe, setSmsListe] = useState([]);
+  const [smsChoix, setSmsChoix] = useState([]);
+  const [smsOccupe, setSmsOccupe] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -1529,6 +1533,20 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
+
+  const chargerSms = async () => {
+    try { const { data } = await apiClient.get(`/admin/clients/${client.id}/payments/sms`); setSmsListe(data.paiements || []); } catch { setSmsListe([]); }
+  };
+  useEffect(() => { chargerSms(); /* eslint-disable-next-line */ }, [client.id]);
+  const basculerSms = (k) => setSmsChoix((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
+  const enregistrerSms = async () => {
+    setSmsOccupe(true);
+    try {
+      await apiClient.post(`/admin/clients/${client.id}/payments/sms`, { ids: smsChoix, imputation: "plus_ancienne" });
+      toast.success(`${smsChoix.length} paiement(s) reçu(s) par SMS enregistré(s)`);
+      setSmsChoix([]); await chargerSms(); await load(); await onChanged?.();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); await chargerSms(); } finally { setSmsOccupe(false); }
+  };
 
   // Lot 390 — aperçu de la période réglée (rien n'est enregistré). À l'ouverture du formulaire : si le client est déjà en retard, on propose
   // « la plus ancienne période impayée » (cas du client qui paie hier une facture de janvier) ; sinon l'ancien fonctionnement.
@@ -1642,6 +1660,27 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
               </button>
             )}
           </div>
+
+          {/* Lot 391 — paiements reçus par SMS associés à ce client (Transactions SMS) : un paiement SMS ne s'enregistre qu'une fois */}
+          {smsListe.length > 0 && (
+            <div className="rounded-lg border border-sky-300 bg-sky-50/60 p-3 space-y-2" data-testid="payments-sms">
+              <p className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1"><Smartphone className="h-4 w-4" /> Paiements reçus par SMS (numéros associés à ce client)</p>
+              <table className="w-full text-xs">
+                <thead><tr className="text-left"><th className="px-2 py-1" /><th className="px-2 py-1">Reçu le</th><th className="px-2 py-1">De</th><th className="px-2 py-1">Référence</th><th className="px-2 py-1 text-right">Montant</th></tr></thead>
+                <tbody>{smsListe.map((t) => (
+                  <tr key={t.k} className={t.deja_enregistre ? "opacity-50" : ""}>
+                    <td className="px-2 py-1"><input type="checkbox" disabled={t.deja_enregistre} checked={smsChoix.includes(t.k)} onChange={() => basculerSms(t.k)} aria-label="Enregistrer ce paiement" /></td>
+                    <td className="px-2 py-1 font-mono">{t.recu_le}</td><td className="px-2 py-1">{t.tiers || t.numero}</td><td className="px-2 py-1 font-mono">{t.reference || "—"}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{formatMoney(t.montant, currency)}{t.deja_enregistre && <div className="text-[10px] text-slate-500">déjà enregistré</div>}</td>
+                  </tr>))}</tbody>
+              </table>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" disabled={smsChoix.length === 0 || smsOccupe} onClick={enregistrerSms} data-testid="payments-sms-enregistrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm disabled:opacity-50"><Check className="h-4 w-4" /> Enregistrer {smsChoix.length || ""} paiement(s) dans l'historique</button>
+                <span className="text-[11px] text-slate-500">Chaque paiement règle la plus ancienne période impayée ; montants, dates et références viennent du SMS.</span>
+              </div>
+            </div>
+          )}
 
           {showForm && (
             <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 p-3 space-y-3" data-testid="payments-form">

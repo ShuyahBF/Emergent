@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "395", "date": "2026-11-14",
+        "titre": "📱 Transactions SMS : plus de « Associer » sur un numéro déjà lié",
+        "description": "Dans la liste, un numéro déjà associé à un client ou à une plateforme affiche « Modifier » (qui ouvre son association) au lieu de « Associer ».",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "394", "date": "2026-11-14",
         "titre": "📱 Transactions SMS : modifier l'intitulé d'un téléphone et le client lié à un numéro",
         "description": "Dans « Transactions SMS », le bouton Modifier permet de renommer un téléphone source (identifiant et clé inchangés) et de changer le client de SAWALI, la plateforme ou le libellé d'une association.",

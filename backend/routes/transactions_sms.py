@@ -266,7 +266,7 @@ def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {**p, "tiers": tiers, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero, "numero_affiche": formater_numero(numero),
             "plateforme": (lien or {}).get("plateforme") or None, "client_id": (lien or {}).get("client_id") or None,
             "client_nom": (lien or {}).get("client_nom") or None, "lien_libelle": lien["libelle"] if lien else None,
-            "associe": bool(lien)}
+            "associe": bool(lien), "lien_id": lien.get("id") if lien else None}
 
 
 def filtrer(items: List[Dict[str, Any]], du_ms: Optional[int] = None, au_ms: Optional[int] = None, operateur: str = "", genre: str = "",

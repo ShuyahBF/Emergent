@@ -255,7 +255,11 @@ export default function AdminTransactionsSms() {
                 <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className="cursor-pointer border-t border-slate-100" onClick={() => setSelection(`${p.ms}-${i}`)}>
                   <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}</td><td className="p-2">{p.operateur}</td>
                   <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
-                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button></>) : "—"}</td>
+                  <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} {p.associe
+                    /* Déjà lié (client ou plateforme) : plus de « Associer » ; « Modifier » ouvre l'association dans le tableau des associations */
+                    ? <button type="button" className="underline" title="Modifier l'association de ce numéro" data-testid="modifier-association"
+                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) { setEditLien({ id: l.id, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); document.querySelector('[data-testid="liens"]')?.scrollIntoView({ behavior: "smooth", block: "start" }); } }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
+                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
                   <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>))}</tbody>
             </table>

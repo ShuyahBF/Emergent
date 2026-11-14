@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "393", "date": "2026-11-14",
+        "titre": "📮 Demandes des plateformes : nouveau menu « Plateformes » ; menus repliés au lancement",
+        "description": "Les demandes d'ALBARKA ne sont plus dans les Paramètres (ce n'est pas un paramétrage) : elles ont leur option dans le menu « Plateformes », avec Transactions SMS. Au lancement, tous les menus à sous-menus sont repliés.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "392", "date": "2026-11-14",
         "titre": "🎨 Pictogrammes sur les boutons et tableaux colorés",
         "description": "Chaque bouton à texte porte un pictogramme et les en-têtes de tableaux sont bleutés, pour repérer les actions et lire plus vite.",
@@ -93,13 +99,13 @@ NOUVEAUTES = [
         "lot": "385", "date": "2026-11-14",
         "titre": "📮 Demandes des plateformes : modification et suppression tant que non validées",
         "description": "ALBARKA peut modifier ou supprimer une demande remontée tant que vous ne l'avez pas validée (réalisée ou refusée) ; après validation, SAWALI la garde telle quelle.",
-        "rubrique": "📮 Demandes des plateformes",
+        "lien": "/admin/demandes-plateformes",   # lot 393 : la rubrique a quitté les Paramètres pour le menu « Plateformes »
     },
     {
         "lot": "384", "date": "2026-11-14",
         "titre": "📮 Demandes des plateformes : numéro et suivi des corrections et nouveautés demandées par ALBARKA",
         "description": "ALBARKA remonte ses demandes ; SAWALI leur attribue un numéro DEM-… et leur retourne le commentaire et la date de réalisation (ou la date prévue), refusées comprises, avec recherche.",
-        "rubrique": "📮 Demandes des plateformes",
+        "lien": "/admin/demandes-plateformes",   # lot 393 : la rubrique a quitté les Paramètres pour le menu « Plateformes »
     },
     {
         "lot": "383", "date": "2026-11-13",

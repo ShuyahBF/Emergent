@@ -1,4 +1,4 @@
-// DemandesPlateformesSection.jsx — Lot 384 : rubrique « 📮 Demandes des plateformes » des Paramètres.
+// DemandesPlateformesSection.jsx — Lot 384 : contenu de la page « 📮 Demandes des plateformes » (menu Plateformes ; lot 393 : plus dans les Paramètres).
 // Les plateformes clientes (ALBARKA…) remontent leurs corrections et nouvelles fonctionnalités ; SAWALI leur attribue un numéro
 // (DEM-…) et le leur retourne avec un commentaire et la date de réalisation (ou la date prévue). Ici l'administrateur traite
 // chaque demande : en attente (date prévue), réalisée (date + commentaire) ou refusée (raison). Recherche libre en haut.

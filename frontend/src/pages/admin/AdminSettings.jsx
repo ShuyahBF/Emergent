@@ -36,7 +36,6 @@ import PostesServeursSection from "@/pages/admin/sections/PostesServeursSection"
 import ApplicationAndroidSection from "@/pages/admin/sections/ApplicationAndroidSection";   // Lot 243
 import DecouverteReseauSection from "@/pages/admin/sections/DecouverteReseauSection";   // Lot 80
 import ContratsPlateformesSection from "@/pages/admin/sections/ContratsPlateformesSection";   // Lot 81
-import DemandesPlateformesSection from "@/pages/admin/sections/DemandesPlateformesSection";   // Lot 384
 import PaiementOfficinesSection from "@/pages/admin/sections/PaiementOfficinesSection";   // Lot 386
 import PresenceBalisesSection from "@/pages/admin/sections/PresenceBalisesSection";   // Lot 387
 import LieuxBalisesSection from "@/pages/admin/sections/LieuxBalisesSection";   // Lot 388
@@ -171,7 +170,6 @@ const NEW_LOTS = {
   "📍 Lieux — Vous êtes ici": "388",   // lot 388 : une page publique par lieu (QR / balise), gérée par l'administrateur et le superviseur
   "📍 Présence par balises": "387",   // lot 387 : badges Bluetooth, récepteurs fixes, parcours
   "💳 Paiement au comptoir des officines": "386",   // lot 386 : QR + séquence USSD
-  "📮 Demandes des plateformes": "384",   // lot 384 : demandes des plateformes (ALBARKA…), numéro et suivi
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
@@ -248,7 +246,6 @@ const NEW_SECTIONS = {
   "📍 Lieux — Vous êtes ici": "2026-11-14",   // lot 388
   "📍 Présence par balises": "2026-11-14",   // lot 387
   "💳 Paiement au comptoir des officines": "2026-11-14",   // lot 386
-  "📮 Demandes des plateformes": "2026-11-14",   // lot 384
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
@@ -1785,10 +1782,7 @@ export default function AdminSettings() {
         <PaiementOfficinesSection />
       </Filterable>
 
-      {/* Lot 384 — demandes des plateformes clientes (ALBARKA…) : numéro DEM-…, statut, commentaire, date */}
-      <Filterable title="📮 Demandes des plateformes" anchorId="s-demandes-plateformes" category="modules">
-        <DemandesPlateformesSection />
-      </Filterable>
+      {/* Lot 393 — « Demandes des plateformes » n'est pas un paramétrage : elle a quitté les Paramètres pour le menu « Plateformes » (/admin/demandes-plateformes) */}
 
       {/* Lot 81 — contrats des plateformes clientes (état, montant dû) et lien vers « Plateformes en temps réel » */}
       <Filterable title="📑 Contrats des plateformes" anchorId="s-contrats-plateformes" category="modules">

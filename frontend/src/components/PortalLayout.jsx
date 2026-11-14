@@ -226,7 +226,8 @@ const adminLinks = [
   { to: "/admin/evaluations-loois", label: "Évaluations Loois", icon: ClipboardList, adminOrSup: true },   // lot 88 : sondages du support
   { to: "/admin/synthese-support", label: "Synthèse du support", icon: LifeBuoy, adminOrSup: true },   // lot 92 : non répondues, totaux, Claude
   { to: "/admin/lieux-balises", label: "Lieux (balises)", icon: IconeLieu, adminOrSup: true },   // lot 388 : « Vous êtes ici » (QR + balises), superviseur compris
-  { to: "/admin/transactions-sms", label: "Transactions SMS", icon: MessageSquareWarning, adminOnly: true },   // lot 389 : paiements lus dans les SMS d'un téléphone (administrateur)
+  { to: "/admin/demandes-plateformes", label: "Demandes des plateformes", icon: Inbox, adminOnly: true, groupe: "plateformes" },   // lot 393 : sorti des Paramètres, dans le menu « Plateformes »
+  { to: "/admin/transactions-sms", label: "Transactions SMS", icon: MessageSquareWarning, adminOnly: true, groupe: "plateformes" },   // lot 389 : paiements lus dans les SMS d'un téléphone (administrateur)
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
   // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)
@@ -264,17 +265,11 @@ function PortalLayoutInner({ admin = false }) {
   const [walkInsToday, setWalkInsToday] = useState(0);
   // Lot 73 — éléments de Liluvine partagés avec ce compte (superviseur restreint) et groupe déplié ou non
   const [partageLiluvine, setPartageLiluvine] = useState(null);
-  const [liluvineOuvert, setLiluvineOuvert] = useState(() => {
-    try { return localStorage.getItem("sawali.menu.liluvine") === "1"; } catch { return false; }
-  });
+  const [liluvineOuvert, setLiluvineOuvert] = useState(false);   // lot 393 : repliés au lancement de la plateforme (le groupe s'ouvre seul si la page affichée en fait partie)
   // Lot 79.10 — groupe « Plateformes » (temps réel, Loois → Synchro) dépliable comme « Liluvine »
-  const [plateformesOuvert, setPlateformesOuvert] = useState(() => {
-    try { return localStorage.getItem("sawali.menu.plateformes") === "1"; } catch { return false; }
-  });
+  const [plateformesOuvert, setPlateformesOuvert] = useState(false);   // lot 393 : repliés au lancement de la plateforme (le groupe s'ouvre seul si la page affichée en fait partie)
   // Lot 80 — groupe « Équipements » (parc, maintenance, découverte du réseau, postes) dépliable
-  const [equipementsOuvert, setEquipementsOuvert] = useState(() => {
-    try { return localStorage.getItem("sawali.menu.equipements") === "1"; } catch { return false; }
-  });
+  const [equipementsOuvert, setEquipementsOuvert] = useState(false);   // lot 393 : repliés au lancement de la plateforme (le groupe s'ouvre seul si la page affichée en fait partie)
   // Lot 79.10 — bas de la barre latérale compact : panneau déplié (null, "atlas" ou "reglages")
   const [panneauBas, setPanneauBas] = useState(null);
   // Lot 79.10 — mesure Atlas lue seulement pour l'administrateur (pastille + détail du bas de la barre latérale)

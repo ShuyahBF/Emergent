@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "395"
-LOT_LIBELLE = "Transactions SMS : un numéro déjà associé affiche « Modifier » au lieu de « Associer »."
+LOT = "396"
+LOT_LIBELLE = "Transactions SMS : association (Associer / Modifier) dans une fenêtre modale centrée, liste des transactions défilante avec en-tête figé, ligne modifiée mise en évidence."

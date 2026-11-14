@@ -99,7 +99,11 @@ export default function AdminTransactionsSms() {
 
   // Modification d'un téléphone (intitulé) ou d'une association (client, plateforme, libellé) : une seule ligne en cours de modification à la fois
   const [editTel, setEditTel] = useState(null);       // { id, nom }
-  const [editLien, setEditLien] = useState(null);     // { id, client_id, plateforme, libelle }
+  // Fenêtre modale centrée d'association (création depuis « Associer », modification depuis « Modifier ») : plus besoin de descendre jusqu'au tableau des associations
+  const [modale, setModale] = useState(null);         // { mode: "creer"|"modifier", id?, cle, cle_affichee?, pays, client_id, plateforme, libelle, numero? }
+  useEffect(() => { if (!modale) return undefined; const f = (e) => e.key === "Escape" && setModale(null); document.addEventListener("keydown", f); return () => document.removeEventListener("keydown", f); }, [modale]);   // Échap ferme la fenêtre
+  const [ligneMaj, setLigneMaj] = useState("");        // numéro dont l'association vient d'être enregistrée : ses lignes clignotent un instant dans la liste
+  useEffect(() => { if (!ligneMaj) return undefined; const t = setTimeout(() => setLigneMaj(""), 3500); return () => clearTimeout(t); }, [ligneMaj]);
   const erreur = (e) => toast.error(e?.response?.data?.detail || "Action impossible");
   const chargerEtat = useCallback(() => {
     apiClient.get("/admin/transactions-sms/suggestions").then((r) => setSuggestions(r.data.suggestions)).catch(() => {});
@@ -130,7 +134,17 @@ export default function AdminTransactionsSms() {
   const creerLien = async () => { try { await apiClient.post("/admin/transactions-sms/liens", lien); setLien({ cle: "", pays: lien.pays, plateforme: lien.plateforme, client_id: "", libelle: "" }); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
   const associerSuggestion = async (x) => { try { await apiClient.post("/admin/transactions-sms/liens", { cle: x.numero, client_id: x.client_id }); await chargerEtat(); charger(nb); toast.success(`Numéro associé à ${x.client_nom}`); } catch (e) { erreur(e); } };
   const enregistrerTel = async () => { try { await apiClient.put(`/admin/transactions-sms/sources/${editTel.id}`, { nom: editTel.nom }); setEditTel(null); await chargerEtat(); toast.success("Intitulé enregistré"); } catch (e) { erreur(e); } };
-  const enregistrerLien = async () => { try { await apiClient.put(`/admin/transactions-sms/liens/${editLien.id}`, { client_id: editLien.client_id, plateforme: editLien.plateforme, libelle: editLien.libelle }); setEditLien(null); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
+  const enregistrerModale = async () => {
+    const m = modale;
+    try {
+      if (m.mode === "creer") await apiClient.post("/admin/transactions-sms/liens", { cle: m.cle, pays: m.pays, plateforme: m.plateforme, client_id: m.client_id, libelle: m.libelle });
+      else await apiClient.put(`/admin/transactions-sms/liens/${m.id}`, { client_id: m.client_id, plateforme: m.plateforme, libelle: m.libelle });
+      setModale(null);
+      await chargerEtat(); await charger(nb);          // même nombre de lignes, même conteneur : la position de défilement est conservée
+      setLigneMaj(m.numero || m.cle);
+      toast.success("Association enregistrée");
+    } catch (e) { erreur(e); }
+  };
   const retirerLien = async (l) => { try { await apiClient.delete(`/admin/transactions-sms/liens/${l.id}`); await chargerEtat(); charger(nb); } catch (e) { erreur(e); } };
   const exporter = async () => {
     try {
@@ -248,18 +262,19 @@ export default function AdminTransactionsSms() {
 
         <section className="space-y-2">
           <h2 className="text-lg font-bold">Transactions ({donnees.total})</h2>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          {/* Tableau DÉFILANT (hauteur limitée, en-tête figé) : la page n'est plus entraînée vers le bas par une longue liste */}
+          <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-sky-50" data-testid="liste-defilante">
             <table className="tableau w-full text-sm" data-testid="liste">
               <thead><tr className="text-left"><th className="p-2">Date</th><th className="p-2">Opérateur</th><th className="p-2">Bénéficiaire / expéditeur</th><th className="p-2">Numéro</th><th className="p-2">Association</th><th className="p-2 text-right">Montant</th></tr></thead>
               <tbody>{donnees.transactions.map((p, i) => (
-                <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className="cursor-pointer border-t border-slate-100" onClick={() => setSelection(`${p.ms}-${i}`)}>
+                <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
                   <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}</td><td className="p-2">{p.operateur}</td>
                   <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
                   <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} {p.associe
                     /* Déjà lié (client ou plateforme) : plus de « Associer » ; « Modifier » ouvre l'association dans le tableau des associations */
                     ? <button type="button" className="underline" title="Modifier l'association de ce numéro" data-testid="modifier-association"
-                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) { setEditLien({ id: l.id, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); document.querySelector('[data-testid="liens"]')?.scrollIntoView({ behavior: "smooth", block: "start" }); } }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
-                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setLien((l) => ({ ...l, cle: p.numero_affiche || p.numero })); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
+                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) setModale({ mode: "modifier", id: l.id, cle_affichee: l.cle_affichee || l.cle, numero: p.numero, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
+                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setModale({ mode: "creer", cle: p.numero_affiche || p.numero, numero: p.numero, pays: "226", client_id: "", plateforme: "", libelle: "" }); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
                   <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>))}</tbody>
             </table>
@@ -292,15 +307,8 @@ export default function AdminTransactionsSms() {
         {etat.liens.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro / nom</th><th className="p-2">Client de SAWALI</th><th className="p-2">Plateforme</th><th className="p-2">Libellé</th><th className="p-2" /></tr></thead>
             <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td>
-              {editLien?.id === l.id ? (<>
-                <td className="p-2"><select className={select} value={editLien.client_id} onChange={(e) => setEditLien({ ...editLien, client_id: e.target.value })} data-testid="edit-lien-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></td>
-                <td className="p-2"><select className={select} value={editLien.plateforme} onChange={(e) => setEditLien({ ...editLien, plateforme: e.target.value })}><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></td>
-                <td className="p-2"><input className={select} value={editLien.libelle} onChange={(e) => setEditLien({ ...editLien, libelle: e.target.value })} /></td>
-                <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" disabled={!editLien.client_id && !editLien.plateforme} onClick={enregistrerLien} data-testid="edit-lien-ok"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button><button type="button" className="underline" onClick={() => setEditLien(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button></td>
-              </>) : (<>
-                <td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
-                <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" onClick={() => setEditLien({ id: l.id, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" })} title="Modifier le client, la plateforme ou le libellé" data-testid={`modifier-lien-${l.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td>
-              </>)}</tr>))}</tbody></table>
+              <td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
+              <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" onClick={() => setModale({ mode: "modifier", id: l.id, cle_affichee: l.cle_affichee || l.cle, numero: "", client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" })} title="Modifier le client, la plateforme ou le libellé" data-testid={`modifier-lien-${l.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
         )}
       </section>
 
@@ -331,6 +339,25 @@ export default function AdminTransactionsSms() {
                 : (<><button type="button" className="mr-3 underline" onClick={() => setEditTel({ id: s.id, nom: s.nom })} title="Modifier l'intitulé du téléphone" data-testid={`modifier-tel-${s.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerTel(s)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></>)}</td></tr>))}</tbody></table>
         )}
       </section>
+
+      {/* Fenêtre modale centrée : association d'un numéro à un client / une plateforme (règle 11 : max-w-xl, 85 % de la hauteur, défilement dans la fenêtre) */}
+      {modale && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" onClick={() => setModale(null)} onKeyDown={(e) => e.key === "Escape" && setModale(null)} data-testid="modale-association">
+          <div className="max-h-[85dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold"><Link2 className="mr-2 inline h-5 w-5 text-sky-700" />{modale.mode === "creer" ? "Associer ce numéro" : "Modifier l'association"}</h2>
+            <p className="rounded-lg bg-slate-50 p-2 font-mono text-sm">{modale.mode === "creer" ? modale.cle : modale.cle_affichee}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm sm:col-span-2">Client de SAWALI<select className={select} value={modale.client_id} onChange={(e) => setModale({ ...modale, client_id: e.target.value })} data-testid="modale-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></label>
+              <label className="text-sm">Plateforme<select className={select} value={modale.plateforme} onChange={(e) => setModale({ ...modale, plateforme: e.target.value })} data-testid="modale-plateforme"><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></label>
+              <label className="text-sm">Libellé (facultatif)<input className={select} value={modale.libelle} placeholder="Ex. Cabinet Dr BADINI" onChange={(e) => setModale({ ...modale, libelle: e.target.value })} /></label>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" className="rounded border border-slate-300 px-3 py-1.5 text-sm" onClick={() => setModale(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button>
+              <button type="button" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!modale.client_id && !modale.plateforme} onClick={enregistrerModale} data-testid="modale-enregistrer"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

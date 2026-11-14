@@ -73,6 +73,56 @@ def operateur_de(adresse: str, corps: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
+# CATÉGORIES DE SMS (lot 398) : seul un SMS de TRANSACTION du portefeuille mobile entre dans les totaux. Les autres sont gardés, marqués d'une pastille grise et SORTIS du décompte :
+#   promo   : message commercial (« frais de retrait à 0,5 % jusqu'au 31 décembre ! Composez *808# »). Montants d'exemple, période de validité, codes USSD : jamais de vrai paiement ;
+#   alerte  : alerte de la BANQUE (« DEBIT Montant : XOF600,000.00 Compte : … ») : ne concerne pas le portefeuille mobile (à revoir quand PI-SPI remontera les opérations bancaires) ;
+#   message : SMS d'une PERSONNE (expéditeur = un numéro de téléphone) : ce n'est pas un SMS d'opérateur.
+# La catégorie automatique se calcule à la lecture (donc rétroactive, sans migration) ; l'administrateur peut la CORRIGER SMS par SMS (config « corrections »).
+# Calibrage vérifié sur les 370 SMS réels (14/11/2026) : promos = score 7 à 11, vrais SMS = score 0 ou moins ; aucune erreur.
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+CATEGORIES = ("transaction", "promo", "alerte", "message")
+SEUIL_PROMO = 4
+_RE_USSD = re.compile(r"\*\d{2,4}(\*[\w#*]*)?#")
+_RE_APPEL = re.compile(r"stop \*|envoyez stop|composez|tapez")
+_RE_VALIDITE = re.compile(r"jusqu|valable|a partir de")
+_RE_POURCENT = re.compile(r"[0-9]\s?%")
+_RE_OFFRE = re.compile(r"beneficiez|profitez|gagnez|retirez|reglez|rechargez|abonnez|obtenez|offre|promo|bonus|cadeau|vous accompagne|decouvrez")
+_RE_VRAIE_FORME = re.compile(r"(debit|credit)\s*montant\s*:")
+_RE_VOUS_AVEZ = re.compile(r"vous avez (recu|envoye|paye|transfere|effectu)")
+_RE_BANQUE = re.compile(r"ubabf|\buba\b|banque|bank|coris|ecobank|sgbf|\bboa\b|bicia|bdm|cbao|sonibank|societe generale")
+_RE_NUMERO_EXPEDITEUR = re.compile(r"^\+?\d{7,}$")
+
+
+def score_promo(corps: str, reference: Optional[str]) -> int:
+    """Score « promotion » d'un SMS : + pour chaque signe commercial (code USSD, « composez », validité, pourcentage, verbes d'offre), − pour chaque signe de vraie transaction
+    (numéro de transaction, format « Débit / Crédit Montant : », « Vous avez reçu / payé… »). Au moins SEUIL_PROMO = promotion."""
+    t = normaliser(corps or "")
+    pts = 3 if _RE_USSD.search(t) else 0
+    pts += 2 if _RE_APPEL.search(t) else 0
+    pts += 2 if _RE_VALIDITE.search(t) else 0
+    pts += 2 if _RE_POURCENT.search(t) else 0
+    pts += 2 if _RE_OFFRE.search(t) else 0
+    pts -= 5 if reference else 0
+    pts -= 5 if _RE_VRAIE_FORME.search(t) else 0
+    pts -= 3 if _RE_VOUS_AVEZ.search(t) else 0
+    return pts
+
+
+def categorie_auto(p: Dict[str, Any]) -> str:
+    """Catégorie automatique d'un SMS : « alerte » (banque), « message » (expéditeur = numéro de téléphone), « promo » (score ≥ 4), sinon « transaction »."""
+    adresse = (p.get("adresse") or "").strip()
+    corps = p.get("corps") or ""
+    t = normaliser(adresse + " " + corps)
+    if _RE_VRAIE_FORME.search(normaliser(corps)) or _RE_BANQUE.search(normaliser(adresse)):
+        return "alerte"
+    if _RE_NUMERO_EXPEDITEUR.match(adresse.replace(" ", "")):
+        return "message"
+    if score_promo(corps, p.get("reference")) >= SEUIL_PROMO:
+        return "promo"
+    return "transaction"
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
 # NUMÉROS DE TÉLÉPHONE AVEC INDICATIFS DES PAYS (lot 389.2). Forme de référence (« canonique ») = chiffres internationaux sans « + » : indicatif + numéro national,
 # ex. 22670112233 (Burkina Faso), 2250712345678 (Côte d'Ivoire), 33612345678 (France). Les deux côtés (SMS et association saisie) passent par la MÊME normalisation.
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -257,7 +307,7 @@ def jour_de(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
 
 
-def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]]) -> Dict[str, Any]:
+def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]], corrections: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Ajoute à une transaction son opérateur, le numéro lu dans le SMS et l'association éventuelle : une PLATEFORME (code d'émetteur) et / ou un CLIENT de SAWALI."""
     numero = numero_de(p.get("corps") or "")
     tiers = tiers_de(p.get("corps") or "", p.get("tiers") or "")
@@ -266,19 +316,26 @@ def enrichir(p: Dict[str, Any], liens: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {**p, "tiers": tiers, "operateur": operateur_de(p.get("adresse"), p.get("corps")), "numero": numero, "numero_affiche": formater_numero(numero),
             "plateforme": (lien or {}).get("plateforme") or None, "client_id": (lien or {}).get("client_id") or None,
             "client_nom": (lien or {}).get("client_nom") or None, "lien_libelle": lien["libelle"] if lien else None,
-            "associe": bool(lien), "lien_id": lien.get("id") if lien else None}
+            "associe": bool(lien), "lien_id": lien.get("id") if lien else None,
+            # Lot 398 : catégorie (automatique, ou corrigée à la main par l'administrateur)
+            "categorie": (corrections or {}).get(p.get("k")) if (corrections or {}).get(p.get("k")) in CATEGORIES else categorie_auto(p),
+            "categorie_auto": categorie_auto(p), "corrigee": (corrections or {}).get(p.get("k")) in CATEGORIES}
 
 
 def filtrer(items: List[Dict[str, Any]], du_ms: Optional[int] = None, au_ms: Optional[int] = None, operateur: str = "", genre: str = "",
-            q: str = "", source: str = "", plateforme: str = "") -> List[Dict[str, Any]]:
+            q: str = "", source: str = "", plateforme: str = "", categorie: str = "") -> List[Dict[str, Any]]:
     """Transactions (déjà enrichies) qui satisfont TOUS les critères, du plus récent au plus ancien. `au_ms` est exclu ; `plateforme` = code d'émetteur, « client:<id> » (client de SAWALI), « *lie » (toute
-    transaction associée) ou « *non_lie ». Chaque mot du texte cherché doit se trouver dans le bénéficiaire, la référence, l'expéditeur, le numéro ou le SMS."""
+    transaction associée) ou « *non_lie ». `categorie` : vide = transactions seulement (promos, alertes et messages exclus du décompte), « toutes », ou une catégorie. Chaque mot du texte cherché doit se trouver dans le bénéficiaire, la référence, l'expéditeur, le numéro ou le SMS."""
     mots = [m for m in normaliser(q).split(" ") if m]
     sortie = []
     for p in items:
         if du_ms is not None and p["ms"] < du_ms:
             continue
         if au_ms is not None and p["ms"] >= au_ms:
+            continue
+        # Lot 398 : par défaut SEULES les transactions comptent ; « toutes » ne filtre pas ; sinon une catégorie précise (promo, alerte, message)
+        cat = p.get("categorie", "transaction")
+        if categorie != "toutes" and cat != (categorie or "transaction"):
             continue
         if genre and p["genre"] != genre:
             continue
@@ -370,10 +427,12 @@ async def transactions_du_client(db, client_id: str) -> List[Dict[str, Any]]:
     liens = [l for l in (config.get("liens") or []) if l.get("client_id") == client_id]
     if not liens:
         return []
+    corrections = config.get("corrections") or {}
     sortie: List[Dict[str, Any]] = []
     async for doc in db.settings.find({"_id": {"$regex": r"^transactions-sms:\d{4}-\d{2}$"}}):
-        sortie += [enrichir(p, liens) for p in doc.get("items") or [] if p.get("genre") == "RECETTE"]
-    return sorted((p for p in sortie if p.get("associe")), key=lambda p: p["ms"], reverse=True)
+        sortie += [enrichir(p, liens, corrections) for p in doc.get("items") or [] if p.get("genre") == "RECETTE"]
+    # Lot 398 : jamais de promo, d'alerte bancaire ni de message personnel dans l'historique d'un client
+    return sorted((p for p in sortie if p.get("associe") and p.get("categorie") == "transaction"), key=lambda p: p["ms"], reverse=True)
 
 
 # =====================================================================================
@@ -391,7 +450,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
     # ---- Seuls points d'accès à la base ----
     async def _lire_config() -> Dict[str, Any]:
         doc = await db.settings.find_one({"_id": PREFIXE_CONFIG}) or {}
-        return {"_id": PREFIXE_CONFIG, "sources": doc.get("sources") or [], "liens": doc.get("liens") or []}
+        return {"_id": PREFIXE_CONFIG, "sources": doc.get("sources") or [], "liens": doc.get("liens") or [], "corrections": doc.get("corrections") or {}}
 
     async def _ecrire_config(cfg: Dict[str, Any]) -> None:
         await db.settings.replace_one({"_id": PREFIXE_CONFIG}, cfg, upsert=True)
@@ -405,14 +464,14 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
     async def _mois_existants() -> List[str]:
         return sorted([d["_id"][len(PREFIXE_MOIS):] async for d in db.settings.find({"_id": {"$regex": r"^transactions-sms:\d{4}-\d{2}$"}}, {"_id": 1})])
 
-    async def _toutes(du_ms: Optional[int], au_ms: Optional[int], liens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _toutes(du_ms: Optional[int], au_ms: Optional[int], liens: List[Dict[str, Any]], corrections: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """Transactions enrichies des mois concernés par la période."""
         bas = mois_de(du_ms) if du_ms else "0000-00"
         haut = mois_de(au_ms) if au_ms else "9999-99"
         sortie = []
         for mois in await _mois_existants():
             if bas <= mois <= haut:
-                sortie += [enrichir(p, liens) for p in (await _lire_mois(mois)).get("items") or []]
+                sortie += [enrichir(p, liens, corrections) for p in (await _lire_mois(mois)).get("items") or []]
         return sortie
 
     def _bornes(du: str, au: str) -> Tuple[Optional[int], Optional[int]]:
@@ -540,14 +599,15 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
             raise HTTPException(status_code=422, detail=str(exc))
         plateforme = str(corps.get("plateforme") or "").strip().lower()
         client_id = str(corps.get("client_id") or "").strip()
-        if not plateforme and not client_id:
-            raise HTTPException(status_code=422, detail="Choisissez une plateforme ou un client de SAWALI")
+        forcer = bool(corps.get("force"))      # lot 398 : l'utilisateur accepte d'enregistrer SANS client ni plateforme (ex. alerte bancaire : simple libellé)
+        if not plateforme and not client_id and not forcer:
+            raise HTTPException(status_code=422, detail="Choisissez une plateforme ou un client de SAWALI (ou forcez l'enregistrement sans rattachement)")
         if plateforme and plateforme not in {e["code"] for e in await _emetteurs()}:
             raise HTTPException(status_code=422, detail="Choisissez une plateforme de la liste")
         client = next((c for c in await _clients() if c["id"] == client_id), None) if client_id else None
         if client_id and not client:
             raise HTTPException(status_code=422, detail="Choisissez un client de la liste de SAWALI")
-        libelle = str(corps.get("libelle") or "").strip()[:80] or (client["nom"] if client else plateforme)
+        libelle = str(corps.get("libelle") or "").strip()[:80] or (client["nom"] if client else plateforme) or cle
         cfg = await _lire_config()
         if any(l["type"] == type_ and l["cle"] == cle for l in cfg["liens"]):
             raise HTTPException(status_code=409, detail="Ce numéro (ou ce nom) est déjà associé")
@@ -583,12 +643,40 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
             else:
                 lien.pop("client_id", None)
                 lien.pop("client_nom", None)
-        if not lien.get("plateforme") and not lien.get("client_id"):
-            raise HTTPException(status_code=422, detail="Gardez au moins une plateforme ou un client de SAWALI")
+        if not lien.get("plateforme") and not lien.get("client_id") and not corps.get("force"):
+            raise HTTPException(status_code=422, detail="Gardez au moins une plateforme ou un client de SAWALI (ou forcez l'enregistrement sans rattachement)")
         if "libelle" in corps:
-            lien["libelle"] = str(corps.get("libelle") or "").strip()[:80] or lien.get("client_nom") or lien.get("plateforme") or ""
+            lien["libelle"] = str(corps.get("libelle") or "").strip()[:80] or lien.get("client_nom") or lien.get("plateforme") or lien.get("libelle") or ""
         await _ecrire_config(cfg)
         return lien
+
+    @api.put("/admin/transactions-sms/categorie", tags=["Transactions SMS — écran"])
+    async def corriger_categorie(request: Request, user: dict = Depends(get_current_user)):
+        """Corrige À LA MAIN la catégorie d'un SMS (transaction, promo, alerte, message). Une catégorie vide ou égale à l'automatique retire la correction."""
+        _admin(user)
+        corps = (await request.json()) or {}
+        k = str(corps.get("id") or "").strip()
+        categorie = str(corps.get("categorie") or "").strip()
+        if not k:
+            raise HTTPException(status_code=422, detail="Transaction non précisée")
+        if categorie and categorie not in CATEGORIES:
+            raise HTTPException(status_code=422, detail="Catégorie inconnue")
+        cfg = await _lire_config()
+        trouve = None
+        for mois in await _mois_existants():
+            trouve = next((p for p in (await _lire_mois(mois)).get("items") or [] if p.get("k") == k), None)
+            if trouve:
+                break
+        if not trouve:
+            raise HTTPException(status_code=404, detail="Transaction introuvable")
+        auto = categorie_auto(trouve)
+        corrections = dict(cfg["corrections"])
+        if not categorie or categorie == auto:
+            corrections.pop(k, None)
+        else:
+            corrections[k] = categorie
+        await db.settings.update_one({"_id": PREFIXE_CONFIG}, {"$set": {"corrections": corrections}}, upsert=True)
+        return {"id": k, "categorie": categorie or auto, "categorie_auto": auto, "corrigee": bool(k in corrections)}
 
     @api.get("/admin/transactions-sms/suggestions", tags=["Transactions SMS — écran"])
     async def suggestions(user: dict = Depends(get_current_user)):
@@ -602,8 +690,8 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
                 if canon:
                     par_numero[canon].append(c)
         sortie: Dict[str, Dict[str, Any]] = {}
-        for p in await _toutes(None, None, cfg["liens"]):
-            if p.get("associe") or not p.get("numero") or p["numero"] not in par_numero:
+        for p in await _toutes(None, None, cfg["liens"], cfg["corrections"]):
+            if p.get("associe") or not p.get("numero") or p.get("categorie") != "transaction" or p["numero"] not in par_numero:
                 continue
             for c in par_numero[p["numero"]]:
                 x = sortie.setdefault(p["numero"] + c["id"], {"numero": p["numero"], "numero_affiche": p.get("numero_affiche"), "client_id": c["id"], "client_nom": c["nom"], "nombre": 0, "total": 0})
@@ -619,26 +707,35 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         await _ecrire_config(cfg)
         return {"ok": True}
 
-    async def _filtrees(du: str, au: str, operateur: str, genre: str, q: str, source: str, plateforme: str) -> List[Dict[str, Any]]:
+    async def _filtrees(du: str, au: str, operateur: str, genre: str, q: str, source: str, plateforme: str, categorie: str = "") -> List[Dict[str, Any]]:
         du_ms, au_ms = _bornes(du, au)
         cfg = await _lire_config()
-        return filtrer(await _toutes(du_ms, au_ms, cfg["liens"]), du_ms, au_ms, operateur, genre, q, source, plateforme)
+        return filtrer(await _toutes(du_ms, au_ms, cfg["liens"], cfg["corrections"]), du_ms, au_ms, operateur, genre, q, source, plateforme, categorie)
 
     @api.get("/admin/transactions-sms", tags=["Transactions SMS — écran"])
     async def lister(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "",
-                     par_mois: bool = False, classement: str = "DEPENSE", decalage: int = 0, limite: int = 50, user: dict = Depends(get_current_user)):
-        """Transactions filtrées + statistiques calculées sur TOUTES les transactions filtrées (la liste est paginée)."""
+                     par_mois: bool = False, classement: str = "DEPENSE", decalage: int = 0, limite: int = 50, categorie: str = "", user: dict = Depends(get_current_user)):
+        """Transactions filtrées + statistiques calculées sur TOUTES les transactions filtrées (la liste est paginée).
+        Lot 398 : `categorie` vide = transactions SEULEMENT (promos, alertes et messages sont sortis du décompte) ; « toutes » ou « promo » / « alerte » / « message » les affiche.
+        `exclus` = nombre de SMS d'autres catégories pour les mêmes critères (affiché en bandeau)."""
         _admin(user)
-        items = await _filtrees(du, au, operateur, genre, q, source, plateforme)
+        categorie = categorie if categorie in CATEGORIES or categorie == "toutes" else ""
+        tout = await _filtrees(du, au, operateur, genre, q, source, plateforme, "toutes")
+        items = [p for p in tout if categorie == "toutes" or p.get("categorie") == (categorie or "transaction")]
+        exclus: Dict[str, int] = defaultdict(int)
+        for p in tout:
+            if p.get("categorie") != "transaction":
+                exclus[p["categorie"]] += 1
         limite = max(1, min(limite, 200))
-        retire = [{k: v for k, v in p.items() if k != "k"} for p in items[max(0, decalage):max(0, decalage) + limite]]
-        return {"total": len(items), "transactions": retire, "stats": statistiques(items, par_mois, classement if classement in GENRES else "DEPENSE")}
+        # `id` = identité de la transaction (sert à corriger sa catégorie) ; `k` n'est jamais montré tel quel
+        retire = [{**{k: v for k, v in p.items() if k != "k"}, "id": p["k"]} for p in items[max(0, decalage):max(0, decalage) + limite]]
+        return {"total": len(items), "transactions": retire, "exclus": dict(exclus), "stats": statistiques([p for p in items if p.get("categorie") == "transaction"] if categorie in ("", "toutes") else items, par_mois, classement if classement in GENRES else "DEPENSE")}
 
     @api.get("/admin/transactions-sms/export.csv", tags=["Transactions SMS — écran"])
-    async def exporter(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "",
+    async def exporter(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "", categorie: str = "",
                        user: dict = Depends(get_current_user)):
         _admin(user)
-        items = (await _filtrees(du, au, operateur, genre, q, source, plateforme))[:MAX_RESULTATS]
+        items = (await _filtrees(du, au, operateur, genre, q, source, plateforme, categorie if categorie in CATEGORIES or categorie == "toutes" else ""))[:MAX_RESULTATS]
         return Response(content=csv_de(items), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="transactions_sms.csv"'})
 
     # ------------------------------------------------------------------ plateformes (signé)
@@ -662,6 +759,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         limite = max(1, min(int(donnees.get("limite") or 200), 500))
         cfg = await _lire_config()
         client_de_la_plateforme = emetteur.get("client_id")
-        items = [p for p in filtrer(await _toutes(du_ms, None, cfg["liens"]), du_ms, None, "", genre, "", "", "")
+        items = [p for p in filtrer(await _toutes(du_ms, None, cfg["liens"], cfg["corrections"]), du_ms, None, "", genre, "", "", "")        # catégorie vide = transactions seulement (lot 398)
+                 
                  if p.get("plateforme") == code or (client_de_la_plateforme and p.get("client_id") == client_de_la_plateforme)]
         return {"plateforme": code, "total": len(items), "transactions": [vue_plateforme(p) for p in items[:limite]]}

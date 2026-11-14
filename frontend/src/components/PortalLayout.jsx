@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { titreMenu } from "@/lib/titreMenu";   // règle 18 : majuscule à chaque mot des menus
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
@@ -751,9 +752,9 @@ function PortalLayoutInner({ admin = false }) {
         <div key={`groupe-${g}`} data-testid={`sidebar-groupe-${g}`}>
           <button type="button" onClick={() => basculerGroupe(g)} aria-expanded={ouvert}
             className={`sidebar-link w-full ${actif && !ouvert ? "active" : ""} group`}
-            title={ouvert ? `Replier le menu ${libelle}` : `Déplier le menu ${libelle}`}>
+            title={ouvert ? `Replier le menu ${titreMenu(libelle)}` : `Déplier le menu ${titreMenu(libelle)}`}>
             <Icone className="h-4 w-4" />
-            <span className="flex-1 truncate text-left">{libelle}</span>
+            <span className="flex-1 truncate text-left">{titreMenu(libelle)}</span>
             <span className="text-[10px] text-slate-400">{enfants.length}</span>
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
           </button>
@@ -824,7 +825,7 @@ function PortalLayoutInner({ admin = false }) {
           // Iter41 Phase 4b — strip parenthetical hints from sidebar labels
           // (e.g. "VIDAL France (médicaments)" → "VIDAL France")
           const rawLabel = tKey ? t(tKey, label) : label;
-          const displayLabel = String(rawLabel || "").replace(/\s*\([^)]*\)/g, "").trim();
+          const displayLabel = titreMenu(String(rawLabel || "").replace(/\s*\([^)]*\)/g, "").trim());   // règle 18 : majuscule à chaque mot
           return (
             <NavLink
               key={to}

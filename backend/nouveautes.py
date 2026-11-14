@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "399", "date": "2026-11-14",
+        "titre": "🔠 Menus : première lettre de chaque mot en majuscule",
+        "description": "Tous les menus et sous-menus de la barre latérale écrivent chaque mot avec une majuscule (« Demandes Des Plateformes »), selon la règle 18 du propriétaire.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "398", "date": "2026-11-14",
         "titre": "📱 Transactions SMS : promos, alertes bancaires et messages personnels sortis du décompte",
         "description": "Les SMS promotionnels, les alertes de la banque et les messages de personnes ne comptent plus dans les totaux : pastille grise « promo », « alerte » ou « message », filtre de catégorie, correction manuelle du type, et enregistrement d'un numéro sans client ni plateforme en le forçant.",

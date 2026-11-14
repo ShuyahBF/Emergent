@@ -10,6 +10,7 @@ import { apiClient } from "@/lib/api";
 import PastilleLigneWa from "./PastilleLigneWa";
 import { dureeLisible } from "./AppelsWhatsApp";
 
+import { Eye as Ico15Eye } from "lucide-react";
 // Libellés et couleurs des statuts d'appel
 const STATUTS = {
   termine: ["Terminé", "text-emerald-700"],
@@ -47,8 +48,7 @@ export default function JournalAppelsCarte({ limite = 6, testid = "journal-appel
         <h3 className="text-sm font-semibold text-emerald-900">📞 Journal des appels WhatsApp</h3>
         <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("sawali:journal-appels", { detail: {} }))}
           className="text-xs font-semibold text-emerald-700 hover:underline">
-          Voir tout →
-        </button>
+          <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir tout →</button>
       </div>
       {/* Bilan du jour */}
       <div className="mb-2 grid grid-cols-3 gap-2 text-center">

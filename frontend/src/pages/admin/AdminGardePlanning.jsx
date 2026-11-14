@@ -6,6 +6,7 @@ import { Calendar, RefreshCcw, Lock, Unlock, Wand2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 export default function AdminGardePlanning() {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [data, setData] = useState(null);
@@ -295,8 +296,7 @@ export default function AdminGardePlanning() {
                       <button onClick={() => resetWeek(w.week_number)}
                               className="text-xs text-slate-500 hover:text-rose-600"
                               data-testid={`garde-week-${w.week_number}-reset`}>
-                        Réinitialiser
-                      </button>
+                        <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réinitialiser</button>
                     )}
                   </td>
                 </tr>

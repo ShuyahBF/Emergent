@@ -14,6 +14,7 @@ import { Loader2, RefreshCw, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { formatDateHeure } from "@/components/DerniereSauvegarde";
 
+import { Save as Ico15Save } from "lucide-react";
 const STATUTS = {
   expire: ["Coupé (grâce terminée)", "bg-red-100 text-red-800"],
   grace: ["En grâce", "bg-orange-100 text-orange-800"],
@@ -111,8 +112,7 @@ export default function AbonnementsSessionsSection() {
               className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm" data-testid="input-max-sessions" />
             <button type="button" disabled={occupe} className="rounded-lg bg-sky-700 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
               onClick={() => action(() => apiClient.put("/admin/sessions/reglages", { max_par_compte: Number(maxSessions) }), "Limite enregistrée.")}>
-              Enregistrer
-            </button>
+              <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
           </div>
           <p className="text-xs text-slate-500">
             De 1 à 20 (5 par défaut). À la connexion suivante, la session inactive depuis le plus longtemps est fermée ;

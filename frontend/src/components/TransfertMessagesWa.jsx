@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 // Nombre maximal de destinataires par transfert (même limite que le serveur)
 const MAX_DESTINATAIRES = 10;
 // Libellé et couleur de chaque résultat
@@ -160,7 +161,7 @@ export default function TransfertMessagesWa({ messages, onClose }) {
               </tbody>
             </table>
             <div className="mt-3 flex justify-end">
-              <button type="button" onClick={onClose} className="rounded-lg bg-sky-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-800">Fermer</button>
+              <button type="button" onClick={onClose} className="rounded-lg bg-sky-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-800"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
             </div>
           </div>
         ) : (
@@ -232,7 +233,7 @@ export default function TransfertMessagesWa({ messages, onClose }) {
               </label>
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Annuler</button>
+              <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button" onClick={envoyer} disabled={envoi || !choisis.length} className="rounded-lg bg-sky-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-50" data-testid="transfert-envoyer">
                 {envoi ? <Jauge /> : "↪"} Transférer
               </button>

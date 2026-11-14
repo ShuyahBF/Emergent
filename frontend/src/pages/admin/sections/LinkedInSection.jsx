@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Copy as Ico15Copy } from "lucide-react";
 const DAYS_OF_WEEK = [
   { v: 0, label: "Lundi" },
   { v: 1, label: "Mardi" },
@@ -683,8 +684,7 @@ const LinkedInSection = () => {
                 onClick={() => copyText(lastPostResult.post_urn)}
                 className="ml-2 text-emerald-700 underline"
               >
-                Copier URN
-              </button>
+                <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier URN</button>
             </div>
           )}
         </div>

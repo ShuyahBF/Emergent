@@ -16,6 +16,7 @@ import {
 import { dateLisible, tailleLisible, dureeLisible, autresPostes } from "./outils";
 import { CRITERES_TRI, trierEntrees } from "./tri";
 
+import { FolderOpen as Ico15FolderOpen } from "lucide-react";
 // Petite jauge horizontale (pourcentage), couleur selon le niveau
 function Jauge({ valeur, libelle, icone: Icone }) {
   const v = Math.max(0, Math.min(100, Number(valeur) || 0));
@@ -252,7 +253,7 @@ function OngletFichiers({ liste, transferts, envoyer, actif, posteId, dossiers, 
             <Pin className="h-3 w-3" />Dossier affiché = dossier de base
           </button>
           {dossiers?.dossier_base && (
-            <button type="button" disabled={!actif} onClick={() => ouvrir(dossiers.dossier_base)} className="rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20 disabled:opacity-30">Ouvrir</button>
+            <button type="button" disabled={!actif} onClick={() => ouvrir(dossiers.dossier_base)} className="rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20 disabled:opacity-30"><Ico15FolderOpen className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ouvrir</button>
           )}
           {dossiers?.dossier_base && (
             <button type="button" onClick={() => onDossierBase?.("")} className="rounded bg-white/10 px-1.5 py-0.5 hover:bg-white/20">Effacer</button>

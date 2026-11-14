@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Loader2, QrCode, Trash2, Upload } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 const champ = "w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm";
 const erreurDe = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
 const STATUTS = { attendu: "Attendu", recu: "Reçu", rapproche: "Rapproché", rejete: "Rejeté" };
@@ -206,8 +207,7 @@ export default function PispiSection() {
       <div className="flex justify-end">
         <button type="button" onClick={enregistrer} disabled={occupe} data-testid="pispi-enregistrer"
           className="rounded-lg bg-sawali-blue px-4 py-2 text-sm font-medium text-white hover:bg-sawali-blue-light disabled:opacity-50">
-          Enregistrer
-        </button>
+          <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
       </div>
 
       {/* Saisie manuelle d'un encaissement et derniers encaissements */}
@@ -218,8 +218,7 @@ export default function PispiSection() {
           <input className={champ} type="number" min="0" placeholder="Montant (FCFA)" value={enc.montant} onChange={(e) => setEnc({ ...enc, montant: e.target.value })} data-testid="pispi-enc-montant" />
           <input className={champ} placeholder="Référence bancaire" value={enc.reference_bancaire} onChange={(e) => setEnc({ ...enc, reference_bancaire: e.target.value })} data-testid="pispi-enc-ref-banque" />
           <button type="button" onClick={saisirEncaissement} disabled={occupe} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:opacity-50" data-testid="pispi-enc-valider">
-            Enregistrer l'encaissement
-          </button>
+            <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer l'encaissement</button>
         </div>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left">

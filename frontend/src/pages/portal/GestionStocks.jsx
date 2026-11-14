@@ -11,6 +11,7 @@ import R2StorageGauge from "@/components/R2StorageGauge";
 import { R2FileRow, TagChip } from "@/components/R2FileTags";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip } from "recharts";
 
+import { Check as Ico15Check, Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 /*
   Portail → "Gestion de Stocks" (Pharmacien suivi).
   Schéma fourni par l'utilisateur : deux blocs empilés.
@@ -608,8 +609,7 @@ export default function GestionStocks() {
                       <button type="button" onClick={renameTag} disabled={!renameFrom}
                         className="px-3 py-1.5 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
                         data-testid="gestion-stocks-rename-apply">
-                        Appliquer
-                      </button>
+                        <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Appliquer</button>
                     </div>
                   </div>
                 )}
@@ -656,8 +656,8 @@ export default function GestionStocks() {
                       placeholder="Nom du nouveau dossier" className="px-3 py-1.5 rounded-lg ring-1 ring-slate-300 text-sm bg-white"
                       data-testid="gestion-stocks-new-folder-input" />
                     <button type="button" onClick={createFolder} className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-teal-600 hover:bg-teal-700"
-                      data-testid="gestion-stocks-new-folder-create">Créer</button>
-                    <button type="button" onClick={() => setNewFolderOpen(false)} className="text-xs text-slate-500 hover:underline">Annuler</button>
+                      data-testid="gestion-stocks-new-folder-create"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer</button>
+                    <button type="button" onClick={() => setNewFolderOpen(false)} className="text-xs text-slate-500 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                   </>
                 ) : (
                   <button type="button" onClick={() => setNewFolderOpen(true)}

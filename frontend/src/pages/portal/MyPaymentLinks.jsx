@@ -7,6 +7,7 @@ import {
   CheckCircle2, AlertCircle, Clock, Power, ExternalLink,
 } from "lucide-react";
 
+import { Download as Ico15Download, X as Ico15X } from "lucide-react";
 /*
   Sub-component used inside MyPayments → tab "Liens".
   Lets the user generate shareable payment URLs (/pay/{slug}).
@@ -318,7 +319,7 @@ function NewLinkModal({ mnos, onClose, onCreated }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t bg-slate-50">
-          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={submitting}
             className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50"
             data-testid="link-submit-btn">
@@ -352,8 +353,7 @@ function QrModal({ qr, onClose, onCopy }) {
               <Copy className="h-4 w-4" /> Copier
             </button>
             <button onClick={download} className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 text-sm">
-              Télécharger PNG
-            </button>
+              <Ico15Download className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Télécharger PNG</button>
           </div>
         </div>
       </div>

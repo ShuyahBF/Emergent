@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { Loader2, AlertTriangle, Calendar } from "lucide-react";
 
+import { LogIn as Ico15LogIn } from "lucide-react";
 export default function WaPlanningRecap() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -73,8 +74,7 @@ export default function WaPlanningRecap() {
               className="w-full rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-sm px-4 py-2 transition"
               data-testid="wa-recap-fallback-login"
             >
-              Se connecter manuellement
-            </button>
+              <Ico15LogIn className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Se connecter manuellement</button>
           </div>
         ) : null}
       </div>

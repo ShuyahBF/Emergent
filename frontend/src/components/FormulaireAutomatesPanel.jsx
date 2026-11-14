@@ -12,6 +12,7 @@ import { apiClient } from "@/lib/api";
 import { telechargerFichier, nomDocumentConversation } from "@/lib/telechargement";   // lots 372.1 et 372.2
 
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
+import { Plus as Ico15Plus, Trash2 as Ico15Trash2 } from "lucide-react";
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
 
 export default function FormulaireAutomatesPanel() {
@@ -151,7 +152,7 @@ export default function FormulaireAutomatesPanel() {
               <ImagePlus className="h-4 w-4" /> Choisir le logo
               <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={choisirLogo} data-testid="fa-logo-input" />
             </label>
-            {logo && <button type="button" onClick={() => setLogo("")} className="text-xs font-normal underline">Retirer</button>}
+            {logo && <button type="button" onClick={() => setLogo("")} className="text-xs font-normal underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>}
           </div>
         </div>
         <label className="grid gap-1 text-xs font-semibold">Message d'accueil (facultatif)
@@ -161,7 +162,7 @@ export default function FormulaireAutomatesPanel() {
           <button onClick={enregistrer} disabled={enCours || !organisation.trim()} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm disabled:opacity-50" data-testid="fa-enregistrer">
             {selection ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />} {selection ? "Enregistrer" : "Créer le formulaire"}
           </button>
-          {selection && <button onClick={() => editer(null)} className="rounded-lg border px-4 py-2 text-sm">Nouvelle clinique</button>}
+          {selection && <button onClick={() => editer(null)} className="rounded-lg border px-4 py-2 text-sm"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouvelle clinique</button>}
         </div>
       </div>
 

@@ -11,6 +11,7 @@ import {
   CalendarDays, ChevronDown,
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 export const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 export const fmtDate = (iso) => {
   if (!iso) return "—";
@@ -1034,7 +1035,7 @@ function HolidayFormModal({ initial, year, onSave, onCancel }) {
           </label>
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="hr-holiday-form-cancel">Annuler</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="hr-holiday-form-cancel"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving} data-testid="hr-holiday-form-submit"
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {isEdit ? "Enregistrer" : "Ajouter"}

@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getFileIcon } from "@/lib/fileIcons";
 import TenantSharingToggle from "@/components/TenantSharingToggle";
 
+import { Filter as Ico15Filter, Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 const KIND_META = {
   reports: { label: "Rapports", singular: "rapport", icon: FileText, accent: "#1E90FF" },
   suivis: { label: "Suivis", singular: "suivi", icon: ClipboardList, accent: "#10B981" },
@@ -251,7 +252,7 @@ export default function UserNotesPage() {
             ))}
           </select>
         )}
-        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="notes-filter-apply">Filtrer</button>
+        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="notes-filter-apply"><Ico15Filter className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Filtrer</button>
         {(filterAuthor || filterQ || filterClient) && (
           <button type="button" onClick={() => { setFilterAuthor(""); setFilterQ(""); setFilterClient(""); setTimeout(load, 0); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-rose-300 hover:text-rose-600" data-testid="notes-filter-clear">Effacer</button>
         )}
@@ -747,8 +748,7 @@ function NoteDeServiceButton({ noteId, kind, numero, lastSent, lastCount, onSent
               className="rounded ring-1 ring-slate-300 bg-white text-slate-700 hover:bg-slate-50 px-2 py-1 text-xs"
               data-testid={`note-de-service-confirm-no-${noteId}`}
             >
-              Annuler
-            </button>
+              <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           </div>
         </div>
       )}
@@ -1159,8 +1159,7 @@ function WaMessagesPicker({ clientId = null, onAppend, accent = "#1E90FF" }) {
               style={{ background: accent }}
               data-testid="wa-picker-append"
             >
-              Insérer dans le contenu
-            </button>
+              <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Insérer dans le contenu</button>
           </div>
         </div>
       )}
@@ -1237,8 +1236,7 @@ function TaskChecklist({ items, onChange, accent = "#F59E0B" }) {
           style={{ background: accent }}
           data-testid="task-checklist-add-btn"
         >
-          Ajouter
-        </button>
+          <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
       </div>
       {/* Items */}
       <ul className="space-y-1">

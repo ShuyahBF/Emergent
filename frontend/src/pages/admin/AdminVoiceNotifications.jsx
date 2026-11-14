@@ -17,6 +17,7 @@ import {
   KeySquare,
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 /*
   Iter38r-fix9r — Admin → Notifications vocales Home Assistant.
 
@@ -443,7 +444,7 @@ export default function AdminVoiceNotifications() {
                 <button
                   onClick={() => { setShowCustomForm(false); setCustomDraft({ event_key: "", label: "", module: "", page: "", db_table: "", default_tts: "", variables: "" }); }}
                   className="text-xs text-slate-500 hover:underline"
-                >Annuler</button>
+                ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button
                   onClick={addCustom}
                   className="inline-flex items-center gap-1 rounded-lg bg-fuchsia-600 text-white px-3 py-1.5 text-xs hover:bg-fuchsia-700"

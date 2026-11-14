@@ -14,6 +14,7 @@ import { Loader2, Play, RefreshCw, FlaskConical } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { formatDateHeure } from "@/components/DerniereSauvegarde";
 
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 const STATUTS = {
   ARCHIVE: ["Archivé", "bg-slate-800 text-white"],
   SUSPENDU_NON_RENOUVELE: ["Suspendu", "bg-red-100 text-red-800"],
@@ -153,8 +154,7 @@ export default function CycleVieAbonnementsSection() {
             onClick={() => action(() => apiClient.put("/admin/cycle-vie/reglages", {
               conservation_jours: Number(saisie.conservation_jours), frais_montant: Number(saisie.frais_montant), frais_devise: saisie.frais_devise,
             }), "Réglages enregistrés.")}>
-            Enregistrer
-          </button>
+            <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
           <p className="text-xs text-slate-500">
             Conservation de {donnees.conservation.min} à {donnees.conservation.max} jours ({donnees.conservation.defaut} par défaut) ; ensuite l'archive est effacée de R2 et la réouverture n'est plus possible.
           </p>
@@ -275,7 +275,7 @@ export default function CycleVieAbonnementsSection() {
               }}>
               {occupe ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirmer la réouverture"}
             </button>
-            <button type="button" className="rounded-lg px-3 py-1 text-xs text-slate-700 ring-1 ring-slate-300" onClick={() => setReouverture(null)}>Annuler</button>
+            <button type="button" className="rounded-lg px-3 py-1 text-xs text-slate-700 ring-1 ring-slate-300" onClick={() => setReouverture(null)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
 
+import { Play as Ico15Play } from "lucide-react";
 export default function DecouverteReseauSection() {
   const [etat, setEtat] = useState(null);
   const [form, setForm] = useState(null);
@@ -96,8 +97,7 @@ export default function DecouverteReseauSection() {
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">Revenir à « public »</button>
         )}
         <button type="button" disabled={enCours} onClick={lancer} className="rounded-lg border border-sky-700 px-3 py-1.5 text-sm text-sky-800 hover:bg-sky-50">
-          Lancer une découverte maintenant
-        </button>
+          <Ico15Play className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Lancer une découverte maintenant</button>
         <Link to="/admin/decouverte-reseau" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
           Ouvrir Équipements → Découverte du réseau {etat.a_valider > 0 && <b className="ml-1 text-amber-700">({etat.a_valider} à valider)</b>}
         </Link>

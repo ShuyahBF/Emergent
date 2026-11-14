@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Check, ChevronRight, Sparkles, Zap, Star, Loader2 } from "lucide-react";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 
+import { X as Ico15X } from "lucide-react";
 /*
   Public /subscriptions page.
   Visitors browse plans grouped by up to 4 admin-defined categories.
@@ -211,7 +212,7 @@ const SubscriptionOrderModal = ({ plan, period, onClose }) => {
                 </a>
               </div>
             )}
-            <button onClick={onClose} className="mt-6 inline-flex rounded-lg bg-sawali-blue text-white px-5 py-2 text-sm hover:bg-sawali-blue-light" data-testid="subs-modal-close-done">Fermer</button>
+            <button onClick={onClose} className="mt-6 inline-flex rounded-lg bg-sawali-blue text-white px-5 py-2 text-sm hover:bg-sawali-blue-light" data-testid="subs-modal-close-done"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           </div>
         ) : (
           <>
@@ -242,7 +243,7 @@ const SubscriptionOrderModal = ({ plan, period, onClose }) => {
               <p className="text-[10px] text-slate-500 italic">En soumettant ce formulaire, vous acceptez d'être recontacté par notre équipe pour finaliser votre souscription.</p>
             </div>
             <div className="flex justify-end gap-2 p-5 border-t bg-slate-50 rounded-b-2xl">
-              <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Annuler</button>
+              <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={submit} disabled={submitting} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-sawali-blue text-white px-4 py-2 hover:bg-sawali-blue-light disabled:opacity-50" data-testid="subs-form-submit">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                 {submitting ? "Envoi…" : "Valider ma souscription"}

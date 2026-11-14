@@ -15,6 +15,7 @@ import { Loader2, FileText, Download, Sparkles, Paperclip, MonitorSmartphone } f
 // Lot 135 — ouverte dans les onglets des prises en main (plusieurs postes à la fois)
 import { ouvrirPriseEnMain } from "@/components/ControleDistanceOnglets";
 
+import { X as Ico15X } from "lucide-react";
 // Durée mm:ss (temps restant de la session)
 function formaterDuree(secondes) {
   const s = Math.max(0, Math.floor(secondes || 0));
@@ -252,8 +253,7 @@ export function SupportLooisBandeau({ posteId, lastEvent, onSuggestion }) {
             {occupe && <Loader2 className="h-3 w-3 animate-spin" />} Accepter
           </button>
           <button onClick={refuser} disabled={occupe} className={`${bouton} bg-rose-100 text-rose-700 hover:bg-rose-200`} data-testid="support-loois-refuser">
-            Refuser
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Refuser</button>
         </div>
       )}
 

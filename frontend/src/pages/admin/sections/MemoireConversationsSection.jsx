@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Play as Ico15Play, Plus as Ico15Plus, Save as Ico15Save } from "lucide-react";
 const champ = "w-full rounded-md border border-slate-300 px-2 py-1 text-sm";
 const bouton = "text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50";
 
@@ -121,7 +122,7 @@ export default function MemoireConversationsSection() {
           Donner à l'IA l'historique pertinent du même numéro</label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={reglages.ia_reponses_equipe} onChange={(e) => maj("ia_reponses_equipe", e.target.checked)} />
           Donner aussi à l'IA des réponses déjà données par l'équipe à d'autres clients (anonymes)</label>
-        <button type="button" className={bouton} onClick={enregistrer} disabled={occupe} data-testid="memoire-enregistrer">Enregistrer</button>
+        <button type="button" className={bouton} onClick={enregistrer} disabled={occupe} data-testid="memoire-enregistrer"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
       </div>
 
       {/* État */}
@@ -134,7 +135,7 @@ export default function MemoireConversationsSection() {
         <div className="flex flex-wrap items-center gap-2 pt-1">
           Indexer aussi l'historique des
           <input type="number" min={0} max={3650} className="w-20 rounded-md border border-slate-300 px-2 py-1" value={jours} onChange={(e) => setJours(e.target.value)} />
-          derniers jours <button type="button" className={bouton} onClick={rattraper} disabled={occupe}>Lancer</button>
+          derniers jours <button type="button" className={bouton} onClick={rattraper} disabled={occupe}><Ico15Play className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Lancer</button>
         </div>
       </div>
 
@@ -176,7 +177,7 @@ export default function MemoireConversationsSection() {
                 <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={b.collection} onChange={(e) => corriger(c, "collection", e.target.value)}>
                   {collections.map((x) => <option key={x.nom} value={x.nom}>{x.nom}{x.recalculee ? " (recalculée par Qdrant)" : ""}</option>)}
                 </select>
-                <button type="button" className={bouton} onClick={() => valider(c)}>Ajouter à la base</button>
+                <button type="button" className={bouton} onClick={() => valider(c)}><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter à la base</button>
                 <button type="button" className="text-xs font-semibold px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50" onClick={() => refuser(c)}>Écarter</button>
               </div>
             </div>

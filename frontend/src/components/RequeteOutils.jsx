@@ -8,6 +8,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera, ImagePlus, Mic, Square, Star, Trash2, X } from "lucide-react";
 
+import { Send as Ico15Send } from "lucide-react";
 // « 09/10/2026 08:15 »
 export const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 export const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
@@ -191,7 +192,7 @@ export function Evaluation({ requete, envoyer, onFait }) {
       </div>
       <input value={commentaire} onChange={(e) => setCommentaire(e.target.value)} placeholder="Commentaire (facultatif)"
         className="w-full rounded border border-slate-300 px-2 py-1" />
-      <button type="button" disabled={!note} onClick={valider} className="mt-1 rounded bg-amber-600 px-3 py-1 font-semibold text-white disabled:opacity-40">Envoyer mon évaluation</button>
+      <button type="button" disabled={!note} onClick={valider} className="mt-1 rounded bg-amber-600 px-3 py-1 font-semibold text-white disabled:opacity-40"><Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer mon évaluation</button>
     </div>
   );
 }

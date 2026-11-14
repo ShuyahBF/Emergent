@@ -7,6 +7,7 @@ import { apiClient, API } from "@/lib/api";
 import { toast } from "sonner";
 import { Copy, Loader2, Tv, Trash2, Link2 } from "lucide-react";
 
+import { Plus as Ico15Plus, RefreshCw as Ico15RefreshCw, Trash2 as Ico15Trash2 } from "lucide-react";
 const CONTENUS = [
   { cle: "messagerie", libelle: "Messagerie (fil des messages)" },
   { cle: "support", libelle: "Demandes de support ouvertes" },
@@ -273,7 +274,7 @@ export default function EcransTvSection() {
         {erreurChargement && (
           <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-center justify-between gap-2">
             <span>{erreurChargement}</span>
-            <button type="button" onClick={charger} className="underline">Réessayer</button>
+            <button type="button" onClick={charger} className="underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>
           </div>
         )}
         {chargement ? (
@@ -362,14 +363,14 @@ export default function EcransTvSection() {
                 {l.photo ? "Changer la photo" : "Charger la photo"}
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => { choisirPhoto(i, e.target.files?.[0]); e.target.value = ""; }} />
               </label>
-              {l.photo && <button type="button" onClick={() => majPorte(i, { photo: "" })} className="text-xs text-rose-600 hover:underline">Retirer la photo</button>}
+              {l.photo && <button type="button" onClick={() => majPorte(i, { photo: "" })} className="text-xs text-rose-600 hover:underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer la photo</button>}
               <input value={l.profession || ""} onChange={(e) => majPorte(i, { profession: e.target.value })} maxLength={60} placeholder="Profession (ex. Médecin généraliste)"
                      className="flex-1 min-w-[12rem] px-3 py-1.5 border border-slate-300 rounded-lg text-sm" data-testid="tv-porte-profession" />
             </div>
           </div>
         ))}
         <div className="flex gap-2 boutons-distincts">
-          <button type="button" onClick={() => setPortes((ls) => [...ls, { medecin: "", porte: "" }])} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700" data-testid="tv-porte-ajouter">+ Ajouter un médecin</button>
+          <button type="button" onClick={() => setPortes((ls) => [...ls, { medecin: "", porte: "" }])} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-sm text-slate-700" data-testid="tv-porte-ajouter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un médecin</button>
           <button type="button" onClick={enregistrerPortes} disabled={savingPortes} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-portes-enregistrer">
             {savingPortes ? "Enregistrement…" : "Enregistrer les portes"}
           </button>
@@ -391,7 +392,7 @@ export default function EcransTvSection() {
           <button type="button" onClick={() => enregistrerPin(false)} disabled={savingPin || !pinSaisi} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-pin-enregistrer">
             {savingPin ? "Enregistrement…" : (pinDefini ? "Changer le code" : "Enregistrer le code")}
           </button>
-          {pinDefini && <button type="button" onClick={() => enregistrerPin(true)} disabled={savingPin} className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm" data-testid="tv-pin-supprimer">Supprimer le code</button>}
+          {pinDefini && <button type="button" onClick={() => enregistrerPin(true)} disabled={savingPin} className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm" data-testid="tv-pin-supprimer"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer le code</button>}
         </div>
       </div>
       {/* Lot 323 — connexion administrateur d'une télé : approbation depuis SAWALI (aucun mot de passe tapé sur la télé) */}

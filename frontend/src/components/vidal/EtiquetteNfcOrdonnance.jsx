@@ -11,6 +11,7 @@ import { useRef, useState } from "react";
 import { CheckCircle2, Copy, Info, Loader2, Radio, XCircle } from "lucide-react";
 import { apiClient as api } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 const ICONES = {
   ok: <CheckCircle2 size={14} style={{ color: "#166534" }} />,
   echec: <XCircle size={14} style={{ color: "#b91c1c" }} />,
@@ -99,7 +100,7 @@ export default function EtiquetteNfcOrdonnance({ ordonnanceId, onFermer }) {
     <div style={{ marginTop: 8, padding: 10, border: "1px solid var(--vidal-bordure)", borderRadius: 10, background: "#f8fafc" }} data-testid="etiquette-nfc">
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13 }}>
         <Radio size={14} /> Étiquette NFC de l'ordonnance
-        <button type="button" className="bouton-secondaire" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => { arreter(); onFermer(); }}>Fermer</button>
+        <button type="button" className="bouton-secondaire" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => { arreter(); onFermer(); }}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
       </div>
       <div style={{ fontSize: 12, color: "var(--vidal-gris)", margin: "4px 0 8px" }}>
         Écrit le lien de la page de l'officine sur une étiquette NFC vierge (NTAG213 ou plus) à coller sur l'ordonnance. La pharmacie pose son téléphone dessus : la page s'ouvre toute seule.

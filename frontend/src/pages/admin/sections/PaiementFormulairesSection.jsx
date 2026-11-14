@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Check as Ico15Check } from "lucide-react";
 export default function PaiementFormulairesSection() {
   const [etat, setEtat] = useState(null);
   const [actifs, setActifs] = useState([]);
@@ -88,7 +89,7 @@ export default function PaiementFormulairesSection() {
                   <td>{p.label}</td>
                   <td>{p.pispi_payeur || p.prefill_phone || "—"}</td>
                   <td className="text-right tabular-nums">{Number(p.amount || 0).toLocaleString("fr-FR")} {p.currency || "XOF"}</td>
-                  <td><button type="button" onClick={() => confirmer(p.slug)} className="rounded bg-emerald-700 px-2 py-1 text-white" data-testid={`paiement-confirmer-${p.slug}`}>Confirmer la réception</button></td>
+                  <td><button type="button" onClick={() => confirmer(p.slug)} className="rounded bg-emerald-700 px-2 py-1 text-white" data-testid={`paiement-confirmer-${p.slug}`}><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer la réception</button></td>
                 </tr>
               ))}
             </tbody>

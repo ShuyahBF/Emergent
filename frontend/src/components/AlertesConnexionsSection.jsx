@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Plus as Ico15Plus, RefreshCw as Ico15RefreshCw, Save as Ico15Save, Send as Ico15Send, Trash2 as Ico15Trash2 } from "lucide-react";
 // Date ISO → « JJ/MM/AAAA HH:MM » (heure de Ouagadougou = UTC)
 const dateHeure = (iso) => {
   if (!iso) return "—";
@@ -159,9 +160,9 @@ export default function AlertesConnexionsSection() {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={enregistrer} disabled={occupe} className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Enregistrer</button>
-        <button onClick={essai} disabled={occupe} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Envoyer un essai</button>
-        <button onClick={() => { charger(); lireModele(); }} className="text-xs text-slate-600 underline">Actualiser</button>
+        <button onClick={enregistrer} disabled={occupe} className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
+        <button onClick={essai} disabled={occupe} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"><Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer un essai</button>
+        <button onClick={() => { charger(); lireModele(); }} className="text-xs text-slate-600 underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
       </div>
 
       {/* Modèle Meta (hors fenêtre de 24 h) */}
@@ -173,8 +174,7 @@ export default function AlertesConnexionsSection() {
         </p>
         {modele && ["ABSENT", "REJECTED"].includes(modele.etat) && (
           <button onClick={creerModele} disabled={occupe} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-            Créer le modèle chez Meta
-          </button>
+            <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer le modèle chez Meta</button>
         )}
         {modele?.erreur && <p className="mt-1 text-xs text-rose-700">{modele.erreur}</p>}
       </div>
@@ -209,7 +209,7 @@ export default function AlertesConnexionsSection() {
             {donnees.reglages.appareils_exclus.map((x) => (
               <li key={x.visiteur} className="flex flex-wrap items-center gap-2">
                 <span><b>{x.plateforme || x.code}</b> · {x.agent || "navigateur"} <span className="font-mono opacity-60">({x.visiteur.slice(0, 10)}…)</span></span>
-                <button onClick={() => retirerAppareil(x.visiteur)} disabled={occupe} className="text-rose-700 underline">Retirer</button>
+                <button onClick={() => retirerAppareil(x.visiteur)} disabled={occupe} className="text-rose-700 underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
               </li>
             ))}
           </ul>

@@ -24,6 +24,7 @@ import {
 import { Link } from "react-router-dom";
 import ExpensesTab from "./ExpensesTab";
 
+import { Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const fmtDt = (iso) => {
@@ -165,7 +166,7 @@ function WaPreviewModal({ doc, kind, onClose, onSent }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600" data-testid="wa-preview-cancel">Fermer</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600" data-testid="wa-preview-cancel"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button onClick={resend} disabled={resending} data-testid="wa-preview-resend-btn"
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
             {resending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -336,7 +337,7 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Annuler</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={submit} disabled={submitting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               data-testid="receipt-form-submit">
@@ -906,7 +907,7 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
               </tbody>
             </table>
             <div className="px-2 py-1 bg-slate-50 border-t">
-              <button onClick={addItem} className="text-xs text-sawali-blue hover:underline">+ Ajouter une ligne</button>
+              <button onClick={addItem} className="text-xs text-sawali-blue hover:underline"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter une ligne</button>
             </div>
           </div>
 
@@ -934,7 +935,7 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Annuler</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={submit} disabled={submitting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               data-testid="invoice-form-submit">
@@ -1180,7 +1181,7 @@ function CsvImportButton({ resourceKind, onSuccess }) {
               {file && <p className="text-xs text-slate-500 mt-1">📄 {file.name} ({Math.round(file.size / 1024)} Ko)</p>}
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
-              <button onClick={() => setOpen(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Annuler</button>
+              <button onClick={() => setOpen(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={upload} disabled={uploading || !file}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
                 data-testid="csv-import-submit">
@@ -1464,7 +1465,7 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
             ))}
           </div>
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button onClick={() => { setShowForm(false); setEditing(null); }} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Annuler</button>
+            <button onClick={() => { setShowForm(false); setEditing(null); }} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={submit} disabled={submitting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50">
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

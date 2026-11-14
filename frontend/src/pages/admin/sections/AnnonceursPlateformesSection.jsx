@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Check as Ico15Check, Power as Ico15Power, Save as Ico15Save, X as Ico15X } from "lucide-react";
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
 const ETATS = { devis: "Devis", paiement_en_cours: "Paiement en cours", pispi_attente: "Virement attendu", pispi_verification: "À vérifier",
   active: "Active", suspendue: "Suspendue", terminee: "Terminée" };
@@ -84,7 +85,7 @@ export default function AnnonceursPlateformesSection() {
             <label key={cle} className="space-y-1">{lib}<input type="number" min="1" value={t[cle]} onChange={(e) => setT({ ...t, [cle]: Number(e.target.value) })} className="w-full rounded border border-slate-300 px-2 py-1" /></label>
           ))}
         </div>
-        <button type="button" onClick={enregistrer} className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">Enregistrer les tarifs</button>
+        <button type="button" onClick={enregistrer} className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer les tarifs</button>
       </div>
 
       <div className="space-y-2">
@@ -110,11 +111,11 @@ export default function AnnonceursPlateformesSection() {
                       </span>
                     )}
                     {c.statut === "pispi_verification" && (<>
-                      <button type="button" onClick={() => agir(c, "pispi/confirmer", {}, `Confirmer la réception de ${fcfa(c.montant)} (référence ${c.reference_bancaire || "?"}) ?`)} className="rounded bg-emerald-600 px-2 py-1 text-white">Confirmer</button>
-                      <button type="button" onClick={() => agir(c, "pispi/refuser", undefined, "Refuser ce paiement ?")} className="rounded border border-slate-300 px-2 py-1">Refuser</button>
+                      <button type="button" onClick={() => agir(c, "pispi/confirmer", {}, `Confirmer la réception de ${fcfa(c.montant)} (référence ${c.reference_bancaire || "?"}) ?`)} className="rounded bg-emerald-600 px-2 py-1 text-white"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer</button>
+                      <button type="button" onClick={() => agir(c, "pispi/refuser", undefined, "Refuser ce paiement ?")} className="rounded border border-slate-300 px-2 py-1"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Refuser</button>
                     </>)}
                     {c.statut === "active" && <button type="button" onClick={() => agir(c, "suspendre", undefined, `Suspendre l'annonce « ${c.nom} » ?`)} className="rounded border border-slate-300 px-2 py-1">Suspendre</button>}
-                    {c.statut === "suspendue" && <button type="button" onClick={() => agir(c, "reactiver")} className="rounded border border-slate-300 px-2 py-1">Réactiver</button>}
+                    {c.statut === "suspendue" && <button type="button" onClick={() => agir(c, "reactiver")} className="rounded border border-slate-300 px-2 py-1"><Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réactiver</button>}
                   </td>
                 </tr>
               ))}

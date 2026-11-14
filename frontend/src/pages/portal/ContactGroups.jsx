@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import TenantSharingToggle from "@/components/TenantSharingToggle";
 
+import { X as Ico15X } from "lucide-react";
 const DEFAULT_COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#0ea5e9", "#ef4444", "#8b5cf6"];
 
 export default function ContactGroups() {
@@ -204,7 +205,7 @@ export default function ContactGroups() {
               testidPrefix="cg-tenant-sharing"
             />
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+              <button onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={save} className="text-xs px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white inline-flex items-center gap-1" data-testid="cg-save-btn">
                 <Save className="h-3.5 w-3.5" /> Enregistrer
               </button>
@@ -251,7 +252,7 @@ export default function ContactGroups() {
             <div className="flex justify-between items-center pt-2">
               <span className="text-xs text-slate-500">{pickerSelection.length} sélectionné(s)</span>
               <div className="flex gap-2">
-                <button onClick={() => setPickerOpen(false)} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+                <button onClick={() => setPickerOpen(false)} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button onClick={addContactsToGroup} disabled={!pickerSelection.length}
                         className="text-xs px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white disabled:opacity-50"
                         data-testid="cg-picker-confirm">

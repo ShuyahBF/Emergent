@@ -43,6 +43,7 @@ import {
   clePartiel, debutReception, departDemande, effacerTransferts, interrompre, oublierPartiels, partielsReception,
 } from "@/components/controleDistance/transferts";
 
+import { Check as Ico15Check, Play as Ico15Play, Save as Ico15Save, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
 // Adresse du relais WebSocket (même principe que hooks/useInternalChat.js)
@@ -939,8 +940,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             <div className="mt-4 flex justify-end">
               <button type="button" autoFocus onClick={() => setEchec(null)}
                       className="rounded-lg bg-sky-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-400" data-testid="controle-distance-echec-ok">
-                Compris
-              </button>
+                <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Compris</button>
             </div>
           </div>
         </div>
@@ -956,7 +956,7 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             <p className="mt-0.5 text-[10px] text-amber-200/70">{[fiche.rappel.par, fiche.rappel.le ? new Date(fiche.rappel.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : ""].filter(Boolean).join(" · ")}</p>
           </div>
           <button type="button" onClick={() => setRappelMasque(true)} className="shrink-0 rounded px-2 py-0.5 text-[11px] hover:bg-white/10" title="Masquer pour cette prise en main (le rappel reste pour la prochaine)">Masquer</button>
-          <button type="button" onClick={supprimerRappel} className="shrink-0 rounded bg-amber-500/30 px-2 py-0.5 text-[11px] hover:bg-amber-500/50" data-testid="rappel-supprimer" title="Supprime le rappel : il ne sera plus affiché aux prochaines prises en main">Supprimer le rappel</button>
+          <button type="button" onClick={supprimerRappel} className="shrink-0 rounded bg-amber-500/30 px-2 py-0.5 text-[11px] hover:bg-amber-500/50" data-testid="rappel-supprimer" title="Supprime le rappel : il ne sera plus affiché aux prochaines prises en main"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer le rappel</button>
         </div>
       )}
 
@@ -1190,8 +1190,8 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             </label>
             <p className="mt-1 text-[10px] text-slate-400">La note est ajoutée à l'intervention à la fin de la prise en main et affichée en rappel la prochaine fois. Vide = pas de rappel.</p>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setTicketEdition(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
-              <button type="button" onClick={enregistrerTicket} className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500" data-testid="ticket-enregistrer">Enregistrer</button>
+              <button type="button" onClick={() => setTicketEdition(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
+              <button type="button" onClick={enregistrerTicket} className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500" data-testid="ticket-enregistrer"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             </div>
           </div>
         </div>
@@ -1206,11 +1206,10 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             </h4>
             <p className="mt-2 text-xs text-slate-300">{ACTIONS_SYSTEME[confirmation].texte}</p>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmation(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+              <button type="button" onClick={() => setConfirmation(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button" onClick={() => { envoyer({ type: "systeme", action: confirmation }); setConfirmation(null); }}
                       className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${ACTIONS_SYSTEME[confirmation].danger ? "bg-rose-600 hover:bg-rose-500" : "bg-sky-600 hover:bg-sky-500"}`}>
-                Confirmer
-              </button>
+                <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer</button>
             </div>
           </div>
         </div>
@@ -1234,10 +1233,10 @@ export default function ControleDistance({ posteId, posteNom, onClose, embedded 
             )}
             <p className="mt-2 text-[11px] text-slate-400">La tâche réussie sera inscrite dans l'intervention de cette prise en main.</p>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmationMaint(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
+              <button type="button" onClick={() => setConfirmationMaint(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button"
                       onClick={() => { envoyer({ type: "maintenance", id: Math.floor(Date.now() % 2147483647), action: confirmationMaint.action, chemin: confirmationMaint.volume }); setConfirmationMaint(null); }}
-                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500">Lancer</button>
+                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500"><Ico15Play className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Lancer</button>
             </div>
           </div>
         </div>
@@ -1336,8 +1335,8 @@ export function FenetreIdentifiants({ posteId, actuel, onFermer }) {
         <div className="mt-4 flex justify-between gap-2">
           <button type="button" disabled={occupe || !actuel?.enregistre} onClick={oublier} className="rounded-lg bg-rose-600/20 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-600/40 disabled:opacity-30">Oublier</button>
           <span className="flex gap-2">
-            <button type="button" onClick={() => onFermer(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20">Annuler</button>
-            <button type="button" disabled={occupe} onClick={enregistrer} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Enregistrer</button>
+            <button type="button" onClick={() => onFermer(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
+            <button type="button" disabled={occupe} onClick={enregistrer} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
           </span>
         </div>
       </div>

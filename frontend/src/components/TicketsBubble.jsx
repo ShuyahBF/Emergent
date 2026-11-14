@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { X as Ico15X } from "lucide-react";
 export default function TicketsBubble() {
   const { user } = useAuth() || {};
   const navigate = useNavigate();
@@ -287,7 +288,7 @@ export default function TicketsBubble() {
               </label>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button type="button" onClick={() => setOpen(false)} className="text-sm rounded-lg ring-1 ring-slate-300 px-3 py-1.5 hover:bg-slate-50">Annuler</button>
+                <button type="button" onClick={() => setOpen(false)} className="text-sm rounded-lg ring-1 ring-slate-300 px-3 py-1.5 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button type="submit" disabled={submitting} className="text-sm rounded-lg bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 inline-flex items-center gap-1 disabled:opacity-50" data-testid="tickets-bubble-submit">
                   <Send className="h-3.5 w-3.5" /> {submitting ? "Création…" : "Créer le ticket"}
                 </button>

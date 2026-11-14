@@ -10,6 +10,7 @@ import { EXEMPLE_NOM, EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exempl
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+import { Check as Ico15Check } from "lucide-react";
 // Public anonymous form filler — served from /f/{formId}. Used for campaigns,
 // QR codes, shared links. Respondent name & email are requested before submit
 // so the form owner knows who filled it.
@@ -157,7 +158,7 @@ export default function PublicForm() {
         {brouillonRestaure && (
           <div className="rounded-xl bg-sky-500/10 ring-1 ring-sky-400/40 px-4 py-2 text-xs text-sky-100 flex items-center gap-3 flex-wrap" data-testid="public-form-brouillon">
             <span className="flex-1 min-w-0">Votre saisie précédente a été retrouvée sur cet appareil. Vos réponses sont gardées automatiquement tant que vous n'avez pas cliqué sur « Envoyer ».</span>
-            <button type="button" onClick={() => setBrouillonRestaure(false)} className="underline">Compris</button>
+            <button type="button" onClick={() => setBrouillonRestaure(false)} className="underline"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Compris</button>
           </div>
         )}
 

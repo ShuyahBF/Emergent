@@ -26,6 +26,7 @@ const STATUTS = {
   pret: ["Prêt à rendre", "bg-emerald-100 text-emerald-700"],
   rendu: ["Rendu", "bg-indigo-100 text-indigo-700"],
 };
+import { X as Ico15X } from "lucide-react";
 const ETATS = { mauvais: ["Mauvais", "text-rose-700"], moyen: ["Moyen", "text-amber-700"], bon: ["Bon", "text-emerald-700"] };
 const champ = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500";
 const erreur = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
@@ -224,7 +225,7 @@ function FormulaireFiche({ fiche, types, clients, onAjoutType, onClose, onEnregi
         {fiche?.id ? <MaintenanceActions fiche={fiche} onChange={onRafraichir} />
           : <p className="text-[11px] text-slate-500">Enregistrez la fiche pour ajouter des photos, l'envoyer par WhatsApp, créer un lien de paiement ou la facturer.</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={enregistrer} disabled={occupe || !f.type_materiel || !f.motif.trim() || (!f.contact_id && !f.compte_client_id && !f.client_nom.trim())}
             data-testid="maintenance-enregistrer">
             {occupe && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Enregistrer

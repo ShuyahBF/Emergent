@@ -20,6 +20,7 @@ import {
 import StarRating from "./StarRating";
 import { displayValue, errorMessage, formatDuration, formatPercent, formatXof, shortModel } from "./format";
 
+import { Plus as Ico15Plus } from "lucide-react";
 // Valeur éditable (texte) d'un champ : listes/objets en JSON.
 function toEditable(value) {
   if (value === null || value === undefined) return "";
@@ -232,8 +233,7 @@ function RunReview({ apiBase, run, onReviewed }) {
           </div>
         ))}
         <Button type="button" variant="outline" size="sm" onClick={() => setExtra((l) => [...l, { key: "", value: "" }])}>
-          + Champ oublié par l'IA
-        </Button>
+          <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Champ oublié par l'IA</Button>
       </div>
 
       {/* Note globale + commentaire */}

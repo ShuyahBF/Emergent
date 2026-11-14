@@ -6,6 +6,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 export default function LiluvinePartageSection() {
   const [donnees, setDonnees] = useState(null);     // { elements: {cle: libellé}, superviseurs: [{email, nom, partage}] }
   const [brouillon, setBrouillon] = useState({});   // email → liste cochée (null = par défaut)
@@ -78,7 +79,7 @@ export default function LiluvinePartageSection() {
                   ))}
                   <td className="whitespace-nowrap px-2 text-right">
                     <button type="button" disabled={occupe === x.email || parDefaut} onClick={() => enregistrer(x.email, coches)}
-                      className="mr-1 rounded bg-sawali-blue px-2 py-0.5 font-semibold text-white disabled:opacity-40">Enregistrer</button>
+                      className="mr-1 rounded bg-sawali-blue px-2 py-0.5 font-semibold text-white disabled:opacity-40"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
                     {x.partage != null && (
                       <button type="button" disabled={occupe === x.email} onClick={() => enregistrer(x.email, null)}
                         className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-50" title="Rendre tout Liluvine à ce superviseur">

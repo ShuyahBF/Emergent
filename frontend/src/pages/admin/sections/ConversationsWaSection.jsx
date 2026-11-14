@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 export default function ConversationsWaSection() {
   const [reglages, setReglages] = useState(null);      // { modele_defaut: {name, language} | null, indiquer_origine }
   const [modeles, setModeles] = useState(null);        // modèles approuvés par Meta
@@ -72,7 +73,7 @@ export default function ConversationsWaSection() {
         <div className="flex gap-2">
           <Link to="/portal/contacts" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Ouvrir les Contacts ↗</Link>
           <button type="button" onClick={enregistrer} disabled={occupe}
-            className="rounded-lg bg-sawali-blue px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Enregistrer</button>
+            className="rounded-lg bg-sawali-blue px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
         </div>
       </div>
     </div>

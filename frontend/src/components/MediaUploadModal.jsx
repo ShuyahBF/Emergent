@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X, Loader2, Upload, FileText, Video, Image as ImageIcon } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 function detectKind(file) {
   const ct = (file?.type || "").toLowerCase();
   if (ct === "application/pdf") return "pdf";
@@ -161,8 +162,7 @@ export default function MediaUploadModal({ open, onClose, onSubmit }) {
             className="text-sm px-3 py-2 rounded-lg ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             data-testid="media-upload-modal-cancel"
           >
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={submit}
             disabled={busy || !file || !title.trim()}

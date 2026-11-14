@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import ImageAnnotator from "@/components/ImageAnnotator";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
+import { X as Ico15X } from "lucide-react";
 const erreur = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
 const champ = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm";
@@ -290,7 +291,7 @@ function EnvoiWhatsApp({ fiche, onClose, onEnvoye }) {
           )}
         </section>
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={() => envoyer("auto")} disabled={occupe || !fiche.client_telephone || sansPhoto} data-testid="maintenance-envoyer-wa">
             {occupe && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Envoyer
           </Button>
@@ -347,7 +348,7 @@ function Facturer({ fiche, onClose, onFacture }) {
         <button type="button" onClick={() => setLignes([...lignes, { label: "", quantity: 1, unit_price_ht: "" }])} className="text-xs text-indigo-600 hover:underline inline-flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Ajouter une ligne</button>
         <p className="text-right font-semibold">Total : {fcfa(total)}</p>
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={valider} disabled={occupe || total <= 0} data-testid="maintenance-facturer-valider">{occupe && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Créer</Button>
         </div>
       </div>

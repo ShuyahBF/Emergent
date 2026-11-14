@@ -8,6 +8,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 
+import { FlaskConical as Ico15FlaskConical } from "lucide-react";
 export default function ActivitePlateformesPanel() {
   const [jours, setJours] = useState(1);            // période : 1, 7 ou 30 derniers jours
   const [donnees, setDonnees] = useState(null);
@@ -115,8 +116,7 @@ export default function ActivitePlateformesPanel() {
                     {p.stats_configurees && (
                       <button type="button" onClick={() => tester(p.code)}
                         className="ml-1 text-[10px] text-sky-700 hover:underline" data-testid={`stats-tester-${p.code}`}>
-                        Tester
-                      </button>
+                        <Ico15FlaskConical className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tester</button>
                     )}
                   </td>
                 </tr>

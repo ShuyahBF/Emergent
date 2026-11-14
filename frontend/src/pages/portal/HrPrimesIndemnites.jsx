@@ -18,6 +18,7 @@ import {
   ToggleLeft, ToggleRight, Sparkles, Briefcase, Copy, BookOpen, ArrowRightLeft,
 } from "lucide-react";
 
+import { Check as Ico15Check, X as Ico15X } from "lucide-react";
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 
 function Empty({ label }) {
@@ -169,7 +170,7 @@ function AllowancesCard({ employee, currency }) {
               onClick={() => { setCreating(false); setForm({ label: "", amount: "", notes: "", active: true }); }}
               className="px-2.5 py-1.5 text-xs rounded-md ring-1 ring-slate-300 hover:bg-slate-50"
               data-testid="hr-allowance-cancel"
-            >Annuler</button>
+            ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button
               onClick={create}
               disabled={saving}
@@ -447,7 +448,7 @@ function BonusesCard({ employee, currency, defaultMonth }) {
               onClick={() => { setCreating(false); setForm({ label: "", amount: "", notes: "" }); }}
               className="px-2.5 py-1.5 text-xs rounded-md ring-1 ring-slate-300 hover:bg-slate-50"
               data-testid="hr-bonus-cancel"
-            >Annuler</button>
+            ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button
               onClick={create}
               disabled={saving}
@@ -618,7 +619,7 @@ function CatalogCard({ employee, onApplied, defaultMonth }) {
             className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-sm"
           />
           <div className="flex justify-end gap-2">
-            <button onClick={() => { setCreating(false); setForm({ kind: "allowance", label: "", default_amount: "", description: "" }); }} className="px-2.5 py-1.5 text-xs rounded-md ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+            <button onClick={() => { setCreating(false); setForm({ kind: "allowance", label: "", default_amount: "", description: "" }); }} className="px-2.5 py-1.5 text-xs rounded-md ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={create} data-testid="hr-catalog-save" className="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs rounded-md inline-flex items-center gap-1">
               <Save size={12} /> Enregistrer
             </button>
@@ -677,11 +678,9 @@ function CatalogCard({ employee, onApplied, defaultMonth }) {
                     />
                   )}
                   <button onClick={() => apply(it)} className="px-2 py-1 text-[11px] rounded bg-emerald-600 hover:bg-emerald-700 text-white" data-testid={`hr-catalog-confirm-${it.id}`}>
-                    Confirmer
-                  </button>
+                    <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer</button>
                   <button onClick={() => setApplyingId(null)} className="px-2 py-1 text-[11px] rounded ring-1 ring-slate-300 text-slate-600">
-                    Annuler
-                  </button>
+                    <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 </div>
               )}
             </div>
@@ -804,7 +803,7 @@ function CopyButton({ employees, srcEmployee, onCopied, defaultMonth }) {
               />
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setOpen(false)} className="px-3 py-1.5 text-xs rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+              <button onClick={() => setOpen(false)} className="px-3 py-1.5 text-xs rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={submit} disabled={busy || !targetId} data-testid="hr-copy-submit" className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs rounded inline-flex items-center gap-1 disabled:opacity-50">
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />} Reporter
               </button>

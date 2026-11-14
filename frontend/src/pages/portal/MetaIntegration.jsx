@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { LocalMediaImporter } from "@/components/LocalMediaImporter";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 export default function MetaIntegration() {
   const [params, setParams] = useSearchParams();
   const [status, setStatus] = useState(null);
@@ -277,7 +278,7 @@ function PagesTab({ status, reload }) {
       <div>
         <h3 className="text-sm font-semibold mb-2 flex items-center justify-between">
           <span>Derniers posts</span>
-          <button onClick={loadPosts} className="text-xs text-blue-600 hover:underline">Actualiser</button>
+          <button onClick={loadPosts} className="text-xs text-blue-600 hover:underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
         </h3>
         {busy ? <Loader2 className="h-5 w-5 animate-spin text-blue-500" /> : posts.length === 0 ? (
           <p className="text-xs text-slate-400 italic">Aucun post.</p>
@@ -332,7 +333,7 @@ function MessengerTab({ status }) {
         <select value={selPage} onChange={(e) => setSelPage(e.target.value)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm">
           {status.pages.map((p) => <option key={p.page_id} value={p.page_id}>{p.name}</option>)}
         </select>
-        <button onClick={load} className="ml-auto text-xs text-blue-600 hover:underline">Actualiser</button>
+        <button onClick={load} className="ml-auto text-xs text-blue-600 hover:underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
       </div>
       {busy ? <Loader2 className="h-5 w-5 animate-spin text-blue-500" /> : convos.length === 0 ? (
         <p className="text-sm text-slate-400 italic">Aucune conversation récente.</p>

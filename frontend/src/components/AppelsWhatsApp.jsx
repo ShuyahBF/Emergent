@@ -18,6 +18,7 @@ import TranscriptionAppelLiluvine from "./TranscriptionAppelLiluvine";   // Lot 
 
 // Serveurs STUN publics : permettent au navigateur de découvrir son adresse publique (WebRTC)
 const ICE_SERVERS = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+import { Copy as Ico15Copy, FlaskConical as Ico15FlaskConical } from "lucide-react";
 const INTERROGATION_MS = 3000;
 
 // Lot 296 — sortie audio (haut-parleur) choisie par l'utilisateur, mémorisée dans ce navigateur
@@ -506,12 +507,12 @@ export default function AppelsWhatsApp() {
                   <option value="">Haut-parleur par défaut du système</option>
                   {sorties.filter((d) => d.deviceId && d.deviceId !== "default").map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || "Haut-parleur"}</option>)}
                 </select>
-                <button type="button" onClick={testerHautParleur} className="shrink-0 rounded bg-slate-600 px-2 py-1 hover:bg-slate-500" data-testid="appel-test-hp">Tester</button>
+                <button type="button" onClick={testerHautParleur} className="shrink-0 rounded bg-slate-600 px-2 py-1 hover:bg-slate-500" data-testid="appel-test-hp"><Ico15FlaskConical className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tester</button>
               </div>
             ) : (
               <p className="text-slate-400">Ce navigateur utilise toujours la sortie audio du système (choix possible sous Chrome ou Edge).</p>
             )}
-            <button type="button" onClick={copierDiagnostic} className="text-slate-400 underline hover:text-slate-200" data-testid="appel-copier-diagnostic">Copier le diagnostic du son</button>
+            <button type="button" onClick={copierDiagnostic} className="text-slate-400 underline hover:text-slate-200" data-testid="appel-copier-diagnostic"><Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier le diagnostic du son</button>
           </div>
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={basculerMicro}

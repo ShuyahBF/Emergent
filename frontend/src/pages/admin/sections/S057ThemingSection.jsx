@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, Save, Eye, X, Paintbrush, LayoutDashboard, LogIn, Image as ImageIcon, ChevronDown, ChevronRight } from "lucide-react";
 
+import { LogIn as Ico15LogIn, X as Ico15X } from "lucide-react";
 const BLOCKS = [
   { key: "hero", label: "Accueil (Hero)" },
   { key: "missions", label: "Missions" },
@@ -250,7 +251,7 @@ function PreviewModal({ form, onClose }) {
                 <button className="w-full text-[10px] px-2 py-1.5 rounded" style={{
                   background: form.login_button_bg || "#1E90FF",
                   color: form.login_button_text_color || "#FFFFFF",
-                }}>Se connecter</button>
+                }}><Ico15LogIn className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Se connecter</button>
               </div>
             </div>
           </div>
@@ -276,7 +277,7 @@ function PreviewModal({ form, onClose }) {
         </div>
 
         <div className="flex justify-end sticky bottom-0 bg-white pt-2 border-t border-slate-100">
-          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Fermer</button>
+          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
         </div>
       </div>
     </div>

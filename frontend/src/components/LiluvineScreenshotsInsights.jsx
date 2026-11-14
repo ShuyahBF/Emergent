@@ -15,6 +15,7 @@ import { Camera, BarChart3, RefreshCw, ExternalLink, FileText, Loader2, Sparkles
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 
+import { X as Ico15X } from "lucide-react";
 const fmtAge = (iso) => {
   if (!iso) return "—";
   try {
@@ -133,8 +134,7 @@ function DocDraftModal({ screen, days, onClose }) {
         </div>
         <footer className="p-4 border-t border-slate-200 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-sm rounded ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           {!loading && !error && (
             <button onClick={copyToClipboard} className="px-3 py-1.5 text-sm rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white inline-flex items-center gap-1">
               <CopyIcon size={14} /> Copier

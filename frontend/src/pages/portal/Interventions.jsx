@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer, Pencil, ReceiptText, Download, Unlock, Lock, AlertTriangle, ChevronDown, ChevronUp, CalendarClock, CheckCircle2, Banknote } from "lucide-react";
 import { toast } from "sonner";
 
+import { RefreshCw as Ico15RefreshCw, X as Ico15X } from "lucide-react";
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL = new Set(["Administrateur", "Superviseur"]);
 function isElevated(user) {
@@ -299,8 +300,7 @@ export default function ClientInterventions() {
           <button onClick={() => { setFromDate(""); setToDate(""); setStatusFilter("all"); setClientFilter("all"); }}
                   className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-100"
                   data-testid="interventions-filter-reset">
-            Réinitialiser
-          </button>
+            <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réinitialiser</button>
         )}
         <div className="ml-auto text-xs text-slate-700">
           <span className="text-slate-500">Total affiché :</span>{" "}
@@ -638,7 +638,7 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving} className="text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50" data-testid="intervention-create-save">
             {saving ? "Création…" : "Créer"}
           </button>
@@ -1147,8 +1147,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
 
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving}
                   className="text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50"
                   data-testid="intervention-edit-save">
@@ -1447,7 +1446,7 @@ const EditInvoicePaymentModal = ({ invoice, onClose, onSaved }) => {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving}
                   className="text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50"
                   data-testid="invoice-edit-save">

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { LocalMediaImporter } from "@/components/LocalMediaImporter";
 
+import { ArrowLeft as Ico15ArrowLeft, Eye as Ico15Eye, Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 // Helper formatter pour montants XOF
 const fmtXOF = (n) => `${Number(n || 0).toLocaleString("fr-FR")} XOF`;
 
@@ -1074,7 +1075,7 @@ function PublishModal({ asset, onClose, onPublished }) {
                     </p>
                   ))}
                   {results.ok && mode === "immediate" && (
-                    <button onClick={onPublished} className="mt-2 text-xs px-3 py-1 rounded bg-emerald-600 text-white">Fermer</button>
+                    <button onClick={onPublished} className="mt-2 text-xs px-3 py-1 rounded bg-emerald-600 text-white"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
                   )}
                 </div>
               )}
@@ -1588,8 +1589,7 @@ function TenantsList({ onSelect }) {
                 <button onClick={() => onSelect(t)}
                         className="text-[11px] px-2 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100"
                         data-testid={`view-tenant-${t.tenant_id}`}>
-                  Détails →
-                </button>
+                  <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Détails →</button>
               </td>
             </tr>
           ))}
@@ -1641,8 +1641,7 @@ function TenantBillingDetail({ tenantId, tenantLabel, onBack }) {
     <div className="space-y-4" data-testid="tenant-billing-detail">
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="text-xs text-slate-600 hover:text-slate-900" data-testid="back-to-tenants">
-          ← Retour à la liste
-        </button>
+          <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la liste</button>
         <button onClick={() => setTopupOpen(true)}
                 className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
                 data-testid="topup-credits-btn">
@@ -1659,8 +1658,7 @@ function TenantBillingDetail({ tenantId, tenantLabel, onBack }) {
           <button onClick={() => setEditing(true)}
                   className="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100"
                   data-testid="edit-config-btn">
-            Modifier les tarifs
-          </button>
+            <Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier les tarifs</button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <KV label="Mode" value={cfg.billing_mode} />
@@ -1836,7 +1834,7 @@ function ConfigEditModal({ cfg, tenantId, onClose, onSaved }) {
           </label>
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300">Annuler</button>
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button type="submit" disabled={saving}
                   className="px-3 py-2 rounded text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
                   data-testid="config-save-btn">
@@ -1897,7 +1895,7 @@ function TopupModal({ tenantId, currency, onClose, onDone }) {
           </label>
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200">Annuler</button>
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button type="submit" disabled={busy}
                   className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                   data-testid="topup-submit">

@@ -20,6 +20,7 @@ import { chargerEtatValidation } from "./BandeauValidationVidal";
 import ChampDate from "./ChampDate";
 import { messageErreurApi } from "@/lib/vidalReferentiels";
 
+import { Filter as Ico15Filter, Save as Ico15Save } from "lucide-react";
 /** Télécharge un fichier renvoyé par l'API (jeton d'authentification compris, via apiClient). */
 async function telechargerFichier(chemin, nomFichier) {
   const r = await api.get(chemin, { responseType: "blob" });
@@ -249,7 +250,7 @@ export default function ValidationVidal({ onChangement }) {
             <option value="">Tous</option><option value="succes">Succès</option><option value="erreur">Erreur</option>
           </select>
         </label>
-        <button className="bouton-secondaire" onClick={charger} style={{ fontSize: 12 }}>Filtrer</button>
+        <button className="bouton-secondaire" onClick={charger} style={{ fontSize: 12 }}><Ico15Filter className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Filtrer</button>
         <button className="bouton-secondaire" onClick={exportXlsx} style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}><Download size={12} /> Export XLSX</button>
         <button className="bouton-secondaire" onClick={ouvrirSynthese} style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}><Printer size={12} /> Synthèse imprimable</button>
       </div>
@@ -298,7 +299,7 @@ export default function ValidationVidal({ onChangement }) {
             <div style={{ fontSize: 12, marginBottom: 4 }}>Observations automatiques : {(detail.observations_auto || []).join(" ; ") || "—"}</div>
             <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 3 }}>Observations manuelles</label>
             <textarea className="champ-saisie" rows={2} value={observation} onChange={(e) => setObservation(e.target.value)} />
-            <button className="bouton-primaire" style={{ marginTop: 6, fontSize: 12.5 }} onClick={enregistrerObservation}>Enregistrer l'observation</button>
+            <button className="bouton-primaire" style={{ marginTop: 6, fontSize: 12.5 }} onClick={enregistrerObservation}><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer l'observation</button>
           </div>
         </div>
       )}

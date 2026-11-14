@@ -13,6 +13,7 @@ const TABS = [
   { id: "register", label: "Inscription", icon: UserPlus },
 ];
 
+import { ArrowLeft as Ico15ArrowLeft } from "lucide-react";
 export default function OfficineLogin() {
   const [tab, setTab] = React.useState("otp");
   return (
@@ -172,8 +173,7 @@ function OtpForm() {
           className="px-3 py-2.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
           data-testid="officine-otp-back"
         >
-          ← Retour
-        </button>
+          <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour</button>
         <button
           type="submit"
           disabled={busy || code.length !== 6}
@@ -292,8 +292,7 @@ function RegisterForm({ onDone }) {
           className="mt-4 text-xs px-4 py-2 rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue/90"
           data-testid="officine-register-back"
         >
-          Retour à la connexion
-        </button>
+          <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la connexion</button>
       </div>
     );
   }

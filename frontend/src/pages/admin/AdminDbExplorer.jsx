@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Database, Search, Download, RefreshCw, Eye, ChevronUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
+import { Plus as Ico15Plus } from "lucide-react";
 export default function AdminDbExplorer() {
   const [collections, setCollections] = useState([]);
   const [collection, setCollection] = useState("api_traces");
@@ -127,7 +128,7 @@ export default function AdminDbExplorer() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="block text-xs font-semibold">Filtres</label>
-            <button type="button" onClick={() => setFilters([...filters, { key: "", op: "eq", value: "" }])} className="text-xs text-sawali-blue hover:underline" data-testid="db-add-filter">+ ajouter</button>
+            <button type="button" onClick={() => setFilters([...filters, { key: "", op: "eq", value: "" }])} className="text-xs text-sawali-blue hover:underline" data-testid="db-add-filter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />ajouter</button>
           </div>
           {filters.map((f, i) => (
             <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr,auto,1fr,auto] gap-2 items-center">

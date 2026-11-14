@@ -20,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Copy, ChevronUp, ChevronDown, GripVertical, Save, Star, X } from "lucide-react";
 
+import { Plus as Ico15Plus, Save as Ico15Save } from "lucide-react";
 // Types de questions proposés (même liste que le serveur)
 const TYPES = [
   ["single", "Choix unique"], ["multi", "Choix multiples"], ["yesno", "Oui / Non"],
@@ -144,8 +145,7 @@ export default function SurveyEditor() {
           {s.status !== "active" && (
             <button onClick={() => save("active")} disabled={saving} data-testid="survey-open"
               className="rounded-lg bg-emerald-600 text-white px-3 py-2 text-sm hover:bg-emerald-700 disabled:opacity-50">
-              Enregistrer et ouvrir
-            </button>
+              <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer et ouvrir</button>
           )}
           {s.status === "active" && !isNew && (
             <button onClick={() => { if (window.confirm("Clôturer ce sondage ? Les réponses ne seront plus acceptées.")) save("closed"); }}
@@ -252,8 +252,7 @@ export default function SurveyEditor() {
                   {q.options.length < 20 && (
                     <button onClick={() => setQ(i, { options: [...q.options, ""] })} className="text-xs text-sawali-blue hover:underline"
                       data-testid={`survey-q-${i}-add-opt`}>
-                      + Ajouter un choix
-                    </button>
+                      <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un choix</button>
                   )}
                 </div>
               )}

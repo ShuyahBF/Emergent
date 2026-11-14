@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2, Send, Save, X, Wallet, Bell, CalendarClock } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 const DEFAULT_DRAFT = {
   name: "",
   active: true,
@@ -260,7 +261,7 @@ export default function AiSubscriptionsSection() {
             <button
               onClick={() => { setShowForm(false); setEditing(null); }}
               className="text-xs text-slate-600 hover:underline"
-            >Annuler</button>
+            ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button
               onClick={save}
               className="inline-flex items-center gap-1 rounded-lg bg-sawali-blue text-white px-3 py-1.5 text-xs hover:bg-sawali-blue-light"

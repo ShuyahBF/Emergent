@@ -19,6 +19,7 @@ const STATUS_LABEL = {
   suspended: { text: "Suspendue", color: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
 
+import { Eye as Ico15Eye, Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 // Iter43-fix10b — Construit l'URL complète d'un logo (endpoint public).
 // Accepte les anciennes URLs `/uploads/officines/...` et les nouvelles
@@ -746,8 +747,7 @@ function GeocodeResultModal({ result, onClose }) {
         </div>
         <footer className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
           <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-900 text-white" data-testid="geocode-result-done">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
         </footer>
       </div>
     </div>
@@ -797,7 +797,7 @@ function LinkClientModal({ officine, onClose, onDone }) {
             data-testid="link-client-email" />
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700" data-testid="link-client-cancel">Annuler</button>
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700" data-testid="link-client-cancel"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button type="submit" disabled={busy} className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50" data-testid="link-client-submit">
             {busy ? "Liaison…" : "Lier"}
           </button>
@@ -902,15 +902,13 @@ function BulkAssignModal({ selectedIds, onClose, onSaved }) {
                 className="text-xs px-2 py-2 rounded bg-emerald-50 ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-100"
                 data-testid="bulk-add-groupe-garde"
               >
-                + Nouveau
-              </button>
+                <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouveau</button>
             </div>
           </label>
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving}
                   className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
                   data-testid="bulk-assign-submit">
@@ -997,8 +995,7 @@ function RolesAdminModal({ onClose }) {
                 <button onClick={add}
                         className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700"
                         data-testid="role-new-add">
-                  Ajouter
-                </button>
+                  <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
               </div>
               <ul className="divide-y rounded-lg ring-1 ring-slate-200">
                 {roles.map((r) => (
@@ -1028,8 +1025,7 @@ function RolesAdminModal({ onClose }) {
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving}
                   className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50"
                   data-testid="roles-save">
@@ -1274,8 +1270,7 @@ function EditOfficineModal({ officine, activities = [], editMode = "full", onClo
                   title={`Créer le groupe ${nextGardeGroup}`}
                   data-testid="edit-officine-add-groupe-garde"
                 >
-                  + Nouveau
-                </button>
+                  <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouveau</button>
               </div>
               <span className="text-[10px] text-slate-500 mt-1 block">
                 Burkina Faso : généralement 5 groupes. Cliquez « + Nouveau » pour étendre.
@@ -1321,8 +1316,7 @@ function EditOfficineModal({ officine, activities = [], editMode = "full", onClo
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
           <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button type="submit" disabled={saving}
                   className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50"
                   data-testid="edit-officine-save">
@@ -1433,14 +1427,12 @@ function CsvImportModal({ onClose, onDone }) {
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           {report ? (
             <button type="button" onClick={onDone}
                     className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90"
                     data-testid="csv-import-done">
-              Voir le registre
-            </button>
+              <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir le registre</button>
           ) : (
             <button type="submit" disabled={busy || !file}
                     className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50"
@@ -1757,14 +1749,12 @@ function ImportProductsModal({ officine, onClose, onDone }) {
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button type="button" onClick={onClose}
                   className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           {report ? (
             <button type="button" onClick={onDone}
                     className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700"
                     data-testid="import-products-done">
-              Voir les produits
-            </button>
+              <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir les produits</button>
           ) : (
             <button type="submit" disabled={busy || !file}
                     className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
@@ -1855,8 +1845,7 @@ function ManageActivitiesModal({ activities, onClose, onSaved }) {
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={busy}
                   className="px-3 py-2 rounded text-sm bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
                   data-testid="manage-activities-save">
@@ -2025,8 +2014,7 @@ function CreateOfficineModal({ roles = [], activities = [], onClose, onCreated }
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
           <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700"
                   data-testid="create-officine-cancel">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={busy || !name.trim()}
                   className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1"
                   data-testid="create-officine-submit">

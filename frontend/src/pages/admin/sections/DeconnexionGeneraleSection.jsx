@@ -17,6 +17,7 @@ import {
   dureeLisible, formatDecompte, heureLocale, signalerChangementMaintenance, useEtatMaintenance,
 } from "@/lib/maintenancePlateforme";
 
+import { X as Ico15X } from "lucide-react";
 const DUREE_MIN = 1;
 const DUREE_MAX = 120;
 const LIBELLES_ACTION = {
@@ -176,8 +177,7 @@ export default function DeconnexionGeneraleSection() {
               </p>
               <button type="button" className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
                 disabled={envoi} onClick={annuler} data-testid="maintenance-annuler">
-                Annuler la déconnexion (personne ne sera déconnecté)
-              </button>
+                <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler la déconnexion (personne ne sera déconnecté)</button>
             </>
           )}
         </div>

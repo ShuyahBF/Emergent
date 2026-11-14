@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 import ClientAccessSelector from "@/components/ClientAccessSelector";
 
+import { Save as Ico15Save } from "lucide-react";
 const STATE_BADGES = {
   inscription: "bg-slate-100 text-slate-700",
   commencée: "bg-blue-100 text-blue-700",
@@ -109,7 +110,7 @@ export default function AdminFormations() {
               label="Clients autorisés à voir cette formation"
               testIdPrefix="formation-access-clients"
             />
-            <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
+            <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
           </form>
         </Modal>
       )}
@@ -268,7 +269,7 @@ function ModulesPanel({ fid, onClose }) {
                   </div>
                 )}
               </div>
-              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
+              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             </form>
           </Modal>
         )}

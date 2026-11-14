@@ -12,6 +12,7 @@ import { CheckCircle2, Loader2, ShieldCheck, Upload, XCircle } from "lucide-reac
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 const erreurDe = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
 const champ = "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
 
@@ -126,7 +127,7 @@ export default function Restauration() {
             {suivi.statut === "TERMINE" || suivi.statut === "TERMINE_AVEC_ANOMALIES" ? (
               <p className="text-sm">Restauration terminée. Redémarrez le service backend, puis <Link to="/login" className="text-indigo-700 underline">connectez-vous</Link> avec vos identifiants habituels.</p>
             ) : suivi.statut !== "EN_COURS" ? (
-              <button type="button" onClick={() => { setSuivi(null); apiClient.get("/public/restauration/etat").then((r) => setEtat(r.data)).catch(() => {}); }} className="text-sm text-indigo-700 underline">Réessayer</button>
+              <button type="button" onClick={() => { setSuivi(null); apiClient.get("/public/restauration/etat").then((r) => setEtat(r.data)).catch(() => {}); }} className="text-sm text-indigo-700 underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>
             ) : null}
             {(suivi.journal || []).length > 0 && (
               <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-[11px] text-slate-600">{suivi.journal.join("\n")}</pre>

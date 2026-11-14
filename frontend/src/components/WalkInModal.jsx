@@ -9,6 +9,7 @@
  *   - Date (défaut = date sélectionnée dans Planning)
  *   - Motif (facultatif)
  */
+import { X as Ico15X } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -217,8 +218,7 @@ export default function WalkInModal({ open, onClose, onSaved, onDeleted, default
               className="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:bg-slate-100"
               data-testid="walk-in-cancel-btn"
             >
-              Annuler
-            </button>
+              <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button
               onClick={save}
               disabled={!canSave || saving}

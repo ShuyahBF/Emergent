@@ -10,6 +10,7 @@ import {
   AlertTriangle, Trash,
 } from "lucide-react";
 
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 /*
   Iter35o — Tickets d'intervention.
   Listing + filtres + actions (changer statut, clôturer). Création d'un
@@ -387,7 +388,7 @@ export default function Tickets() {
               {someSelected && (
                 <div className="flex items-center gap-2">
                   <span className="text-rose-700 font-medium">{selectedIds.size} sélectionné(s)</span>
-                  <button onClick={clearSelection} className="px-2 py-1 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50" data-testid="tickets-bulk-clear">Annuler</button>
+                  <button onClick={clearSelection} className="px-2 py-1 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50" data-testid="tickets-bulk-clear"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                   <button onClick={bulkDelete} className="px-3 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1" data-testid="tickets-bulk-delete">
                     <Trash className="h-3 w-3" /> Supprimer la sélection
                   </button>
@@ -513,8 +514,7 @@ function SessionWaTicket({ t, isClosed, reload }) {
           </label>
           <button type="button" onClick={enregistrer} disabled={occupe}
             className="rounded bg-emerald-600 text-white px-2 py-0.5 disabled:opacity-50" data-testid={`ticket-session-enregistrer-${t.id}`}>
-            Enregistrer
-          </button>
+            <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
         </div>
       )}
     </div>
@@ -746,9 +746,9 @@ function TicketRow({ t, reload, targets }) {
                             className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs" data-testid={`ticket-${t.id}-motif-input`} />
                   <div className="flex items-center gap-2">
                     <button type="button" disabled={busy || !motifEdition.trim()} onClick={enregistrerMotif}
-                            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Enregistrer</button>
+                            className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
                     <button type="button" disabled={busy} onClick={() => setMotifEdition(null)}
-                            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50">Annuler</button>
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                     <span className="ml-auto text-[10px] text-slate-400 tabular-nums">{motifEdition.length} / 200</span>
                   </div>
                 </div>
@@ -808,7 +808,7 @@ function TicketRow({ t, reload, targets }) {
                     onClick={() => setReassigning(false)}
                     className="rounded-md ring-1 ring-slate-200 text-slate-600 px-2 py-1 text-[11px]"
                     data-testid={`ticket-${t.id}-reassign-cancel`}
-                  >Annuler</button>
+                  ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 </>
               )}
               {t.reassigned_at && (

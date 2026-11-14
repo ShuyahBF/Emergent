@@ -15,6 +15,7 @@ import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { SquareX as Ico15SquareX } from "lucide-react";
 // Ancre de la rubrique dans les Paramètres (utilisée par les encadrés-renvois des autres rubriques)
 export const ANCRE_LIBERER_ESPACE = "s-liberer-espace";
 
@@ -95,7 +96,7 @@ function BlocPlan({ titre, aide, bloc, cle, colonnes, choix, basculer, toutCoche
         {supprimables.length > 0 && (
           <span className="flex gap-2 text-xs">
             {!sansDefaut && <button type="button" onClick={() => toutCocher(cle, "regle")} className="text-sky-700 hover:underline">Sélection par défaut</button>}
-            <button type="button" onClick={() => toutCocher(cle, "aucun")} className="text-slate-600 hover:underline">Tout décocher</button>
+            <button type="button" onClick={() => toutCocher(cle, "aucun")} className="text-slate-600 hover:underline"><Ico15SquareX className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tout décocher</button>
           </span>
         )}
       </div>
@@ -317,7 +318,7 @@ function BlocCollections() {
         <>
           <div className="flex justify-end gap-2 text-xs">
             <button type="button" onClick={selectionDefaut} className="text-sky-700 hover:underline">Sélection par défaut</button>
-            <button type="button" onClick={() => setChoix([])} className="text-slate-600 hover:underline">Tout décocher</button>
+            <button type="button" onClick={() => setChoix([])} className="text-slate-600 hover:underline"><Ico15SquareX className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tout décocher</button>
           </div>
           <div className="max-h-96 overflow-auto">
             <table className="w-full text-left text-xs">

@@ -16,6 +16,7 @@ import { apiClient } from "../../lib/api";
 import { toast } from "sonner";
 import VidalActionTesterModal from "./VidalActionTesterModal";
 
+import { Plus as Ico15Plus } from "lucide-react";
 const METHODS = ["GET", "POST", "PUT", "DELETE"];
 
 export default function VidalActionsSection() {
@@ -266,7 +267,7 @@ function ActionEditor({ action, isExpanded, onToggle, onUpdate, onUpdateQueryPar
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[10px] font-semibold text-slate-600">Query params</label>
-              <button type="button" onClick={onAddQueryParam} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200">+ ajouter</button>
+              <button type="button" onClick={onAddQueryParam} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />ajouter</button>
             </div>
             {(action.query_params || []).length === 0 ? (
               <p className="text-[10px] italic text-slate-400 px-1">Aucun paramètre — les clés <code className="bg-slate-100 px-0.5 rounded">app_id</code> / <code className="bg-slate-100 px-0.5 rounded">app_key</code> sont ajoutées automatiquement.</p>

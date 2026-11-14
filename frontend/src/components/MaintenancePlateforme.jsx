@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, noterMotifDeconnexion, sessionImpActive } from "@/lib/api";
 import { formatDecompte, heureLocale, signalerChangementMaintenance, useEtatMaintenance } from "@/lib/maintenancePlateforme";
 
+import { Check as Ico15Check } from "lucide-react";
 // ---------------------------------------------------------------------------
 // Lot 50 — Surveillance de la maintenance de la plateforme (règle R8), montée une
 // seule fois dans App.js pour TOUT utilisateur connecté (rien pour les visiteurs).
@@ -69,8 +70,7 @@ function AlerteUtilisateur({ etat, phase, secondes }) {
           </p>
           <button type="button" className="mt-4 w-full rounded-lg bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800"
             onClick={() => setFermeePour(etat.annonce_le)}>
-            J'ai compris
-          </button>
+            <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />J'ai compris</button>
         </div>
       </div>
     );

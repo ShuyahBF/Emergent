@@ -17,6 +17,7 @@ import { CheckCircle2, FileUp, Loader2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { estPhoto, reduirePhoto, triNaturel } from "@/lib/photos";
 
+import { FolderOpen as Ico15FolderOpen, RefreshCw as Ico15RefreshCw, X as Ico15X } from "lucide-react";
 const ACCEPT = ".docx,.xlsx,.xlsm,.pdf,.jpg,.jpeg,.png,.webp,image/*";
 const TEXTES = {
   formulaire: { titre: "Créer un formulaire depuis un document", objet: "le formulaire" },
@@ -118,7 +119,7 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
             </ol>
           )}
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={analyser} disabled={!fichiers.length} data-testid="import-doc-analyser"
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue-light disabled:opacity-50">
               <FileUp className="h-3.5 w-3.5" /> Analyser et créer
@@ -140,22 +141,20 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
           <div className="text-sm text-slate-700 whitespace-pre-line [overflow-wrap:anywhere] bg-slate-50 ring-1 ring-slate-200 rounded-lg p-3"
             data-testid="import-doc-compte-rendu">{job.compte_rendu}</div>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50">Fermer</button>
+            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
             <button onClick={() => navigate(lienEditeur(job.objet_id))} data-testid="import-doc-ouvrir"
               className="px-4 py-1.5 text-sm font-semibold rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue-light">
-              Ouvrir dans l'éditeur
-            </button>
+              <Ico15FolderOpen className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ouvrir dans l'éditeur</button>
           </div>
         </>)}
 
         {etape === "erreur" && job && (<>
           <p className="text-sm text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded-lg p-3" data-testid="import-doc-erreur">{job.erreur}</p>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50">Fermer</button>
+            <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
             <button onClick={() => { setJob(null); setEtape("choix"); }}
               className="px-4 py-1.5 text-sm font-semibold rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue-light">
-              Réessayer
-            </button>
+              <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>
           </div>
         </>)}
       </div>

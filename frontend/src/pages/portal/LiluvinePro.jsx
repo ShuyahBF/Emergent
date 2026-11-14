@@ -6,6 +6,7 @@ import LiluvineMessageContent from "@/components/LiluvineMessageContent";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { X as Ico15X } from "lucide-react";
 /*
   Iter38r-fix6 — Liluvine PRO / Assistant SAWALI
 
@@ -807,8 +808,7 @@ export default function LiluvinePro() {
                 className="text-sm px-3 py-2 rounded-lg ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 data-testid="liluvine-help-cancel-btn"
               >
-                Annuler
-              </button>
+                <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button
                 onClick={requestHelp}
                 disabled={helpSending || !helpNote.trim()}

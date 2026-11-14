@@ -16,6 +16,7 @@ import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en paus
 
 const BASE = "/admin/appel-proprietaire";
 
+import { ChevronRight as Ico15ChevronRight } from "lucide-react";
 // Libellés et couleurs des résultats (badges)
 const RESULTATS = {
   decroche: ["Décroché", "bg-emerald-100 text-emerald-800"],
@@ -365,7 +366,7 @@ export default function HistoriqueAppelsLiluvine() {
             className="rounded border border-slate-300 bg-white px-2 py-0.5 disabled:opacity-40">◀ Précédente</button>
           <span>Page {historique.page} / {historique.pages}</span>
           <button type="button" disabled={page >= historique.pages} onClick={() => setPage((p) => p + 1)}
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 disabled:opacity-40">Suivante ▶</button>
+            className="rounded border border-slate-300 bg-white px-2 py-0.5 disabled:opacity-40"><Ico15ChevronRight className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Suivante ▶</button>
         </div>
       )}
     </div>

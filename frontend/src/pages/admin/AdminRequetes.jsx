@@ -13,6 +13,7 @@ import { apiClient } from "@/lib/api";
 import AudioRequete from "@/components/AudioRequete";
 import { Enregistreur, ImagesRequete, SelecteurImages } from "@/components/RequeteOutils";
 
+import { Ban as Ico15Ban, Plus as Ico15Plus, RefreshCw as Ico15RefreshCw, Save as Ico15Save, Send as Ico15Send, X as Ico15X } from "lucide-react";
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 const erreur = (e, defaut) => e?.response?.data?.detail || defaut;
 
@@ -52,7 +53,7 @@ function Detail({ r, etats, lots, onMaj }) {
           <option value="">— aucun lot —</option>
           {lots.filter((l) => l.etat !== "deploye" || l.id === r.lot_id).map((l) => <option key={l.id} value={l.id}>Lot {l.numero} — {l.titre}</option>)}
         </select>
-        <button type="button" onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1 font-semibold text-white">Enregistrer</button>
+        <button type="button" onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1 font-semibold text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
       </div>
     </div>
   );
@@ -107,8 +108,8 @@ function NouvelleRequeteAdmin({ categories, onCree, onFermer }) {
       <Enregistreur audio={audio} onAudio={setAudio} />
       <SelecteurImages images={images} onImages={setImages} />
       <div className="flex gap-2">
-        <button type="button" disabled={!f.tenant_id || envoi} onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Enregistrer la requête</button>
-        <button type="button" onClick={onFermer} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm">Annuler</button>
+        <button type="button" disabled={!f.tenant_id || envoi} onClick={enregistrer} className="rounded bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer la requête</button>
+        <button type="button" onClick={onFermer} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
       </div>
     </div>
   );
@@ -144,8 +145,8 @@ function ModelesMeta() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">Modèles WhatsApp Meta</span>
         <span className="text-slate-600">— permettent d'envoyer le lien à tout moment (sans attendre que le client ait écrit dans les 24 h), avec un bouton « Ouvrir mes requêtes ».</span>
-        {!tousApprouves && <button type="button" onClick={creer} className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white">Créer les modèles chez Meta</button>}
-        <button type="button" onClick={charger} className="rounded border border-slate-300 bg-white px-2 py-0.5">Actualiser</button>
+        {!tousApprouves && <button type="button" onClick={creer} className="rounded bg-emerald-600 px-2 py-0.5 font-semibold text-white"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer les modèles chez Meta</button>}
+        <button type="button" onClick={charger} className="rounded border border-slate-300 bg-white px-2 py-0.5"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
       </div>
       {modeles.map((m) => {
         const [libelle, couleur] = LIBELLE_ETAT_MODELE[m.etat] || [m.etat, "bg-slate-100 text-slate-700"];
@@ -207,9 +208,9 @@ function LiensClients() {
               <td className="max-w-xs truncate text-xs">{c.url ? <button type="button" onClick={() => copier(c.url)} title="Copier" className="font-mono text-sky-800 underline">{c.url}</button> : "—"}</td>
               <td className="text-xs">{dateHeure(c.envoye_le) || "—"}</td>
               <td className="space-x-1 whitespace-nowrap text-right">
-                <button type="button" onClick={() => envoyer(c)} className="rounded bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">Envoyer par WhatsApp</button>
+                <button type="button" onClick={() => envoyer(c)} className="rounded bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white"><Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer par WhatsApp</button>
                 {c.url && <button type="button" onClick={() => envoyer(c, true)} className="rounded border border-slate-300 px-2 py-0.5 text-xs">Renouveler</button>}
-                {c.url && <button type="button" onClick={() => revoquer(c)} className="rounded border border-rose-300 px-2 py-0.5 text-xs text-rose-700">Révoquer</button>}
+                {c.url && <button type="button" onClick={() => revoquer(c)} className="rounded border border-rose-300 px-2 py-0.5 text-xs text-rose-700"><Ico15Ban className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Révoquer</button>}
               </td>
             </tr>
           ))}
@@ -276,7 +277,7 @@ export default function AdminRequetes() {
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           {saisie && <NouvelleRequeteAdmin categories={donnees.categories} onFermer={() => setSaisie(false)} onCree={() => { setSaisie(false); charger(); }} />}
           <div className="mb-2 flex flex-wrap gap-2">
-            {!saisie && <button type="button" onClick={() => setSaisie(true)} className="rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white">+ Nouvelle requête</button>}
+            {!saisie && <button type="button" onClick={() => setSaisie(true)} className="rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouvelle requête</button>}
             <select value={filtres.etat} onChange={(e) => setFiltres({ ...filtres, etat: e.target.value })} className={choix}>
               <option value="">Tous les états</option>
               {Object.entries(donnees.etats).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -324,7 +325,7 @@ export default function AdminRequetes() {
                 className="mt-1 block w-64 rounded border border-slate-300 px-2 py-1 text-sm" /></label>
             <input value={nouveauLot.description} onChange={(e) => setNouveauLot({ ...nouveauLot, description: e.target.value })} placeholder="Description (facultatif)"
               className="w-72 rounded border border-slate-300 px-2 py-1 text-sm" />
-            <button type="button" disabled={!nouveauLot.titre.trim()} onClick={creerLot} className="rounded bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Créer le lot</button>
+            <button type="button" disabled={!nouveauLot.titre.trim()} onClick={creerLot} className="rounded bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer le lot</button>
           </div>
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-slate-500"><tr><th className="py-1">Lot</th><th>Titre</th><th>Requêtes</th><th>Créé le</th><th>État</th><th>Déployé le</th><th></th></tr></thead>

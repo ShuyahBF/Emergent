@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Plus, Trash2, Edit, X, Upload, Image as ImageIcon, Star, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
+import { Plus as Ico15Plus, Trash2 as Ico15Trash2 } from "lucide-react";
 const empty = {
   title: "", slug: "", client_name: "", sector: "", year: "", duration: "",
   summary: "", challenge: "", solution: "", results: "",
@@ -196,7 +197,7 @@ export default function AdminCaseStudies() {
                 <div className="flex gap-2 mt-1">
                   <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
                          placeholder="React, FastAPI, Mongo..." className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" data-testid="cs-tag-input" />
-                  <button type="button" onClick={addTag} className="rounded-md bg-slate-100 px-3 text-sm">Ajouter</button>
+                  <button type="button" onClick={addTag} className="rounded-md bg-slate-100 px-3 text-sm"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {form.tags.map((t) => (
@@ -258,6 +259,6 @@ const ImagePicker = ({ url, onUpload, onClear, loading, testid }) => (
       <Upload className="h-3 w-3" /> {loading ? "Téléversement..." : (url ? "Remplacer" : "Téléverser")}
       <input type="file" hidden accept="image/*" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} data-testid={testid} />
     </label>
-    {url && <button type="button" onClick={onClear} className="text-xs text-rose-600 underline">Retirer</button>}
+    {url && <button type="button" onClick={onClear} className="text-xs text-rose-600 underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>}
   </div>
 );

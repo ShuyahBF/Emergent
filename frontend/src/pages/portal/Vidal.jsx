@@ -12,6 +12,7 @@ import {
 // sidebar du médecin) tout en le gardant utilisable ici comme onglet.
 import { PrescriptionAnalysisForm } from "@/pages/portal/PrescriptionAnalysis";
 
+import { Copy as Ico15Copy, Eye as Ico15Eye } from "lucide-react";
 const TABS = [
   { key: "actions", label: "Actions", icon: Zap },
   { key: "search", label: "Recherche", icon: Search },
@@ -330,8 +331,7 @@ function RequestDebugPanel({ meta }) {
               className="text-[10px] px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
               data-testid="vidal-debug-copy-url"
             >
-              Copier URL seule
-            </button>
+              <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier URL seule</button>
             {meta.body && (
               <button
                 type="button"
@@ -339,8 +339,7 @@ function RequestDebugPanel({ meta }) {
                 className="text-[10px] px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
                 data-testid="vidal-debug-copy-body"
               >
-                Copier Body
-              </button>
+                <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier Body</button>
             )}
           </div>
           <p className="text-[10px] text-blue-700 italic">
@@ -417,8 +416,7 @@ function RawResponseViewer({ raw, contentLength = 0, requestMeta = null }) {
               className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
               data-testid="vidal-raw-copy"
             >
-              Copier
-            </button>
+              <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</button>
           </div>
         </div>
         {view === "rendered" ? (
@@ -482,8 +480,7 @@ function RawResponseViewer({ raw, contentLength = 0, requestMeta = null }) {
           className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
           data-testid="vidal-raw-copy-text"
         >
-          Copier
-        </button>
+          <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</button>
       </div>
       <pre className="text-[10px] bg-white p-3 rounded ring-1 ring-slate-200 overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-text">
         {(raw || "").slice(0, 20000)}
@@ -570,8 +567,7 @@ function AtomFeedViewer({ entries, raw, requestMeta }) {
             className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
             data-testid="vidal-atom-copy-xml"
           >
-            Copier XML
-          </button>
+            <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier XML</button>
           <button
             type="button"
             onClick={downloadXml}
@@ -704,8 +700,7 @@ function JsonTreeViewer({ data, raw, requestMeta }) {
             className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
             data-testid="vidal-json-copy"
           >
-            Copier
-          </button>
+            <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</button>
         </div>
       </div>
       <pre
@@ -839,8 +834,7 @@ function ResultTable({ data, onPick }) {
                       className="text-fuchsia-600 hover:text-fuchsia-700 text-[10px] underline"
                       data-testid={`vidal-pick-${i}`}
                     >
-                      Voir la fiche →
-                    </button>
+                      <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir la fiche →</button>
                   )}
                 </div>
               </td>

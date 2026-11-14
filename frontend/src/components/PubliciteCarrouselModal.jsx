@@ -7,6 +7,7 @@ import { ExternalLink, ImagePlus, Loader2, Megaphone, RotateCcw, X } from "lucid
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
+import { ArrowLeft as Ico15ArrowLeft, Plus as Ico15Plus, Power as Ico15Power, X as Ico15X } from "lucide-react";
 const detail = (e, defaut) => e?.response?.data?.detail || defaut;
 
 export default function PubliciteCarrouselModal({ campagne, onClose }) {
@@ -240,7 +241,7 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
                             <Button size="sm" disabled={statutEn === p.campagne_meta} onClick={() => changerStatut(p, "ACTIVE")} data-testid="pub-confirmer-activation">Oui, activer</Button>
                           </>
                         ) : (
-                          <Button size="sm" onClick={() => setAActiver(p.campagne_meta)} data-testid="pub-activer">Activer…</Button>
+                          <Button size="sm" onClick={() => setAActiver(p.campagne_meta)} data-testid="pub-activer"><Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Activer…</Button>
                         )}
                       </span>
                     </div>
@@ -257,12 +258,12 @@ export default function PubliciteCarrouselModal({ campagne, onClose }) {
               Créer la publicité EN PAUSE sur « <b>{compte?.nom || form.compte_id}</b> » ({form.budget} {compte?.devise}/jour, {form.pays}) ?
             </span>
           )}
-          <Button variant="ghost" onClick={onClose}>Fermer</Button>
+          <Button variant="ghost" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           {!confirmer ? (
-            <Button disabled={!pret || creation || !!erreur} onClick={() => setConfirmer(true)} data-testid="pub-creer">Créer la publicité…</Button>
+            <Button disabled={!pret || creation || !!erreur} onClick={() => setConfirmer(true)} data-testid="pub-creer"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer la publicité…</Button>
           ) : (
             <>
-              <Button variant="outline" onClick={() => setConfirmer(false)} disabled={creation}>Retour</Button>
+              <Button variant="outline" onClick={() => setConfirmer(false)} disabled={creation}><Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour</Button>
               <Button disabled={creation} onClick={creer} data-testid="pub-confirmer">
                 {creation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Megaphone className="mr-1 h-4 w-4" />} Confirmer la création
               </Button>

@@ -21,6 +21,7 @@ import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (r�
 
 // Libellés des styles et des formats proposés (mêmes clés que le serveur)
 const STYLES = { illustration: "Illustration", photo: "Photo réaliste", schema: "Schéma / pictogrammes", libre: "Libre (sans consigne)" };
+import { X as Ico15X } from "lucide-react";
 const FORMATS = { carre: "Carré", paysage: "Paysage", portrait: "Portrait" };
 // Libellés des états d'un envoi planifié
 const STATUTS = { planifie: "⏰ planifié", en_cours: "… en cours", envoye: "✅ envoyé", echec: "❌ échec", annule: "annulé" };
@@ -394,7 +395,7 @@ export default function ImageIaChatModal({ clientId, threadKey, nomDiscussion, m
                     <td className="py-1" title={p.raison || ""}>{STATUTS[p.statut] || p.statut}</td>
                     <td className="py-1 text-right">
                       {p.statut === "planifie" && (
-                        <button onClick={() => annulerPlanifie(p.id)} className="text-rose-600 hover:underline">Annuler</button>
+                        <button onClick={() => annulerPlanifie(p.id)} className="text-rose-600 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                       )}
                     </td>
                   </tr>

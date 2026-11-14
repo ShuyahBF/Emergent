@@ -14,6 +14,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import LiluvineScreenshotsInsights from "@/components/LiluvineScreenshotsInsights";
 
+import { X as Ico15X } from "lucide-react";
 const CHANNELS = [
   { id: "all", label: "Tous canaux", icon: null, badge: null },
   { id: "web", label: "Web", icon: Globe, badge: "🌐 Web" },
@@ -382,8 +383,7 @@ export default function AdminLiluvineHistory() {
                 onClick={() => setOpenSession(null)}
                 className="rounded-lg ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50 px-3 py-1.5 text-sm"
               >
-                Fermer
-              </button>
+                <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
             </footer>
           </div>
         </div>

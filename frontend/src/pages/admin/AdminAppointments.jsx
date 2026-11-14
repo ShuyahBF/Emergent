@@ -4,6 +4,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, RefreshCw } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 const STATUS = [
   { v: "pending", l: "En attente" },
   { v: "confirmed", l: "Confirmé" },
@@ -278,7 +279,7 @@ export const EditAppointmentModal = ({ appt, onClose, onSaved, updateUrl }) => {
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={save}
             disabled={saving}

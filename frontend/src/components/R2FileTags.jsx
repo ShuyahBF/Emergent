@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { FileText, Tag, X, Plus, Sparkles, Loader2, Check, Folder, Trash2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
+import { Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 /*
   Lot 22 — Tags des documents de l'Explorateur Stockage R2 (Gestion de Stocks).
 
@@ -201,7 +202,7 @@ export function R2FileRow({ file, onOpen, onChanged, onDeleted, knownTags = [], 
               className="flex-1 px-2 py-1 rounded ring-1 ring-slate-300 text-xs bg-white" data-testid="r2-tag-input" />
             {/* Suggestions de saisie : tags déjà utilisés par ce client */}
             <datalist id={listId}>{knownTags.map((k) => <option key={k.tag} value={k.tag} />)}</datalist>
-            <button type="button" onClick={addDraft} className="px-2 py-1 rounded text-xs ring-1 ring-teal-300 text-teal-800 bg-white">Ajouter</button>
+            <button type="button" onClick={addDraft} className="px-2 py-1 rounded text-xs ring-1 ring-teal-300 text-teal-800 bg-white"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
           </div>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={500}
             placeholder="Description (facultative)" className="w-full px-2 py-1 rounded ring-1 ring-slate-300 text-xs bg-white"
@@ -235,7 +236,7 @@ export function R2FileRow({ file, onOpen, onChanged, onDeleted, knownTags = [], 
               </button>
             ) : <span />}
             <span className="flex gap-2">
-              <button type="button" onClick={() => setEditing(false)} className="px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100">Annuler</button>
+              <button type="button" onClick={() => setEditing(false)} className="px-2 py-1 rounded text-xs text-slate-600 hover:bg-slate-100"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button" onClick={save} disabled={saving}
                 className="inline-flex items-center gap-1 px-3 py-1 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
                 data-testid="r2-tags-save">

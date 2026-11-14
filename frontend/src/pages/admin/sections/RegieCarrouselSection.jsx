@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 const nf = (n) => (Number(n) || 0).toLocaleString("fr-FR");
 
 export default function RegieCarrouselSection() {
@@ -88,7 +89,7 @@ export default function RegieCarrouselSection() {
         <button onClick={enregistrer} disabled={enreg} className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
           {enreg ? "Patientez…" : "Enregistrer"}
         </button>
-        <button onClick={charger} className="text-xs text-slate-600 underline">Actualiser</button>
+        <button onClick={charger} className="text-xs text-slate-600 underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
         <Link to="/admin/ad-banners" className="rounded-lg bg-fuchsia-600 px-3 py-2 text-sm font-semibold text-white">
           Ouvrir la régie publicitaire
         </Link>

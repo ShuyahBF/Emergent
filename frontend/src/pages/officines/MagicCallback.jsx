@@ -6,6 +6,7 @@ import { officineApi, saveOfficineSession } from "@/lib/officineApi";
 import { LOGO_URL } from "@/lib/brand";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 
+import { ArrowLeft as Ico15ArrowLeft } from "lucide-react";
 export default function OfficineMagicCallback() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -57,8 +58,7 @@ export default function OfficineMagicCallback() {
               className="mt-4 text-xs px-4 py-2 rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue/90"
               data-testid="officine-magic-back"
             >
-              Retour à la connexion
-            </button>
+              <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la connexion</button>
           </>
         )}
       </div>

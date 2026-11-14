@@ -22,6 +22,7 @@ import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import ParcInterventions, { BadgeSignature, ETATS, FormulaireIntervention, PhotosParc, TYPES, champ, dateHeureFr, erreur, telecharger } from "@/components/ParcInterventions";
 
+import { Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 const dateFr = (d) => (d ? new Date(d).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const VIDE = { categorie: "", fabricant: "", modele: "", numero_serie: "", adresse_ip: "", adresse_mac: "", nom_hote: "",
   systeme_exploitation: "", utilisateur_affecte: "", site: "", service: "", bureau: "", date_achat: "", fin_garantie: "",
@@ -107,7 +108,7 @@ function FormulaireEquipement({ equipement, categories, compteClientId, clients,
               <PhotosParc base={`/me/parc/equipements/${equipement.id}`} photos={equipement.photos} onChange={() => onEnregistre(null)} /></div>
           : <p className="text-[11px] text-slate-500">Enregistrez l'équipement pour ajouter des photos.</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={enregistrer} disabled={occupe || !f.categorie} data-testid="parc-equipement-enregistrer">
             {occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Enregistrer
           </Button>
@@ -145,7 +146,7 @@ function LieuMachine({ equipement, sites, onClose, onEnregistre }) {
           </label>
         ))}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={enregistrer} disabled={occupe} data-testid="parc-lieu-enregistrer">{occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Enregistrer</Button>
         </div>
       </div>
@@ -179,7 +180,7 @@ function FicheEquipement({ id, equipements, onClose, onModifier, onChange }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 font-semibold text-slate-800"><Monitor className="h-5 w-5 text-indigo-600" /> {e.numero_inventaire} <Etat etat={e.etat} /></h2>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => onModifier(e)}>Modifier</Button>
+            <Button size="sm" variant="outline" onClick={() => onModifier(e)}><Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier</Button>
             <Button size="sm" onClick={() => setIntervention("nouvelle")}><Wrench className="mr-1 h-4 w-4" /> Nouvelle intervention</Button>
             <button type="button" onClick={onClose}><X className="h-5 w-5" /></button>
           </div>
@@ -254,7 +255,7 @@ function ImportCsv({ compteClientId, onClose, onImporte }) {
           </div>
         )}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Fermer</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           <Button onClick={importer} disabled={occupe || !fichier}>{occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Importer</Button>
         </div>
       </div>

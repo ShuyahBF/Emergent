@@ -14,6 +14,7 @@ import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import LignePrescriptionVidal, { ligneVide } from "./LignePrescriptionVidal";
 import { formatDateFr, TYPES_DUREE } from "@/lib/vidalReferentiels";
 
+import { Plus as Ico15Plus } from "lucide-react";
 function resumePeriode(t) {
   const morceaux = [];
   if (t.duration) morceaux.push(`${t.duration} ${(TYPES_DUREE[t.durationType] || "").toLowerCase()}`);
@@ -98,8 +99,7 @@ export default function TraitementsEnCours({ traitements, onChange, chargement, 
         );
       })}
       <button className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => onChange((prev) => [...prev, { ...ligneVide("PREVIOUS_ORDER"), inclus: true }])}>
-        + Ajouter un traitement en cours
-      </button>
+        <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un traitement en cours</button>
     </div>
   );
 }

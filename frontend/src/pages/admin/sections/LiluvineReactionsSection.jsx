@@ -16,6 +16,7 @@ import {
   Upload, FileText, Lightbulb, ExternalLink, Copy, ChevronDown, ChevronRight,
 } from "lucide-react";
 
+import { RefreshCw as Ico15RefreshCw, X as Ico15X } from "lucide-react";
 const CSV_TEMPLATE = `name,trigger_text,response_text,trigger_variations,response_media_url,response_media_kind,active
 Promo Rentrée,Puis-je en savoir plus,Bonjour ! Merci pour votre intérêt. Voici nos offres...,plus d'infos|votre offre|détails,https://example.com/promo.jpg,image,true
 Nouveauté Produit,Comment commander,Voici notre procédure de commande...,je veux commander|acheter|prix,,,true
@@ -383,8 +384,7 @@ export default function LiluvineReactionsSection() {
                     className="text-xs text-fuchsia-600 hover:underline"
                     data-testid="csv-template-btn"
                   >
-                    Charger le modèle d&apos;exemple
-                  </button>
+                    <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Charger le modèle d&apos;exemple</button>
                 </div>
                 <textarea
                   value={csvText}
@@ -560,7 +560,7 @@ Motif : {{4}}
                               data-testid="convert-response-input"
                             />
                             <div className="flex items-center justify-end gap-2">
-                              <button onClick={() => setConvertingSid(null)} className="text-xs text-slate-500 hover:underline">Annuler</button>
+                              <button onClick={() => setConvertingSid(null)} className="text-xs text-slate-500 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                               <button
                                 onClick={submitConvert}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs"
@@ -685,7 +685,7 @@ Motif : {{4}}
               </label>
             </div>
             <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50">
-              <button onClick={() => setEditing(null)} className="px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100">Annuler</button>
+              <button onClick={() => setEditing(null)} className="px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button
                 onClick={saveTemplate}
                 disabled={saving}

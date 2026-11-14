@@ -41,6 +41,7 @@ import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (r�
 // accepté par Meta au coût par envoi. Ces campagnes ne sont jamais servies comme bannières.
 const PLACEMENT_CARROUSEL = "carrousel_wa";
 
+import { X as Ico15X } from "lucide-react";
 const DEFAULT_DRAFT = {
   name: "",
   advertiser_name: "",
@@ -709,7 +710,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       {!estCarrousel && <BannerSizingBlock draft={draft} setDraft={setDraft} />}
 
       <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="text-xs text-slate-600 hover:underline">Annuler</button>
+        <button onClick={onCancel} className="text-xs text-slate-600 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
         <button onClick={onSave} className="inline-flex items-center gap-1 rounded-lg bg-fuchsia-600 text-white px-4 py-2 text-sm hover:bg-fuchsia-700" data-testid="ad-form-save">
           <Save className="h-3.5 w-3.5" /> {editing ? "Enregistrer" : "Créer"}
         </button>

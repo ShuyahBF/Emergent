@@ -21,6 +21,7 @@ import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import ChampDate from "@/components/vidal/ChampDate";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 // Profils rapides — mêmes valeurs de référence que la maquette d'origine
 // (le profil "homme" correspond exactement à l'exemple du manuel
 // d'intégration VIDAL : 1986-09-10, MALE, 178cm, 80kg).
@@ -288,7 +289,7 @@ export default function VidalPosologie() {
                 <div className="flex gap-2">
                   <Input value={idSaisi} inputMode="numeric" onChange={(e) => setIdSaisi(e.target.value)} placeholder="ex. 12345" data-testid="poso-id-element"
                          onKeyDown={(e) => { if (e.key === "Enter") chargerElement(); }} />
-                  <Button type="button" variant="outline" onClick={() => chargerElement()} data-testid="poso-charger-element">Charger</Button>
+                  <Button type="button" variant="outline" onClick={() => chargerElement()} data-testid="poso-charger-element"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Charger</Button>
                 </div>
               </div>
             )}

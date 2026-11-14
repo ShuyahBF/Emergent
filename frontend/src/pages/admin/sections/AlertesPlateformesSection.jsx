@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Download as Ico15Download, Printer as Ico15Printer, RefreshCw as Ico15RefreshCw } from "lucide-react";
 const bouton = "text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50";
 const quand = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -85,8 +86,8 @@ export default function AlertesPlateformesSection() {
           <label className="text-xs flex items-center gap-1">sur
             <input type="number" min={1} max={365} className="w-16 rounded-md border border-slate-300 px-2 py-1" value={jours} onChange={(e) => setJours(e.target.value)} />
             jours</label>
-          <button type="button" className={bouton} onClick={() => charger(jours)}>Actualiser</button>
-          <button type="button" className={bouton} onClick={() => pdf(null)} data-testid="alertes-pdf-tous">PDF des échecs de toutes les lignes</button>
+          <button type="button" className={bouton} onClick={() => charger(jours)}><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
+          <button type="button" className={bouton} onClick={() => pdf(null)} data-testid="alertes-pdf-tous"><Ico15Download className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />PDF des échecs de toutes les lignes</button>
         </div>
         {histo.waba_id && <p className="text-xs text-slate-600">Compte WhatsApp Business (WABA) : <strong className="font-mono">{histo.waba_id}</strong> — le moyen de paiement se règle pour tout le compte, donc une alerte de paiement touche toutes les lignes.</p>}
         {histo.lignes.map((w) => (
@@ -95,9 +96,9 @@ export default function AlertesPlateformesSection() {
               <strong className="text-sm">{w.libelle}{w.principale ? " (principale)" : ""}</strong>
               <span className="text-slate-600">{w.telephone || ""} · ID du numéro : <span className="font-mono">{w.phone_number_id || "—"}</span></span>
               <span>· {w.envois} envois · {w.echecs} échec(s){w.envois ? <span title="Taux d'échec = échecs ÷ envois sur la période"> (taux d'échec {(100 * w.echecs / w.envois).toFixed(1)} %)</span> : ""}</span>
-              <button type="button" className={bouton} onClick={() => pdf(w.cle)}>Imprimer Échecs en PDF</button>
+              <button type="button" className={bouton} onClick={() => pdf(w.cle)}><Ico15Printer className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Imprimer Échecs en PDF</button>
               {/* Lot 355 : impression des seuls ENVOIS de cette ligne, avec le coût estimé (coût par message de la fiche du client lié) */}
-              <button type="button" className={bouton} onClick={() => pdf(w.cle, "envois")}>Imprimer les envois</button>
+              <button type="button" className={bouton} onClick={() => pdf(w.cle, "envois")}><Ico15Printer className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Imprimer les envois</button>
             </div>
             {w.par_code.length > 0 && (
               <table className="w-full"><thead><tr className="text-left text-slate-500"><th>Code</th><th>Signification</th><th className="text-right">Nombre</th><th>Dernier</th></tr></thead>

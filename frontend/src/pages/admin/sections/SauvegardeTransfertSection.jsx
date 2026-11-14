@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { API, apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
 
+import { X as Ico15X } from "lucide-react";
 const STATUTS = {
   EN_COURS: ["En cours…", "bg-amber-100 text-amber-800"],
   TERMINE: ["Terminé", "bg-emerald-100 text-emerald-800"],
@@ -418,7 +419,7 @@ export default function SauvegardeTransfertSection() {
             <ConfirmationRemplacer confirmation={confirmation} setConfirmation={setConfirmation} motDePasse={motDePasse} setMotDePasse={setMotDePasse} prefixe="r2" />
             <div className="flex gap-2">
               <button type="button" disabled={occupe || enCours} onClick={restaurerR2} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50" data-testid="r2-restaurer-confirmer">Restaurer</button>
-              <button type="button" onClick={() => setARestaurer(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs">Annuler</button>
+              <button type="button" onClick={() => setARestaurer(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             </div>
           </div>
         )}

@@ -5,15 +5,18 @@
 // celle-ci retrouve ses paiements sans les ressaisir. Voir backend/routes/transactions_sms.py.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy, Tag } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 const fcfa = (v) => `${Number(v || 0).toLocaleString("fr-FR")} FCFA`;
 const dateHeure = (ms) => new Date(ms).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
 const PERIODES = [["tout", "Toute la période"], ["aujourdhui", "Aujourd'hui"], ["7j", "7 derniers jours"], ["30j", "30 derniers jours"], ["mois", "Ce mois-ci"], ["mois-1", "Mois dernier"], ["an", "12 derniers mois"], ["perso", "Dates personnalisées…"]];
 const COULEURS = ["#0E6BA8", "#F6A35B", "#2E9E6B", "#D64545", "#7C5CC4", "#0FA3B1", "#94A3B8"];
-const PAS_DE_FILTRE = { periode: "tout", du: "", au: "", operateur: "", genre: "", source: "", plateforme: "", q: "" };
+const PAS_DE_FILTRE = { periode: "tout", du: "", au: "", operateur: "", genre: "", source: "", plateforme: "", q: "", categorie: "" };
 const TAILLE = 50;
+// Catégories de SMS (lot 398) : seules les TRANSACTIONS comptent ; les autres sont sorties du décompte et marquées d'une pastille grise
+const CATEGORIES = [["transaction", "Transaction"], ["promo", "Promo"], ["alerte", "Alerte"], ["message", "Message"]];
+const LIBELLE_CATEGORIE = Object.fromEntries(CATEGORIES);
 
 const iso = (d) => d.toISOString().slice(0, 10);
 const decale = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d; };
@@ -117,7 +120,7 @@ export default function AdminTransactionsSms() {
 
   const params = useMemo(() => {
     const { du, au } = bornes(filtres);
-    return Object.fromEntries(Object.entries({ du, au, operateur: filtres.operateur, genre: filtres.genre, source: filtres.source, plateforme: filtres.plateforme, q: filtres.q.trim() }).filter(([, v]) => v));
+    return Object.fromEntries(Object.entries({ du, au, operateur: filtres.operateur, genre: filtres.genre, source: filtres.source, plateforme: filtres.plateforme, categorie: filtres.categorie, q: filtres.q.trim() }).filter(([, v]) => v));
   }, [filtres]);
   const charger = useCallback(async (limite) => {
     try { const { data } = await apiClient.get("/admin/transactions-sms", { params: { ...params, par_mois: parMois, classement, limite } }); setDonnees(data); } catch (e) { erreur(e); }
@@ -135,15 +138,23 @@ export default function AdminTransactionsSms() {
   const creerLien = async () => { try { await apiClient.post("/admin/transactions-sms/liens", lien); setLien({ cle: "", pays: lien.pays, plateforme: lien.plateforme, client_id: "", libelle: "" }); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
   const associerSuggestion = async (x) => { try { await apiClient.post("/admin/transactions-sms/liens", { cle: x.numero, client_id: x.client_id }); await chargerEtat(); charger(nb); toast.success(`Numéro associé à ${x.client_nom}`); } catch (e) { erreur(e); } };
   const enregistrerTel = async () => { try { await apiClient.put(`/admin/transactions-sms/sources/${editTel.id}`, { nom: editTel.nom }); setEditTel(null); await chargerEtat(); toast.success("Intitulé enregistré"); } catch (e) { erreur(e); } };
-  const enregistrerModale = async () => {
+  // Enregistrement de la fenêtre : (1) le TYPE du SMS s'il a changé (toujours possible, sans client ni plateforme) ; (2) l'association si elle est demandée.
+  // Association sans client ni plateforme : on prévient l'utilisateur et on lui demande de FORCER (ex. alerte bancaire : simple libellé).
+  const enregistrerModale = async (forcer = false) => {
     const m = modale;
+    const sansRattachement = !m.client_id && !m.plateforme;
+    const veutAssociation = m.mode !== "categorie" && (!sansRattachement || m.libelle.trim() || m.mode === "modifier");
+    if (veutAssociation && sansRattachement && !forcer) { setModale({ ...m, avertir: true }); return; }
     try {
-      if (m.mode === "creer") await apiClient.post("/admin/transactions-sms/liens", { cle: m.cle, pays: m.pays, plateforme: m.plateforme, client_id: m.client_id, libelle: m.libelle });
-      else await apiClient.put(`/admin/transactions-sms/liens/${m.id}`, { client_id: m.client_id, plateforme: m.plateforme, libelle: m.libelle });
+      if (m.tx_id && m.categorie !== m.categorie0) await apiClient.put("/admin/transactions-sms/categorie", { id: m.tx_id, categorie: m.categorie === m.categorie_auto ? "" : m.categorie });
+      if (veutAssociation) {
+        if (m.mode === "creer") await apiClient.post("/admin/transactions-sms/liens", { cle: m.cle, pays: m.pays, plateforme: m.plateforme, client_id: m.client_id, libelle: m.libelle, force: sansRattachement });
+        else await apiClient.put(`/admin/transactions-sms/liens/${m.id}`, { client_id: m.client_id, plateforme: m.plateforme, libelle: m.libelle, force: sansRattachement });
+      }
       setModale(null);
       await chargerEtat(); await charger(nb);          // même nombre de lignes, même conteneur : la position de défilement est conservée
       setLigneMaj(m.numero || m.cle);
-      toast.success("Association enregistrée");
+      toast.success("Enregistré");
     } catch (e) { erreur(e); }
   };
   const retirerLien = async (l) => { try { await apiClient.delete(`/admin/transactions-sms/liens/${l.id}`); await chargerEtat(); charger(nb); } catch (e) { erreur(e); } };
@@ -183,6 +194,8 @@ export default function AdminTransactionsSms() {
           <label className="text-sm">Opérateur<select className={select} value={filtres.operateur} onChange={(e) => modifier("operateur", e.target.value)}><option value="">Tous les opérateurs</option>{etat.operateurs.map((o) => <option key={o}>{o}</option>)}</select></label>
           <label className="text-sm">Sens<select className={select} value={filtres.genre} onChange={(e) => modifier("genre", e.target.value)}><option value="">Dépenses et recettes</option><option value="DEPENSE">Dépenses</option><option value="RECETTE">Recettes</option></select></label>
           <label className="text-sm">Téléphone<select className={select} value={filtres.source} onChange={(e) => modifier("source", e.target.value)}><option value="">Tous les téléphones</option>{etat.sources.map((s) => <option key={s.id} value={s.id}>{s.nom}</option>)}</select></label>
+          <label className="text-sm">Catégorie de SMS<select className={select} value={filtres.categorie} onChange={(e) => modifier("categorie", e.target.value)} data-testid="filtre-categorie">
+            <option value="">Transactions seulement</option><option value="toutes">Toutes les catégories</option><option value="promo">Promos seulement</option><option value="alerte">Alertes seulement</option><option value="message">Messages seulement</option></select></label>
           <label className="text-sm">Association<select className={select} value={filtres.plateforme} onChange={(e) => modifier("plateforme", e.target.value)}>
             <option value="">Toutes</option><option value="*lie">Associées à une plateforme</option><option value="*non_lie">Non associées</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}
             {clientsAssocies.map((c) => <option key={c.id} value={`client:${c.id}`}>Client : {c.nom}</option>)}</select></label>
@@ -263,24 +276,33 @@ export default function AdminTransactionsSms() {
 
         <section className="space-y-2">
           <h2 className="text-lg font-bold">Transactions ({donnees.total})</h2>
+          {Object.keys(donnees.exclus || {}).length > 0 && !filtres.categorie && (
+            <p className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 p-2 text-sm text-slate-700" data-testid="bandeau-exclus">
+              <span>SMS sortis du décompte :</span>
+              {Object.entries(donnees.exclus).map(([cat, n]) => <span key={cat} className="rounded-full bg-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700">{n} {(LIBELLE_CATEGORIE[cat] || cat).toLowerCase()}{n > 1 ? "s" : ""}</span>)}
+              <button type="button" className="underline" onClick={() => modifier("categorie", "toutes")}>Afficher</button>
+            </p>
+          )}
           {/* Tableau DÉFILANT (hauteur limitée, en-tête figé) : la page n'est plus entraînée vers le bas par une longue liste */}
           <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-sky-50" data-testid="liste-defilante">
             <table className="tableau w-full text-sm" data-testid="liste">
               <thead><tr className="text-left"><th className="p-2">Date</th><th className="p-2">Opérateur</th><th className="p-2">Bénéficiaire / expéditeur</th><th className="p-2">Numéro</th><th className="p-2">Association</th><th className="p-2 text-right">Montant</th></tr></thead>
               <tbody>{donnees.transactions.map((p, i) => (
                 <React.Fragment key={`${p.ms}-${i}`}>
-                <tr aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
+                <tr aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${p.categorie && p.categorie !== "transaction" ? "text-slate-400" : ""} ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
                   <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}
                     {p.corps && <button type="button" className="mt-1 block text-xs underline" title="Voir le texte du SMS" aria-expanded={smsOuvert === `${p.ms}-${i}`} data-testid="voir-sms"
-                      onClick={(e) => { e.stopPropagation(); setSmsOuvert((v) => (v === `${p.ms}-${i}` ? "" : `${p.ms}-${i}`)); }}><MessageSquare className="mr-1 inline h-3.5 w-3.5" />SMS</button>}</td><td className="p-2">{p.operateur}</td>
-                  <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
+                      onClick={(e) => { e.stopPropagation(); setSmsOuvert((v) => (v === `${p.ms}-${i}` ? "" : `${p.ms}-${i}`)); }}><MessageSquare className="mr-1 inline h-3.5 w-3.5" />SMS</button>}
+                    <button type="button" className="mt-1 block text-xs underline" title="Corriger le type de ce SMS (transaction, promo, alerte, message)" data-testid="corriger-type"
+                      onClick={(e) => { e.stopPropagation(); setModale({ mode: "categorie", sms: p.corps, tx_id: p.id, categorie: p.categorie, categorie0: p.categorie, categorie_auto: p.categorie_auto, numero: p.numero, client_id: "", plateforme: "", libelle: "" }); }}><Tag className="mr-1 inline h-3.5 w-3.5" />Type</button></td><td className="p-2">{p.operateur}</td>
+                  <td className="p-2">{p.categorie && p.categorie !== "transaction" && <span className="mr-2 rounded-full bg-slate-200 px-2 py-0.5 align-middle text-xs font-semibold uppercase text-slate-500" title={p.corrigee ? "Catégorie corrigée à la main" : "Reconnu automatiquement : hors décompte"} data-testid="pastille-categorie">{(LIBELLE_CATEGORIE[p.categorie] || p.categorie).toLowerCase()}</span>}{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
                   <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} {p.associe
                     /* Déjà lié (client ou plateforme) : plus de « Associer » ; « Modifier » ouvre l'association dans le tableau des associations */
                     ? <button type="button" className="underline" title="Modifier l'association de ce numéro" data-testid="modifier-association"
-                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) setModale({ mode: "modifier", id: l.id, sms: p.corps, cle_affichee: l.cle_affichee || l.cle, numero: p.numero, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
-                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setModale({ mode: "creer", sms: p.corps, cle: p.numero_affiche || p.numero, numero: p.numero, pays: "226", client_id: "", plateforme: "", libelle: "" }); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
+                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) setModale({ mode: "modifier", id: l.id, sms: p.corps, tx_id: p.id, categorie: p.categorie, categorie0: p.categorie, categorie_auto: p.categorie_auto, cle_affichee: l.cle_affichee || l.cle, numero: p.numero, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
+                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setModale({ mode: "creer", sms: p.corps, tx_id: p.id, categorie: p.categorie, categorie0: p.categorie, categorie_auto: p.categorie_auto, cle: p.numero_affiche || p.numero, numero: p.numero, pays: "226", client_id: "", plateforme: "", libelle: "" }); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
-                  <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>
+                  <td className={`p-2 text-right font-semibold tabular-nums ${p.categorie && p.categorie !== "transaction" ? "text-slate-400" : p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.categorie && p.categorie !== "transaction" ? "" : (p.genre === "RECETTE" ? "+ " : "− ")}{fcfa(p.montant)}</td></tr>
                 {smsOuvert === `${p.ms}-${i}` && (
                   <tr className="border-t border-slate-100 bg-slate-50" data-testid="sms-detail"><td colSpan={6} className="p-3">
                     <div className="flex items-start gap-3">
@@ -357,17 +379,31 @@ export default function AdminTransactionsSms() {
       {modale && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" onClick={() => setModale(null)} onKeyDown={(e) => e.key === "Escape" && setModale(null)} data-testid="modale-association">
           <div className="max-h-[85dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold"><Link2 className="mr-2 inline h-5 w-5 text-sky-700" />{modale.mode === "creer" ? "Associer ce numéro" : "Modifier l'association"}</h2>
-            <p className="rounded-lg bg-slate-50 p-2 font-mono text-sm">{modale.mode === "creer" ? modale.cle : modale.cle_affichee}</p>
+            <h2 className="text-lg font-bold"><Link2 className="mr-2 inline h-5 w-5 text-sky-700" />{modale.mode === "creer" ? "Associer ce numéro" : modale.mode === "categorie" ? "Type de ce SMS" : "Modifier l'association"}</h2>
+            {modale.mode !== "categorie" && <p className="rounded-lg bg-slate-50 p-2 font-mono text-sm">{modale.mode === "creer" ? modale.cle : modale.cle_affichee}</p>}
             {modale.sms && <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700" data-testid="modale-sms"><span className="block font-semibold uppercase tracking-wide text-slate-500">SMS reçu</span>{modale.sms}</p>}
             <div className="grid gap-3 sm:grid-cols-2">
+              {modale.tx_id && (
+                <label className="text-sm sm:col-span-2">Type de SMS<select className={select} value={modale.categorie} onChange={(e) => setModale({ ...modale, categorie: e.target.value, avertir: false })} data-testid="modale-categorie">
+                  {CATEGORIES.map(([v, n]) => <option key={v} value={v}>{n}{v === modale.categorie_auto ? " (reconnu automatiquement)" : ""}</option>)}</select>
+                  <span className="text-xs text-slate-500">Seules les transactions comptent dans les totaux ; promos, alertes et messages sont gardés mais sortis du décompte.</span></label>
+              )}
+              {modale.mode !== "categorie" && (<>
               <label className="text-sm sm:col-span-2">Client de SAWALI<select className={select} value={modale.client_id} onChange={(e) => setModale({ ...modale, client_id: e.target.value })} data-testid="modale-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></label>
               <label className="text-sm">Plateforme<select className={select} value={modale.plateforme} onChange={(e) => setModale({ ...modale, plateforme: e.target.value })} data-testid="modale-plateforme"><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></label>
               <label className="text-sm">Libellé (facultatif)<input className={select} value={modale.libelle} placeholder="Ex. Cabinet Dr BADINI" onChange={(e) => setModale({ ...modale, libelle: e.target.value })} /></label>
+              </>)}
             </div>
+            {modale.avertir && (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="modale-avertissement">
+                Aucun client de SAWALI ni aucune plateforme n'est choisi : ce numéro sera enregistré <b>sans rattachement</b> (libellé seul). Voulez-vous forcer l'enregistrement ?
+              </p>
+            )}
             <div className="flex justify-end gap-3">
               <button type="button" className="rounded border border-slate-300 px-3 py-1.5 text-sm" onClick={() => setModale(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button>
-              <button type="button" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!modale.client_id && !modale.plateforme} onClick={enregistrerModale} data-testid="modale-enregistrer"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button>
+              {modale.avertir
+                ? <button type="button" className="rounded bg-amber-600 px-3 py-1.5 text-sm text-white" onClick={() => enregistrerModale(true)} data-testid="modale-forcer"><Save className="mr-1 inline h-4 w-4" />Forcer l'enregistrement</button>
+                : <button type="button" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!(modale.client_id || modale.plateforme || modale.libelle.trim() || (modale.tx_id && modale.categorie !== modale.categorie0))} onClick={() => enregistrerModale(false)} data-testid="modale-enregistrer"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button>}
             </div>
           </div>
         </div>

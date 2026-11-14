@@ -276,3 +276,83 @@ def test_la_liste_donne_le_texte_du_sms_a_l_administrateur_seulement():
     corps = json.dumps({"sens": "entree"}).encode()
     pf = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-albarka", corps)).json()
     assert pf["total"] == 1 and "corps" not in pf["transactions"][0] and texte not in json.dumps(pf)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+# Lot 398 — catégories de SMS : transaction / promo / alerte / message
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+PROMO_TELECEL = "Avec Telecel Money, les frais de retrait sont a 0.5% jusqu'au 31 Decembre 2026! Retirez 10 000F pour 50f, 100 000F pour 500F Composez *808# pour effectuer vos transactions. Stop *622*2#"
+PROMO_ORANGE = "Orange Money vous accompagne pour la rentrée ! Jusqu’au 10/10, réglez vos achats de fournitures scolaires chez nos librairies partenaires à partir de 5000 F"
+PROMO_PREMIUM = "Cher(e) client(e), grace a votre statut premium, beneficiez jusqu a 900 F de credit de communication apres epuisement de votre solde, remboursable lors de votre prochaine recharge"
+ALERTE_UBA = "DEBIT\n Montant: XOF600,000.00\n Compte: 421XXXXXXX45\n Desc: 9955915:DONNEES FACIALES MODIFIEES\n Date: 09-11-2026 13:48:47\n Solde: XOFXOF0.00 ."
+INTERET_UBA = "DEBIT\n Montant: XOF61.00\n Compte: 421XXXXXXX45\n Desc: INTERET DEBITEUR du 01-09-2026 au 30-09-2026:42114\n Date: 30-09-2026 21:00:00"
+RECU_ORANGE = "Cher client, vous avez recu 36000 FCFA de 71828394 AWA. Nouveau solde : 41000 FCFA. Trans ID: PP261114.1758.12345678."
+
+
+def test_classement_automatique_des_sms():
+    """Calibré sur les 370 SMS réels : les promos ont un score ≥ 7, les vrais SMS ≤ 0 ; la banque et les personnes sont à part."""
+    assert ts.score_promo(PROMO_TELECEL, None) >= 7 and ts.score_promo(PROMO_PREMIUM, None) >= ts.SEUIL_PROMO
+    assert ts.score_promo(PROMO_ORANGE, None) >= ts.SEUIL_PROMO          # texte raccourci dans ce test (le vrai SMS entier atteint 9)
+    assert ts.categorie_auto({"adresse": "TelecelMney", "corps": PROMO_TELECEL}) == "promo"
+    assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": PROMO_ORANGE}) == "promo"          # même expéditeur que les vrais paiements
+    assert ts.categorie_auto({"adresse": "Orange", "corps": PROMO_PREMIUM}) == "promo"
+    # Vrais SMS : jamais classés promo, même avec une période « du … au … » (intérêt bancaire) ou le mot « solde »
+    assert ts.score_promo(RECU_ORANGE, "PP261114.1758.12345678") < 0
+    assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": RECU_ORANGE, "reference": "PP261114.1758.12345678"}) == "transaction"
+    assert ts.categorie_auto({"adresse": "UBABF", "corps": ALERTE_UBA}) == "alerte"
+    assert ts.categorie_auto({"adresse": "UBABF", "corps": INTERET_UBA}) == "alerte"
+    assert ts.categorie_auto({"adresse": "+22677718760", "corps": "le dépôt des 20000f est venu"}) == "message"
+    assert ts.categorie_auto({"adresse": "888", "corps": "Vous avez recu 6000.00 FCFA de 70112233"}) == "transaction"
+
+
+def test_promos_alertes_et_messages_sortis_du_decompte_avec_correction_manuelle():
+    qui, c = _app()
+    src = c.post("/api/admin/transactions-sms/sources", json={"nom": "Téléphone du DG"}).json()
+    entete = {"X-Source": src["id"], "X-Cle": src["cle"]}
+    lot = {"paiements": [
+        {"adresse": "OrangeMoney", "recu_le_ms": ms(2026, 11, 14), "genre": "RECETTE", "montant": 36000, "tiers": "AWA", "reference": "PP261114.1758.12345678", "corps": RECU_ORANGE},
+        {"adresse": "TelecelMney", "recu_le_ms": ms(2026, 11, 13), "genre": "DEPENSE", "montant": 10000, "tiers": "", "corps": PROMO_TELECEL},
+        {"adresse": "UBABF", "recu_le_ms": ms(2026, 11, 9), "genre": "DEPENSE", "montant": 600000, "tiers": "", "corps": ALERTE_UBA},
+        {"adresse": "+22677718760", "recu_le_ms": ms(2026, 11, 8), "genre": "RECETTE", "montant": 20000, "tiers": "", "corps": "le dépôt des 20000f est venu"}]}
+    assert c.post("/api/transactions-sms/v1/envoi", json=lot, headers=entete).json()["acceptees"] == 4
+    # Par défaut : seule la vraie transaction compte (totaux, liste, graphiques) ; le bandeau dit combien d'autres SMS sont sortis du décompte
+    r = c.get("/api/admin/transactions-sms").json()
+    assert r["total"] == 1 and r["stats"]["totaux"]["recettes"] == 36000 and r["stats"]["totaux"]["depenses"] == 0
+    assert r["exclus"] == {"promo": 1, "alerte": 1, "message": 1}
+    # Affichage des autres catégories : « toutes » (liste complète, totaux inchangés) ou une catégorie précise
+    toutes = c.get("/api/admin/transactions-sms", params={"categorie": "toutes"}).json()
+    assert toutes["total"] == 4 and toutes["stats"]["totaux"]["recettes"] == 36000 and {t["categorie"] for t in toutes["transactions"]} == {"transaction", "promo", "alerte", "message"}
+    assert c.get("/api/admin/transactions-sms", params={"categorie": "promo"}).json()["total"] == 1
+    # Correction manuelle : l'alerte est reclassée en transaction (puis rendue à son classement automatique)
+    alerte = next(t for t in toutes["transactions"] if t["categorie"] == "alerte")
+    assert c.put("/api/admin/transactions-sms/categorie", json={"id": alerte["id"], "categorie": "transaction"}).json()["corrigee"] is True
+    assert c.get("/api/admin/transactions-sms").json()["stats"]["totaux"]["depenses"] == 600000
+    assert c.put("/api/admin/transactions-sms/categorie", json={"id": alerte["id"], "categorie": ""}).json()["corrigee"] is False
+    assert c.get("/api/admin/transactions-sms").json()["total"] == 1
+    assert c.put("/api/admin/transactions-sms/categorie", json={"id": alerte["id"], "categorie": "inconnue"}).status_code == 422
+    assert c.put("/api/admin/transactions-sms/categorie", json={"id": "xxx", "categorie": "promo"}).status_code == 404
+    qui["role"] = "client"
+    assert c.put("/api/admin/transactions-sms/categorie", json={"id": alerte["id"], "categorie": "promo"}).status_code == 403
+
+
+def test_association_sans_client_ni_plateforme_seulement_si_on_force():
+    qui, c = _app()
+    assert c.post("/api/admin/transactions-sms/liens", json={"cle": "09 11 20 26", "libelle": "UBABF"}).status_code == 422          # sans « force » : refusé
+    r = c.post("/api/admin/transactions-sms/liens", json={"cle": "09 11 20 26", "libelle": "UBABF", "force": True})
+    assert r.status_code == 200 and r.json()["libelle"] == "UBABF" and not r.json().get("plateforme") and not r.json().get("client_id")
+    lien = c.post("/api/admin/transactions-sms/liens", json={"cle": "70 11 22 33", "plateforme": "albarka"}).json()
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"plateforme": ""}).status_code == 422                       # retirer le dernier rattachement : refusé
+    assert c.put(f"/api/admin/transactions-sms/liens/{lien['id']}", json={"plateforme": "", "force": True}).status_code == 200        # … sauf si l'on force
+
+
+def test_l_historique_d_un_client_et_les_plateformes_ignorent_les_promos():
+    qui, c = _app()
+    src = c.post("/api/admin/transactions-sms/sources", json={"nom": "Tél"}).json()
+    texte_promo = "Vous avez recu une offre ! Jusqu'au 31 decembre, profitez de 0.5% de frais. Composez *808# pour effectuer vos transactions. 71828394"
+    c.post("/api/transactions-sms/v1/envoi", headers={"X-Source": src["id"], "X-Cle": src["cle"]},
+           json={"paiements": [{"adresse": "OrangeMoney", "recu_le_ms": ms(2026, 11, 13), "genre": "RECETTE", "montant": 25000, "tiers": "awa", "reference": "PP261113.0926.00000001", "corps": "Vous avez recu 25000.0 FCFA du 71828394,awa. Trans ID: PP261113.0926.00000001."},
+                                {"adresse": "OrangeMoney", "recu_le_ms": ms(2026, 11, 13) + 1000, "genre": "RECETTE", "montant": 10000, "tiers": "", "corps": texte_promo}]})
+    c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394", "plateforme": "albarka"})
+    corps = json.dumps({"sens": "entree"}).encode()
+    pf = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-albarka", corps)).json()
+    assert pf["total"] == 1 and pf["transactions"][0]["montant"] == 25000                       # la promo n'est jamais transmise à la plateforme

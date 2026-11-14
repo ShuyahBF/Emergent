@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "398", "date": "2026-11-14",
+        "titre": "📱 Transactions SMS : promos, alertes bancaires et messages personnels sortis du décompte",
+        "description": "Les SMS promotionnels, les alertes de la banque et les messages de personnes ne comptent plus dans les totaux : pastille grise « promo », « alerte » ou « message », filtre de catégorie, correction manuelle du type, et enregistrement d'un numéro sans client ni plateforme en le forçant.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "397", "date": "2026-11-14",
         "titre": "📱 Transactions SMS : voir le texte du SMS de chaque transaction",
         "description": "Un bouton « SMS » sous la date de chaque transaction déplie le texte du SMS reçu (avec copie) ; la fenêtre d'association l'affiche aussi pour aider à reconnaître le payeur.",

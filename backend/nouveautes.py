@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "397", "date": "2026-11-14",
+        "titre": "📱 Transactions SMS : voir le texte du SMS de chaque transaction",
+        "description": "Un bouton « SMS » sous la date de chaque transaction déplie le texte du SMS reçu (avec copie) ; la fenêtre d'association l'affiche aussi pour aider à reconnaître le payeur.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "396", "date": "2026-11-14",
         "titre": "📱 Transactions SMS : association dans une fenêtre centrée, liste défilante",
         "description": "« Associer » et « Modifier » ouvrent une fenêtre modale centrée (client, plateforme, libellé) : plus besoin de descendre dans la page. La liste se met à jour à la même position et la ligne modifiée clignote ; la liste des transactions défile dans son cadre, en-tête figé.",

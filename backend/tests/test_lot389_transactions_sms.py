@@ -262,3 +262,17 @@ def test_transaction_associee_porte_l_identifiant_du_lien():
     assert lie["associe"] is True and lie["lien_id"] == "L1" and lie["plateforme"] == "albarka"
     libre = ts.enrichir(p, [])
     assert libre["associe"] is False and libre["lien_id"] is None
+
+
+def test_la_liste_donne_le_texte_du_sms_a_l_administrateur_seulement():
+    """Lot 397 — l'administrateur voit le texte du SMS de chaque transaction (aide à l'association) ; la plateforme, jamais."""
+    qui, c = _app()
+    src = c.post("/api/admin/transactions-sms/sources", json={"nom": "Téléphone du DG"}).json()
+    texte = "Vous avez recu 25000.0 FCFA du 71828394,awa. Trans ID: PP261113.0926.00000001."
+    c.post("/api/transactions-sms/v1/envoi", headers={"X-Source": src["id"], "X-Cle": src["cle"]},
+           json={"paiements": [{"adresse": "OrangeMoney", "recu_le_ms": ms(2026, 11, 13), "genre": "RECETTE", "montant": 25000, "tiers": "awa", "reference": "PP261113.0926.00000001", "corps": texte}]})
+    assert c.get("/api/admin/transactions-sms").json()["transactions"][0]["corps"] == texte
+    c.post("/api/admin/transactions-sms/liens", json={"cle": "71828394", "plateforme": "albarka"})
+    corps = json.dumps({"sens": "entree"}).encode()
+    pf = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-albarka", corps)).json()
+    assert pf["total"] == 1 and "corps" not in pf["transactions"][0] and texte not in json.dumps(pf)

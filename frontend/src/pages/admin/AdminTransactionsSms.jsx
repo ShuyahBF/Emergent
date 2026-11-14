@@ -5,7 +5,7 @@
 // celle-ci retrouve ses paiements sans les ressaisir. Voir backend/routes/transactions_sms.py.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 const fcfa = (v) => `${Number(v || 0).toLocaleString("fr-FR")} FCFA`;
@@ -102,6 +102,7 @@ export default function AdminTransactionsSms() {
   // Fenêtre modale centrée d'association (création depuis « Associer », modification depuis « Modifier ») : plus besoin de descendre jusqu'au tableau des associations
   const [modale, setModale] = useState(null);         // { mode: "creer"|"modifier", id?, cle, cle_affichee?, pays, client_id, plateforme, libelle, numero? }
   useEffect(() => { if (!modale) return undefined; const f = (e) => e.key === "Escape" && setModale(null); document.addEventListener("keydown", f); return () => document.removeEventListener("keydown", f); }, [modale]);   // Échap ferme la fenêtre
+  const [smsOuvert, setSmsOuvert] = useState("");   // ligne dont le texte du SMS est affiché (super-administrateur : aide à reconnaître le payeur et à associer)
   const [ligneMaj, setLigneMaj] = useState("");        // numéro dont l'association vient d'être enregistrée : ses lignes clignotent un instant dans la liste
   useEffect(() => { if (!ligneMaj) return undefined; const t = setTimeout(() => setLigneMaj(""), 3500); return () => clearTimeout(t); }, [ligneMaj]);
   const erreur = (e) => toast.error(e?.response?.data?.detail || "Action impossible");
@@ -267,16 +268,28 @@ export default function AdminTransactionsSms() {
             <table className="tableau w-full text-sm" data-testid="liste">
               <thead><tr className="text-left"><th className="p-2">Date</th><th className="p-2">Opérateur</th><th className="p-2">Bénéficiaire / expéditeur</th><th className="p-2">Numéro</th><th className="p-2">Association</th><th className="p-2 text-right">Montant</th></tr></thead>
               <tbody>{donnees.transactions.map((p, i) => (
-                <tr key={`${p.ms}-${i}`} aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
-                  <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}</td><td className="p-2">{p.operateur}</td>
+                <React.Fragment key={`${p.ms}-${i}`}>
+                <tr aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
+                  <td className="whitespace-nowrap p-2">{dateHeure(p.ms)}
+                    {p.corps && <button type="button" className="mt-1 block text-xs underline" title="Voir le texte du SMS" aria-expanded={smsOuvert === `${p.ms}-${i}`} data-testid="voir-sms"
+                      onClick={(e) => { e.stopPropagation(); setSmsOuvert((v) => (v === `${p.ms}-${i}` ? "" : `${p.ms}-${i}`)); }}><MessageSquare className="mr-1 inline h-3.5 w-3.5" />SMS</button>}</td><td className="p-2">{p.operateur}</td>
                   <td className="p-2">{p.tiers || "—"}{p.reference && <div className="font-mono text-xs text-slate-500">{p.reference}</div>}</td>
                   <td className="p-2 font-mono text-xs">{p.numero ? (<>{p.numero_affiche || p.numero} {p.associe
                     /* Déjà lié (client ou plateforme) : plus de « Associer » ; « Modifier » ouvre l'association dans le tableau des associations */
                     ? <button type="button" className="underline" title="Modifier l'association de ce numéro" data-testid="modifier-association"
-                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) setModale({ mode: "modifier", id: l.id, cle_affichee: l.cle_affichee || l.cle, numero: p.numero, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
-                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setModale({ mode: "creer", cle: p.numero_affiche || p.numero, numero: p.numero, pays: "226", client_id: "", plateforme: "", libelle: "" }); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
+                        onClick={(e) => { e.stopPropagation(); const l = etat.liens.find((x) => x.id === p.lien_id); if (l) setModale({ mode: "modifier", id: l.id, sms: p.corps, cle_affichee: l.cle_affichee || l.cle, numero: p.numero, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" }); }}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button>
+                    : <button type="button" className="underline" title="Associer ce numéro à une plateforme" onClick={(e) => { e.stopPropagation(); setModale({ mode: "creer", sms: p.corps, cle: p.numero_affiche || p.numero, numero: p.numero, pays: "226", client_id: "", plateforme: "", libelle: "" }); }}><Link2 className="mr-1 inline h-4 w-4" />Associer</button>}</>) : "—"}</td>
                   <td className="p-2">{p.associe ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs">{[p.client_nom, p.plateforme].filter(Boolean).join(" · ") || p.lien_libelle}</span> : "—"}</td>
-                  <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>))}</tbody>
+                  <td className={`p-2 text-right font-semibold tabular-nums ${p.genre === "RECETTE" ? "text-emerald-700" : "text-red-700"}`}>{p.genre === "RECETTE" ? "+" : "−"} {fcfa(p.montant)}</td></tr>
+                {smsOuvert === `${p.ms}-${i}` && (
+                  <tr className="border-t border-slate-100 bg-slate-50" data-testid="sms-detail"><td colSpan={6} className="p-3">
+                    <div className="flex items-start gap-3">
+                      <p className="flex-1 whitespace-pre-wrap break-words text-sm text-slate-800"><span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">SMS reçu de {p.adresse || "—"}</span>{p.corps}</p>
+                      <button type="button" className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs" title="Copier le texte du SMS" onClick={() => { navigator.clipboard?.writeText(p.corps).then(() => toast.success("Texte du SMS copié")).catch(() => toast.error("Copie impossible")); }}><Copy className="mr-1 inline h-3.5 w-3.5" />Copier</button>
+                    </div>
+                  </td></tr>
+                )}
+                </React.Fragment>))}</tbody>
             </table>
           </div>
           {donnees.total > nb && <button type="button" className="w-full rounded border border-slate-300 py-2 text-sm" onClick={plusDe}><ChevronsDown className="mr-1 inline h-4 w-4" />Afficher plus ({donnees.total - nb} restantes)</button>}
@@ -346,6 +359,7 @@ export default function AdminTransactionsSms() {
           <div className="max-h-[85dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-bold"><Link2 className="mr-2 inline h-5 w-5 text-sky-700" />{modale.mode === "creer" ? "Associer ce numéro" : "Modifier l'association"}</h2>
             <p className="rounded-lg bg-slate-50 p-2 font-mono text-sm">{modale.mode === "creer" ? modale.cle : modale.cle_affichee}</p>
+            {modale.sms && <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700" data-testid="modale-sms"><span className="block font-semibold uppercase tracking-wide text-slate-500">SMS reçu</span>{modale.sms}</p>}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm sm:col-span-2">Client de SAWALI<select className={select} value={modale.client_id} onChange={(e) => setModale({ ...modale, client_id: e.target.value })} data-testid="modale-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></label>
               <label className="text-sm">Plateforme<select className={select} value={modale.plateforme} onChange={(e) => setModale({ ...modale, plateforme: e.target.value })} data-testid="modale-plateforme"><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></label>

@@ -13,6 +13,7 @@ import SessionsActivesSection from "@/pages/portal/sections/SessionsActivesSecti
 import PasskeysSection from "@/pages/portal/sections/PasskeysSection";   // lot 369 : connexion par empreinte
 import DerniereSauvegarde from "@/components/DerniereSauvegarde";
 
+import { X as Ico15X } from "lucide-react";
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
   <div className="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0" data-testid={testid}>
@@ -317,8 +318,7 @@ export default function MyAccount() {
                 disabled={photoModal.busy}
                 className="px-3 py-1.5 rounded-md ring-1 ring-slate-300 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                Annuler
-              </button>
+                <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button
                 onClick={generateProfilePhoto}
                 disabled={photoModal.busy || !photoModal.prompt.trim()}

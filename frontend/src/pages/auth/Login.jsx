@@ -1,3 +1,4 @@
+import { ArrowLeft as Ico15ArrowLeft, Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone, Fingerprint } from "lucide-react";
@@ -396,7 +397,7 @@ export default function Login() {
                 </button>
                 <div className="flex items-center justify-between text-xs">
                   <button type="button" onClick={resend} className="text-sawali-blue underline" data-testid="login-resend-otp">Renvoyer le code</button>
-                  <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline">Modifier l'email</button>
+                  <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline"><Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier l'email</button>
                 </div>
               </form>
             ) : step === "wa_phone" ? (
@@ -429,8 +430,7 @@ export default function Login() {
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />} Recevoir le code par WhatsApp
                 </button>
                 <button type="button" onClick={() => setStep("credentials")} className="w-full text-xs text-slate-500 underline" data-testid="login-wa-back">
-                  ← Retour à la connexion classique
-                </button>
+                  <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la connexion classique</button>
               </form>
             ) : (
               <form onSubmit={verifyWaOtp} className="mt-6 space-y-4" data-testid="login-wa-otp-form">
@@ -450,8 +450,8 @@ export default function Login() {
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Valider et accéder à mon espace
                 </button>
                 <div className="flex items-center justify-between text-xs">
-                  <button type="button" onClick={() => setStep("wa_phone")} className="text-emerald-700 underline">← Changer de numéro</button>
-                  <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline">Annuler</button>
+                  <button type="button" onClick={() => setStep("wa_phone")} className="text-emerald-700 underline"><Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Changer de numéro</button>
+                  <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 </div>
               </form>
             )}

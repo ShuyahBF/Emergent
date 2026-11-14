@@ -15,6 +15,7 @@ import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règ
   Calls /api/public/pay/{slug}/deposit (no auth) then polls status.
 */
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 const MNO_LABELS = {
   ORANGE: { label: "Orange Money", color: "#FF7900", emoji: "🟧" },
   MOOV: { label: "Moov Money", color: "#0076BB", emoji: "🟦" },
@@ -189,8 +190,7 @@ export default function PayLink() {
             <>
               <p className="text-sm text-rose-700 mb-4">{result.api_message || "La transaction a échoué."}</p>
               <button onClick={() => setResult(null)} className="rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-sm font-semibold" data-testid="pay-retry-btn">
-                Réessayer
-              </button>
+                <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>
             </>
           )}
           <p className="text-[10px] text-slate-400 font-mono mt-6">Réf : {result.deposit_id?.slice(0, 13)}…</p>

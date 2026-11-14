@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { RefreshCw, UserX, KeyRound, X, Copy, Check, Eye } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
+import { Ban as Ico15Ban, Pencil as Ico15Pencil, Power as Ico15Power, Save as Ico15Save, X as Ico15X } from "lucide-react";
 const BASE = "/admin/loois-cles-clients";
 const LIBELLES = { eKol: "e-Kol", Aizenta: "Aizenta", Biolog: "Biolog" };
 
@@ -397,21 +398,21 @@ export default function LooisClesClients() {
                           <td className="whitespace-nowrap p-2" onClick={(e) => e.stopPropagation()}>
                             {enEdition ? (
                               <>
-                                <button type="button" onClick={enregistrerEdition} className="mr-1 rounded bg-sky-600 px-2 py-0.5 text-xs text-white hover:bg-sky-700">Enregistrer</button>
-                                <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">Annuler</button>
+                                <button type="button" onClick={enregistrerEdition} className="mr-1 rounded bg-sky-600 px-2 py-0.5 text-xs text-white hover:bg-sky-700"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
+                                <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                               </>
                             ) : (
                               <>
                                 <button type="button" onClick={() => setEdition({ id: f.id, libelle: f.libelle || "", applications: f.applications || [], tenant_id: f.tenant_id || "" })}
-                                  className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Modifier</button>
+                                  className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50"><Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier</button>
                                 <button type="button" onClick={() => action(f, "regenerer")}
                                   className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Régénérer</button>
                                 {f.actif ? (
                                   <button type="button" onClick={() => action(f, "revoquer")}
-                                    className="rounded border border-rose-300 bg-white px-2 py-0.5 text-xs text-rose-700 hover:bg-rose-50">Révoquer</button>
+                                    className="rounded border border-rose-300 bg-white px-2 py-0.5 text-xs text-rose-700 hover:bg-rose-50"><Ico15Ban className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Révoquer</button>
                                 ) : (
                                   <button type="button" onClick={() => action(f, "reactiver")}
-                                    className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50">Réactiver</button>
+                                    className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50"><Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réactiver</button>
                                 )}
                               </>
                             )}

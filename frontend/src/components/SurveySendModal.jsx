@@ -35,6 +35,7 @@ const SMS_FORMULAIRE = "Bonjour {{name}}, merci de remplir notre formulaire « {
 const MESSAGE_FORMULAIRE = "Bonjour {{name}}, merci de remplir notre formulaire « {{formulaire}} » : {{lien}}";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
+import { ArrowLeft as Ico15ArrowLeft, ChevronRight as Ico15ChevronRight } from "lucide-react";
 export default function SurveySendModal({ survey, kind = "survey", reminder = false, renvoiEchecs = false, waitingCount = 0, onClose, onSent }) {
   const estFormulaire = kind === "form";                    // lot 42 : envoi du lien d'un formulaire
   const mot = estFormulaire ? "formulaire" : "sondage";
@@ -283,8 +284,7 @@ export default function SurveySendModal({ survey, kind = "survey", reminder = fa
             <div className="flex justify-end">
               <button onClick={() => setStep(2)} disabled={!selected.length} data-testid="send-next"
                 className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-40">
-                Suivant : le message
-              </button>
+                <Ico15ChevronRight className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Suivant : le message</button>
             </div>
           </div>
         )}
@@ -384,7 +384,7 @@ export default function SurveySendModal({ survey, kind = "survey", reminder = fa
             {/* Lot 42 — maintenant ou à une date programmée, dans les plages horaires de l'Admin */}
             <EnvoiProgrammation value={programmeLe} onChange={setProgrammeLe} />
             <div className="flex justify-between gap-2">
-              {!reminder ? <button onClick={() => setStep(1)} className="text-sm text-slate-600 hover:underline">← Destinataires</button> : <span />}
+              {!reminder ? <button onClick={() => setStep(1)} className="text-sm text-slate-600 hover:underline"><Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Destinataires</button> : <span />}
               <button onClick={send} disabled={sending || (canal === "whatsapp" && mode === "template" && !templateName) || (canal === "sms" && !smsMessage.trim())}
                 data-testid="send-confirm"
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40">

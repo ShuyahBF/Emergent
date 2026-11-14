@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import ImageAnnotator from "@/components/ImageAnnotator";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
+import { X as Ico15X } from "lucide-react";
 export const champ = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500";
 export const erreur = (e, d) => { const x = e?.response?.data?.detail; return Array.isArray(x) ? x.map((i) => i.msg).join(" ; ") : x || d; };
 export const dateHeureFr = (d) => (d ? new Date(d).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }) : "—");
@@ -283,7 +284,7 @@ export function FormulaireIntervention({ intervention, equipements, compteClient
           </div>
         ) : <p className="text-[11px] text-slate-500">Enregistrez l'intervention pour ajouter des photos et émettre le rapport.</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Fermer</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           {!verrouille && (
             <Button onClick={enregistrer} disabled={occupe || !f.equipement_ids.length} data-testid="parc-intervention-enregistrer">
               {occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Enregistrer
@@ -416,7 +417,7 @@ function EnvoiRapport({ iv, onClose, onEnvoye }) {
           </section>
         )}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={envoyer} disabled={occupe || (canal === "email" ? !email : !telephone)} data-testid="parc-envoyer-valider">
             {occupe && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Envoyer
           </Button>

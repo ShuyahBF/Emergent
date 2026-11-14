@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { empreinteChargee, empreinteHtml, nouvelleVersionDisponible } from "@/lib/versionSite";
 
+import { Clock as Ico15Clock, RefreshCw as Ico15RefreshCw } from "lucide-react";
 /*
   Lot 264 — Bandeau « Une nouvelle version de SAWALI est disponible ».
   Toutes les 5 minutes (et quand l'onglet redevient visible), on télécharge la page d'accueil sans cache
@@ -55,11 +56,9 @@ export default function NouvelleVersionBandeau() {
         className="rounded-lg bg-sky-500 hover:bg-sky-400 px-3 py-1 font-semibold"
         data-testid="bandeau-nouvelle-version-actualiser"
       >
-        Actualiser
-      </button>
+        <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
       <button type="button" onClick={() => setMasque(true)} className="text-slate-300 hover:text-white">
-        Plus tard
-      </button>
+        <Ico15Clock className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Plus tard</button>
     </div>
   );
 }

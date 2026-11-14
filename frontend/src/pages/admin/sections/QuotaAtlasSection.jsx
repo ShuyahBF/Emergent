@@ -12,6 +12,7 @@ import { apiClient } from "@/lib/api";
 // Lot 113 — encadré-renvoi vers le bouton unique « 🧹 Libérer l'Espace »
 import { RenvoiLibererEspace } from "@/pages/admin/sections/LibererEspaceSection";
 
+import { Trash2 as Ico15Trash2 } from "lucide-react";
 // Couleurs par niveau (vert, orange, rouge)
 const COULEURS = {
   ok: { arc: "#059669", fond: "bg-emerald-50", texte: "text-emerald-800", libelle: "Marge confortable" },
@@ -90,7 +91,7 @@ function DetailBase({ nom, onSupprimee }) {
           <input value={saisie} onChange={(e) => setSaisie(e.target.value)} placeholder={nom}
             className="w-40 rounded border border-slate-300 px-2 py-1 font-mono" />
           <button type="button" disabled={enCours || saisie !== nom} onClick={supprimer}
-            className="rounded bg-red-600 px-2 py-1 font-semibold text-white disabled:opacity-40">Supprimer la base</button>
+            className="rounded bg-red-600 px-2 py-1 font-semibold text-white disabled:opacity-40"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer la base</button>
         </div>
       )}
       {message && <p className="text-slate-700">{message}</p>}

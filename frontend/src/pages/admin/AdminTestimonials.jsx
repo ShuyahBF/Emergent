@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Trash2 as Ico15Trash2 } from "lucide-react";
 const STATUS = {
   pending: ["En modération", "bg-amber-100 text-amber-700"],
   published: ["Publié", "bg-emerald-100 text-emerald-700"],
@@ -236,7 +237,7 @@ export default function AdminTestimonials() {
                     <input type="file" hidden accept="image/*" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} data-testid="t-photo-input" />
                   </label>
                   {form.photo_url && (
-                    <button type="button" onClick={() => setForm({ ...form, photo_url: "" })} className="text-xs text-rose-600 underline">Retirer</button>
+                    <button type="button" onClick={() => setForm({ ...form, photo_url: "" })} className="text-xs text-rose-600 underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
                   )}
                 </div>
               </div>

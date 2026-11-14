@@ -12,6 +12,7 @@ import HistoriqueConnexionsDialog, { dateHeureOuaga, BadgeIp, SitesBloquesDialog
 import { siVisible } from "@/lib/visibilite";   // lot 79.6 : relectures en pause onglet masqué
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien", "Auxiliaire en Pharmacie"];
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 // Lot 54 — pastille de présence (seuils définis côté serveur : routes/presence_utilisateurs.py)
 //   vert   : connecté et actif (interaction il y a 5 mn au plus)
 //   orange : connecté, aucune activité depuis plus de 5 mn (jusqu'à 10 mn)
@@ -347,8 +348,7 @@ export default function AdminTrackedUsers() {
             className="rounded-lg bg-white text-slate-700 px-3 py-1.5 text-sm border border-slate-300 hover:bg-slate-50"
             data-testid="tracked-bulk-clear"
           >
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
         </div>
       )}
 
@@ -704,7 +704,7 @@ export default function AdminTrackedUsers() {
                   <option value="active">Actif</option><option value="inactive">Inactif</option>
                 </select>
               </div>
-              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
+              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             </form>
           </div>
         </div>
@@ -798,7 +798,7 @@ function R2UploadRightsDialog({ user, onClose, onSaved }) {
               <span className="text-[11px] text-slate-400">1,5 Mo par défaut. Un fichier plus gros est refusé avec le motif.</span>
             </label>
             <div className="flex justify-end gap-2">
-              <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg ring-1 ring-slate-300">Annuler</button>
+              <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg ring-1 ring-slate-300"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={save} disabled={busy} className="px-3 py-2 text-sm rounded-lg bg-sawali-blue text-white disabled:opacity-60" data-testid="r2-rights-save">
                 {busy ? "Enregistrement…" : "Enregistrer"}
               </button>

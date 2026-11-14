@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Send, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 const LIBELLES = { resend: "Resend", zeptomail: "ZeptoMail (Zoho)", brevo: "Brevo", smtp: "SMTP", desactive: "Désactivé" };
 const REGIONS = { "api.zeptomail.com": "International (.com)", "api.zeptomail.eu": "Europe (.eu)", "api.zeptomail.in": "Inde (.in)" };
 const SOURCES = {
@@ -202,8 +203,7 @@ export default function EmailFournisseurSection() {
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={occupe} onClick={enregistrer} data-testid="email-fournisseur-enregistrer"
           className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50">
-          Enregistrer le service d'envoi
-        </button>
+          <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer le service d'envoi</button>
         {vue.modifie_le && <span className="text-[11px] text-slate-400">Modifié le {new Date(vue.modifie_le).toLocaleString("fr-FR")} par {vue.modifie_par}</span>}
       </div>
 

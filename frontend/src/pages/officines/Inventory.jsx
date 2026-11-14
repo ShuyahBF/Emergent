@@ -5,6 +5,7 @@ import { officineApi } from "@/lib/officineApi";
 import { Plus, Edit3, Trash2, Download, Search, X, Save, ScanLine, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import BarcodeScannerModal from "@/components/BarcodeScannerModal";
 
+import { X as Ico15X } from "lucide-react";
 const EMPTY = {
   cip: "", product_name: "", lot_number: "",
   expiry_date: "", quantity: 0, unit_price: "",
@@ -362,8 +363,7 @@ function InventoryEditor({ item, onClose, onSaved }) {
           <button type="button" onClick={onClose}
             className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700"
             data-testid="editor-cancel">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button type="submit" disabled={busy}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50"
             data-testid="editor-save">

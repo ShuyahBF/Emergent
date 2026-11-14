@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import DetailsPoste from "./DetailsPoste";
 
+import { Eye as Ico15Eye } from "lucide-react";
 const INTERVALLE_MS = 60000;
 
 // « 06/10/2026 10:44 » (vide si la date est absente ou illisible)
@@ -126,8 +127,7 @@ export default function VersionsDeployees() {
                           <td className="px-2 py-1.5 text-right">
                             <button type="button" className="text-sky-700 underline hover:text-sky-900" data-testid={`details-${p.machine}`}
                               onClick={(e) => { e.stopPropagation(); setSelection(cle); setDetails({ machine: p.machine, application: app.application }); }}>
-                              Détails
-                            </button>
+                              <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Détails</button>
                           </td>
                         </tr>
                       );

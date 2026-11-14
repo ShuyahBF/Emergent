@@ -9,6 +9,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 export default function ListeNoireCommandesSection() {
   const [items, setItems] = useState([]);
   const [message, setMessage] = useState("");
@@ -93,8 +94,7 @@ export default function ListeNoireCommandesSection() {
           <span className="text-[10px] text-slate-500">Vide = message par défaut (affiché en gris).</span>
           <button type="button" onClick={enregistrerMessage}
             className="rounded-lg bg-sawali-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-sawali-blue-light">
-            Enregistrer le message
-          </button>
+            <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer le message</button>
         </div>
       </div>
 

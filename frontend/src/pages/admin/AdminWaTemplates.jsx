@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { X as Ico15X } from "lucide-react";
 /*
   Admin → Templates WhatsApp
   Visualise les templates Meta + soumet de nouveaux templates pour approbation
@@ -454,8 +455,7 @@ function CreateTemplateModal({ onClose, onCreated, creating, setCreating }) {
         </div>
         <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
           <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50" data-testid="template-cancel">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={submit}
             disabled={creating}
@@ -538,7 +538,7 @@ function NoteCell({ template, onSaved }) {
         />
         <div className="flex gap-1 text-[11px]">
           <button disabled={saving} onClick={save} className="px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50" data-testid={`note-save-${template.name}`}>{saving ? "…" : "OK"}</button>
-          <button onClick={() => { setEditing(false); setVal(template.note_description || ""); }} className="px-2 py-0.5 rounded bg-slate-200 text-slate-700">Annuler</button>
+          <button onClick={() => { setEditing(false); setVal(template.note_description || ""); }} className="px-2 py-0.5 rounded bg-slate-200 text-slate-700"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
         </div>
       </div>
     );

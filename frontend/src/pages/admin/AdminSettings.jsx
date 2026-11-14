@@ -123,6 +123,7 @@ import { BandeauVersion } from "@/components/EtatConnexion";   // lot 57.2 — v
 import INDEX_PARAMETRES from "@/pages/admin/settingsIndex.json";   // lot 203 : index de recherche en texte intégral
 import { correspondanceRecherche as correspondance_ } from "@/pages/admin/rechercheParametres";
 
+import { Plus as Ico15Plus, Save as Ico15Save, X as Ico15X } from "lucide-react";
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
 // ----------------------------------------------------------
@@ -5085,8 +5086,7 @@ const CountryPrefixSection = () => {
             </div>
             <button onClick={addCountry} data-testid="admin-country-add-submit"
               className="mt-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded">
-              Ajouter
-            </button>
+              <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-64 overflow-y-auto" data-testid="admin-country-list">
@@ -5680,8 +5680,7 @@ const RoadmapTrackerSection = () => {
               className="ml-auto rounded bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 text-xs font-semibold"
               data-testid="roadmap-new-save"
             >
-              Ajouter au pipeline
-            </button>
+              <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter au pipeline</button>
           </div>
         </div>
       )}
@@ -5809,9 +5808,8 @@ const RoadmapTrackerSection = () => {
                       />
                       <div className="flex gap-1">
                         <button onClick={saveObs} className="text-[11px] text-emerald-700 font-semibold hover:underline" data-testid={`roadmap-obs-save-${it.code}`}>
-                          Enregistrer
-                        </button>
-                        <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500 hover:underline">Annuler</button>
+                          <Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
+                        <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                       </div>
                     </div>
                   ) : (
@@ -7040,8 +7038,8 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
                         className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
                         data-testid={`snapshot-edit-input-${s.id}`}
                       />
-                      <button onClick={saveComment} className="text-[11px] text-emerald-700 font-semibold" data-testid={`snapshot-edit-save-${s.id}`}>Enregistrer</button>
-                      <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500">Annuler</button>
+                      <button onClick={saveComment} className="text-[11px] text-emerald-700 font-semibold" data-testid={`snapshot-edit-save-${s.id}`}><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
+                      <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                     </div>
                   ) : (
                     <div className="mt-0.5 text-slate-600 italic flex items-center gap-1.5">
@@ -8479,7 +8477,7 @@ const SmsTestButton = ({ provider, testid }) => {
               )}
             </div>
             <div className="flex justify-end gap-2 px-5 py-3 border-t bg-slate-50">
-              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
               <button onClick={send} disabled={sending} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50" data-testid={`${testid}-send`}>
                 <Activity className="h-4 w-4" /> {sending ? "Envoi…" : "Envoyer test"}
               </button>

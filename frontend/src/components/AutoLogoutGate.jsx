@@ -10,6 +10,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIdleTimer } from "@/lib/useIdleTimer";
 
+import { LogIn as Ico15LogIn } from "lucide-react";
 export default function AutoLogoutGate() {
   const { user, logout } = useAuth() || {};
   const navigate = useNavigate();
@@ -131,8 +132,7 @@ export default function AutoLogoutGate() {
             className="text-sm inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 font-semibold shadow-sm"
             data-testid="idle-warning-stay"
           >
-            Rester connecté(e)
-          </button>
+            <Ico15LogIn className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Rester connecté(e)</button>
         </div>
       </div>
     </div>

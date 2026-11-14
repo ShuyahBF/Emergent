@@ -20,6 +20,7 @@
   « Suivi de vos envois » (ancien bloc 3 « Envois précédents »). À l'ouverture de la page, s'il n'y a rien à faire (WhatsApp prêt,
   aucun accord à traiter, aucun travail non envoyé) on arrive directement sur le suivi ; après un envoi, le suivi s'ouvre.
 */
+import { Copy as Ico15Copy, Eye as Ico15Eye, Plus as Ico15Plus, Save as Ico15Save, SquareCheck as Ico15SquareCheck, SquareX as Ico15SquareX, X as Ico15X } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -443,7 +444,7 @@ function Reglages({ etat, onEnregistre }) {
                onChange={(e) => setTenantId(e.target.value.trim())} />
       </div>
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
-        <Button size="sm" onClick={enregistrer} disabled={!modele || creation}>Enregistrer le nom et la langue des modèles</Button>
+        <Button size="sm" onClick={enregistrer} disabled={!modele || creation}><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer le nom et la langue des modèles</Button>
         {/* Lot 76 — l'interface Meta ne propose pas toujours « Carrousel » : SAWALI dépose les modèles par l'API */}
         <Button size="sm" variant="outline" onClick={() => creerChezMeta(false)} disabled={!modele || creation}>
           {creation ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
@@ -1249,7 +1250,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
           <label htmlFor="carrousel-lien-defaut" className="text-xs font-medium text-slate-600">Lien par défaut des cartes sans lien :</label>
           <input id="carrousel-lien-defaut" className={`${champ} max-w-md`} placeholder="https://sawalismartsystems.com"
                  value={lienDefaut} onChange={(e) => setLienDefaut(e.target.value)} />
-          <Button type="button" size="sm" variant="outline" onClick={enregistrerLienDefaut}>Enregistrer le lien par défaut</Button>
+          <Button type="button" size="sm" variant="outline" onClick={enregistrerLienDefaut}><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer le lien par défaut</Button>
         </div>
         <div className="space-y-3">
           {cartes.map((c, i) => (
@@ -1414,9 +1415,8 @@ export default function CarrouselWhatsApp({ admin = false }) {
           <input className={`${champ} max-w-xs`} placeholder="Rechercher" value={filtre} onChange={(e) => setFiltre(e.target.value)} />
           <Button type="button" size="sm" variant="outline"
                   onClick={() => setChoisis(new Set(contactsFiltres.filter((c) => c.accepte).map((c) => c.id)))}>
-            Cocher ceux qui ont accepté
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setChoisis(new Set())}>Tout décocher</Button>
+            <Ico15SquareCheck className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Cocher ceux qui ont accepté</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setChoisis(new Set())}><Ico15SquareX className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tout décocher</Button>
           <Button type="button" size="sm" variant="outline" disabled={demande} onClick={demanderAccord}
                   title="Envoie « Souhaitez-vous recevoir nos nouveautés ? » avec les boutons Oui / Non aux personnes cochées sans accord">
             {demande ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MessageSquareReply className="mr-1 h-4 w-4" />}
@@ -1455,7 +1455,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 </span>
                 {p.statut === "TERMINEE" && p.resultat && <span className="text-slate-500">{p.resultat.envoyees} envoyée(s), {p.resultat.nb_echecs} échec(s)</span>}
                 {p.statut === "ECHEC" && p.motif && <span className="text-rose-700">{p.motif}</span>}
-                {p.statut === "PROGRAMMEE" && <Button type="button" size="sm" variant="ghost" onClick={() => annulerProgrammation(p.id)}>Annuler</Button>}
+                {p.statut === "PROGRAMMEE" && <Button type="button" size="sm" variant="ghost" onClick={() => annulerProgrammation(p.id)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>}
               </div>
             ))}
           </div>
@@ -1471,7 +1471,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
                 <div key={l.id} className="flex items-center gap-2">
                   <span className="w-40 shrink-0 truncate font-medium">{l.nom || l.id}</span>
                   <input readOnly className={`${champ} min-w-0 flex-1`} value={l.lien} onFocus={(e) => e.target.select()} />
-                  <Button type="button" size="sm" variant="outline" onClick={() => copierLien(l.lien)}>Copier</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => copierLien(l.lien)}><Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</Button>
                 </div>
               ))}
             </div>
@@ -1689,8 +1689,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
               {admin && (
                 <Button size="sm" variant="outline" title="Créer une publicité à carrousel Click-to-WhatsApp (créée en pause)"
                         onClick={() => setPubCampagne(c)} data-testid={`pub-creer-${c.id}`}>
-                  Créer une publicité
-                </Button>
+                  <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer une publicité</Button>
               )}
               <Button size="sm" variant="ghost" onClick={() => basculerEnvoi(c.id)}>
                 {deplies.has(c.id) ? "Masquer" : "Détail"}
@@ -1761,7 +1760,7 @@ export default function CarrouselWhatsApp({ admin = false }) {
         {campagnes.length > nbAffiches && (
           <div className="flex flex-wrap items-center gap-3 text-sm" data-testid="carrousel-voir-plus">
             <span className="text-slate-500">{nbAffiches} envois affichés sur {campagnes.length}</span>
-            <Button size="sm" variant="outline" onClick={() => setNbAffiches((n) => n + 20)}>Voir plus (20 de plus)</Button>
+            <Button size="sm" variant="outline" onClick={() => setNbAffiches((n) => n + 20)}><Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir plus (20 de plus)</Button>
             <Button size="sm" variant="ghost" onClick={() => setNbAffiches(campagnes.length)}>Tout afficher</Button>
           </div>
         )}

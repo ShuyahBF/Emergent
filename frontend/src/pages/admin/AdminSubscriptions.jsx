@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Save, X, Tag, Banknote, Globe, Send } from "lucide-react";
 
+import { Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 /*
   /admin/subscriptions — Manage subscription categories (max 4) + plans + orders.
   Each plan has an auto-generated code FMLYYYYNNNN.
@@ -127,7 +128,7 @@ export default function AdminSubscriptions() {
                 <p className="text-[11px] text-slate-500 mt-0.5">Position {c.position} • Animation {c.animated ? "ON" : "OFF"}</p>
                 <p className="text-[10px] text-slate-500 font-mono mt-1">{c.color}</p>
                 <div className="flex gap-2 mt-3">
-                  <button onClick={() => setEditingCat(c)} className="text-xs text-sawali-blue hover:underline" data-testid={`cat-edit-${c.id}`}>Modifier</button>
+                  <button onClick={() => setEditingCat(c)} className="text-xs text-sawali-blue hover:underline" data-testid={`cat-edit-${c.id}`}><Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier</button>
                   <button onClick={async () => { if (window.confirm(`Supprimer ${c.label} ? Les formules seront détachées (non supprimées).`)) { await apiClient.delete(`/admin/subscriptions/categories/${c.id}`); toast.success("Supprimée"); reload(); } }} className="text-xs text-rose-600 hover:underline" data-testid={`cat-del-${c.id}`}>Supprimer</button>
                 </div>
               </div>
@@ -212,7 +213,7 @@ const CategoryEditModal = ({ cat, onClose, onSaved }) => {
           <input type="checkbox" checked={!!form.animated} onChange={(e) => setForm({ ...form, animated: e.target.checked })} data-testid="cat-form-animated" /> Animation au survol
         </label>
         <div className="flex justify-end gap-2 pt-3 border-t">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-sawali-blue text-white px-4 py-2 hover:bg-sawali-blue-light disabled:opacity-50" data-testid="cat-form-save">
             <Save className="h-4 w-4" /> {saving ? "…" : "Enregistrer"}
           </button>
@@ -286,7 +287,7 @@ const PlanEditModal = ({ plan, cats, onClose, onSaved }) => {
           </label>
         </div>
         <div className="flex justify-end gap-2 pt-3 border-t">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-sawali-blue text-white px-4 py-2 hover:bg-sawali-blue-light disabled:opacity-50" data-testid="plan-form-save">
             <Save className="h-4 w-4" /> {saving ? "…" : "Enregistrer"}
           </button>

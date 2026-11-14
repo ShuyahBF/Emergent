@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { STATUTS_SONDAGE, dateCourte } from "@/components/SondagesLoois";
 
+import { Filter as Ico15Filter, X as Ico15X } from "lucide-react";
 // Réponse lisible selon le type de question (étoiles, liste, texte)
 const reponseLisible = (r) => {
   if (r.reponse === null || r.reponse === undefined) return "—";
@@ -110,7 +111,7 @@ export default function AdminEvaluationsLoois() {
                   <p className="font-semibold text-slate-800">{d.titre}</p>
                   <p className="text-slate-500">{d.questions} question(s) · {c.envoyes ? `${c.envoyes} envoi(s), ${c.repondus} réponse(s)` : "jamais envoyé"}</p>
                   <div className="mt-1 flex gap-3">
-                    <button onClick={() => setSondage(d.id)} className="text-violet-700 underline">Filtrer</button>
+                    <button onClick={() => setSondage(d.id)} className="text-violet-700 underline"><Ico15Filter className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Filtrer</button>
                     <Link to={`/admin/surveys/${d.id}/results`} className="text-violet-700 underline">📊 Analyse</Link>
                   </div>
                 </div>
@@ -180,7 +181,7 @@ export default function AdminEvaluationsLoois() {
                   <td className="px-2 whitespace-nowrap">
                     <Link to={`/admin/surveys/${e.survey_id}/results`} onClick={(ev) => ev.stopPropagation()} className="text-xs text-violet-700 underline">Analyse</Link>
                     {e.statut === "en_attente" && (
-                      <button onClick={(ev) => { ev.stopPropagation(); annuler(e); }} className="ml-2 text-xs text-rose-700 underline">Annuler</button>
+                      <button onClick={(ev) => { ev.stopPropagation(); annuler(e); }} className="ml-2 text-xs text-rose-700 underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                     )}
                   </td>
                 </tr>

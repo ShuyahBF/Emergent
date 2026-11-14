@@ -6,6 +6,7 @@ import { Brain, Plus, FileText, Upload, Trash2, Pencil, Save, X, BookOpen, FileB
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 const MAX_CHAR_PREVIEW = 280;
 
 // Lot 23 — public visé par une entrée : tous, clients seulement, prospects seulement.
@@ -324,7 +325,7 @@ export default function LiluvineKnowledgeBaseSection() {
             </div>
             <footer className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
               <button type="button" onClick={closeEditor}
-                className="px-3 py-2 text-sm rounded-lg ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50">Annuler</button>
+                className="px-3 py-2 text-sm rounded-lg ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button" onClick={save}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-violet-600 hover:bg-violet-700 text-white"
                 data-testid="liluvine-kb-editor-save">

@@ -1,3 +1,4 @@
+import { X as Ico15X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -374,7 +375,7 @@ export default function FormsList({ automates = false }) {
                 disabled={creating}
                 className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"
                 data-testid="form-create-cancel"
-              >Annuler</button>
+              ><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button
                 onClick={create}
                 disabled={creating || !newTitle.trim() || !!titleConflict}

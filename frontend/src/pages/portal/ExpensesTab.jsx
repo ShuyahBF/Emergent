@@ -20,6 +20,7 @@ import {
   FileText, RefreshCw, Edit2, Save, Loader2, X, ShieldAlert,
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const fmtDateTime = (iso) => {
   if (!iso) return "—";
@@ -179,8 +180,7 @@ function ExpenseForm({ onSave, onCancel }) {
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
           <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800" data-testid="expense-form-cancel">
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving} data-testid="expense-form-submit"
             className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Enregistrer
@@ -259,7 +259,7 @@ function JustifyModal({ expense, onSave, onCancel, isAdmin }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="expense-justify-cancel">Annuler</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="expense-justify-cancel"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving || (isLate && !force)} data-testid="expense-justify-submit"
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
             {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Valider la justification
@@ -596,7 +596,7 @@ function ExpenseEditForm({ expense, onSave, onCancel }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="expense-edit-cancel">Annuler</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="expense-edit-cancel"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={submit} disabled={saving} data-testid="expense-edit-submit"
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Enregistrer

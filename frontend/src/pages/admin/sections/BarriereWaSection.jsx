@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";   // lot 79.6 : bouton vers l'écran «
 const MESSAGE_DEFAUT = "Sans réponse de votre correspondant, tout autre message de votre part ne sera pas transmis. "
   + "Instructions de l'Administrateur. Attendez une réponse avant de poursuivre SVP.";
 
+import { Trash2 as Ico15Trash2 } from "lucide-react";
 export default function BarriereWaSection() {
   const [form, setForm] = useState(null);
   const [envoiImage, setEnvoiImage] = useState(false);
@@ -165,7 +166,7 @@ export default function BarriereWaSection() {
         {apercuImage ? (
           <>
             <img src={apercuImage} alt="Image de la barrière" className="h-16 w-16 rounded object-cover ring-1 ring-slate-200" />
-            <button type="button" onClick={() => maj("wa_barriere_image_url", "")} className="text-rose-600 hover:underline">Retirer</button>
+            <button type="button" onClick={() => maj("wa_barriere_image_url", "")} className="text-rose-600 hover:underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
           </>
         ) : <span className="text-slate-400">aucune</span>}
         <button type="button" disabled={envoiImage} onClick={() => fichierRef.current?.click()}

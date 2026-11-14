@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { FlaskConical as Ico15FlaskConical, X as Ico15X } from "lucide-react";
 const bouton = "text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50";
 // Accord « 1 point » / « N points »
 const points = (n) => `${n ?? "?"} point${n > 1 ? "s" : ""}`;
@@ -106,7 +107,7 @@ export default function RecalculKbSection() {
             )}
             {c.bascule && (
               <button type="button" className="text-xs font-semibold px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50" disabled={occupe}
-                onClick={() => action("basculer", { collection: c.collection, actif: false }, "L'originale est remise")}>Annuler la bascule</button>
+                onClick={() => action("basculer", { collection: c.collection, actif: false }, "L'originale est remise")}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler la bascule</button>
             )}
           </div>
           {vue && (vue.nom === c.collection || vue.nom === c.copie) && (
@@ -126,7 +127,7 @@ export default function RecalculKbSection() {
               <div className="flex flex-wrap gap-2">
                 <input className="flex-1 min-w-[12rem] rounded-md border border-slate-300 px-2 py-1 text-sm" placeholder="Tester une question sur ce contenu…" value={vue.question}
                   onChange={(e) => setVue((v) => ({ ...v, question: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && tester()} data-testid="tester-question" />
-                <button type="button" className={bouton} onClick={tester}>Tester</button>
+                <button type="button" className={bouton} onClick={tester}><Ico15FlaskConical className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tester</button>
               </div>
               {vue.erreur && <p className="text-xs text-red-700">{vue.erreur}</p>}
               {vue.resultats && (vue.resultats.length === 0 ? <p className="text-xs text-slate-500">Aucun résultat.</p> : (

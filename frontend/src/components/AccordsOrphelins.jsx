@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
+import { Check as Ico15Check } from "lucide-react";
 const champ = "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs";
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const MOYENS = { bouton: "bouton de la demande d'accord", "mot-clé": "mot-clé", lien: "lien d'accord" };
@@ -134,8 +135,7 @@ export default function AccordsOrphelins({ onCompte }) {   // onCompte(n) : nomb
           Valider {clicsCoches.length ? `(${clicsCoches.length}) ` : ""}et envoyer le carrousel
         </Button>
         <Button type="button" size="sm" variant="outline" disabled={occupe || clicsCoches.length === 0} onClick={() => validerClics(false)} data-testid="clics-valider">
-          Valider seulement
-        </Button>
+          <Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Valider seulement</Button>
       </div>
     </div>
   );

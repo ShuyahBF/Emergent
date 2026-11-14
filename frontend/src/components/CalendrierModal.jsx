@@ -15,6 +15,7 @@ import CalendrierSemaine from "@/components/CalendrierSemaine";
 import { genererImageDisponibilites } from "@/lib/calendrierImage";
 import { genererImageNiveaux } from "@/lib/niveauxImage";
 
+import { Calendar as Ico15Calendar } from "lucide-react";
 const jourIso = (d) => d.toISOString().slice(0, 10);
 const lundi = (d) => { const x = new Date(d); const n = (x.getDay() + 6) % 7; x.setDate(x.getDate() - n); return x; };
 
@@ -156,7 +157,7 @@ export default function CalendrierModal({ contactNom, contactId, onPartager, onP
         <div className="p-3 space-y-3 max-h-[75vh] overflow-y-auto">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => semaine(-1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setDepart(new Date())} className="px-2 py-1 rounded border border-slate-300 text-xs hover:bg-slate-50">Aujourd'hui</button>
+            <button type="button" onClick={() => setDepart(new Date())} className="px-2 py-1 rounded border border-slate-300 text-xs hover:bg-slate-50"><Ico15Calendar className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Aujourd'hui</button>
             <button type="button" onClick={() => semaine(1)} className="p-1.5 rounded border border-slate-300 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
             <button type="button" onClick={resynchroniser} disabled={synchro} data-testid="calendrier-resynchroniser"
               title="Resynchroniser avec le compte Google (relit le calendrier à chaque appui)"

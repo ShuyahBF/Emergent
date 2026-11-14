@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 const CATEGORIES = [
   { value: "raw_material", label: "Matière première", icon: Package, color: "#4f46e5" },
   { value: "packaging", label: "Emballage / flaconnage", icon: Package, color: "#0891b2" },
@@ -773,7 +774,7 @@ const IntrantModal = ({ intrant, onClose, onSaved }) => {
           </label>
         </div>
         <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
-          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200">Annuler</button>
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving} className="text-sm px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-1" data-testid="intrant-modal-save"><Save className="h-3.5 w-3.5" /> Enregistrer</button>
         </div>
       </div>
@@ -1032,7 +1033,7 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
           </label>
         </div>
         <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
-          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200">Annuler</button>
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving} className="text-sm px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-1" data-testid="recipe-modal-save"><Save className="h-3.5 w-3.5" /> Enregistrer</button>
         </div>
       </div>

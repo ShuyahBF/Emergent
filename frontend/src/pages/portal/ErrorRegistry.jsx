@@ -9,6 +9,7 @@ import {
   AlertOctagon, Search, RefreshCw, Filter, Eye, Trash2, X, AlertTriangle, ShieldAlert, CheckCircle2,
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 const PAGE_SIZE = 50;
 
 function fmtDateTime(iso) {
@@ -298,8 +299,7 @@ export default function ErrorRegistry() {
           </span>
           <div className="flex gap-2">
             <button onClick={clearSelection} className="text-xs px-2 py-1 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50" data-testid="err-bulk-clear">
-              Annuler
-            </button>
+              <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
             <button onClick={bulkAcknowledge} className="text-xs px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1" data-testid="err-bulk-acknowledge">
               <CheckCircle2 className="h-3 w-3" /> Marquer la sélection comme lue
             </button>
@@ -502,7 +502,7 @@ function PurgeModal({ onClose, onDone }) {
                  className="w-full text-sm rounded ring-1 ring-slate-300 px-2 py-1" data-testid="err-purge-code" />
         </label>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} disabled={running} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+          <button onClick={onClose} disabled={running} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={purge} disabled={running} className="text-xs px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1" data-testid="err-purge-confirm">
             <Trash2 className="h-3 w-3" /> Confirmer la purge
           </button>

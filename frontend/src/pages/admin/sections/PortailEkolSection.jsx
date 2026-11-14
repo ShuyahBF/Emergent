@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { RefreshCw, Check, X, KeyRound } from "lucide-react";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 // Date lisible « 12/10/2026 14:05 »
 const dateLisible = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -96,7 +97,7 @@ function EnrolementEcole() {
             {e.complet ? <span className="rounded-full bg-emerald-100 px-2 text-xs text-emerald-800">opérationnelle</span>
               : <span className="text-xs font-normal text-amber-700">à faire : {e.prochaine_action}</span>}
             {!e.etapes.find((s) => s.cle === "portail")?.fait && (
-              <button type="button" onClick={() => reessayer(e.code)} className="ml-auto text-xs font-normal underline">Réessayer</button>)}
+              <button type="button" onClick={() => reessayer(e.code)} className="ml-auto text-xs font-normal underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>)}
           </p>
           <ul className="grid gap-x-4 px-3 py-1.5 text-xs sm:grid-cols-2">
             {e.etapes.map((s) => (

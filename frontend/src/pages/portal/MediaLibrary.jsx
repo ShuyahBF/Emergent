@@ -7,6 +7,7 @@ import {
   RefreshCw, Copy, Search, FolderOpen,
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 /*
   Portal → Bibliothèque de médias partagée par client.
   All users of the same client see the same library.
@@ -252,8 +253,7 @@ export default function MediaLibrary() {
                   className="text-xs text-slate-600 hover:underline"
                   data-testid="media-cleanup-cancel"
                 >
-                  Annuler
-                </button>
+                  <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button
                   onClick={confirmCleanup}
                   disabled={cleaning || !cleanup.to_delete?.length}

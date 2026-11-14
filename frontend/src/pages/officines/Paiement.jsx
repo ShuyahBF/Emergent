@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Copy, Printer, QrCode } from "lucide-react";
 import { officineApi } from "@/lib/officineApi";
 
+import { Save as Ico15Save } from "lucide-react";
 export default function OfficinePaiement() {
   const [etat, setEtat] = useState(null);          // { operateurs, catalogue, jeton, url_publique }
   const [codes, setCodes] = useState({});          // { "Orange": "123456", … }
@@ -53,7 +54,7 @@ export default function OfficinePaiement() {
           </label>
         ))}
         <p className="text-xs text-slate-500">De 3 à 12 chiffres. Le code marchand est celui que l'opérateur vous a remis.</p>
-        <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" data-testid="paiement-enregistrer">Enregistrer</button>
+        <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" data-testid="paiement-enregistrer"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
       </div>
       {qr && (
         <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 text-center" data-testid="paiement-qr">

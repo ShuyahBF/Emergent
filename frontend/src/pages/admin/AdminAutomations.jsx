@@ -1,3 +1,4 @@
+import { X as Ico15X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -472,8 +473,7 @@ function AutomationModal({ editing, setEditing, events, templates, tokens, onSav
             className="text-sm px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"
             data-testid="automation-cancel-btn"
           >
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={save}
             disabled={saving}

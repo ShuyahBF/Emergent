@@ -34,6 +34,7 @@ import EnvoiCarrouselContact from "@/components/EnvoiCarrouselContact";         
 import { telechargerFichier, nomDocumentConversation } from "@/lib/telechargement";   // lots 372.1 et 372.2
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+import { ArrowLeft as Ico15ArrowLeft, Download as Ico15Download, Plus as Ico15Plus, Send as Ico15Send, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const absoluteFileUrl = (u) => {
   if (!u) return "";
   if (u.startsWith("http")) return u;
@@ -148,9 +149,9 @@ function ContactsExportMenu() {
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-44 rounded-lg ring-1 ring-slate-200 bg-white shadow-lg py-1 z-20" data-testid="contacts-export-menu">
-          <button onClick={() => download("csv")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-csv-btn">CSV (Excel)</button>
+          <button onClick={() => download("csv")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-csv-btn"><Ico15Download className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />CSV (Excel)</button>
           <button onClick={() => download("json")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-json-btn">JSON</button>
-          <button onClick={() => download("pdf")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-pdf-btn">PDF</button>
+          <button onClick={() => download("pdf")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-pdf-btn"><Ico15Download className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />PDF</button>
         </div>
       )}
     </div>
@@ -740,7 +741,7 @@ const DuplicatesModal = ({ onClose, onDone }) => {
           ))}
         </div>
         <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg text-slate-600 hover:bg-slate-100">Annuler</button>
+          <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg text-slate-600 hover:bg-slate-100"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={confirmDelete} disabled={busy || !ids.length}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
             data-testid="duplicates-confirm">
@@ -1325,7 +1326,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
               className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
               data-testid="contact-field-tag-input"
             />
-            <button onClick={addTag} className="text-xs rounded bg-slate-900 text-white px-3">Ajouter</button>
+            <button onClick={addTag} className="text-xs rounded bg-slate-900 text-white px-3"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
           </div>
         </div>
         <div className="p-2.5 rounded-lg bg-fuchsia-50 ring-1 ring-fuchsia-200" data-testid="contact-field-vidal-riche">
@@ -1395,7 +1396,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
           </div>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={save}
             disabled={saving}
@@ -1681,7 +1682,7 @@ const WhatsAppModal = ({ contact, onClose, onSent, userRole }) => {
           <ContactGroupChips contact={contact} userRole={userRole} />
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button
             onClick={send}
             disabled={sending || templates.length === 0 || !configured}
@@ -2826,8 +2827,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   className="px-3 py-1.5 rounded-md ring-1 ring-slate-300 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   data-testid="archive-modal-cancel"
                 >
-                  Annuler
-                </button>
+                  <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button
                   onClick={submitArchive}
                   disabled={archiveModal.busy}
@@ -2941,8 +2941,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   className="rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-1.5 text-sm disabled:opacity-50"
                   data-testid="ticket-create-cancel"
                 >
-                  Annuler
-                </button>
+                  <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button
                   onClick={submitTicket}
                   disabled={ticketSubmitting || !ticketClientId || !ticketMotif.trim()}
@@ -3064,8 +3063,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                     data-testid="conversation-reply-cancel"
                     title="Annuler la réponse"
                   >
-                    Annuler
-                  </button>
+                    <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 </div>
               )}
 
@@ -3089,15 +3087,13 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                       className="rounded-lg bg-sky-600 hover:bg-sky-700 text-white px-2.5 py-1 text-xs font-medium"
                       data-testid="conversation-rec-attach"
                     >
-                      Envoyer comme note vocale
-                    </button>
+                      <Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer comme note vocale</button>
                     <button
                       onClick={cancelRecording}
                       className="rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 text-xs"
                       data-testid="conversation-rec-cancel"
                     >
-                      Annuler
-                    </button>
+                      <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                   </div>
                 </div>
               )}
@@ -3145,8 +3141,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                     data-testid="conversation-pending-media-clear"
                     title="Retirer le fichier"
                   >
-                    Retirer
-                  </button>
+                    <Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
                 </div>
               )}
 
@@ -3977,7 +3972,7 @@ const ScheduleModal = ({ contact, onClose, onScheduled }) => {
           )}
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button
             onClick={create}
             disabled={saving || !configured || templates.length === 0}
@@ -4134,7 +4129,7 @@ const SmsModal = ({ contact, onClose, onSent, userRole }) => {
           <ContactGroupChips contact={contact} userRole={userRole} />
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button onClick={send} disabled={sending || providers.active.length === 0}
             className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50"
             data-testid="sms-send-btn">
@@ -4275,8 +4270,7 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars, insertCallback }) => {
                     Liens actifs ({items.length})
                   </button>
                   <button onClick={() => setTab("quick")} className={`flex-1 py-2 text-sm ${tab === "quick" ? "border-b-2 border-amber-600 text-amber-700 font-semibold" : "text-slate-500"}`} data-testid="wa-pay-tab-quick">
-                    Nouveau lien rapide
-                  </button>
+                    <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouveau lien rapide</button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {tab === "existing" ? (
@@ -4361,13 +4355,12 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars, insertCallback }) => {
                   className="text-xs text-slate-500 hover:underline mt-2"
                   data-testid="wa-pay-back-btn"
                 >
-                  ← Choisir un autre lien
-                </button>
+                  <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Choisir un autre lien</button>
               </div>
             )}
 
             <div className="flex justify-end gap-2 px-5 py-3 border-t bg-slate-50">
-              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
             </div>
           </div>
         </div>

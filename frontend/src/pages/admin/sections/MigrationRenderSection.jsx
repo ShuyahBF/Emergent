@@ -16,6 +16,7 @@ import PasswordInput from "@/components/PasswordInput";
 // Lot 113 — encadré-renvoi vers le bouton unique « 🧹 Libérer l'Espace »
 import { RenvoiLibererEspace } from "@/pages/admin/sections/LibererEspaceSection";
 
+import { X as Ico15X } from "lucide-react";
 // Libellés et couleurs des statuts d'une sauvegarde
 const STATUTS = {
   EN_COURS: ["En cours…", "bg-amber-100 text-amber-800"],
@@ -673,7 +674,7 @@ const MigrationRenderSection = () => {
         <p className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900">
           <RotateCcw className="h-4 w-4" /> Reprise de la sauvegarde <b>{jobs.find((j) => j.id === form.reprendre)?.cible?.prefixe || form.reprendre}</b> :
           les collections déjà copiées seront sautées.
-          <button type="button" onClick={() => setForm((f) => ({ ...f, reprendre: null }))} className="text-xs font-semibold underline">Annuler la reprise</button>
+          <button type="button" onClick={() => setForm((f) => ({ ...f, reprendre: null }))} className="text-xs font-semibold underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler la reprise</button>
         </p>
       )}
 

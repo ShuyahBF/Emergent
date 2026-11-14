@@ -9,6 +9,7 @@ import {
   ScrollText, Loader2, Plus, Search, Edit3, Trash2, X, Save, Upload, ArrowUpDown
 } from "lucide-react";
 
+import { X as Ico15X } from "lucide-react";
 const STATUSES = [
   { value: "active", label: "Active", cls: "bg-emerald-100 text-emerald-700" },
   { value: "withdrawn", label: "Retirée", cls: "bg-slate-100 text-slate-600" },
@@ -161,7 +162,7 @@ function AmmEditor({ initial, onClose, onSaved }) {
           </fieldset>
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 px-4 py-3 flex justify-end gap-2">
-          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button onClick={save} disabled={saving}
                   className="text-xs px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1 disabled:opacity-60"
                   data-testid="amm-form-save">
@@ -460,8 +461,7 @@ function CsvImportModal({ onClose, onDone }) {
         </div>
         <div className="px-4 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300" data-testid="amm-import-cancel">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button type="submit" disabled={!file || busy} className="px-3 py-2 rounded text-sm bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50 inline-flex items-center gap-1" data-testid="amm-import-submit">
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
             {busy ? "Import en cours…" : "Importer"}

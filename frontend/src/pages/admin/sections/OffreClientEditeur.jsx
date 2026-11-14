@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Plus as Ico15Plus, RefreshCw as Ico15RefreshCw, Trash2 as Ico15Trash2 } from "lucide-react";
 const TYPES = [["logiciel", "Logiciel"], ["produit", "Produit"], ["service", "Service / prestation"]];
 
 // Lot 210 — échéance calculée (même règle que le serveur : début + durée ; avec reconduction, la première échéance non passée)
@@ -136,7 +137,7 @@ export default function OffreClientEditeur({ clientId }) {
             <input className="rounded border border-slate-300 px-2 py-1 text-xs" placeholder="Version" maxLength={40} value={l.version} onChange={(e) => changer(i, "version", e.target.value)} />
             <input className="rounded border border-slate-300 px-2 py-1 text-xs" placeholder="Précision utile à Liluvine (modules, site…)" maxLength={300} value={l.description} onChange={(e) => changer(i, "description", e.target.value)} />
             <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={l.actif !== false} onChange={(e) => changer(i, "actif", e.target.checked)} /> Actif</label>
-            <button type="button" className="text-xs text-rose-700 hover:underline" onClick={() => setLignes(lignes.filter((_, k) => k !== i))}>Retirer</button>
+            <button type="button" className="text-xs text-rose-700 hover:underline" onClick={() => setLignes(lignes.filter((_, k) => k !== i))}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
             {/* Lot 210 — durée de souscription, échéance et rappels (seconde rangée de la ligne) */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-2 text-xs text-slate-700 md:col-span-full" data-testid={`offre-echeance-${i}`}>
               {/* Lot 210.3 — montant de cette souscription POUR CE CLIENT (il diffère d'un client à l'autre) */}
@@ -172,7 +173,7 @@ export default function OffreClientEditeur({ clientId }) {
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={ajouter} className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200" data-testid="offre-ajouter">+ Ajouter une ligne</button>
+        <button type="button" onClick={ajouter} className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200" data-testid="offre-ajouter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter une ligne</button>
         <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50" data-testid="offre-enregistrer">
           {occupe ? "Patientez…" : "Enregistrer"}
         </button>
@@ -193,7 +194,7 @@ export default function OffreClientEditeur({ clientId }) {
               <option value="">Choisir un client…</option>
               {clients.filter((c) => c.nb_lignes > 0).map((c) => <option key={c.id} value={c.id}>{c.nom} ({c.nb_lignes} ligne{c.nb_lignes > 1 ? "s" : ""})</option>)}
             </select>
-            <button type="button" onClick={reprendre} disabled={!source} className="rounded-md bg-slate-900 px-3 py-1 font-semibold text-white disabled:opacity-40">Charger dans l'éditeur</button>
+            <button type="button" onClick={reprendre} disabled={!source} className="rounded-md bg-slate-900 px-3 py-1 font-semibold text-white disabled:opacity-40"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Charger dans l'éditeur</button>
             <span className="text-slate-500">(rien n'est enregistré avant « Enregistrer »)</span>
           </div>
           <div className="space-y-1">

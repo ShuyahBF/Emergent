@@ -23,6 +23,7 @@ import {
 } from "./HumanResourcesAdvanced";
 import PrimesIndemnitesTab from "./HrPrimesIndemnites";
 
+import { X as Ico15X } from "lucide-react";
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const fmtDate = (iso) => {
   if (!iso) return "—";
@@ -254,8 +255,7 @@ function EmployeeForm({ employee, eligibleUsers, onSave, onCancel }) {
             data-testid="hr-employee-cancel-btn"
             className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
           >
-            Annuler
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={submit}
             disabled={saving}

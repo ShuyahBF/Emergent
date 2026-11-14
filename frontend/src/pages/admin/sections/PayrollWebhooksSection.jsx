@@ -7,6 +7,7 @@ import { Webhook } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Send as Ico15Send } from "lucide-react";
 const TITLE = "Webhooks Paie (n8n)";
 
 const PayrollWebhooksSection = () => {
@@ -143,8 +144,7 @@ const PayrollWebhooksSection = () => {
           <button onClick={dispatchTest} disabled={busy || !cfg.outbound_enabled || !cfg.outbound_url}
             data-testid="webhook-outbound-test"
             className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded disabled:opacity-50">
-            Envoyer maintenant
-          </button>
+            <Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer maintenant</button>
         </div>
         {previewJson && (
           <pre className="bg-slate-900 text-emerald-200 text-xs p-3 rounded max-h-64 overflow-auto" data-testid="webhook-outbound-preview-json">

@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save } from "lucide-react";
 const dateCourte = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
 export default function ContactsPlateformesSection() {
@@ -82,7 +83,7 @@ export default function ContactsPlateformesSection() {
                     {r && (r.ok ? <span className="block text-emerald-700">{r.recus} lus · {r.crees} créés · {r.adoptes} déjà connus{r.retires_du_groupe ? ` · ${r.retires_du_groupe} sortis` : ""}</span>
                       : <span className="block max-w-xs text-rose-700">{r.erreur}</span>)}</td>
                   <td className="p-2"><div className="flex flex-wrap gap-1">
-                    <button type="button" disabled={occupe === p.id} onClick={() => enregistrer(p)} className="rounded bg-slate-900 px-2 py-1 font-semibold text-white disabled:opacity-50">Enregistrer</button>
+                    <button type="button" disabled={occupe === p.id} onClick={() => enregistrer(p)} className="rounded bg-slate-900 px-2 py-1 font-semibold text-white disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
                     <button type="button" disabled={occupe === p.id || !p.url || !p.cle_saisie} onClick={() => synchroniser(p)} className="rounded border border-slate-300 px-2 py-1 font-semibold disabled:opacity-40" data-testid={`synchro-${p.id}`}>Synchroniser</button>
                   </div></td>
                 </tr>

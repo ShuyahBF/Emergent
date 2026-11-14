@@ -6,6 +6,7 @@ import { Sparkles, RefreshCcw, CheckCircle2, Trash2, Copy, X, Filter, Play, Load
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Eye as Ico15Eye, X as Ico15X } from "lucide-react";
 const fmtDate = (s) => {
   if (!s) return "—";
   try { return new Date(s).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }); }
@@ -185,8 +186,7 @@ export default function AdminHandlerSuggestions() {
                       <button onClick={() => setViewing(s)}
                               className="text-xs px-2 py-1 rounded bg-sawali-blue text-white hover:bg-sawali-blue/90"
                               data-testid={`view-code-${s.id}`}>
-                        Voir le code
-                      </button>
+                        <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir le code</button>
                       <button onClick={() => remove(s)}
                               className="text-xs px-2 py-1 rounded bg-rose-100 text-rose-700 hover:bg-rose-200"
                               data-testid={`delete-${s.id}`}>
@@ -337,7 +337,7 @@ function CodeViewerModal({ sugg, onClose }) {
           </div>
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">Fermer</button>
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button onClick={copy} className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 inline-flex items-center gap-1" data-testid="code-viewer-copy">
             <Copy className="h-3 w-3" /> Copier
           </button>

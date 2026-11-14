@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "392", "date": "2026-11-14",
+        "titre": "🎨 Pictogrammes sur les boutons et tableaux colorés",
+        "description": "Chaque bouton à texte porte un pictogramme et les en-têtes de tableaux sont bleutés, pour repérer les actions et lire plus vite.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "391", "date": "2026-11-14",
         "titre": "💬 Paiements SMS enregistrables dans l'historique du client",
         "description": "Les paiements lus sur votre téléphone, dont le numéro est associé à un client, s'enregistrent en un clic dans son historique (Admin → Clients → Paiements), sans ressaisie.",

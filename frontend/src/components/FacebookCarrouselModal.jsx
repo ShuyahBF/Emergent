@@ -7,6 +7,7 @@ import { ExternalLink, Facebook, ImagePlus, Loader2, RotateCcw, X } from "lucide
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
+import { ArrowLeft as Ico15ArrowLeft, X as Ico15X } from "lucide-react";
 export default function FacebookCarrouselModal({ campagne, onClose }) {
   const cartes = campagne.cartes || [];
   const [pages, setPages] = useState([]);
@@ -184,12 +185,12 @@ export default function FacebookCarrouselModal({ campagne, onClose }) {
               Publier sur la Page « <b>{pageChoisie.nom}</b> » ?
             </span>
           )}
-          <Button variant="ghost" onClick={onClose}>Fermer</Button>
+          <Button variant="ghost" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           {!confirmer ? (
             <Button disabled={!pageId || publication} onClick={() => setConfirmer(true)} data-testid="fb-publier">Publier…</Button>
           ) : (
             <>
-              <Button variant="outline" onClick={() => setConfirmer(false)} disabled={publication}>Retour</Button>
+              <Button variant="outline" onClick={() => setConfirmer(false)} disabled={publication}><Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour</Button>
               <Button disabled={publication} onClick={publier} data-testid="fb-confirmer">
                 {publication ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Facebook className="mr-1 h-4 w-4" />} Confirmer la publication
               </Button>

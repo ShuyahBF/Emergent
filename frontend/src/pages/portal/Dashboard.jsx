@@ -9,6 +9,7 @@ import BrochuresWidget from "@/components/BrochuresWidget";
 import WeatherWidget from "@/components/WeatherWidget";
 import R2StorageGauge from "@/components/R2StorageGauge";
 
+import { Sparkles as Ico15Sparkles, X as Ico15X } from "lucide-react";
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
     <div className="flex items-center gap-3">
@@ -804,8 +805,7 @@ function AiSummaryModal({ onClose }) {
             }`}
             data-testid="ai-summary-tab-generate"
           >
-            Générer
-          </button>
+            <Ico15Sparkles className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Générer</button>
           <button
             onClick={() => setTab("history")}
             className={`px-3 py-2 text-xs font-semibold rounded-t-md transition ${
@@ -985,7 +985,7 @@ function AiSummaryModal({ onClose }) {
         </div>
         )}
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           {tab === "generate" && (
             <button
               onClick={run}

@@ -7,6 +7,7 @@ import { Inbox, Search, FileDown, UserPlus, RefreshCcw, Phone, Clock, Sparkles, 
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 function fmtDate(iso) {
   if (!iso) return "—";
   try {
@@ -326,8 +327,7 @@ function HandlerGenerationModal({ command, loading, code, onClose }) {
         </div>
         <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
-            Fermer
-          </button>
+            <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           {!loading && code && (
             <button onClick={copy}
                     className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 inline-flex items-center gap-1"

@@ -21,6 +21,7 @@ import { useSearchParams } from "react-router-dom";   // lot 72 : ?ev=<id> ouvre
 import { apiClient } from "@/lib/api";
 import TranscriptionAppelLiluvine from "@/components/TranscriptionAppelLiluvine";
 
+import { Calendar as Ico15Calendar, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 // Fuseau du Burkina Faso (identique à UTC toute l'année)
 const FUSEAU = "Africa/Ouagadougou";
 // Couleurs des pastilles de statut
@@ -240,7 +241,7 @@ export default function LiluvineAgenda() {
         ))}
         <span className="mx-2 h-5 w-px bg-slate-200" />
         <button type="button" onClick={() => decaler(-1)} className="rounded border border-slate-300 px-2 py-0.5">◀</button>
-        <button type="button" onClick={() => setReference(aujourdhui())} className="rounded border border-slate-300 px-2 py-0.5">Aujourd'hui</button>
+        <button type="button" onClick={() => setReference(aujourdhui())} className="rounded border border-slate-300 px-2 py-0.5"><Ico15Calendar className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Aujourd'hui</button>
         <button type="button" onClick={() => decaler(1)} className="rounded border border-slate-300 px-2 py-0.5">▶</button>
         <span className="font-semibold capitalize text-slate-700">{titrePeriode}</span>
         {chargement && <Jauge />}
@@ -728,7 +729,7 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
           <div className="rounded-lg bg-amber-50 p-2">
             <p className="text-xs font-semibold text-amber-900">Fiche de maintenance ou intervention à présenter</p>
             {f.maintenance?.id && <p className="text-sm">✅ {f.maintenance.libelle || f.maintenance.resume || f.maintenance.id}
-              <button type="button" onClick={() => maj("maintenance", null)} className="ml-2 text-xs text-rose-700">retirer</button></p>}
+              <button type="button" onClick={() => maj("maintenance", null)} className="ml-2 text-xs text-rose-700"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />retirer</button></p>}
             <input value={rechercheMnt} onChange={(e) => setRechercheMnt(e.target.value)} placeholder="N° de fiche, matériel, client…" className={champ} />
             <div className="mt-1 max-h-36 overflow-auto rounded border border-amber-200 bg-white">
               {maintenances.map((m) => (
@@ -775,7 +776,7 @@ function FormulaireEvenement({ initial, donnees, fermer, enregistre }) {
           d'autorisation (une seule), et l'appel part dès qu'il accepte.
         </p>
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Fermer</button>
+          <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           <button type="submit" disabled={enCours} className="rounded-lg bg-violet-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
             {enCours ? <Jauge /> : null} Enregistrer
           </button>
@@ -953,7 +954,7 @@ export function ReglagesAgenda({ lignes: lignesRecues, fermer, integre = false }
               <p className="text-[11px] text-slate-500">Personnes nées un 29 février : appel le 28 février les années non bissextiles.</p>
             </div>
             <div className="flex justify-end gap-2">
-              {!integre && <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Fermer</button>}
+              {!integre && <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>}
               <button type="button" onClick={enregistrer} disabled={occupe} className="rounded-lg bg-violet-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
                 {occupe ? <Jauge /> : null} Enregistrer
               </button>

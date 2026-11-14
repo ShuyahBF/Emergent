@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Plus, Trash2, Edit, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Save as Ico15Save } from "lucide-react";
 const empty = { client_id: "", title: "", description: "", status: "completed", intervention_date: "", technician: "", duration_hours: "" };
 
 export default function AdminInterventions() {
@@ -113,7 +114,7 @@ export default function AdminInterventions() {
                   {["planned", "in_progress", "completed", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm">Enregistrer</button>
+              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             </form>
           </div>
         </div>

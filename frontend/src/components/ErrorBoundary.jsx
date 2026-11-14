@@ -1,5 +1,6 @@
 import React from "react";
 
+import { Copy as Ico15Copy, RefreshCw as Ico15RefreshCw } from "lucide-react";
 /*
   Catches any uncaught render error in its children and shows a useful
   message instead of the React 18 "blank screen" default in production
@@ -56,9 +57,9 @@ export class ErrorBoundary extends React.Component {
             </details>
           )}
           <div className="flex gap-2 mt-4">
-            <button onClick={() => window.location.reload()} className="rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-sm">Recharger la page</button>
-            <button onClick={this.copyDetails} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm">Copier les détails</button>
-            <button onClick={() => this.setState({ error: null, info: null })} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm" data-testid="error-boundary-dismiss">Réessayer</button>
+            <button onClick={() => window.location.reload()} className="rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-sm"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Recharger la page</button>
+            <button onClick={this.copyDetails} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm"><Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier les détails</button>
+            <button onClick={() => this.setState({ error: null, info: null })} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm" data-testid="error-boundary-dismiss"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réessayer</button>
           </div>
         </div>
       );

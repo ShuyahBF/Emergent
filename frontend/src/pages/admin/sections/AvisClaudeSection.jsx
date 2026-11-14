@@ -23,6 +23,7 @@ const STATUTS = {
   abandonnee: { libelle: "💤 Abandonnée (pas de réponse)", classe: "bg-slate-100 text-slate-500" },
 };
 
+import { Check as Ico15Check, RefreshCw as Ico15RefreshCw, Save as Ico15Save, X as Ico15X } from "lucide-react";
 // Date courte « 09/10/2026 14:05 »
 const dateCourte = (iso) => {
   const d = new Date(iso);
@@ -134,7 +135,7 @@ export default function AvisClaudeSection() {
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 font-mono text-xs" />
           </label>
           <div className="sm:col-span-2">
-            <button onClick={enregistrer} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white">Enregistrer</button>
+            <button onClick={enregistrer} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
           </div>
         </div>
       )}
@@ -186,10 +187,10 @@ export default function AvisClaudeSection() {
                         placeholder="Message au client (facultatif, transmis par Liluvine dans son chat du support)"
                         className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm" />
               <div className="flex flex-wrap gap-2">
-                <button disabled={enCours} onClick={() => decider("acceptee")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Accepter</button>
-                <button disabled={enCours} onClick={() => decider("refusee")} className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Refuser</button>
+                <button disabled={enCours} onClick={() => decider("acceptee")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Accepter</button>
+                <button disabled={enCours} onClick={() => decider("refusee")} className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Refuser</button>
                 <button disabled={enCours} onClick={() => decider("en_attente")} className="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-800 disabled:opacity-50">Mettre en attente</button>
-                <button disabled={enCours} onClick={reanalyser} className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-50">Relancer l'analyse</button>
+                <button disabled={enCours} onClick={reanalyser} className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Relancer l'analyse</button>
               </div>
             </>
           )}

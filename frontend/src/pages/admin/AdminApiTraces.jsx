@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Search, Download, RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
+import { Filter as Ico15Filter } from "lucide-react";
 export default function AdminApiTraces() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
@@ -100,7 +101,7 @@ export default function AdminApiTraces() {
         <label className="inline-flex items-center gap-1 text-sm text-slate-700">
           <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} /> erreurs uniquement
         </label>
-        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Filtrer</button>
+        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Filter className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Filtrer</button>
       </form>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">

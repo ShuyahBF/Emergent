@@ -12,6 +12,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import PdfViewer from "@/components/PdfViewer";
 import TenantSharingToggle from "@/components/TenantSharingToggle";
 
+import { ArrowLeft as Ico15ArrowLeft, Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 function todayDate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -257,8 +258,7 @@ export default function MeetingMinutes() {
           className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-slate-200 hover:bg-slate-50"
           data-testid="meeting-back"
         >
-          ← Retour à la liste
-        </button>
+          <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la liste</button>
         <article className="rounded-2xl ring-1 ring-slate-200 bg-white p-6">
           <header className="flex items-start justify-between gap-2 flex-wrap mb-4">
             <div>
@@ -521,8 +521,7 @@ export default function MeetingMinutes() {
             </div>
             <footer className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
               <button onClick={closeEditor} disabled={saving} className="px-4 py-2 rounded-lg ring-1 ring-slate-200 hover:bg-slate-50 text-sm" data-testid="meeting-form-cancel">
-                Annuler
-              </button>
+                <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-sm disabled:opacity-60" data-testid="meeting-form-save">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Enregistrer
@@ -628,8 +627,7 @@ function MultiUserPicker({ label, options, value, onChange, accent = "slate", te
               className="text-[11px] px-2 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white"
               data-testid={`${testIdPrefix}-add-email`}
             >
-              + Ajouter email
-            </button>
+              <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter email</button>
           )}
         </div>
         {open && filtered.length > 0 && (

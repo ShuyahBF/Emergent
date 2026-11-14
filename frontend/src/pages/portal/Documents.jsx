@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getFileIcon, absoluteFileUrl } from "@/lib/fileIcons";
 import { toast } from "sonner";
 
+import { X as Ico15X } from "lucide-react";
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL = new Set(["Administrateur", "Superviseur"]);
 function isElevated(user) {
@@ -280,7 +281,7 @@ const CreateDocumentModal = ({ onClose, onCreated }) => {
           )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={submit}
             disabled={uploading}

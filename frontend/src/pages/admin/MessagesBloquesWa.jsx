@@ -10,6 +10,7 @@
 //   • en bas, les retenues levées ces 7 derniers jours (qui, quand).
 // Accès : administrateurs et superviseurs (un superviseur restreint doit avoir reçu « Messages WhatsApp
 // bloqués » dans Paramètres → Liluvine — partage). Utilisable à l'identique depuis /admin et /portal.
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -102,7 +103,7 @@ export default function MessagesBloquesWa() {
             </span>
           )}
           <button type="button" onClick={() => charger()} className="text-sm px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50"
-            data-testid="actualiser-messages-bloques">Actualiser</button>
+            data-testid="actualiser-messages-bloques"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
         </div>
       </div>
 

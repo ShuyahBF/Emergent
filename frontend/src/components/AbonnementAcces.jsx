@@ -17,6 +17,7 @@ import { AlertTriangle, LogOut, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, EVENEMENT_ABONNEMENT } from "@/lib/api";
 
+import { X as Ico15X } from "lucide-react";
 const RELECTURE_MS = 5 * 60 * 1000;
 const dateFr = (iso) => {
   if (!iso) return "—";
@@ -92,8 +93,7 @@ export default function AbonnementAcces() {
               Sans règlement, l'accès à votre espace sera suspendu le <b>{new Date(etat.fin_grace).toLocaleString("fr-FR")}</b>.
             </p>
             <button type="button" className="mt-4 w-full rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white" onClick={() => setDetails(false)}>
-              Fermer
-            </button>
+              <Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
           </div>
         </div>
       )}

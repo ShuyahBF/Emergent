@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 const jour = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "—");
 const COULEUR = { remontee: "text-amber-700", realisee: "text-emerald-700", refusee: "text-rose-700" };
 const LIBELLE = { remontee: "En attente", realisee: "Réalisée", refusee: "Refusée" };
@@ -68,8 +69,8 @@ export default function DemandesPlateformesSection() {
           {edition.statut === "realisee" && <label className="block text-xs">Réalisée le <input type="date" value={edition.realisee_le} onChange={(e) => setEdition({ ...edition, realisee_le: e.target.value })} className="ml-1 rounded border border-slate-300 px-2 py-1" /> (vide = aujourd'hui)</label>}
           <textarea value={edition.commentaire} onChange={(e) => setEdition({ ...edition, commentaire: e.target.value })} rows={2} placeholder={edition.statut === "refusee" ? "Raison du refus (obligatoire)" : "Commentaire pour la plateforme"} className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
           <div className="flex gap-2">
-            <button type="button" onClick={enregistrer} className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white">Enregistrer</button>
-            <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 px-3 py-1.5 text-sm">Annuler</button>
+            <button type="button" onClick={enregistrer} className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
+            <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           </div>
         </div>
       )}

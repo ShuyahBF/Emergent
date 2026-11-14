@@ -8,6 +8,7 @@ import {
   History, Search, RefreshCw, Loader2, ShieldCheck, X as XIcon, Clock, Ban, AlertCircle, CheckCircle2,
 } from "lucide-react";
 
+import { Filter as Ico15Filter } from "lucide-react";
 const STATUS_META = {
   pending:   { label: "En attente", icon: Clock,        cls: "bg-amber-100 text-amber-800 ring-amber-300" },
   approved:  { label: "Autorisé",   icon: CheckCircle2, cls: "bg-emerald-100 text-emerald-800 ring-emerald-300" },
@@ -110,8 +111,7 @@ export default function AdminDownloadAudit() {
           />
         </div>
         <button onClick={load} disabled={loading} className="text-xs px-3 py-1.5 rounded-lg bg-sawali-blue text-white" data-testid="audit-search-button">
-          Filtrer
-        </button>
+          <Ico15Filter className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Filtrer</button>
       </div>
 
       <div className="rounded-2xl ring-1 ring-slate-200 bg-white overflow-x-auto">

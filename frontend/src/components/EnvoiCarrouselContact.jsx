@@ -20,6 +20,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Copy as Ico15Copy, X as Ico15X } from "lucide-react";
 // La fonction est demandée une seule fois par session de navigation (évite un appel à chaque conversation ouverte)
 let _fonctionActive = null;
 const fonctionCarrouselActive = () => {
@@ -193,7 +194,7 @@ export default function EnvoiCarrouselContact({ contact, desactive, onConversati
                     {demande.lien ? (
                       <div className="flex items-center gap-2">
                         <input readOnly value={demande.lien} onFocus={(e) => e.target.select()} className="min-w-0 flex-1 rounded border border-amber-300 bg-white px-2 py-1 text-[11px]" />
-                        <button type="button" onClick={copierLien} className="shrink-0 rounded border border-amber-400 bg-white px-2 py-1 font-semibold hover:bg-amber-100">Copier</button>
+                        <button type="button" onClick={copierLien} className="shrink-0 rounded border border-amber-400 bg-white px-2 py-1 font-semibold hover:bg-amber-100"><Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</button>
                       </div>
                     ) : <p className="text-rose-700">Lien indisponible pour le moment.</p>}
                   </div>
@@ -249,7 +250,7 @@ export default function EnvoiCarrouselContact({ contact, desactive, onConversati
                   </div>
                 )}
                 <div className="mt-4 flex justify-end gap-2">
-                  <button type="button" onClick={() => setOuvert(false)} disabled={envoi} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Annuler</button>
+                  <button type="button" onClick={() => setOuvert(false)} disabled={envoi} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                   <button
                     type="button"
                     onClick={envoyer}

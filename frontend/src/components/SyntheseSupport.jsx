@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { FolderOpen as Ico15FolderOpen, RefreshCw as Ico15RefreshCw } from "lucide-react";
 // Périodes proposées (jours)
 const PERIODES = [{ jours: 1, libelle: "Aujourd'hui" }, { jours: 7, libelle: "7 jours" }, { jours: 30, libelle: "30 jours" }, { jours: 90, libelle: "90 jours" }];
 
@@ -82,7 +83,7 @@ export default function SyntheseSupport() {
             {p.libelle}
           </button>
         ))}
-        <button onClick={() => charger()} className="ml-auto rounded-md border border-slate-300 px-2 py-1 text-xs">Actualiser</button>
+        <button onClick={() => charger()} className="ml-auto rounded-md border border-slate-300 px-2 py-1 text-xs"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
       </div>
 
       {/* Compteurs */}
@@ -119,7 +120,7 @@ export default function SyntheseSupport() {
                     <td className={`px-2 font-semibold ${(l.attente_min || 0) >= 30 ? "text-rose-600" : ""}`}>{attenteLisible(l.attente_min)}</td>
                     <td className="max-w-[320px] truncate px-2" title={l.dernier_message}>{l.dernier_message || "—"}</td>
                     <td className="px-2">
-                      <button onClick={(e) => { e.stopPropagation(); ouvrir(l); }} className="rounded bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">Ouvrir</button>
+                      <button onClick={(e) => { e.stopPropagation(); ouvrir(l); }} className="rounded bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white"><Ico15FolderOpen className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ouvrir</button>
                     </td>
                   </tr>
                 );

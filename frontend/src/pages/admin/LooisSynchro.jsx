@@ -21,6 +21,7 @@ import LooisClesClients from "./LooisClesClients";
 import SecuritePostes from "./SecuritePostes";   // lot 373 : onglet « Sécurité des postes »
 
 const BASE = "/admin/loois-synchro";
+import { Eye as Ico15Eye, X as Ico15X } from "lucide-react";
 const APPLICATIONS = [["eKol", "e-Kol"], ["Aizenta", "Aizenta"], ["Biolog", "Biolog"]];
 const COMMUNE = "*";   // code de la liste commune à tous les clients
 
@@ -336,7 +337,7 @@ export default function LooisSynchro() {
                           {!t.vide && (
                             <>
                               <button type="button" onClick={(e) => { e.stopPropagation(); setSelection({ site: c.site, table: t.table }); }}
-                                className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Voir</button>
+                                className="mr-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50"><Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir</button>
                               <button type="button" onClick={(e) => { e.stopPropagation(); resynchroniser(c.site, t.table); }}
                                 className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50">Resynchroniser tout</button>
                             </>
@@ -415,7 +416,7 @@ function GrilleDonnees({ application, site, table, onFermer }) {
             <button type="submit" className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">🔍</button>
           </form>
           <button type="button" onClick={exporter} className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">⬇ CSV</button>
-          <button type="button" onClick={onFermer} className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50">Fermer</button>
+          <button type="button" onClick={onFermer} className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
         </div>
       </div>
       <div className="mt-2 max-h-[32rem] overflow-auto rounded ring-1 ring-slate-200">

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { Power as Ico15Power, RefreshCw as Ico15RefreshCw } from "lucide-react";
 // Date ISO → « JJ/MM/AAAA HH:MM » (heure de Ouagadougou = UTC)
 const dateHeure = (iso) => {
   if (!iso) return "—";
@@ -73,7 +74,7 @@ export default function PostesSansCleSection() {
             {enreg ? "Patientez…" : donnees.actif ? "Désactiver l'alerte" : "Activer l'alerte"}
           </button>
         )}
-        <button onClick={charger} className="text-xs text-slate-600 underline">Actualiser</button>
+        <button onClick={charger} className="text-xs text-slate-600 underline"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Actualiser</button>
         <Link to="/admin/loois-synchro" className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white">
           Créer les clés clients (onglet « Clés clients »)
         </Link>
@@ -122,8 +123,7 @@ export default function PostesSansCleSection() {
                 {estAdmin && (
                   <td className="px-2">
                     <button onClick={() => ignorer(p.machine, false)} className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-700">
-                      Réactiver
-                    </button>
+                      <Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réactiver</button>
                   </td>
                 )}
               </tr>

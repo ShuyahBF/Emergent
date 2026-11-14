@@ -10,6 +10,7 @@ import { Beaker, Copy, Trash2, X } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import PasswordInput from "@/components/PasswordInput";
 
+import { X as Ico15X } from "lucide-react";
 export default function ComptesTestPanel({ onChange }) {
   const [ouvert, setOuvert] = useState(false);
   const [mdp, setMdp] = useState("");
@@ -98,7 +99,7 @@ export default function ComptesTestPanel({ onChange }) {
                   <p className="text-[11px] text-slate-500 mt-1">Haché côté serveur, jamais stocké en clair ni affiché ensuite.</p>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">Annuler</button>
+                  <button type="button" onClick={fermer} className="rounded-lg border border-slate-300 px-4 py-2 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                   <button type="submit" disabled={enCours} className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm disabled:opacity-50" data-testid="comptes-test-valider">
                     {enCours ? "Création…" : "Créer / remettre à neuf"}
                   </button>

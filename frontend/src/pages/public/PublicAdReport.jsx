@@ -9,6 +9,7 @@
 // Lot 111 — campagne « Carrousel WhatsApp sponsorisé » (type carrousel_wa) : le rapport montre les envois, les
 // clics (bruts, facturables, hors budget), les vues de la page de présentation, les « Je suis intéressé », le
 // montant consommé, le budget restant, le détail par carte et par jour. Renouvellement et paiement inchangés.
+import { Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
@@ -622,7 +623,7 @@ function RenewCampaignWidget({ slug, token, apiBase, currency, currentBudget, re
         </label>
         {errorMsg && <p className="text-xs text-rose-600" data-testid="renew-error">{errorMsg}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-600 hover:underline">Annuler</button>
+          <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-600 hover:underline"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             type="submit" disabled={submitting}
             className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold"
@@ -909,8 +910,7 @@ function SelfServiceMediaUpdate({ slug, token, apiBase, currentImageUrl, current
           </div>
         </div>
         <button onClick={() => setOpen(true)} className="text-xs rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 font-semibold" data-testid="ads-report-media-open">
-          Modifier
-        </button>
+          <Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier</button>
       </section>
     );
   }

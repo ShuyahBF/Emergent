@@ -49,6 +49,7 @@ import {
   LIBELLES_TYPES_ALERTE, META_SEVERITE, TYPES_ALERTE_DEFAUT, TYPES_DUREE, TYPES_FREQUENCE, donneesPatientManquantes, messageErreurApi,
 } from "@/lib/vidalReferentiels";
 
+import { Copy as Ico15Copy, Plus as Ico15Plus } from "lucide-react";
 const TOUS_CODES_ALERTE = Object.keys(LIBELLES_TYPES_ALERTE);
 const ROUGE = "#9C1616"; // rouge de l'identité visuelle « Sécurisation » (déjà utilisé par l'ordonnance PDF)
 
@@ -632,11 +633,11 @@ export default function VidalSecurisation() {
                     {t.resolution.candidats.map((c) => <option key={c.ref} value={c.ref}>{c.label}</option>)}
                   </select>
                 ) : (
-                  <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} onClick={() => ajouterPrescriptionTest(t, null, i)}>Ajouter à la prescription</button>
+                  <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} onClick={() => ajouterPrescriptionTest(t, null, i)}><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter à la prescription</button>
                 )}
                 {/* § Copier / coller la posologie de test, à la demande (identité du patient jamais copiée). */}
                 <span style={{ display: "inline-flex", gap: 6 }}>
-                  <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} onClick={() => copierPosologieTest(t, i)} title="Copie le médicament et la posologie de test, sans l'identité du patient">Copier</button>
+                  <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} onClick={() => copierPosologieTest(t, i)} title="Copie le médicament et la posologie de test, sans l'identité du patient"><Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</button>
                   <button type="button" className="bouton-secondaire" style={{ fontSize: 11.5 }} disabled={!nouvellesLignes.some((l) => l.origineTest === i)}
                     onClick={() => collerPosologieTest(t, i)} title="Remplit la ligne ajoutée depuis cette prescription de test">Coller dans la ligne</button>
                 </span>
@@ -650,7 +651,7 @@ export default function VidalSecurisation() {
             onRetirer={nouvellesLignes.length > 1 ? () => setNouvellesLignes((prev) => prev.filter((_, i) => i !== idx)) : null}
             onBasculer={ligne.vidal_id || ligne.query ? () => versTraitementsEnCours(idx) : null} />
         ))}
-        <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setNouvellesLignes((prev) => [...prev, nouvelleLigneSaisie()])}>+ Ajouter un médicament</button>
+        <button type="button" className="bouton-secondaire" style={{ fontSize: 12.5 }} onClick={() => setNouvellesLignes((prev) => [...prev, nouvelleLigneSaisie()])}><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un médicament</button>
       </div>
 
       <div className="carte">

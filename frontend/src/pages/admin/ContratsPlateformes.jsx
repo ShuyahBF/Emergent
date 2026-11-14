@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Plus as Ico15Plus, Save as Ico15Save, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 // « 1 500 000 XOF »
 const argent = (v, devise = "XOF") => `${Math.round(Number(v) || 0).toLocaleString("fr-FR")} ${devise}`;
 // « 15/10/2026 »
@@ -120,11 +121,11 @@ function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
               className="min-w-[12rem] flex-1 rounded border border-slate-300 px-2 py-1 text-xs" />
             <input type="number" min="0" value={l.montant} onChange={(e) => majLigne(i, "montant", e.target.value)} placeholder="Montant"
               className="w-32 rounded border border-slate-300 px-2 py-1 text-right text-xs" />
-            <button type="button" onClick={() => setF({ ...f, lignes: f.lignes.filter((_, k) => k !== i) })} className="text-xs text-rose-700">Retirer</button>
+            <button type="button" onClick={() => setF({ ...f, lignes: f.lignes.filter((_, k) => k !== i) })} className="text-xs text-rose-700"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
           </div>
         ))}
         <button type="button" onClick={() => setF({ ...f, lignes: [...f.lignes, { type: "service", libelle: "", montant: "" }] })}
-          className="mt-1 text-xs text-sky-700 underline">+ Ajouter une ligne</button>
+          className="mt-1 text-xs text-sky-700 underline"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter une ligne</button>
         <p className="mt-1 text-xs text-slate-600">Total des lignes : <b>{argent(total, f.devise)}</b></p>
       </div>
       <div className="grid gap-2 sm:grid-cols-4">
@@ -159,7 +160,7 @@ function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
       <div className="flex gap-2">
         <button type="button" disabled={enCours} onClick={enregistrer} className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
           {enCours ? "Patientez…" : "Enregistrer le contrat"}</button>
-        <button type="button" onClick={onAnnuler} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">Annuler</button>
+        <button type="button" onClick={onAnnuler} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
       </div>
     </div>
   );
@@ -189,7 +190,7 @@ function NouveauPaiement({ contrat, onEnregistre }) {
       <label>Montant<input type="number" min="0" value={p.amount_paid} onChange={(e) => setP({ ...p, amount_paid: e.target.value })} className="ml-1 w-28 rounded border border-slate-300 px-1 py-0.5 text-right" /></label>
       <label>Réf.<input value={p.invoice_ref} onChange={(e) => setP({ ...p, invoice_ref: e.target.value })} className="ml-1 w-28 rounded border border-slate-300 px-1 py-0.5" placeholder="facture…" /></label>
       <button type="button" disabled={enCours || !(Number(p.amount_paid) > 0)} onClick={enregistrer}
-        className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white disabled:opacity-50">Enregistrer un paiement</button>
+        className="rounded bg-emerald-600 px-2 py-1 font-semibold text-white disabled:opacity-50"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer un paiement</button>
     </div>
   );
 }

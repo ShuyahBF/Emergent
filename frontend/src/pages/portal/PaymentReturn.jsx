@@ -10,6 +10,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { CheckCircle2, XCircle, Loader2, Clock, ArrowLeft } from "lucide-react";
 
+import { Eye as Ico15Eye } from "lucide-react";
 const POLL_INTERVAL_MS = 3000;
 const MAX_ATTEMPTS = 25;
 
@@ -105,8 +106,7 @@ export default function PaymentReturn() {
         <div className="flex gap-2 mt-6">
           <button onClick={() => navigate("/portal/my-payments")} data-testid="payment-return-back"
             className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm">
-            Voir mes paiements
-          </button>
+            <Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir mes paiements</button>
           {status === "pending" && (
             <button onClick={refresh} data-testid="payment-return-refresh"
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm flex items-center gap-2">

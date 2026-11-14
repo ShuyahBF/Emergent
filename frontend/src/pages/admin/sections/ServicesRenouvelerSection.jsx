@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Plus as Ico15Plus, Trash2 as Ico15Trash2 } from "lucide-react";
 const PERIODES = [["mensuel", "Mensuel"], ["trimestriel", "Trimestriel"], ["semestriel", "Semestriel"], ["annuel", "Annuel"], ["unique", "Unique"]];
 const SOURCES = [["saisi", "Montant saisi"], ["atlas", "Lu chez Atlas (facture en cours)"], ["r2", "Estimé (Cloudflare R2)"]];
 // Couleur de la pastille d'échéance
@@ -193,12 +194,12 @@ export default function ServicesRenouvelerSection() {
                 <input className={champ} placeholder="Fournisseur" maxLength={60} value={s.fournisseur} onChange={(e) => changer(i, "fournisseur", e.target.value)} />
                 <input className={champ} placeholder="Lien pour payer" maxLength={300} value={s.lien_paiement} onChange={(e) => changer(i, "lien_paiement", e.target.value)} />
                 <div className="flex items-center gap-3 text-xs"><label className="flex items-center gap-1"><input type="checkbox" checked={s.actif !== false} onChange={(e) => changer(i, "actif", e.target.checked)} /> Actif</label>
-                  <button type="button" className="text-rose-700 hover:underline" onClick={() => setServices(services.filter((_, k) => k !== i))}>Retirer</button></div>
+                  <button type="button" className="text-rose-700 hover:underline" onClick={() => setServices(services.filter((_, k) => k !== i))}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button></div>
               </div>
             ))}
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <button type="button" onClick={() => ajouter()} className="rounded-md bg-white px-3 py-1.5 font-semibold ring-1 ring-slate-300 hover:bg-slate-100" data-testid="services-ajouter">+ Ajouter un service</button>
+            <button type="button" onClick={() => ajouter()} className="rounded-md bg-white px-3 py-1.5 font-semibold ring-1 ring-slate-300 hover:bg-slate-100" data-testid="services-ajouter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un service</button>
             {services.length === 0 && <button type="button" onClick={() => HABITUELS.forEach((h) => ajouter(h))} className="rounded-md bg-white px-3 py-1.5 font-semibold ring-1 ring-slate-300 hover:bg-slate-100">Pré-remplir avec les services habituels</button>}
           </div>
           <div className="space-y-1 text-xs">
@@ -207,10 +208,10 @@ export default function ServicesRenouvelerSection() {
               <div key={i} className="flex flex-wrap gap-2">
                 <input className={`${champ} w-40`} placeholder="Nom du cluster" value={c.nom} onChange={(e) => setClusters(clusters.map((x, k) => (k === i ? { ...x, nom: e.target.value } : x)))} />
                 <input className={`${champ} min-w-0 flex-1`} placeholder="Plateformes, séparées par des virgules" value={c.plateformes_texte} onChange={(e) => setClusters(clusters.map((x, k) => (k === i ? { ...x, plateformes_texte: e.target.value } : x)))} />
-                <button type="button" className="text-rose-700 hover:underline" onClick={() => setClusters(clusters.filter((_, k) => k !== i))}>Retirer</button>
+                <button type="button" className="text-rose-700 hover:underline" onClick={() => setClusters(clusters.filter((_, k) => k !== i))}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
               </div>
             ))}
-            <button type="button" onClick={() => setClusters([...clusters, { nom: "", plateformes_texte: "" }])} className="rounded-md bg-white px-3 py-1 font-semibold ring-1 ring-slate-300 hover:bg-slate-100">+ Ajouter un cluster</button>
+            <button type="button" onClick={() => setClusters([...clusters, { nom: "", plateformes_texte: "" }])} className="rounded-md bg-white px-3 py-1 font-semibold ring-1 ring-slate-300 hover:bg-slate-100"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter un cluster</button>
           </div>
           <div className="space-y-1 text-xs">
             <p className="font-semibold">Taux de change vers le FCFA <span className="font-normal text-slate-500">(nombre de FCFA pour 1 unité ; l'euro est à parité fixe 655,957, le dollar varie : mettez à jour le taux à votre guise)</span></p>

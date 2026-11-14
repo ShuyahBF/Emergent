@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Search, Download, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
+import { Search as Ico15Search } from "lucide-react";
 export default function AdminAccessLogs() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
@@ -85,7 +86,7 @@ export default function AdminAccessLogs() {
             data-testid="logs-search-input"
           />
         </div>
-        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Rechercher</button>
+        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Search className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Rechercher</button>
       </form>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">

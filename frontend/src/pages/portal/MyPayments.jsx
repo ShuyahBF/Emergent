@@ -8,6 +8,7 @@ import {
 import MyPaymentLinks from "./MyPaymentLinks";
 import PaymentsDashboard from "./PaymentsDashboard";
 
+import { RefreshCw as Ico15RefreshCw, X as Ico15X } from "lucide-react";
 /*
   Portal → Mes paiements (PawaPay Mobile Money).
   v1 features : déposit + historique + relance échec + filtres + export CSV.
@@ -335,8 +336,7 @@ function TransactionsPanel({
         </Field>
         {filtersActive && (
           <button onClick={resetFilters} className="text-xs text-rose-700 hover:underline" data-testid="filter-reset">
-            Réinitialiser
-          </button>
+            <Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réinitialiser</button>
         )}
       </div>
 
@@ -563,7 +563,7 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2" data-testid="payment-cancel-btn">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2" data-testid="payment-cancel-btn"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           <button
             onClick={submit}
             disabled={submitting}

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 
+import { Eye as Ico15Eye } from "lucide-react";
 const INTERVALLE_MS = 10_000;                         // fréquence de lecture des alertes
 const CLE_FERMEES = "sawali.liluvine.alertes_fermees";  // alertes fermées par l'utilisateur (navigateur)
 const MAX_FERMEES = 200;
@@ -69,7 +70,7 @@ export default function AlertesAppelsLiluvine() {
             : <p className="mt-1 text-xs font-medium text-slate-800">{a.resultat}</p>}
           {a.resume && <p className="mt-1 line-clamp-3 text-[11px] italic text-slate-600">{a.resume}</p>}
           <button type="button" onClick={() => { fermer(); navigate(`/admin/liluvine-agenda?ev=${encodeURIComponent(a.ev_id)}`); }}
-            className="mt-2 text-[11px] font-medium text-sawali-blue hover:underline">Voir l'évènement ↗</button>
+            className="mt-2 text-[11px] font-medium text-sawali-blue hover:underline"><Ico15Eye className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Voir l'évènement ↗</button>
         </div>
         <button type="button" onClick={fermer} aria-label="Fermer" title="Fermer cette alerte"
           className="text-lg leading-none text-slate-400 hover:text-slate-700">×</button>

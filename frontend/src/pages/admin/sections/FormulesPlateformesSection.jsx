@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
+import { Check as Ico15Check, Download as Ico15Download, Plus as Ico15Plus, Save as Ico15Save, X as Ico15X } from "lucide-react";
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
 const VIDE = { plateforme: "", nom: "", description: "", prix: "", duree_jours: 30, fonctions: ["ocr_ordonnances"], actif: true, ordre: 0 };
 
@@ -52,8 +53,8 @@ function DemandesPispi({ rafraichir }) {
                 <td className="font-mono">{x.reference_bancaire || "—"}</td>
                 <td>{x.statut === "pispi_verification" ? <b className="text-emerald-700">À vérifier</b> : <span className="text-slate-500">Virement attendu</span>}</td>
                 <td className="boutons-distincts flex gap-1 p-1">
-                  <button type="button" onClick={() => traiter(x, "confirmer")} className="rounded bg-emerald-600 px-2 py-1 text-white">Confirmer</button>
-                  <button type="button" onClick={() => traiter(x, "refuser")} className="rounded border border-slate-300 px-2 py-1">Refuser</button>
+                  <button type="button" onClick={() => traiter(x, "confirmer")} className="rounded bg-emerald-600 px-2 py-1 text-white"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer</button>
+                  <button type="button" onClick={() => traiter(x, "refuser")} className="rounded border border-slate-300 px-2 py-1"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Refuser</button>
                 </td>
               </tr>
             ))}
@@ -87,7 +88,7 @@ function CoutCartes() {
         <select value={jours} onChange={(e) => setJours(Number(e.target.value))} className="rounded border border-slate-300 px-2 py-1 text-xs" data-testid="cout-cartes-jours">
           <option value={7}>7 jours</option><option value={30}>30 jours</option><option value={90}>90 jours</option>
         </select>
-        <button type="button" onClick={exporter} className="rounded border border-slate-300 px-2 py-1 text-xs">Exporter en CSV</button>
+        <button type="button" onClick={exporter} className="rounded border border-slate-300 px-2 py-1 text-xs"><Ico15Download className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Exporter en CSV</button>
       </div>
       {!d ? <p className="mt-2 text-xs text-slate-500">Chargement…</p> : (
         <>
@@ -210,13 +211,13 @@ export default function FormulesPlateformesSection() {
         <label className="flex flex-col gap-1">Archives en ligne offertes : nombre de documents
           <input type="number" min={0} max={1000} value={gratuitNombre} onChange={(e) => setGratuitNombre(e.target.value)} className="w-28 rounded border border-slate-300 px-2 py-1" data-testid="archives-gratuit-nombre" />
         </label>
-        <button type="button" onClick={enregistrerParrainage} className="rounded bg-slate-800 px-3 py-1.5 text-white">Enregistrer</button>
+        <button type="button" onClick={enregistrerParrainage} className="rounded bg-slate-800 px-3 py-1.5 text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
         <span className="text-slate-500">Parrainage : 0 = pas de récompense (donnés à la première formule payée du filleul). OCR et voix : protègent le coût de l'IA ; refusés sans abonnement.</span>
       </div>
 
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">Formules ({d.formules.length})</p>
-        <button type="button" onClick={() => setEdition({ ...VIDE, plateforme: d.plateformes[0]?.code || "" })} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white" data-testid="formule-ajouter">+ Nouvelle formule</button>
+        <button type="button" onClick={() => setEdition({ ...VIDE, plateforme: d.plateformes[0]?.code || "" })} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white" data-testid="formule-ajouter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nouvelle formule</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -271,7 +272,7 @@ export default function FormulesPlateformesSection() {
           <label className="flex items-center gap-2"><input type="checkbox" checked={edition.actif} onChange={(e) => setEdition({ ...edition, actif: e.target.checked })} />Formule active (proposée à l'achat)</label>
           <div className="flex gap-2">
             <button type="submit" disabled={envoi} className="rounded bg-emerald-600 px-3 py-1.5 text-white">{envoi ? "Patientez…" : "Enregistrer"}</button>
-            <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 px-3 py-1.5">Annuler</button>
+            <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 px-3 py-1.5"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
           </div>
         </form>
       )}

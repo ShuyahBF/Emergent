@@ -7,6 +7,7 @@ import QRCode from "qrcode";
 import SignatureField from "@/components/SignatureField";
 import { ArrowLeft, ArrowRight, Save, RotateCcw, Download, MapPin, Clock, Printer, QrCode, Plus, Trash2, Upload as UploadIcon, X } from "lucide-react";
 
+import { Printer as Ico15Printer } from "lucide-react";
 // Valeurs par défaut des champs (« Valeur par défaut » de l'éditeur, lignes pré-remplies d'un tableau).
 const valeursParDefaut = (form) => Object.fromEntries((form?.pages || []).flatMap((p) => p.fields || [])
   .filter((f) => f.default_value !== null && f.default_value !== undefined && f.default_value !== "")
@@ -155,7 +156,7 @@ export default function FormRunner() {
         ${qrUrl ? `<div style="text-align:center"><img src="${qrUrl}" alt="QR" style="width:120px;height:120px"/><p style="margin:4px 0 0 0;font-size:9px;color:#64748b;max-width:140px;word-break:break-all">${escape(url)}</p></div>` : ""}
       </div>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0">${rowsHtml || '<tr><td style="padding:12px;color:#94a3b8;font-style:italic">Aucune donnée saisie</td></tr>'}</table>
-      <div style="text-align:center;margin-top:32px"><button onclick="window.print()" style="padding:8px 16px;background:#1e90ff;color:white;border:0;border-radius:6px;cursor:pointer">Imprimer / Enregistrer en PDF</button></div>
+      <div style="text-align:center;margin-top:32px"><button onclick="window.print()" style="padding:8px 16px;background:#1e90ff;color:white;border:0;border-radius:6px;cursor:pointer"><Ico15Printer className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Imprimer / Enregistrer en PDF</button></div>
       </body></html>`;
     w.document.open(); w.document.write(html); w.document.close();
   };

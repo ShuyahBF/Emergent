@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { RefreshCw, Radar } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
+import { Check as Ico15Check, Play as Ico15Play } from "lucide-react";
 const ONGLETS = [
   { cle: "a_valider", libelle: "À valider" },
   { cle: "connu", libelle: "Déjà dans le parc" },
@@ -104,8 +105,7 @@ export default function DecouverteReseau() {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={lancer} className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-semibold text-white" data-testid="decouverte-lancer">
-            Lancer une découverte maintenant
-          </button>
+            <Ico15Play className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Lancer une découverte maintenant</button>
           <button type="button" onClick={charger} disabled={chargement} className="rounded-lg border border-slate-300 px-2 py-1.5" title="Actualiser">
             {chargement ? <Jauge /> : <RefreshCw className="h-4 w-4" />}
           </button>
@@ -192,7 +192,7 @@ export default function DecouverteReseau() {
                   <td className="whitespace-nowrap px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                     {onglet === "a_valider" && (
                       <>
-                        <button type="button" onClick={() => agir(a, "valider")} className="mr-1 rounded bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">Valider</button>
+                        <button type="button" onClick={() => agir(a, "valider")} className="mr-1 rounded bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Valider</button>
                         <button type="button" onClick={() => agir(a, "ignorer")} className="rounded border border-slate-300 px-2 py-0.5 text-xs">Ignorer</button>
                       </>
                     )}

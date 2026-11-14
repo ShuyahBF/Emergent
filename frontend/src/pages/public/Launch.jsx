@@ -4,6 +4,7 @@ import axios from "axios";
 import { Loader2, XCircle, ShieldAlert } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 
+import { ArrowLeft as Ico15ArrowLeft } from "lucide-react";
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // Deep-link landing page — resolves the signed token and redirects to the
@@ -97,8 +98,7 @@ export default function Launch() {
               className="mt-5 inline-flex items-center rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"
               data-testid="launch-home-button"
             >
-              Retour au site
-            </button>
+              <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour au site</button>
           </>
         )}
       </div>

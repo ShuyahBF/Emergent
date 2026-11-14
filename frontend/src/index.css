@@ -290,3 +290,21 @@ table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(spa
 .boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n+5) { --filet-bouton: #e11d48; } /* rose */
 .boutons-distincts > :is(button, a[role="button"]):nth-of-type(6n)   { --filet-bouton: #0891b2; } /* cyan */
 .boutons-distincts > button:disabled { outline-color: color-mix(in srgb, var(--filet-bouton, #2563eb) 45%, transparent); }
+
+/* ===================================================================
+   Règle 16 du propriétaire (14/11/2026) — tableaux jamais « tout en noir » :
+   en-tête bleu très clair, filet bleu, titres bleu nuit (contraste > 7:1). Les couleurs des montants, références et échéances
+   sont posées écran par écran. Le survol bleu et la sélection orange (règle 3) ne touchent que le corps du tableau.
+   `!important` : les classes Tailwind (bg-slate-50, text-slate-600…) posées sur les en-têtes sont sinon prioritaires.
+   =================================================================== */
+table thead,
+table thead tr,
+table thead th,
+table thead td {
+  background-color: #eff6ff !important;   /* bleu 50 */
+}
+table thead th,
+table thead td {
+  color: #1e3a8a !important;              /* bleu 900 */
+  border-bottom: 2px solid #93c5fd !important;  /* filet bleu 300 */
+}

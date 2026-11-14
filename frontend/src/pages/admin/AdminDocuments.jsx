@@ -6,6 +6,7 @@ import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 import { getFileIcon, absoluteFileUrl } from "@/lib/fileIcons";
 import ClientAccessSelector from "@/components/ClientAccessSelector";
 
+import { Pencil as Ico15Pencil, Save as Ico15Save, Trash2 as Ico15Trash2 } from "lucide-react";
 const empty = {
   title: "", description: "", category: "documentation",
   file_id: null, file_url: null, file_type: null,
@@ -147,13 +148,13 @@ export default function AdminDocuments() {
               </div>
               <h3 className="font-display font-semibold text-sm truncate" title={it.title}>{it.title}</h3>
               <div className="mt-3 flex flex-wrap gap-3 text-xs">
-                <button onClick={() => open(it)} className="text-sawali-blue hover:underline">Modifier</button>
+                <button onClick={() => open(it)} className="text-sawali-blue hover:underline"><Ico15Pencil className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier</button>
                 {it.file_url && (
                   <button onClick={() => openLogs(it)} className="inline-flex items-center gap-1 text-slate-600 hover:text-sawali-blue" data-testid={`doc-history-${it.id}`}>
                     <History className="h-3 w-3" /> Historique
                   </button>
                 )}
-                <button onClick={() => del(it.id)} className="text-rose-600 hover:underline ml-auto">Supprimer</button>
+                <button onClick={() => del(it.id)} className="text-rose-600 hover:underline ml-auto"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer</button>
               </div>
             </div>
           </div>
@@ -222,7 +223,7 @@ export default function AdminDocuments() {
                 label="Clients autorisés à voir ce document"
                 testIdPrefix="doc-access-clients"
               />
-              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
+              <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             </form>
           </div>
         </div>

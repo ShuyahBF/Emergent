@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ouvrirVoirEnTantQue } from "@/lib/voirEnTantQue";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
+import { Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "", contract_access_mode: "", ticket_seuil_forfait_heures: "", ticket_validite_heures: "", ticket_session_wa_minutes: "", ticket_message_rappel: "", ticket_message_fermeture: "" };
 // Lot 54 — textes par défaut (identiques à backend/tickets_clients.py) affichés en indication
 const MESSAGE_RAPPEL_DEFAUT = "Il vous reste {X} mn avant la fermeture automatique de ce ticket n°{Y}. Parce que d'autres interventions nous attendent, nos sessions sont limitées à {Z} mn.";
@@ -768,7 +769,7 @@ export default function AdminClients() {
                   />
                 </label>
                 {form.logo_url && (
-                  <button type="button" onClick={() => setForm({ ...form, logo_url: "" })} className="text-xs text-rose-600 hover:underline">Retirer</button>
+                  <button type="button" onClick={() => setForm({ ...form, logo_url: "" })} className="text-xs text-rose-600 hover:underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>
                 )}
               </div>
               <p className="mt-1 text-[11px] text-slate-500">Affiché dans la sidebar du portail à la place du logo SAWALI quand l'utilisateur de ce client est connecté.</p>
@@ -1747,7 +1748,7 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                 <span>Envoyer automatiquement le WhatsApp de confirmation (template <code className="bg-white px-1 rounded">{client.payment_confirmation_template || "modèle des Paramètres (confirmation_paiement_client)"}</code>)</span>
               </label>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowForm(false)} className="text-sm px-3 py-1.5 text-slate-600 hover:text-slate-800">Annuler</button>
+                <button onClick={() => setShowForm(false)} className="text-sm px-3 py-1.5 text-slate-600 hover:text-slate-800"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
                 <button
                   onClick={save}
                   disabled={saving}

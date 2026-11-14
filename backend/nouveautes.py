@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "396", "date": "2026-11-14",
+        "titre": "📱 Transactions SMS : association dans une fenêtre centrée, liste défilante",
+        "description": "« Associer » et « Modifier » ouvrent une fenêtre modale centrée (client, plateforme, libellé) : plus besoin de descendre dans la page. La liste se met à jour à la même position et la ligne modifiée clignote ; la liste des transactions défile dans son cadre, en-tête figé.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "395", "date": "2026-11-14",
         "titre": "📱 Transactions SMS : plus de « Associer » sur un numéro déjà lié",
         "description": "Dans la liste, un numéro déjà associé à un client ou à une plateforme affiche « Modifier » (qui ouvre son association) au lieu de « Associer ».",

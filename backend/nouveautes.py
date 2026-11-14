@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "394", "date": "2026-11-14",
+        "titre": "📱 Transactions SMS : modifier l'intitulé d'un téléphone et le client lié à un numéro",
+        "description": "Dans « Transactions SMS », le bouton Modifier permet de renommer un téléphone source (identifiant et clé inchangés) et de changer le client de SAWALI, la plateforme ou le libellé d'une association.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "393", "date": "2026-11-14",
         "titre": "📮 Demandes des plateformes : nouveau menu « Plateformes » ; menus repliés au lancement",
         "description": "Les demandes d'ALBARKA ne sont plus dans les Paramètres (ce n'est pas un paramétrage) : elles ont leur option dans le menu « Plateformes », avec Transactions SMS. Au lancement, tous les menus à sous-menus sont repliés.",

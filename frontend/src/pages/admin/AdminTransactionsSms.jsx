@@ -5,7 +5,7 @@
 // celle-ci retrouve ses paiements sans les ressaisir. Voir backend/routes/transactions_sms.py.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
 
 const fcfa = (v) => `${Number(v || 0).toLocaleString("fr-FR")} FCFA`;
@@ -97,6 +97,9 @@ export default function AdminTransactionsSms() {
   const [lien, setLien] = useState({ cle: "", pays: "226", plateforme: "", client_id: "", libelle: "" });
   const [suggestions, setSuggestions] = useState([]);       // payeurs de numéro connu (client de SAWALI) pas encore associés
 
+  // Modification d'un téléphone (intitulé) ou d'une association (client, plateforme, libellé) : une seule ligne en cours de modification à la fois
+  const [editTel, setEditTel] = useState(null);       // { id, nom }
+  const [editLien, setEditLien] = useState(null);     // { id, client_id, plateforme, libelle }
   const erreur = (e) => toast.error(e?.response?.data?.detail || "Action impossible");
   const chargerEtat = useCallback(() => {
     apiClient.get("/admin/transactions-sms/suggestions").then((r) => setSuggestions(r.data.suggestions)).catch(() => {});
@@ -126,6 +129,8 @@ export default function AdminTransactionsSms() {
   const retirerTel = async (s) => { if (window.confirm(`Retirer « ${s.nom} » ? Il ne pourra plus envoyer (les transactions reçues sont conservées).`)) { try { await apiClient.delete(`/admin/transactions-sms/sources/${s.id}`); chargerEtat(); } catch (e) { erreur(e); } } };
   const creerLien = async () => { try { await apiClient.post("/admin/transactions-sms/liens", lien); setLien({ cle: "", pays: lien.pays, plateforme: lien.plateforme, client_id: "", libelle: "" }); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
   const associerSuggestion = async (x) => { try { await apiClient.post("/admin/transactions-sms/liens", { cle: x.numero, client_id: x.client_id }); await chargerEtat(); charger(nb); toast.success(`Numéro associé à ${x.client_nom}`); } catch (e) { erreur(e); } };
+  const enregistrerTel = async () => { try { await apiClient.put(`/admin/transactions-sms/sources/${editTel.id}`, { nom: editTel.nom }); setEditTel(null); await chargerEtat(); toast.success("Intitulé enregistré"); } catch (e) { erreur(e); } };
+  const enregistrerLien = async () => { try { await apiClient.put(`/admin/transactions-sms/liens/${editLien.id}`, { client_id: editLien.client_id, plateforme: editLien.plateforme, libelle: editLien.libelle }); setEditLien(null); await chargerEtat(); charger(nb); toast.success("Association enregistrée"); } catch (e) { erreur(e); } };
   const retirerLien = async (l) => { try { await apiClient.delete(`/admin/transactions-sms/liens/${l.id}`); await chargerEtat(); charger(nb); } catch (e) { erreur(e); } };
   const exporter = async () => {
     try {
@@ -282,8 +287,16 @@ export default function AdminTransactionsSms() {
         </div>
         {etat.liens.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro / nom</th><th className="p-2">Client de SAWALI</th><th className="p-2">Plateforme</th><th className="p-2">Libellé</th><th className="p-2" /></tr></thead>
-            <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td><td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
-              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
+            <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td>
+              {editLien?.id === l.id ? (<>
+                <td className="p-2"><select className={select} value={editLien.client_id} onChange={(e) => setEditLien({ ...editLien, client_id: e.target.value })} data-testid="edit-lien-client"><option value="">Aucun</option>{etat.clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}</select></td>
+                <td className="p-2"><select className={select} value={editLien.plateforme} onChange={(e) => setEditLien({ ...editLien, plateforme: e.target.value })}><option value="">Aucune</option>{etat.plateformes.map((p) => <option key={p.code} value={p.code}>{p.nom}</option>)}</select></td>
+                <td className="p-2"><input className={select} value={editLien.libelle} onChange={(e) => setEditLien({ ...editLien, libelle: e.target.value })} /></td>
+                <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" disabled={!editLien.client_id && !editLien.plateforme} onClick={enregistrerLien} data-testid="edit-lien-ok"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button><button type="button" className="underline" onClick={() => setEditLien(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button></td>
+              </>) : (<>
+                <td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
+                <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" onClick={() => setEditLien({ id: l.id, client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" })} title="Modifier le client, la plateforme ou le libellé" data-testid={`modifier-lien-${l.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td>
+              </>)}</tr>))}</tbody></table>
         )}
       </section>
 
@@ -305,9 +318,13 @@ export default function AdminTransactionsSms() {
         )}
         {etat.sources.length > 0 && (
           <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Téléphone</th><th className="p-2">Identifiant</th><th className="p-2">Dernier envoi</th><th className="p-2 text-right">Reçues</th><th className="p-2" /></tr></thead>
-            <tbody>{etat.sources.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{s.nom}</td><td className="p-2 font-mono text-xs">{s.id}</td>
+            <tbody>{etat.sources.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{editTel?.id === s.id
+                ? <input className="w-full rounded border border-slate-300 px-2 py-1 text-sm" value={editTel.nom} autoFocus onChange={(e) => setEditTel({ ...editTel, nom: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editTel.nom.trim().length >= 2) enregistrerTel(); if (e.key === "Escape") setEditTel(null); }} data-testid="edit-tel-nom" />
+                : s.nom}</td><td className="p-2 font-mono text-xs">{s.id}</td>
               <td className="p-2">{s.dernier_envoi ? new Date(s.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais"}</td><td className="p-2 text-right tabular-nums">{s.recues || 0}</td>
-              <td className="p-2 text-right"><button type="button" className="underline" onClick={() => retirerTel(s)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
+              <td className="p-2 text-right whitespace-nowrap">{editTel?.id === s.id
+                ? (<><button type="button" className="mr-3 underline" disabled={editTel.nom.trim().length < 2} onClick={enregistrerTel} data-testid="edit-tel-ok"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button><button type="button" className="underline" onClick={() => setEditTel(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button></>)
+                : (<><button type="button" className="mr-3 underline" onClick={() => setEditTel({ id: s.id, nom: s.nom })} title="Modifier l'intitulé du téléphone" data-testid={`modifier-tel-${s.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerTel(s)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></>)}</td></tr>))}</tbody></table>
         )}
       </section>
     </div>

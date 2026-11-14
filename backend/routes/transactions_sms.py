@@ -504,6 +504,21 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         await _ecrire_config(cfg)
         return {"id": ident, "nom": nom, "cle": cle}
 
+    @api.put("/admin/transactions-sms/sources/{ident}", tags=["Transactions SMS — écran"])
+    async def renommer_source(ident: str, request: Request, user: dict = Depends(get_current_user)):
+        """Change l'intitulé d'un téléphone source (l'identifiant et la clé ne changent pas)."""
+        _admin(user)
+        nom = str(((await request.json()) or {}).get("nom") or "").strip()[:60]
+        if len(nom) < 2:
+            raise HTTPException(status_code=422, detail="Donnez un nom au téléphone (ex. Téléphone du bureau)")
+        cfg = await _lire_config()
+        source = next((x for x in cfg["sources"] if x["id"] == ident), None)
+        if not source:
+            raise HTTPException(status_code=404, detail="Téléphone introuvable")
+        source["nom"] = nom
+        await _ecrire_config(cfg)
+        return {"id": ident, "nom": nom}
+
     @api.delete("/admin/transactions-sms/sources/{ident}", tags=["Transactions SMS — écran"])
     async def supprimer_source(ident: str, user: dict = Depends(get_current_user)):
         """Retire le téléphone (il ne peut plus envoyer) ; les transactions déjà reçues sont conservées."""
@@ -540,6 +555,38 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         if client:
             lien.update({"client_id": client["id"], "client_nom": client["nom"]})
         cfg["liens"].append(lien)
+        await _ecrire_config(cfg)
+        return lien
+
+    @api.put("/admin/transactions-sms/liens/{lien_id}", tags=["Transactions SMS — écran"])
+    async def modifier_lien(lien_id: str, request: Request, user: dict = Depends(get_current_user)):
+        """Modifie une association : le CLIENT de SAWALI lié, la PLATEFORME et / ou le libellé (le numéro ou le nom ne change pas : retirez et recréez l'association).
+        Une valeur vide retire le client (ou la plateforme) ; au moins l'un des deux doit rester."""
+        _admin(user)
+        corps = (await request.json()) or {}
+        cfg = await _lire_config()
+        lien = next((l for l in cfg["liens"] if l["id"] == lien_id), None)
+        if not lien:
+            raise HTTPException(status_code=404, detail="Association introuvable")
+        if "plateforme" in corps:
+            plateforme = str(corps.get("plateforme") or "").strip().lower()
+            if plateforme and plateforme not in {e["code"] for e in await _emetteurs()}:
+                raise HTTPException(status_code=422, detail="Choisissez une plateforme de la liste")
+            lien["plateforme"] = plateforme or None
+        if "client_id" in corps:
+            client_id = str(corps.get("client_id") or "").strip()
+            if client_id:
+                client = next((c for c in await _clients() if c["id"] == client_id), None)
+                if not client:
+                    raise HTTPException(status_code=422, detail="Choisissez un client de la liste de SAWALI")
+                lien["client_id"], lien["client_nom"] = client["id"], client["nom"]
+            else:
+                lien.pop("client_id", None)
+                lien.pop("client_nom", None)
+        if not lien.get("plateforme") and not lien.get("client_id"):
+            raise HTTPException(status_code=422, detail="Gardez au moins une plateforme ou un client de SAWALI")
+        if "libelle" in corps:
+            lien["libelle"] = str(corps.get("libelle") or "").strip()[:80] or lien.get("client_nom") or lien.get("plateforme") or ""
         await _ecrire_config(cfg)
         return lien
 

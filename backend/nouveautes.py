@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "420", "date": "2026-11-15",
+        "titre": "🛡️ Ma Télé : dossier du demandeur pour décider de l'approbation",
+        "description": "Chaque demande arrive avec téléphone, e-mail vérifié par code, adresse IP et lieu, détails du téléphone, un captcha anti-robots et des indicateurs de risque (VPN, e-mail jetable, doublons, émulateur…).",
+        "rubrique": "👨‍👩‍👧 Télé des familles (Personnel de maison)",
+    },
+    {
         "lot": "419", "date": "2026-11-15",
         "titre": "👨‍👩‍👧 Télé des familles : approbation de SAWALI et télés offertes",
         "description": "Chaque appareil Personnel de maison demande l'accès à la télé, vous l'acceptez ou le refusez (même pour une seule télé) ; l'abonnement n'est nécessaire qu'à partir de 2 télés simultanées (nombre de télés offertes réglable).",

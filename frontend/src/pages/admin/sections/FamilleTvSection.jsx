@@ -1,21 +1,25 @@
-// FamilleTvSection.jsx — Lot 419 : « Télé des familles » (Personnel de maison) — approbation des demandes d'accès et télés offertes.
+// FamilleTvSection.jsx — Lots 419-420 (420 : dossier du demandeur : téléphone, e-mail vérifié, IP, appareil, indicateurs de risque) : « Télé des familles » (Personnel de maison) — approbation des demandes d'accès et télés offertes.
 // Règle du propriétaire (15/11/2026) : l'approbation de SAWALI est TOUJOURS exigée, même pour un seul téléviseur (comme pour l'agenda Google) ; l'abonnement
 // n'est nécessaire qu'à partir de 2 télés simultanées (nombre de télés offertes réglable ici). Les formules payantes se créent dans « Formules des plateformes ».
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Tv, RefreshCw, Loader2, Check, X, ShieldCheck, Save } from "lucide-react";
+import { Tv, RefreshCw, Loader2, Check, X, ShieldCheck, Save, FileSearch, MailCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import ThTri from "@/components/ThTri";            // règle 19 : toutes les colonnes triables
 import { useTri } from "@/lib/tri";
 
+// Niveau de risque : pastille de couleur ET texte (jamais la couleur seule)
+const NIVEAUX = { faible: ["🟢 Faible", "bg-emerald-100 text-emerald-800"], moyen: ["🟠 Moyen", "bg-amber-100 text-amber-800"], eleve: ["🔴 Élevé", "bg-red-100 text-red-700"] };
+const POIDS = { 0: "ℹ️", 1: "⚠️", 2: "⚠️", 3: "⛔" };
 const ETATS = { attente: ["⏳ En attente", "bg-amber-100 text-amber-800"], accepte: ["✅ Acceptée", "bg-emerald-100 text-emerald-800"], refuse: ["⛔ Refusée", "bg-red-100 text-red-700"] };
 
 export default function FamilleTvSection() {
   const [etat, setEtat] = useState(null);
   const [chargement, setChargement] = useState(false);
   const [offertes, setOffertes] = useState("1");
-  const tri = useTri(etat?.demandes || [], { quand: (d) => d.cree_le, nom: (d) => d.nom, lieu: (d) => d.lieu, etat: (d) => d.etat, postes: (d) => d.postes }, { cle: "quand", sens: "desc" });
+  const [dossier, setDossier] = useState(null);           // dossier détaillé du demandeur ouvert (indicateurs, demandes liées)
+  const tri = useTri(etat?.demandes || [], { quand: (d) => d.cree_le, nom: (d) => d.nom, tel: (d) => d.tel, email: (d) => d.email, ip: (d) => d.ip, appareil: (d) => d.appareil_resume, score: (d) => d.score, lieu: (d) => d.lieu, etat: (d) => d.etat, postes: (d) => d.postes }, { cle: "quand", sens: "desc" });
 
   const charger = useCallback(async (annonce = true) => {
     setChargement(true);
@@ -34,6 +38,12 @@ export default function FamilleTvSection() {
     toast.info(decision === "accepte" ? "Acceptation en cours…" : "Refus en cours…");
     try { await apiClient.post(`/admin/famille-tv/demandes/${d.id}`, { decision }); toast.success(decision === "accepte" ? `Accès accepté pour ${d.nom || "l'appareil"}` : `Accès refusé pour ${d.nom || "l'appareil"}`); await charger(false); }
     catch (e) { toast.error(e?.response?.data?.detail || "Décision non enregistrée"); }
+  };
+  // Ouvre le dossier complet d'un demandeur (toast « en cours » puis résultat, règle 17)
+  const ouvrirDossier = async (d) => {
+    toast.info("Ouverture du dossier en cours…");
+    try { const { data } = await apiClient.get(`/admin/famille-tv/demandes/${d.id}/dossier`); setDossier(data); toast.success(`Dossier de ${d.nom || "l'appareil"} : risque ${NIVEAUX[data.niveau]?.[0] || data.niveau}`); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Dossier illisible"); }
   };
   const regler = async (corps, message) => {
     toast.info("Enregistrement du réglage en cours…");
@@ -73,22 +83,49 @@ export default function FamilleTvSection() {
         <div className="space-y-2" data-testid="famille-tv-demandes">
           <h4 className="text-sm font-semibold text-slate-800">Demandes d'accès</h4>
           {tri.lignes.length === 0 ? <p className="text-sm text-slate-500">Aucune demande pour l'instant.</p> : (
-            <div className="max-h-72 overflow-auto"><table className="tableau w-full text-sm">
+            <div className="max-h-96 overflow-auto"><table className="tableau w-full text-sm">
               <thead><tr className="text-left">
                 <ThTri cle="quand" tri={tri.tri} onTri={tri.basculer}>Demande</ThTri><ThTri cle="nom" tri={tri.tri} onTri={tri.basculer}>Détenteur</ThTri>
-                <ThTri cle="lieu" tri={tri.tri} onTri={tri.basculer}>Où est la télé</ThTri><ThTri cle="postes" tri={tri.tri} onTri={tri.basculer}>Télés</ThTri>
+                <ThTri cle="lieu" tri={tri.tri} onTri={tri.basculer}>Où est la télé</ThTri>
+                <ThTri cle="tel" tri={tri.tri} onTri={tri.basculer}>Téléphone</ThTri><ThTri cle="email" tri={tri.tri} onTri={tri.basculer}>E-mail</ThTri>
+                <ThTri cle="ip" tri={tri.tri} onTri={tri.basculer}>IP</ThTri><ThTri cle="appareil" tri={tri.tri} onTri={tri.basculer}>Appareil</ThTri>
+                <ThTri cle="score" tri={tri.tri} onTri={tri.basculer}>Risque</ThTri><ThTri cle="postes" tri={tri.tri} onTri={tri.basculer}>Télés</ThTri>
                 <ThTri cle="etat" tri={tri.tri} onTri={tri.basculer}>État</ThTri><th className="p-2" /></tr></thead>
               <tbody>{tri.lignes.map((d) => (
                 <tr key={d.id} className="border-t border-slate-100">
                   <td className="whitespace-nowrap p-2 text-xs">{d.cree_le ? new Date(d.cree_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-                  <td className="p-2 font-medium">{d.nom || "—"}</td><td className="p-2 text-slate-600">{d.lieu || "—"}</td><td className="p-2 tabular-nums text-right">{d.postes}</td>
+                  <td className="p-2 font-medium">{d.nom || "—"}</td><td className="p-2 text-slate-600">{d.lieu || "—"}</td>
+                  <td className="whitespace-nowrap p-2 tabular-nums text-xs text-sky-800">{d.tel || "—"}</td>
+                  <td className="p-2 text-xs">{d.email || "—"} {d.email_verifie && <span title="Adresse vérifiée par code reçu" className="inline-flex items-center gap-0.5 text-emerald-700"><MailCheck className="h-3.5 w-3.5" />vérifié</span>}</td>
+                  <td className="whitespace-nowrap p-2 tabular-nums text-xs">{d.ip || "—"}{d.pays_ip ? ` (${d.pays_ip})` : ""}</td>
+                  <td className="p-2 text-xs text-slate-600">{d.appareil_resume || "—"}</td>
+                  <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${NIVEAUX[d.niveau]?.[1] || ""}`}>{NIVEAUX[d.niveau]?.[0] || "—"}</span></td><td className="p-2 tabular-nums text-right">{d.postes}</td>
                   <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ETATS[d.etat]?.[1] || ""}`}>{ETATS[d.etat]?.[0] || d.etat}</span></td>
                   <td className="whitespace-nowrap p-2 text-right">
+                    <button type="button" onClick={() => ouvrirDossier(d)} title="Voir le dossier du demandeur" aria-label={`Dossier de ${d.nom || "l'appareil"}`} className="mr-2 inline-flex items-center gap-1 rounded border border-sky-300 px-2 py-1 text-xs font-semibold text-sky-800"><FileSearch className="h-3.5 w-3.5" />Dossier</button>
                     {d.etat !== "accepte" && <button type="button" onClick={() => decider(d, "accepte")} className="mr-2 inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" />Accepter</button>}
                     {d.etat !== "refuse" && <button type="button" onClick={() => decider(d, "refuse")} className="inline-flex items-center gap-1 rounded border border-red-300 px-2 py-1 text-xs font-semibold text-red-700"><X className="h-3.5 w-3.5" />{d.etat === "accepte" ? "Retirer l'accès" : "Refuser"}</button>}
                   </td></tr>))}</tbody>
             </table></div>)}
         </div>
+        {dossier && (
+          <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/40 p-3 text-sm" data-testid="famille-tv-dossier">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-slate-800">Dossier de {dossier.nom || "l'appareil"} — risque <span className={`rounded-full px-2 py-0.5 text-xs ${NIVEAUX[dossier.niveau]?.[1] || ""}`}>{NIVEAUX[dossier.niveau]?.[0]}</span> (score {dossier.score})</h4>
+              <button type="button" onClick={() => setDossier(null)} aria-label="Fermer le dossier" className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs"><X className="h-3.5 w-3.5" />Fermer</button>
+            </div>
+            <ul className="grid gap-1 text-xs text-slate-700 sm:grid-cols-2">
+              <li>📞 Téléphone : <b>{dossier.telephone?.e164 || "—"}</b> ({dossier.telephone?.pays || "?"})</li>
+              <li>✉️ E-mail : <b>{dossier.email || "—"}</b> {dossier.email_verifie ? "✔ vérifié par code" : "non vérifié"}</li>
+              <li>🌐 IP : <b>{dossier.ip || "—"}</b> — {[dossier.ip_infos?.ville, dossier.ip_infos?.pays, dossier.ip_infos?.fai].filter(Boolean).join(" · ") || "lieu inconnu"}</li>
+              <li>📱 Appareil : <b>{[dossier.appareil?.marque, dossier.appareil?.modele].filter(Boolean).join(" ") || "—"}</b> · Android {dossier.appareil?.android || "?"} · {dossier.appareil?.langue || ""} {dossier.appareil?.fuseau || ""}</li>
+              <li>🏠 Lieu indiqué : <b>{dossier.lieu || "—"}</b></li><li>👨‍👩‍👧 Liens de famille vérifiés : <b>{dossier.liens_verifies}</b></li>
+            </ul>
+            <ul className="space-y-1" data-testid="famille-tv-indicateurs">
+              {dossier.indicateurs.map((i) => <li key={i.code} className="text-xs text-slate-800">{POIDS[i.poids] || "•"} {i.texte}</li>)}
+            </ul>
+            {dossier.demandes_liees?.length > 0 && <p className="text-xs text-slate-700">🔗 Demandes liées : {dossier.demandes_liees.map((x) => `${x.nom || x.id} (${x.etat}; ${x.raison.join(", ")})`).join(" · ")}</p>}
+          </div>)}
         <p className="text-sm text-slate-700"><span className="font-semibold">{etat.postes_appaires}</span> télé(s) appairée(s) par des appareils « Personnel de maison ».</p>
       </>)}
     </div>

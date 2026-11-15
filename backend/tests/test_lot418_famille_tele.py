@@ -21,11 +21,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 import routes.formules_plateformes as fp  # noqa: E402
 from routes import famille_tv as ft  # noqa: E402
 from routes import tv_video as tv  # noqa: E402
+import famille_tv_dossier as fd  # noqa: E402
 from routes.ecran_tv import empreinte  # noqa: E402
 from services import famille as fam  # noqa: E402
 
 HOTES = {"sandbox": "https://pp.test", "production": "https://pp.test"}
 MO = 1024 * 1024
+ENVOYES: list = []          # e-mails « envoyés » par le banc d'essai : (destinataire, sujet, texte)
+
+
+async def _faux_envoi(to, sujet, html, texte):
+    ENVOYES.append((to, sujet, texte))
+    return True
+
+
+async def _faux_geo(ip):
+    return {"pays": "Burkina Faso", "code_pays": "BF", "ville": "Ouagadougou", "fai": "Orange BF", "mobile": True, "proxy": False, "hebergeur": False}
 
 
 def _run(c):
@@ -67,7 +78,9 @@ def banc():
     routeur = fp.make_formules_plateformes(db=db, get_super_admin=lambda: {"role": "admin"}, hooks_apres_paiement=hooks,
                                            pawapay={"jeton": lambda s: "jeton", "hotes": HOTES, "devise": lambda pays: "XOF"})
     api.include_router(routeur)
-    ft.setup_famille_tv_routes(db=db, api=api, outils=routeur.outils, authentifier=fam.authentifier, get_current_admin=admin)
+    ENVOYES.clear()
+    fd._localiser_remplace = _faux_geo
+    ft.setup_famille_tv_routes(db=db, api=api, outils=routeur.outils, authentifier=fam.authentifier, get_current_admin=admin, envoyer_email=_faux_envoi)
     tv.setup_tv_video_routes(db=db, api=api, get_current_admin=admin)
     app = FastAPI(); app.include_router(api)
     return TestClient(app), db, hooks
@@ -77,6 +90,18 @@ def _approuver(db, *cids, etat="accepte"):
     """Demandes d'accès acceptées par l'administrateur de SAWALI (lot 419 : exigées même pour une seule télé)."""
     for cid in cids:
         _run(db.settings.update_one({"_id": "famille-tv-config"}, {"$push": {"demandes": {"id": cid, "compte_id": cid, "nom": cid, "lieu": "", "etat": etat, "cree_le": "2026-11-15T08:00:00+00:00", "decide_le": None}}}, upsert=True))
+
+
+APPAREIL = {"marque": "samsung", "modele": "SM-A135F", "android": "14", "sdk": "34", "langue": "fr-FR", "fuseau": "Africa/Ouagadougou", "ecran": "1080x2408", "app_version": "1.32", "emulateur": False}
+
+
+def _demande_complete(c, cid, lieu="Salon de Mme Awa", email="awa@example.com", tel="70 12 34 56", appareil=None, entetes=None):
+    """Parcours complet du détenteur : captcha recopié, code reçu par e-mail, demande avec le dossier."""
+    jeton, texte, _ = fd.fabriquer_captcha()
+    r1 = c.post("/api/famille/tv/verification", headers={**_hdr(cid), **(entetes or {})}, json={"telephone": tel, "email": email, "captcha_jeton": jeton, "captcha_reponse": texte})
+    assert r1.status_code == 200, r1.text
+    code = ENVOYES[-1][2].split(" : ")[1].split(" ")[0]
+    return c.post("/api/famille/tv/demander", headers={**_hdr(cid), **(entetes or {})}, json={"lieu": lieu, "code_email": code, "appareil": appareil or APPAREIL})
 
 
 def _abonner(db, cid, fid="f-foyer", appareils=2, postes=2, jours=30):
@@ -114,7 +139,7 @@ def test_approbation_de_sawali_toujours_exigee_meme_pour_une_tele(banc):
         assert r.status_code == 403 and r.json()["detail"]["code"] == "approbation_requise" and r.json()["detail"]["etat"] == "aucune"
     assert c.get("/api/famille/tv/abonnement", headers=_hdr("A")).json()["approbation"] == "aucune"
     # le détenteur demande l'accès (en indiquant où est la télé) : en attente, toujours refusé
-    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "Salon de Mme Awa"}).json()["etat"] == "attente"
+    assert _demande_complete(c, "A", lieu="Salon de Mme Awa").json()["etat"] == "attente"
     r = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA"})
     assert r.status_code == 403 and r.json()["detail"]["etat"] == "attente"
     # l'administrateur voit la demande, l'accepte : la télé s'appaire
@@ -123,7 +148,7 @@ def test_approbation_de_sawali_toujours_exigee_meme_pour_une_tele(banc):
     assert c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "accepte"}).json()["etat"] == "accepte"
     assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA", "nom": "Salon"}).status_code == 200
     # une demande acceptée n'est pas écrasée par une nouvelle demande
-    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "autre"}).json()["etat"] == "accepte"
+    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "autre"}).json()["etat"] == "accepte"      # pas besoin de re-vérifier
     # refus ensuite : accès retiré et télés déliées
     assert c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "refuse"}).status_code == 200
     assert c.get("/api/famille/tv/ecrans", headers=_hdr("A")).json()["ecrans"] == []
@@ -273,3 +298,117 @@ def test_meilleur_abonnement_prend_le_plus_grand_foyer():
     assert ft.meilleur_abonnement(m)["appareils"] == 3
     assert ft.meilleur_abonnement({"abonnements": {"x": {"fonctions": ["tv_video"], "expire_le": _futur(-1)}}}) is None
     assert ft.meilleur_abonnement({"abonnements": {"x": {"fonctions": ["tv_video"], "expire_le": _futur(5)}}})["postes_tv"] == 1    # limites absentes : 1 et 1
+
+
+# ---------- Lot 420 : dossier du demandeur (captcha, e-mail vérifié, IP, appareil, indicateurs) ----------
+def _verif(c, cid, **corps):
+    jeton, texte, _ = fd.fabriquer_captcha()
+    base = {"telephone": "70 12 34 56", "email": "awa@example.com", "captcha_jeton": jeton, "captcha_reponse": texte}
+    return c.post("/api/famille/tv/verification", headers=_hdr(cid), json={**base, **corps})
+
+
+def test_captcha_image_signee_a_usage_unique(banc):
+    c, db, _ = banc
+    g = c.get("/api/famille/tv/captcha", headers=_hdr("A")).json()
+    assert g["image"].startswith("data:image/png;base64,") and len(g["jeton"].split(".")) == 3 and g["validite_s"] == 600
+    assert c.get("/api/famille/tv/captcha").status_code == 401
+    jeton, texte, _ = fd.fabriquer_captcha()
+    ok = {"telephone": "70123456", "email": "awa@example.com", "captcha_jeton": jeton}
+    assert c.post("/api/famille/tv/verification", headers=_hdr("A"), json={**ok, "captcha_reponse": "XXXXX"}).status_code == 422                 # mauvaise réponse
+    assert c.post("/api/famille/tv/verification", headers=_hdr("A"), json={**ok, "captcha_reponse": " " + texte.lower() + " "}).status_code == 200  # casse et espaces tolérés
+    r = c.post("/api/famille/tv/verification", headers=_hdr("A"), json={**ok, "captcha_reponse": texte})
+    assert r.status_code == 422 and "déjà servi" in r.json()["detail"]                                                                           # usage unique
+    vieux, texte2, _ = fd.fabriquer_captcha(maintenant=1_000_000_000)
+    assert c.post("/api/famille/tv/verification", headers=_hdr("A"), json={**ok, "captcha_jeton": vieux, "captcha_reponse": texte2}).status_code == 422   # expiré
+
+
+def test_verification_valide_les_coordonnees_et_envoie_le_code_par_email(banc):
+    c, db, _ = banc
+    assert _verif(c, "A", telephone="12").status_code == 422
+    assert _verif(c, "A", email="pas-un-email").status_code == 422
+    r = _verif(c, "A")
+    assert r.status_code == 200 and r.json()["email_masque"] == "aw•••@example.com" and r.json()["validite_minutes"] == 15
+    to, sujet, texte = ENVOYES[-1]
+    assert to == "awa@example.com" and "SAWALI" in sujet and "15 minutes" in texte
+    # plus de 5 codes par heure et par compte
+    for _ in range(4):
+        assert _verif(c, "A").status_code == 200
+    assert _verif(c, "A").status_code == 429
+
+
+def test_demande_refusee_sans_le_bon_code(banc):
+    c, db, _ = banc
+    demande = lambda code: c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "Salon", "code_email": code, "appareil": APPAREIL})
+    assert demande("123456").status_code == 422 and "Vérifiez d'abord" in demande("123456").json()["detail"]     # sans code demandé
+    assert _verif(c, "A").status_code == 200
+    vrai = ENVOYES[-1][2].split(" : ")[1].split(" ")[0]
+    faux = "000000" if vrai != "000000" else "111111"
+    for _ in range(5):
+        assert demande(faux).status_code == 422
+    assert demande(vrai).status_code == 429                                                                       # 5 essais ratés : il faut un nouveau code
+    assert _verif(c, "A").status_code == 200
+    assert demande(ENVOYES[-1][2].split(" : ")[1].split(" ")[0]).status_code == 200
+
+
+def test_le_dossier_du_demandeur_est_enregistre_et_evalue(banc):
+    c, db, _ = banc
+    _run(db.famille_comptes.update_one({"_id": "A"}, {"$set": {"cree_le": datetime.now(timezone.utc) - timedelta(days=30)}}))
+    assert _demande_complete(c, "A", entetes={"x-forwarded-for": "41.138.1.2, 10.0.0.1"}).status_code == 200
+    assert _demande_complete(c, "A").status_code == 409                                                         # déjà en attente
+    adm = {"x-admin": "1"}
+    liste = c.get("/api/admin/famille-tv/etat", headers=adm).json()["demandes"][0]
+    assert liste["tel"] == "+22670123456" and liste["email_verifie"] is True and liste["pays_ip"] == "BF" and liste["appareil_resume"] == "samsung SM-A135F · Android 14"
+    d = c.get("/api/admin/famille-tv/demandes/A/dossier", headers=adm).json()
+    assert d["ip"] == "41.138.1.2" and d["ip_infos"]["ville"] == "Ouagadougou" and d["telephone"] == {"e164": "+22670123456", "pays": "BF", "indicatif": "226"}
+    assert d["email"] == "awa@example.com" and d["appareil"]["modele"] == "SM-A135F" and d["lieu"] == "Salon de Mme Awa" and d["liens_verifies"] == 2
+    codes = {i["code"] for i in d["indicateurs"]}
+    assert {"email_verifie", "pays_coherent", "avec_liens"} <= codes and d["niveau"] == "faible" and d["score"] == 0
+    assert c.get("/api/admin/famille-tv/demandes/A/dossier").status_code == 403
+    assert c.get("/api/admin/famille-tv/demandes/zzz/dossier", headers=adm).status_code == 404
+
+
+def test_doublons_et_signaux_de_risque_remontent_au_niveau_eleve(banc):
+    c, db, _ = banc
+    async def vpn(ip):
+        return {"pays": "France", "code_pays": "FR", "ville": "Paris", "fai": "OVH", "mobile": False, "proxy": True, "hebergeur": True}
+    adm = {"x-admin": "1"}
+    assert _demande_complete(c, "A", email="un@example.com", tel="70 11 11 11", entetes={"x-forwarded-for": "41.138.1.2"}).status_code == 200
+    c.post("/api/admin/famille-tv/demandes/A", headers=adm, json={"decision": "refuse"})                      # A est refusé
+    fd._localiser_remplace = vpn
+    # D (compte créé à l'instant, sans proche) redemande avec le MÊME téléphone, la même IP, un e-mail jetable et un émulateur, derrière un VPN
+    r = _demande_complete(c, "D", email="x@mailinator.com", tel="+226 70 11 11 11", appareil={**APPAREIL, "emulateur": True}, entetes={"x-forwarded-for": "41.138.1.2"})
+    assert r.status_code == 200
+    d = c.get("/api/admin/famille-tv/demandes/D/dossier", headers=adm).json()
+    codes = {i["code"] for i in d["indicateurs"]}
+    assert {"email_jetable", "ip_proxy", "pays_different", "emulateur", "tel_double", "deja_refuse", "sans_lien", "ip_partagee"} <= codes
+    assert d["niveau"] == "eleve" and d["score"] >= 6 and [x["id"] for x in d["demandes_liees"]] == ["A"] and set(d["demandes_liees"][0]["raison"]) == {"même IP", "même téléphone"}
+    assert [x["niveau"] for x in c.get("/api/admin/famille-tv/etat", headers=adm).json()["demandes"] if x["id"] == "D"] == ["eleve"]
+
+
+def test_demande_refusee_puis_nouvelle_demande_seulement_apres_24_heures(banc):
+    c, db, _ = banc
+    assert _demande_complete(c, "A").status_code == 200
+    c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "refuse"})
+    r = _demande_complete(c, "A", email="autre@example.com")
+    assert r.status_code == 429 and "24 heures" in r.json()["detail"]
+
+
+def test_limite_de_demandes_par_adresse_ip(banc):
+    c, db, _ = banc
+    _run(db.famille_comptes.insert_many([{"_id": f"X{i}", "nom": f"X{i}", "jeton_hash": fam.empreinte_jeton(f"jeton-X{i}")} for i in range(7)]))
+    statuts = [_demande_complete(c, f"X{i}", email=f"x{i}@example.com", tel=f"70 00 00 0{i}", entetes={"x-forwarded-for": "41.0.0.9"}).status_code for i in range(7)]
+    assert statuts == [200] * 5 + [429] * 2                                                                    # 5 comptes déjà vus avec cette IP en 24 h : le 6e et le 7e sont bloqués
+
+
+def test_fonctions_pures_du_dossier():
+    assert fd.normaliser_telephone("70 12 34 56") == {"e164": "+22670123456", "pays": "BF", "indicatif": "226"}
+    assert fd.normaliser_telephone("+33 6 12 34 56 78")["pays"] == "FR" and fd.normaliser_telephone("0022507123456")["pays"] == "CI"
+    assert fd.normaliser_telephone("123") is None and fd.normaliser_telephone("abc") is None
+    assert fd.email_valide("awa.badini@gmail.com") and not fd.email_valide("awa@") and fd.email_jetable("a@YOPMAIL.com") and not fd.email_jetable("a@gmail.com")
+    assert fd.masquer_email("awa.badini@gmail.com") == "aw•••@gmail.com"
+    assert fd.ip_client({"x-forwarded-for": "41.1.1.1, 10.0.0.1"}, "10.0.0.2") == "41.1.1.1" and fd.ip_client({}, "10.0.0.2") == "10.0.0.2"
+    assert fd.ip_publique("41.138.1.2") and not fd.ip_publique("192.168.1.5") and not fd.ip_publique("127.0.0.1") and not fd.ip_publique("pas-une-ip")
+    assert fd.nettoyer_appareil({"marque": "x" * 99, "modele": "A\nB", "serie": "SECRET", "emulateur": 1}) == {"marque": "x" * 40, "modele": "AB", "emulateur": True}
+    assert fd.empreinte_code("A", "123456") != fd.empreinte_code("B", "123456")                                  # un code ne vaut que pour son compte
+    ev = fd.evaluer({"id": "A", "email": "a@mailinator.com", "email_verifie": True, "telephone": {"e164": "+1", "pays": "BF"}, "ip": "1.1.1.1", "ip_infos": {"code_pays": "BF"}, "appareil": {}, "liens_verifies": 1}, [], "2026-11-15T10:00:00+00:00")
+    assert ev["score"] == 2 and ev["niveau"] == "faible" and ev["indicateurs"][0]["code"] == "email_jetable"

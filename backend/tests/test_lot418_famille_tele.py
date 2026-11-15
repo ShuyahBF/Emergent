@@ -67,10 +67,16 @@ def banc():
     routeur = fp.make_formules_plateformes(db=db, get_super_admin=lambda: {"role": "admin"}, hooks_apres_paiement=hooks,
                                            pawapay={"jeton": lambda s: "jeton", "hotes": HOTES, "devise": lambda pays: "XOF"})
     api.include_router(routeur)
-    ft.setup_famille_tv_routes(db=db, api=api, outils=routeur.outils, authentifier=fam.authentifier)
+    ft.setup_famille_tv_routes(db=db, api=api, outils=routeur.outils, authentifier=fam.authentifier, get_current_admin=admin)
     tv.setup_tv_video_routes(db=db, api=api, get_current_admin=admin)
     app = FastAPI(); app.include_router(api)
     return TestClient(app), db, hooks
+
+
+def _approuver(db, *cids, etat="accepte"):
+    """Demandes d'accès acceptées par l'administrateur de SAWALI (lot 419 : exigées même pour une seule télé)."""
+    for cid in cids:
+        _run(db.settings.update_one({"_id": "famille-tv-config"}, {"$push": {"demandes": {"id": cid, "compte_id": cid, "nom": cid, "lieu": "", "etat": etat, "cree_le": "2026-11-15T08:00:00+00:00", "decide_le": None}}}, upsert=True))
 
 
 def _abonner(db, cid, fid="f-foyer", appareils=2, postes=2, jours=30):
@@ -84,19 +90,65 @@ def _telé(c, db, secret, code):
     return secret
 
 
-def test_sans_abonnement_402_et_catalogue_des_formules_tele(banc):
+def test_sans_abonnement_une_tele_offerte_la_deuxieme_demande_un_abonnement(banc):
     c, db, _ = banc
+    _approuver(db, "A")
     r = c.get("/api/famille/tv/abonnement", headers=_hdr("A")).json()
     assert r["actif"] is False and [f["id"] for f in r["formules"]] == ["f-solo", "f-foyer"]            # la formule OCR n'est pas proposée ici
     assert r["formules"][1]["limites"] == {"appareils": 2, "postes_tv": 2} and r["formules"][1]["prix"] == 2500
-    _telé(c, db, "secret-tele-0123456789a", "ABC123")
-    e = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "abc-123", "nom": "Salon"})
-    assert e.status_code == 402 and e.json()["detail"]["code"] == "abonnement_requis" and "Télé 1 appareil" in e.json()["detail"]["message"]
+    assert r["effectif"] == {"postes_tv": 1, "postes_utilises": 0, "abonne": False} and r["approbation"] == "accepte"
+    _telé(c, db, "secret-tele-0123456789a", "ABC123"); _telé(c, db, "secret-tele-0123456789b", "DEF456")
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "abc-123", "nom": "Salon"}).status_code == 200      # la première télé est offerte
+    e = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "DEF456", "nom": "Chambre"})
+    assert e.status_code == 402 and e.json()["detail"]["code"] == "abonnement_requis" and "Télé 1 appareil" in e.json()["detail"]["message"] and "2 télés simultanées" in e.json()["detail"]["message"]
     assert c.get("/api/famille/tv/abonnement").status_code == 401                                       # appareil non reconnu
+
+
+def test_approbation_de_sawali_toujours_exigee_meme_pour_une_tele(banc):
+    c, db, _ = banc
+    _telé(c, db, "secret-tele-0123456789a", "AAAAAA")
+    # sans demande : tout est refusé, avec le code « approbation_requise »
+    for appel in (lambda: c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA"}), lambda: c.get("/api/famille/tv/videos", headers=_hdr("A")),
+                  lambda: c.post("/api/famille/tv/acheter", headers=_hdr("A"), json={"formule_id": "f-foyer"})):
+        r = appel()
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "approbation_requise" and r.json()["detail"]["etat"] == "aucune"
+    assert c.get("/api/famille/tv/abonnement", headers=_hdr("A")).json()["approbation"] == "aucune"
+    # le détenteur demande l'accès (en indiquant où est la télé) : en attente, toujours refusé
+    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "Salon de Mme Awa"}).json()["etat"] == "attente"
+    r = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA"})
+    assert r.status_code == 403 and r.json()["detail"]["etat"] == "attente"
+    # l'administrateur voit la demande, l'accepte : la télé s'appaire
+    etat = c.get("/api/admin/famille-tv/etat", headers={"x-admin": "1"}).json()
+    assert etat["approbation"] is True and etat["postes_gratuits"] == 1 and [(d["id"], d["lieu"], d["etat"]) for d in etat["demandes"]] == [("A", "Salon de Mme Awa", "attente")]
+    assert c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "accepte"}).json()["etat"] == "accepte"
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA", "nom": "Salon"}).status_code == 200
+    # une demande acceptée n'est pas écrasée par une nouvelle demande
+    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"lieu": "autre"}).json()["etat"] == "accepte"
+    # refus ensuite : accès retiré et télés déliées
+    assert c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "refuse"}).status_code == 200
+    assert c.get("/api/famille/tv/ecrans", headers=_hdr("A")).json()["ecrans"] == []
+    assert c.get("/api/famille/tv/videos", headers=_hdr("A")).json()["detail"]["etat"] == "refuse"
+    # contrôles de l'administrateur
+    assert c.post("/api/admin/famille-tv/demandes/A", json={"decision": "accepte"}).status_code == 403
+    assert c.post("/api/admin/famille-tv/demandes/A", headers={"x-admin": "1"}, json={"decision": "peut-etre"}).status_code == 422
+    assert c.post("/api/admin/famille-tv/demandes/inconnue", headers={"x-admin": "1"}, json={"decision": "accepte"}).status_code == 404
+
+
+def test_reglages_de_l_approbation_et_des_postes_offerts(banc):
+    c, db, _ = banc
+    assert c.put("/api/admin/famille-tv/reglages", headers={"x-admin": "1"}, json={"postes_gratuits": 0}).status_code == 422
+    assert c.put("/api/admin/famille-tv/reglages", headers={"x-admin": "1"}, json={"postes_gratuits": 2}).json()["postes_gratuits"] == 2
+    _approuver(db, "A")
+    _telé(c, db, "secret-tele-0123456789a", "AAAAAA"); _telé(c, db, "secret-tele-0123456789b", "BBBBBB"); _telé(c, db, "secret-tele-0123456789c", "CCCCCC")
+    assert [c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": k}).status_code for k in ("AAAAAA", "BBBBBB", "CCCCCC")] == [200, 200, 402]     # 2 offertes
+    # approbation désactivée : plus de demande à faire
+    assert c.put("/api/admin/famille-tv/reglages", headers={"x-admin": "1"}, json={"approbation": False}).json()["approbation"] is False
+    assert c.get("/api/famille/tv/abonnement", headers=_hdr("D")).json()["approbation"] == "accepte"
 
 
 def test_appairage_limite_de_postes_tv_et_retrait(banc):
     c, db, _ = banc
+    _approuver(db, "A")
     _abonner(db, "A", appareils=1, postes=1)
     _telé(c, db, "secret-tele-0123456789a", "AAAAAA"); _telé(c, db, "secret-tele-0123456789b", "BBBBBB")
     r = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "aaaaaa", "nom": "Salon"})
@@ -111,6 +163,7 @@ def test_appairage_limite_de_postes_tv_et_retrait(banc):
 
 def test_foyer_appareils_couverts_selon_la_formule(banc):
     c, db, _ = banc
+    _approuver(db, "A", "B", "C", "D")
     _abonner(db, "A", appareils=2, postes=2)                      # A + 1 appareil couvert : B (premier lien vérifié) ; C n'est pas couvert
     r = c.get("/api/famille/tv/abonnement", headers=_hdr("B")).json()
     assert r["actif"] is True and r["role"] == "couvert" and r["titulaire"] == "Awa" and r["appareils_couverts"] == ["Awa", "Boureima"]
@@ -123,19 +176,39 @@ def test_foyer_appareils_couverts_selon_la_formule(banc):
         assert c.post("/api/famille/tv/appairer", headers=_hdr(cid), json={"code": code}).status_code == (200 if i < 2 else 409)
     assert c.get("/api/famille/tv/abonnement", headers=_hdr("B")).json()["postes_utilises"] == 2
     _telé(c, db, "secret-tele-0123456789z", "DDDDDD")
-    assert c.post("/api/famille/tv/appairer", headers=_hdr("C"), json={"code": "DDDDDD"}).status_code == 402      # C n'est pas couvert
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("C"), json={"code": "DDDDDD"}).status_code == 200      # C n'est pas couvert : il garde sa télé offerte
+    _telé(c, db, "secret-tele-0123456789y", "EEEEEE")
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("C"), json={"code": "EEEEEE"}).status_code == 402      # …mais pas une 2e sans abonnement
 
 
-def test_abonnement_expire_refuse(banc):
+def test_abonnement_expire_retombe_sur_l_offre_de_base(banc):
     c, db, _ = banc
+    _approuver(db, "A")
     _abonner(db, "A", jours=-1)
     assert c.get("/api/famille/tv/abonnement", headers=_hdr("A")).json()["actif"] is False
-    _telé(c, db, "secret-tele-0123456789a", "AAAAAA")
-    assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA"}).status_code == 402
+    _telé(c, db, "secret-tele-0123456789a", "AAAAAA"); _telé(c, db, "secret-tele-0123456789b", "BBBBBB")
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA"}).status_code == 200      # la télé offerte
+    assert c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "BBBBBB"}).status_code == 402      # la 2e demande un abonnement actif
+
+
+def test_abonnement_arrete_suspend_les_telés_au_dela_de_l_offre(banc):
+    c, db, _ = banc
+    _approuver(db, "A")
+    _abonner(db, "A", appareils=1, postes=2)
+    ids, secrets_ = [], []
+    for k, code in enumerate(("AAAAAA", "BBBBBB")):
+        secrets_.append(_telé(c, db, f"secret-tele-0123456789{k}", code))
+        ids.append(c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": code}).json()["ecran"]["id"])
+        _run(db.settings.update_one({"_id": "global", "tv_ecrans.id": ids[-1]}, {"$set": {"tv_ecrans.$.cree_le": f"2026-11-1{k}T08:00:00+00:00"}}))     # ordre d'ancienneté
+    stop = lambda i: c.post("/api/famille/tv/commande", headers=_hdr("A"), json={"ecran_id": i, "action": "stop"}).status_code
+    assert [stop(i) for i in ids] == [200, 200]
+    _run(db.membres_plateformes.update_one({"utilisateur_id": "A"}, {"$set": {"abonnements.f-foyer.expire_le": _futur(-1)}}))       # l'abonnement s'arrête
+    assert [stop(i) for i in ids] == [200, 402]                                                                    # la plus ancienne reste utilisable (offre de base)
 
 
 def test_seul_le_detenteur_lance_la_projection(banc):
     c, db, _ = banc
+    _approuver(db, "A", "B")
     _abonner(db, "A", appareils=2, postes=2)
     secret = _telé(c, db, "secret-tele-0123456789a", "AAAAAA")
     ecran_id = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA", "nom": "Salon"}).json()["ecran"]["id"]
@@ -155,9 +228,11 @@ def test_seul_le_detenteur_lance_la_projection(banc):
     assert c.post("/api/famille/tv/commande", headers=_hdr("A"), json={"ecran_id": ecran_id, "action": "danser"}).status_code == 422
     assert c.post("/api/famille/tv/commande", headers=_hdr("A"), json={"ecran_id": ecran_id, "action": "avancer", "delta": 99999}).status_code == 200
     assert c.get("/api/tv/video/commande?seq=1", headers={"x-tv-secret": secret}).json()["commande"]["delta"] == tv.DELTA_MAX_S
-    # sans abonnement actif, plus d'ordre possible
-    _run(db.membres_plateformes.update_one({"utilisateur_id": "A"}, {"$set": {"abonnements.f-foyer.expire_le": _futur(-1)}}))
-    assert c.post("/api/famille/tv/commande", headers=_hdr("A"), json=ordre).status_code == 402
+    # sans l'approbation de SAWALI, plus d'ordre possible
+    _run(db.settings.update_one({"_id": "famille-tv-config"}, {"$set": {"demandes.0.etat": "refuse"}}))
+    r = c.post("/api/famille/tv/commande", headers=_hdr("A"), json=ordre)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "approbation_requise"
+    _run(db.settings.update_one({"_id": "famille-tv-config"}, {"$set": {"demandes.0.etat": "accepte"}}))
     # état renvoyé par la télé, lu par le détenteur
     _run(db.settings.update_one({"_id": "tv-video:" + ecran_id}, {"$set": {"etat": {"lecture": "lecture", "position": 5, "duree": 60, "maj": datetime.now(timezone.utc).isoformat()}}}))
     e = c.get(f"/api/famille/tv/etat/{ecran_id}", headers=_hdr("A")).json()
@@ -166,6 +241,7 @@ def test_seul_le_detenteur_lance_la_projection(banc):
 
 def test_videos_proposees_aux_familles(banc):
     c, db, _ = banc
+    _approuver(db, "A")
     assert [v["id"] for v in c.get("/api/famille/tv/videos", headers=_hdr("A")).json()["videos"]] == ["v-fam"]
     assert c.put("/api/admin/tv/video/v-adm/familles", headers={"x-admin": "1"}, json={"actif": True}).json()["pour_familles"] is True
     assert {v["id"] for v in c.get("/api/famille/tv/videos", headers=_hdr("A")).json()["videos"]} == {"v-fam", "v-adm"}
@@ -176,6 +252,7 @@ def test_videos_proposees_aux_familles(banc):
 
 def test_achat_d_une_formule_tele_puis_activation_avec_limites(banc):
     c, db, hooks = banc
+    _approuver(db, "A")
     assert c.post("/api/famille/tv/acheter", headers=_hdr("A"), json={"formule_id": "f-ocr"}).status_code == 422      # pas une formule télé
     r = c.post("/api/famille/tv/acheter", headers=_hdr("A"), json={"formule_id": "f-foyer", "retour": "https://app.test/retour"})
     assert r.status_code == 200 and r.json()["redirect_url"].startswith("https://pay.pawapay.test") and r.json()["total"] == 2500

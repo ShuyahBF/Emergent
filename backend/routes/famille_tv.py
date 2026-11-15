@@ -13,6 +13,9 @@ Pour un développeur WinDev (le « foyer » sans nouveau fichier) :
   - les postes TV de la formule sont partagés par le titulaire et ses appareils couverts ;
   - une télé est appairée par le détenteur avec le CODE affiché par la page /tv de la télé (comme pour les écrans TV de l'administration) ;
     l'écran enregistré porte « proprietaire_compte » : la télécommande de l'administrateur ne le voit pas et ne le commande pas.
+Lot 419 (propriétaire, 15/11/2026) : APPROBATION DE SAWALI TOUJOURS EXIGÉE, même pour un seul téléviseur (comme pour l'agenda Google) : le détenteur DEMANDE l'accès
+(en indiquant où se trouve la télé), l'administrateur l'ACCEPTE ou le REFUSE (Paramètres → « Télé des familles »). L'ABONNEMENT n'est nécessaire qu'à partir de
+2 télés SIMULTANÉES : une télé est offerte (réglable) à tout appareil approuvé ; au-delà, la formule fixe le nombre de postes TV.
 Les vidéos proposées sont celles de la Bibliothèque de médias que l'administrateur a marquées « Visible dans Personnel de maison ».
 """
 from __future__ import annotations
@@ -33,6 +36,8 @@ logger = logging.getLogger("sawali.famille_tv")
 
 PLATEFORME = "personnelmaison"
 FONCTION = "tv_video"
+ID_CONFIG = "famille-tv-config"   # { approbation: bool (défaut True), postes_gratuits: int (défaut 1), demandes: [ {id, compte_id, nom, lieu, etat, cree_le, decide_le} ] }
+MAX_DEMANDES = 500                # plafond : jamais de croissance illimitée par des demandes en rafale
 
 
 def _maintenant() -> datetime:
@@ -51,7 +56,7 @@ def meilleur_abonnement(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return max(candidats, key=lambda c: (c["appareils"], c["expire_le"])) if candidats else None
 
 
-def setup_famille_tv_routes(*, db, api, outils, authentifier):
+def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin):
     async def _compte(x_famille_compte: Optional[str] = Header(None), x_famille_jeton: Optional[str] = Header(None)) -> dict:
         compte = await authentifier(db, x_famille_compte, x_famille_jeton)
         if not compte:
@@ -85,14 +90,42 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
                 return {"role": "couvert", "titulaire_id": autre, **abo}
         return None
 
-    async def _exiger(compte: dict) -> Dict[str, Any]:
-        """Couverture active, sinon 402 « abonnement requis » avec le nom et le prix de la formule la moins chère."""
-        c = await couverture(str(compte["_id"]))
+    # ------------------------------------------------------------------ approbation par l'administrateur (comme l'agenda Google)
+    async def _config() -> Dict[str, Any]:
+        d = await db.settings.find_one({"_id": ID_CONFIG}) or {}
+        return {"approbation": d.get("approbation") is not False, "postes_gratuits": max(1, int(d.get("postes_gratuits") or 1)), "demandes": d.get("demandes") or []}
+
+    async def _enregistrer_config(cfg: Dict[str, Any]) -> None:
+        await db.settings.update_one({"_id": ID_CONFIG}, {"$set": {"approbation": cfg["approbation"], "postes_gratuits": cfg["postes_gratuits"], "demandes": cfg["demandes"]}}, upsert=True)
+
+    def _demande_de(cfg: Dict[str, Any], compte_id: str) -> Optional[Dict[str, Any]]:
+        return next((d for d in cfg["demandes"] if d["id"] == compte_id), None)
+
+    async def _etat_approbation(compte_id: str) -> str:
+        """« accepte » (ou approbation désactivée), « attente », « refuse » ou « aucune »."""
+        cfg = await _config()
+        if not cfg["approbation"]:
+            return "accepte"
+        return (_demande_de(cfg, compte_id) or {}).get("etat") or "aucune"
+
+    async def _exiger_approbation(compte: dict) -> None:
+        etat = await _etat_approbation(str(compte["_id"]))
+        if etat != "accepte":
+            texte = {"aucune": "Demandez d'abord l'accès à la télé : SAWALI doit l'approuver.", "attente": "Votre demande est en attente de l'approbation de SAWALI.",
+                     "refuse": "Votre demande d'accès à la télé a été refusée par SAWALI."}[etat]
+            raise HTTPException(status_code=403, detail={"code": "approbation_requise", "etat": etat, "message": texte})
+
+    async def _droits(compte_id: str) -> Dict[str, Any]:
+        """Droits effectifs : ceux de la formule (titulaire ou couvert), sinon l'offre de base (1 appareil, « postes_gratuits » télé(s))."""
+        c = await couverture(compte_id)
         if c:
-            return c
-        m = await outils.membre(PLATEFORME, _utilisateur(compte))
-        await outils.exiger_abonnement(PLATEFORME, m, FONCTION, "La projection sur télé")
-        raise HTTPException(status_code=402, detail={"code": "abonnement_requis", "message": "La projection sur télé est réservée aux abonnés.", "formule": None})
+            return {"abonne": True, "couverture": c, "groupe": await _groupe(c["titulaire_id"], c["appareils"]), "postes_tv": c["postes_tv"], "appareils": c["appareils"]}
+        return {"abonne": False, "couverture": None, "groupe": [compte_id], "postes_tv": (await _config())["postes_gratuits"], "appareils": 1}
+
+    async def _ecrans_autorises(droits: Dict[str, Any]) -> List[str]:
+        """Les télés utilisables : les plus anciennes du foyer, jusqu'au nombre de postes TV permis (si l'abonnement s'arrête, les plus récentes sont suspendues)."""
+        liste = sorted((e for e in await _ecrans() if e.get("proprietaire_compte") in droits["groupe"]), key=lambda e: e.get("cree_le") or "")
+        return [e["id"] for e in liste[:droits["postes_tv"]]]
 
     async def _ecrans() -> List[Dict[str, Any]]:
         g = await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1}) or {}
@@ -127,7 +160,11 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
         cat = await outils.catalogue_coeur(PLATEFORME, _utilisateur(compte))
         formules = [f for f in cat["formules"] if FONCTION in (f.get("fonctions") or [])]
         c = await couverture(cid)
-        sortie: Dict[str, Any] = {"actif": bool(c), "formules": formules}
+        droits = await _droits(cid)
+        cfg = await _config()
+        sortie: Dict[str, Any] = {"actif": bool(c), "formules": formules, "approbation": await _etat_approbation(cid), "approbation_requise": cfg["approbation"],
+                                  "effectif": {"postes_tv": droits["postes_tv"], "postes_utilises": await _postes_utilises(droits["groupe"]), "abonne": droits["abonne"]},
+                                  "postes_gratuits": cfg["postes_gratuits"]}
         if c:
             groupe = await _groupe(c["titulaire_id"], c["appareils"])
             noms = {str(x["_id"]): x.get("nom", "?") async for x in db.famille_comptes.find({"_id": {"$in": groupe}}, {"nom": 1})}
@@ -140,6 +177,7 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
     @api.post("/famille/tv/acheter", tags=["Ma famille — Télé"])
     async def acheter(donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
         """Page de paiement (PawaPay) d'une formule « télé » : seules les formules qui débloquent la télé sont achetables ici."""
+        await _exiger_approbation(compte)
         fid = str(donnees.get("formule_id") or "")
         f = await db.formules_plateformes.find_one({"id": fid, "plateforme": PLATEFORME, "actif": True}, {"_id": 0})
         if not f or FONCTION not in (f.get("fonctions") or []):
@@ -167,10 +205,14 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
     async def appairer(donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
         """Associe la télé qui affiche ce code (page /tv) à CET appareil. Abonnement actif et poste TV disponible exigés."""
         cid = str(compte["_id"])
-        c = await _exiger(compte)
-        groupe = await _groupe(c["titulaire_id"], c["appareils"])
-        if await _postes_utilises(groupe) >= c["postes_tv"]:
-            raise HTTPException(status_code=409, detail=f"Limite atteinte : votre formule « {c['nom']} » permet {c['postes_tv']} téléviseur(s). "
+        await _exiger_approbation(compte)
+        droits = await _droits(cid)
+        if await _postes_utilises(droits["groupe"]) >= droits["postes_tv"]:
+            if not droits["abonne"]:
+                # Une télé est offerte ; la 2e simultanée demande un abonnement : message avec le nom et le prix de la formule la moins chère
+                m = await outils.membre(PLATEFORME, _utilisateur(compte))
+                await outils.exiger_abonnement(PLATEFORME, m, FONCTION, "La projection sur plusieurs télés", refus=f"{droits['postes_tv']} télé(s) offerte(s) : un abonnement est nécessaire à partir de {droits['postes_tv'] + 1} télés simultanées.")
+            raise HTTPException(status_code=409, detail=f"Limite atteinte : votre formule « {droits['couverture']['nom']} » permet {droits['postes_tv']} téléviseur(s). "
                                                         "Retirez une télé ou choisissez une formule avec plus de postes TV.")
         code = str(donnees.get("code") or "").strip().upper().replace(" ", "").replace("-", "")
         nom = str(donnees.get("nom") or "").strip()[:60] or "Télévision"
@@ -196,6 +238,7 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
     @api.get("/famille/tv/videos", tags=["Ma famille — Télé"])
     async def videos(compte: dict = Depends(_compte)):
         """Vidéos proposées aux familles (marquées « Visible dans Personnel de maison » par l'administrateur)."""
+        await _exiger_approbation(compte)
         cur = db.media_library.find({"kind": "video", "pour_familles": True, "is_deleted": {"$ne": True}}, {"_id": 0, "id": 1, "title": 1, "description": 1, "size": 1}).sort("created_at", -1).limit(100)
         return {"videos": await cur.to_list(length=100)}
 
@@ -204,7 +247,10 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
         """Ordre à MA télé : lire (vidéo), pause, reprendre, avancer / reculer (delta), position, stop. Détenteur de l'appareil et abonnement actif exigés."""
         cid = str(compte["_id"])
         ecran = await _mon_ecran(cid, str(corps.get("ecran_id") or ""))
-        await _exiger(compte)
+        await _exiger_approbation(compte)
+        if ecran["id"] not in await _ecrans_autorises(await _droits(cid)):
+            m = await outils.membre(PLATEFORME, _utilisateur(compte))
+            await outils.exiger_abonnement(PLATEFORME, m, FONCTION, "Cette télé", refus="Cette télé dépasse les postes TV de votre offre (abonnement arrêté ou insuffisant).")
         action = str(corps.get("action") or "")
         if action not in ACTIONS:
             raise HTTPException(status_code=422, detail="Action inconnue")
@@ -227,3 +273,63 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier):
         ecran = await _mon_ecran(str(compte["_id"]), ecran_id)
         d = await _doc(ecran_id)
         return {"seq": d["seq"], "etat": d.get("etat"), "en_ligne": _en_ligne(d, ecran)}
+
+    # ------------------------------------------------------------------ demande d'accès (le détenteur) et décision (l'administrateur)
+    @api.post("/famille/tv/demander", tags=["Ma famille — Télé"])
+    async def demander(donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
+        """Le détenteur demande l'accès à la télé en indiquant où se trouve la télé ; SAWALI l'accepte ou la refuse. Une demande acceptée n'est pas écrasée."""
+        cid = str(compte["_id"])
+        lieu = str(donnees.get("lieu") or "").strip()[:120]
+        cfg = await _config()
+        ancienne = _demande_de(cfg, cid)
+        if ancienne and ancienne["etat"] == "accepte":
+            return {"ok": True, "etat": "accepte"}
+        nouvelle = {"id": cid, "compte_id": cid, "nom": str(compte.get("nom") or "")[:80], "lieu": lieu, "etat": "attente", "cree_le": _maintenant().isoformat(), "decide_le": None}
+        cfg["demandes"] = ([x for x in cfg["demandes"] if x["id"] != cid] + [nouvelle])[-MAX_DEMANDES:]
+        await _enregistrer_config(cfg)
+        return {"ok": True, "etat": "attente"}
+
+    @api.get("/admin/famille-tv/etat", tags=["Admin — Télé des familles"])
+    async def admin_etat(user: dict = Depends(get_current_admin)):
+        cfg = await _config()
+        ecrans = await _ecrans()
+        demandes = []
+        for d in cfg["demandes"]:
+            demandes.append({**{k: d.get(k) for k in ("id", "nom", "lieu", "etat", "cree_le", "decide_le")}, "postes": sum(1 for e in ecrans if e.get("proprietaire_compte") == d["id"])})
+        return {"approbation": cfg["approbation"], "postes_gratuits": cfg["postes_gratuits"], "demandes": sorted(demandes, key=lambda d: d.get("cree_le") or "", reverse=True),
+                "postes_appaires": sum(1 for e in ecrans if e.get("proprietaire_compte"))}
+
+    @api.post("/admin/famille-tv/demandes/{ident}", tags=["Admin — Télé des familles"])
+    async def admin_decider(ident: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        decision = str((corps or {}).get("decision") or "")
+        if decision not in ("accepte", "refuse"):
+            raise HTTPException(status_code=422, detail="Décision attendue : accepte ou refuse")
+        cfg = await _config()
+        d = _demande_de(cfg, ident)
+        if not d:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        d["etat"] = decision; d["decide_le"] = _maintenant().isoformat(); d["decide_par"] = user.get("email") or ""
+        await _enregistrer_config(cfg)
+        if decision == "refuse":                       # accès retiré : les télés de cet appareil sont déliées
+            ids = [e["id"] for e in await _ecrans() if e.get("proprietaire_compte") == ident]
+            if ids:
+                await db.settings.update_one({"_id": "global"}, {"$pull": {"tv_ecrans": {"id": {"$in": ids}}}})
+                for i in ids:
+                    await db.settings.delete_one({"_id": PREFIXE + i})
+        return {"ok": True, "etat": decision}
+
+    @api.put("/admin/famille-tv/reglages", tags=["Admin — Télé des familles"])
+    async def admin_reglages(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        cfg = await _config()
+        if "approbation" in (corps or {}):
+            cfg["approbation"] = bool(corps["approbation"])
+        if "postes_gratuits" in (corps or {}):
+            try:
+                n = int(corps["postes_gratuits"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="Nombre de télés offertes invalide")
+            if not 1 <= n <= 10:
+                raise HTTPException(status_code=422, detail="Télés offertes : de 1 à 10")
+            cfg["postes_gratuits"] = n
+        await _enregistrer_config(cfg)
+        return {"approbation": cfg["approbation"], "postes_gratuits": cfg["postes_gratuits"]}

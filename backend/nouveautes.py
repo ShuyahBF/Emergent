@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "410", "date": "2026-11-15",
+        "titre": "🏷️ Agenda Google : origine des rendez-vous",
+        "description": "Les rendez-vous créés depuis une plateforme (auRor…) portent une étiquette invisible dans Google ; la liste de la plateforme l'affiche pour les distinguer des autres.",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "409", "date": "2026-11-15",
         "titre": "🔧 Agenda Google : case « Agenda » décochée détectée",
         "description": "Si la case des événements d'agenda n'est pas cochée sur l'écran Google, la liaison est refusée avec le message « cochez la case » au lieu d'afficher à tort « Agenda lié ».",

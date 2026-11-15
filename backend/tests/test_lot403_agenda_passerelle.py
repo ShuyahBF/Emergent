@@ -150,6 +150,7 @@ def test_liaison_puis_isolation_entre_utilisateurs(banc):
     r = _appeler(c, "creer", {"utilisateur": "awa", "titre": "RDV chez le dentiste", "debut": "2026-11-21T08:15:00+00:00"})
     assert r.status_code == 200 and r.json()["evenement"]["titre"] == "RDV chez le dentiste"
     assert [e["titre"] for e in _appeler(c, "evenements", {"utilisateur": "awa"}).json()["evenements"]] == ["RDV chez le dentiste"]
+    assert _appeler(c, "evenements", {"utilisateur": "awa"}).json()["evenements"][0]["origine"] == "auror"     # étiquette de la plateforme créatrice
     assert _appeler(c, "evenements", {"utilisateur": "issa"}).json()["evenements"] == []
     # Un utilisateur qui n'a jamais lié son agenda reçoit 409 (et jamais l'agenda d'un autre)
     assert _appeler(c, "evenements", {"utilisateur": "inconnu"}).status_code == 409

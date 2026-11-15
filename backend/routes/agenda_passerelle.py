@@ -362,7 +362,9 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
     def _evenement_public(e: Dict[str, Any]) -> Dict[str, Any]:
         debut, fin = e.get("start") or {}, e.get("end") or {}
         return {"id": e.get("id"), "titre": e.get("summary") or "(sans titre)", "debut": debut.get("dateTime") or debut.get("date"),
-                "fin": fin.get("dateTime") or fin.get("date"), "toute_la_journee": "date" in debut, "lieu": e.get("location") or "", "lien": e.get("htmlLink") or ""}
+                "fin": fin.get("dateTime") or fin.get("date"), "toute_la_journee": "date" in debut, "lieu": e.get("location") or "", "lien": e.get("htmlLink") or "",
+                # Plateforme qui a créé le rendez-vous (étiquette posée à la création) ; vide pour ceux créés directement dans Google
+                "origine": ((e.get("extendedProperties") or {}).get("private") or {}).get("sawali_plateforme", "")}
 
     @api.post("/webhook/agenda/evenements", tags=["Agenda — passerelle"])
     async def evenements(request: Request):
@@ -404,6 +406,7 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             raise HTTPException(status_code=422, detail="« fin » doit suivre « debut »")
         fuseau = str(corps.get("fuseau") or FUSEAU_DEFAUT)
         corps_google: Dict[str, Any] = {"summary": titre, "start": {"dateTime": debut.isoformat(), "timeZone": fuseau}, "end": {"dateTime": fin.isoformat(), "timeZone": fuseau}}
+        corps_google["extendedProperties"] = {"private": {"sawali_plateforme": plateforme}}   # étiquette « créé par cette plateforme » (invisible dans Google)
         if corps.get("lieu"):
             corps_google["location"] = str(corps["lieu"])[:200]
         if corps.get("description"):

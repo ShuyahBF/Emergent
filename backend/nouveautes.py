@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "408", "date": "2026-11-15",
+        "titre": "🔧 Agenda Google : adresse de retour fixe (erreur redirect_uri_mismatch)",
+        "description": "L'adresse envoyée à Google ne dépend plus du site d'où part la demande : https://api.sawalismartsystems.com/api/agenda/retour. À déclarer telle quelle dans Google (Clients → URI de redirection autorisés) ; elle est affichée dans la rubrique.",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "407", "date": "2026-11-15",
         "titre": "🔒 Politiques de confidentialité propres à Concentration et Personnel de maison",
         "description": "Deux pages publiques dédiées (/privacy/concentration et /privacy/personnel-maison) décrivent ce que fait chaque application, ses données, ses autorisations et l'Agenda Google, pour la validation Google ; liens depuis /privacy et depuis les applications.",

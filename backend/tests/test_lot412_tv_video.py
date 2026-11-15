@@ -152,3 +152,19 @@ def test_ecran_videos_seules_sans_client():
     assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", headers=ADM, json={"client_id": "cli-1", "modules": {"video": True, "messagerie": True}}).status_code == 200
     # avec client : comportement inchangé
     assert c.post("/api/admin/tv/appairer", headers=ADM, json={"code": _code(c, "secret-quatre-0123456789ab"), "nom": "B", "client_id": "cli-1"}).status_code == 200
+
+
+def test_en_ligne_depuis_l_interrogation_des_ordres_meme_sans_lecture(banc):
+    """La télé interroge les ordres toutes les 2 s : c'est son signe de vie, même quand rien n'est en lecture."""
+    c, _ = banc
+    assert c.get("/api/admin/tv/video/ecrans", headers=ADM).json()["ecrans"][0]["en_ligne"] is False
+    assert c.get("/api/admin/tv/video/etat/ecran-ok", headers=ADM).json()["en_ligne"] is False
+    c.get("/api/tv/video/commande?seq=0", headers=TELE)
+    assert c.get("/api/admin/tv/video/ecrans", headers=ADM).json()["ecrans"][0]["en_ligne"] is True
+    assert c.get("/api/admin/tv/video/etat/ecran-ok", headers=ADM).json()["en_ligne"] is True
+
+
+def test_signe_de_vie_ancien_n_est_plus_en_ligne(banc):
+    c, base = banc
+    _run(base.settings.update_one({"_id": "tv-video:ecran-ok"}, {"$set": {"vu": "2020-01-01T00:00:00+00:00"}}, upsert=True))
+    assert c.get("/api/admin/tv/video/etat/ecran-ok", headers=ADM).json()["en_ligne"] is False

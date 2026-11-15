@@ -18,6 +18,8 @@ export default function AdminTelecommandeTv() {
   const [videos, setVideos] = useState([]);
   const [ecranId, setEcranId] = useState("");
   const [etat, setEtat] = useState(null);
+  const [enLigne, setEnLigne] = useState(null);                    // état « en ligne » relu toutes les 2 s (null : pas encore lu)
+  const [glisse, setGlisse] = useState(null);                      // position choisie en faisant glisser le curseur (null : le curseur suit la lecture)
   const [chargement, setChargement] = useState(false);
   const [titre, setTitre] = useState("");
   const [fichier, setFichier] = useState(null);
@@ -41,9 +43,10 @@ export default function AdminTelecommandeTv() {
   // L'état de la télé (position, lecture / pause) est relu toutes les 2 s tant que la page est ouverte
   useEffect(() => {
     if (!ecranId) return undefined;
+    setEnLigne(null); setEtat(null); setGlisse(null);               // on change d'écran : rien de l'écran précédent ne reste affiché
     let actif = true;
     const lire = async () => {
-      try { const { data } = await apiClient.get(`/admin/tv/video/etat/${ecranId}`); if (actif) setEtat(data.etat); } catch { /* la prochaine lecture réessaie */ }
+      try { const { data } = await apiClient.get(`/admin/tv/video/etat/${ecranId}`); if (actif) { setEtat(data.etat); setEnLigne(data.en_ligne); } } catch { /* la prochaine lecture réessaie */ }
     };
     lire(); const t = setInterval(lire, 2000);
     return () => { actif = false; clearInterval(t); };
@@ -76,7 +79,6 @@ export default function AdminTelecommandeTv() {
   const lecture = etat?.lecture;
   const enLecture = lecture === "lecture";
   const courante = videos.find((v) => v.id === etat?.video_id);
-  const pct = etat?.duree ? Math.min(100, Math.round((etat.position * 100) / etat.duree)) : 0;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-4" data-testid="telecommande-tv">
@@ -100,8 +102,8 @@ export default function AdminTelecommandeTv() {
             {ecrans.map((e) => (
               <button key={e.id} type="button" onClick={() => setEcranId(e.id)} data-testid={`ecran-${e.id}`}
                 className={`inline-flex items-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold ${e.id === ecranId ? "border-sky-600 bg-sky-50 text-sky-900" : "border-slate-200 bg-white text-slate-700"}`}>
-                {e.en_ligne ? <Wifi className="h-4 w-4 text-emerald-600" /> : <WifiOff className="h-4 w-4 text-slate-400" />}
-                {e.nom}<span className="text-xs font-normal">{e.en_ligne ? "en ligne" : "hors ligne"}</span>
+                {(e.id === ecranId && enLigne !== null ? enLigne : e.en_ligne) ? <Wifi className="h-4 w-4 text-emerald-600" /> : <WifiOff className="h-4 w-4 text-slate-400" />}
+                {e.nom}<span className="text-xs font-normal">{(e.id === ecranId && enLigne !== null ? enLigne : e.en_ligne) ? "en ligne" : "hors ligne"}</span>
               </button>))}
           </div>)}
       </section>
@@ -113,15 +115,14 @@ export default function AdminTelecommandeTv() {
           <p className="text-lg font-bold text-slate-800">{lecture && lecture !== "arret" ? (courante?.title || "Vidéo en cours") : "Rien en lecture"}
             <span className="ml-2 text-sm font-normal text-slate-600">{lecture === "pause" ? "⏸ en pause" : enLecture ? "▶ en lecture" : ""}</span></p>
           {etat?.erreur && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">⚠ {etat.erreur}</p>}
+          {/* UNE seule jauge : elle avance avec la lecture ; on peut la faire glisser pour aller à un autre moment (l'ordre part au relâchement) */}
           <div>
-            <div className="h-3 overflow-hidden rounded-full bg-white"><div className="h-full bg-sky-600" style={{ width: `${pct}%` }} /></div>
-            <div className="mt-1 flex justify-between text-xs tabular-nums text-slate-600"><span>{MIN(etat?.position)}</span><span>{MIN(etat?.duree)}</span></div>
+            <input type="range" min={0} max={Math.max(1, Math.floor(etat?.duree || 0))} value={Math.floor(glisse ?? etat?.position ?? 0)} disabled={!(etat?.duree > 0)}
+              onChange={(e) => setGlisse(Number(e.target.value))}
+              onPointerUp={async (e) => { const v = Number(e.target.value); await ordre({ action: "position", position: v }, "Déplacement"); setGlisse(null); }}
+              className="h-3 w-full accent-sky-600" aria-label="Position dans la vidéo" data-testid="jauge-position" />
+            <div className="mt-1 flex justify-between text-xs tabular-nums text-slate-600"><span>{MIN(glisse ?? etat?.position)}</span><span>{MIN(etat?.duree)}</span></div>
           </div>
-          {etat?.duree > 0 && (
-            <input type="range" min={0} max={Math.floor(etat.duree)} defaultValue={Math.floor(etat.position || 0)} key={etat.video_id}
-              onMouseUp={(e) => ordre({ action: "position", position: Number(e.target.value) }, "Déplacement")}
-              onTouchEnd={(e) => ordre({ action: "position", position: Number(e.target.value) }, "Déplacement")}
-              className="w-full" aria-label="Position dans la vidéo" />)}
           <div className="grid grid-cols-4 gap-2">
             <button type="button" onClick={() => ordre({ action: "reculer", delta: 10 }, "Retour de 10 s")} className="flex flex-col items-center gap-1 rounded-xl border border-slate-300 bg-white p-3 text-xs font-semibold"><Rewind className="h-6 w-6 text-slate-700" />−10 s</button>
             <button type="button" onClick={() => ordre({ action: enLecture ? "pause" : "reprendre" }, enLecture ? "Pause" : "Lecture")} className="flex flex-col items-center gap-1 rounded-xl border border-emerald-600 bg-emerald-600 p-3 text-xs font-semibold text-white">

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "416", "date": "2026-11-15",
+        "titre": "🎬 Télécommande vidéo : « en ligne » fiable, une seule jauge",
+        "description": "L'écran reste « en ligne » pendant la lecture (relu toutes les 2 s) ; la jauge de position avance avec la vidéo et se fait glisser pour aller à un autre moment.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "415", "date": "2026-11-15",
         "titre": "🎬 Vidéos jusqu'à 300 Mo",
         "description": "La limite des vidéos passe de 200 à 300 Mo ; elles sont envoyées vers le stockage par morceaux, sans charger le fichier en mémoire du serveur.",

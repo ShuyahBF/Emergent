@@ -218,3 +218,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Seules les colonnes d'ACTIONS (boutons) et les colonnes sans valeur comparable (case à cocher de sélection, pictogramme seul) ne sont pas triables.
 - Mise en œuvre : SAWALI = `frontend/src/lib/tri.js` (`useTri`, `trierLignes`) et `frontend/src/components/ThTri.jsx` (en-tête triable), tri serveur de Transactions SMS dans `backend/routes/transactions_sms.py` (`trier`) ; e-Kol = `triTableaux.js` ; WinForms = `DataGridView` avec `SortMode = Automatic` ; Android Compose = en-tête cliquable. Même règle sur toute plateforme, existante ou à venir.
 - Cette règle complète la règle 3 « Tableaux » (survol, sélection, nombres à droite).
+
+## Détails et corrections : fenêtre modale, pas d'allongement de la page (règle 20, 15/11/2026 : « utilise une fenêtre modale plutôt que allonger le contenu des pages comme tu le fais souvent sauf informations contraires de ma part »)
+- Pour afficher les DÉTAILS d'une ligne de tableau ou faciliter une CORRECTION, ouvrir une FENÊTRE MODALE (dimensions de la règle 11 : `max-w-md` / `max-w-xl`, `max-h-[85dvh]`, défilement dans la fenêtre), jamais un panneau qui allonge la page sous le tableau ni une ligne dépliée.
+- Les décisions possibles (accepter, refuser, enregistrer…) sont proposées dans la modale, avec pictogramme et légende (règle 15) ; « Fermer » toujours présent.
+- Exception seulement si le propriétaire demande le contraire pour un écran précis. Android : feuille ou dialogue ; WinForms : fenêtre de dialogue.
+- SAWALI : composant `components/ui/dialog.jsx` ; exemple : dossier du demandeur dans `FamilleTvSection.jsx`.

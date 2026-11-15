@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "418", "date": "2026-11-15",
+        "titre": "📺 Télé des familles : vidéos sur téléviseur depuis Personnel de maison",
+        "description": "Abonnement par foyer (appareils couverts, postes TV) ; seul le détenteur de l'appareil lance sa projection. Formules « Télé » avec leurs limites, et vidéos « visibles dans Personnel de maison » à choisir.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "417", "date": "2026-11-15",
         "titre": "🎬 Vidéos : espace affiché (120 Mo / 2 Go) et suppression",
         "description": "L'espace des vidéos est plafonné à 2 Go et affiché ; on peut cocher une ou plusieurs vidéos et les supprimer (le fichier est effacé, l'espace est rendu).",

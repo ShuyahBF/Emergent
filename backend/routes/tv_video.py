@@ -186,8 +186,8 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
         limite = (_maintenant() - timedelta(seconds=EN_LIGNE_S)).isoformat()
         sortie = []
         for e in g.get("tv_ecrans") or []:
-            if not (e.get("modules") or {}).get("video"):
-                continue
+            if not (e.get("modules") or {}).get("video") or e.get("proprietaire_compte"):
+                continue                                              # lot 418 : les télés des familles ne sont pilotées que par le détenteur de l'appareil
             d = await _doc(e["id"])
             etat = d.get("etat") or {}
             sortie.append({"id": e["id"], "nom": e.get("nom") or "Écran", "client_nom": e.get("client_nom") or "",
@@ -197,13 +197,22 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
     @api.get("/admin/tv/video/videos", tags=["Admin — Vidéo TV"])
     async def admin_videos(user: dict = Depends(get_current_admin)):
         """Vidéos de la bibliothèque de médias (celles qu'on peut envoyer sur la télé)."""
-        cur = db.media_library.find({"kind": "video", "is_deleted": {"$ne": True}}, {"_id": 0, "id": 1, "title": 1, "size": 1, "content_type": 1, "filename": 1, "created_at": 1}).sort("created_at", -1).limit(200)
+        cur = db.media_library.find({"kind": "video", "is_deleted": {"$ne": True}}, {"_id": 0, "id": 1, "title": 1, "size": 1, "content_type": 1, "filename": 1, "created_at": 1, "pour_familles": 1}).sort("created_at", -1).limit(200)
         return {"videos": await cur.to_list(length=200), "quota": await _quota()}
 
     async def _quota() -> Dict[str, Any]:
         """Espace des vidéos : utilisé / maximum, en octets et en clair (« 120 Mo / 2 Go »)."""
         u, m = await espace_videos_utilise(db), quota_videos_octets()
         return {"utilise": u, "max": m, "libelle": f"{libelle_taille(u)} / {libelle_taille(m)}"}
+
+    @api.put("/admin/tv/video/{media_id}/familles", tags=["Admin — Vidéo TV"])
+    async def admin_pour_familles(media_id: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        """Propose (ou retire) une vidéo aux familles : elle apparaît alors dans l'application Personnel de maison pour les abonnés."""
+        actif = bool(corps.get("actif"))
+        r = await db.media_library.update_one({"id": media_id, "kind": "video", "is_deleted": {"$ne": True}}, {"$set": {"pour_familles": actif}})
+        if not r.matched_count:
+            raise HTTPException(status_code=404, detail="Vidéo introuvable")
+        return {"ok": True, "pour_familles": actif}
 
     @api.post("/admin/tv/video/supprimer", tags=["Admin — Vidéo TV"])
     async def admin_supprimer(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
@@ -254,6 +263,8 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
         ecran = next((e for e in g.get("tv_ecrans") or [] if e.get("id") == ecran_id), None)
         if not ecran:
             raise HTTPException(status_code=404, detail="Écran introuvable")
+        if ecran.get("proprietaire_compte"):
+            raise HTTPException(status_code=403, detail="Cette télé appartient à un appareil « Personnel de maison » : seul son détenteur peut y lancer une projection.")
         if not (ecran.get("modules") or {}).get("video"):
             raise HTTPException(status_code=409, detail="Cochez d'abord le contenu « Vidéos » pour cet écran (Paramètres → Écrans TV)")
         ordre: Dict[str, Any] = {"action": action, "par": user.get("email") or "", "le": _maintenant().isoformat()}

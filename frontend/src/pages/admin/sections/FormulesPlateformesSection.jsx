@@ -20,7 +20,7 @@ import { apiClient } from "@/lib/api";
 
 import { Check as Ico15Check, Download as Ico15Download, Plus as Ico15Plus, Save as Ico15Save, X as Ico15X } from "lucide-react";
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} FCFA`;
-const VIDE = { plateforme: "", nom: "", description: "", prix: "", duree_jours: 30, fonctions: ["ocr_ordonnances"], actif: true, ordre: 0 };
+const VIDE = { plateforme: "", nom: "", description: "", prix: "", duree_jours: 30, fonctions: ["ocr_ordonnances"], actif: true, ordre: 0, limites: {} };
 
 // Demandes de paiement PI-SPI à traiter (en haut de la rubrique : ce sont des actions à faire). « À vérifier » = référence bancaire déclarée.
 function DemandesPispi({ rafraichir }) {
@@ -147,7 +147,9 @@ export default function FormulesPlateformesSection() {
     e.preventDefault();
     setEnvoi(true);
     const corps = { plateforme: edition.plateforme, nom: edition.nom, description: edition.description, prix: Number(edition.prix),
-      duree_jours: Number(edition.duree_jours), fonctions: edition.fonctions, actif: edition.actif, ordre: Number(edition.ordre || 0) };
+      duree_jours: Number(edition.duree_jours), fonctions: edition.fonctions, actif: edition.actif, ordre: Number(edition.ordre || 0),
+      // Lot 418 : limites de la formule « Télé » (appareils couverts, titulaire compris ; téléviseurs appairables)
+      limites: edition.fonctions.includes("tv_video") ? { appareils: Number(edition.limites?.appareils || 1), postes_tv: Number(edition.limites?.postes_tv || 1) } : {} };
     try {
       if (edition.id) await apiClient.put(`/admin/formules-plateformes/${edition.id}`, corps);
       else await apiClient.post("/admin/formules-plateformes", corps);
@@ -227,7 +229,7 @@ export default function FormulesPlateformesSection() {
             {d.formules.map((f) => (
               <tr key={f.id} className="border-t border-slate-100">
                 <td className="p-1">{f.plateforme}</td>
-                <td><b>{f.nom}</b><br /><span className="text-slate-500">{(f.fonctions || []).map((x) => d.fonctions[x] || x).join(", ")}</span></td>
+                <td><b>{f.nom}</b><br /><span className="text-slate-500">{(f.fonctions || []).map((x) => d.fonctions[x] || x).join(", ")}</span>{f.limites?.appareils ? <span className="block text-sky-700">📺 {f.limites.appareils} appareil(s) · {f.limites.postes_tv} poste(s) TV</span> : null}</td>
                 <td>{fcfa(f.prix)}</td><td>{f.duree_jours} j</td><td>{f.abonnes_actifs}</td><td>{f.ventes}</td><td>{fcfa(f.chiffre)}</td>
                 <td>{f.actif ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">Active</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Inactive</span>}</td>
                 <td className="whitespace-nowrap text-right">
@@ -264,6 +266,15 @@ export default function FormulesPlateformesSection() {
                 </label>
               ))}
             </fieldset>
+            {edition.fonctions.includes("tv_video") && (
+              <fieldset className="flex flex-col gap-1 rounded border border-sky-200 bg-sky-50 p-2" data-testid="limites-tele">
+                <legend className="px-1 text-sky-900">📺 Limites de la formule « Télé » (prix selon le foyer)</legend>
+                <label className="flex flex-col gap-1">Appareils couverts (le titulaire compris)
+                  <input type="number" min={1} max={20} value={edition.limites?.appareils ?? 1} onChange={(e) => setEdition({ ...edition, limites: { ...(edition.limites || {}), appareils: e.target.value } })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+                <label className="flex flex-col gap-1">Postes TV (téléviseurs appairables)
+                  <input type="number" min={1} max={20} value={edition.limites?.postes_tv ?? 1} onChange={(e) => setEdition({ ...edition, limites: { ...(edition.limites || {}), postes_tv: e.target.value } })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+                <span className="text-xs text-slate-600">Les proches liés au titulaire (« Ma famille », lien vérifié) sont couverts dans l'ordre de leur lien, jusqu'au nombre d'appareils.</span>
+              </fieldset>)}
             <label className="flex flex-col gap-1">Ordre d'affichage
               <input type="number" min={0} max={999} value={edition.ordre} onChange={champ("ordre")} className="rounded border border-slate-300 px-2 py-1.5" /></label>
           </div>

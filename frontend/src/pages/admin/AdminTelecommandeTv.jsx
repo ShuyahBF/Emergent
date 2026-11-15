@@ -83,6 +83,15 @@ export default function AdminTelecommandeTv() {
 
   // Suppression des vidéos cochées : confirmation, puis toast « en cours » et résultat (règle 17)
   const basculer = (id) => setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  // Proposer (ou retirer) une vidéo aux familles : elle apparaît dans l'application Personnel de maison pour les abonnés
+  const proposerAuxFamilles = async (v) => {
+    toast.info(v.pour_familles ? "Retrait en cours…" : "Mise à disposition en cours…");
+    try {
+      await apiClient.put(`/admin/tv/video/${v.id}/familles`, { actif: !v.pour_familles });
+      toast.success(v.pour_familles ? `« ${v.title} » n'est plus proposée aux familles.` : `« ${v.title} » est proposée dans Personnel de maison.`);
+      await charger(false);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Réglage non enregistré"); }
+  };
   const supprimer = async () => {
     if (!choix.length) return;
     const noms = videos.filter((v) => choix.includes(v.id)).map((v) => `« ${v.title} »`).join(", ");
@@ -176,7 +185,8 @@ export default function AdminTelecommandeTv() {
               <li key={v.id} className={`flex items-center gap-3 py-2 ${choix.includes(v.id) ? "bg-red-50" : ""}`}>
                 <input type="checkbox" checked={choix.includes(v.id)} onChange={() => basculer(v.id)} className="h-5 w-5 shrink-0 accent-red-600" aria-label={`Sélectionner ${v.title}`} data-testid={`choix-${v.id}`} />
                 <Film className="h-5 w-5 shrink-0 text-slate-400" />
-                <div className="min-w-0 flex-1"><p className="truncate font-medium text-slate-800">{v.title}</p><p className="text-xs text-slate-500">{TAILLE(v.size)} · {v.filename}</p></div>
+                <div className="min-w-0 flex-1"><p className="truncate font-medium text-slate-800">{v.title}</p><p className="text-xs text-slate-500">{TAILLE(v.size)} · {v.filename}</p>
+                  <label className="mt-1 inline-flex cursor-pointer items-center gap-1 text-xs text-slate-600"><input type="checkbox" checked={!!v.pour_familles} onChange={() => proposerAuxFamilles(v)} className="h-4 w-4 accent-sky-600" data-testid={`familles-${v.id}`} />👨‍👩‍👧 Visible dans Personnel de maison</label></div>
                 <button type="button" disabled={!ecranId} onClick={() => ordre({ action: "lire", video_id: v.id }, `Lecture de « ${v.title} »`)}
                   className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" data-testid={`lire-${v.id}`}><Play className="h-4 w-4" /> Lire sur la TV</button>
               </li>))}

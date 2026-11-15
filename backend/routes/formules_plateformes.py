@@ -83,6 +83,9 @@ FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
              "archives_cloud": "Archives en ligne chiffrées (documents importants)"}
 FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiques)"   # lot 236
 FONCTIONS["cartes_virtuelles"] = "Cartes virtuelles (voeux illustrés par l'IA, envoyés par WhatsApp)"   # lot 242
+FONCTIONS["tv_video"] = "Télé : projeter des vidéos sur un téléviseur (Personnel de maison)"   # lot 418
+PLATEFORMES_DIRECTES = ("personnelmaison",)   # lot 418 : applications qui parlent à SAWALI SANS passer par une plateforme signée (identifiées par leur appareil)
+LIMITES_TV = ("appareils", "postes_tv")       # lot 418 : appareils couverts par la formule (le titulaire compris) et téléviseurs appairables
 FONCTION_ARCHIVES = "archives_cloud"      # lot 233 : stockage cloud chiffré des documents archivés
 ARCHIVES_MO_DEFAUT = 200                  # espace par utilisateur, en Mo (réglable)
 PIN_ESSAIS_AVANT_PAUSE = 5                # lot 278 : essais de code/phrase ratés de suite avant une pause
@@ -298,6 +301,7 @@ class FormuleIn(BaseModel):
     fonctions: List[str] = Field(default_factory=list, max_length=5)
     actif: bool = True
     ordre: int = Field(0, ge=0, le=999)
+    limites: Optional[Dict[str, int]] = None              # lot 418 : {"appareils": 3, "postes_tv": 2} pour la fonction « tv_video »
 
 
 class ReglagesIn(BaseModel):
@@ -462,7 +466,7 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         courante = ((m.get("abonnements") or {}).get(formule["id"]) or {}).get("expire_le")
         e = _iso(nouvelle_expiration(courante, jours, _maintenant()))
         await db.membres_plateformes.update_one({"id": m["id"]}, {"$set": {
-            f"abonnements.{formule['id']}": {"nom": formule["nom"], "fonctions": formule.get("fonctions") or [],
+            f"abonnements.{formule['id']}": {"nom": formule["nom"], "fonctions": formule.get("fonctions") or [], "limites": formule.get("limites") or {},
                                              "expire_le": e, "source": source, "maj_le": _iso(_maintenant())}}})
         return e
 
@@ -502,16 +506,18 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     hooks_apres_paiement.append(apres_paiement)
 
     # ------------------------------------------------------------------ routes signées des plateformes
+    async def catalogue_coeur(plateforme: str, u: Utilisateur) -> dict:
+        m = await membre(plateforme, u)
+        formules = await db.formules_plateformes.find({"plateforme": plateforme, "actif": True}, {"_id": 0}).sort("ordre", 1).to_list(50)
+        return {"formules": [{"id": f["id"], "nom": f["nom"], "description": f.get("description", ""), "prix": f["prix"], "devise": "XOF",
+                              "duree_jours": f.get("duree_jours") or DUREE_DEFAUT, "fonctions": f.get("fonctions") or [], "limites": f.get("limites") or {}} for f in formules],
+                "abonnements": vue_abonnements(m, formules + await db.formules_plateformes.find({"plateforme": plateforme, "actif": False}, {"_id": 0}).to_list(50)),
+                "code_parrainage": m["code_parrainage"], "a_un_parrain": bool(m.get("parrain_id")), "parrainage_jours": await reglages_parrainage()}
+
     @router.post("/formules-plateformes/catalogue")
     async def catalogue(request: Request):
         emetteur, corps = await plateforme_signee(request)
-        u = lire(CatalogueIn, corps).utilisateur
-        m = await membre(emetteur["code"], u)
-        formules = await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": True}, {"_id": 0}).sort("ordre", 1).to_list(50)
-        return {"formules": [{"id": f["id"], "nom": f["nom"], "description": f.get("description", ""), "prix": f["prix"], "devise": "XOF",
-                              "duree_jours": f.get("duree_jours") or DUREE_DEFAUT, "fonctions": f.get("fonctions") or []} for f in formules],
-                "abonnements": vue_abonnements(m, formules + await db.formules_plateformes.find({"plateforme": emetteur["code"], "actif": False}, {"_id": 0}).to_list(50)),
-                "code_parrainage": m["code_parrainage"], "a_un_parrain": bool(m.get("parrain_id")), "parrainage_jours": await reglages_parrainage()}
+        return await catalogue_coeur(emetteur["code"], lire(CatalogueIn, corps).utilisateur)
 
     @router.post("/formules-plateformes/devis")
     async def devis(request: Request):
@@ -525,7 +531,11 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     @router.post("/formules-plateformes/acheter")
     async def acheter(request: Request):
         emetteur, corps = await plateforme_signee(request)
-        d = lire(AcheterIn, corps)
+        return await acheter_coeur(emetteur["code"], lire(AcheterIn, corps))
+
+    async def acheter_coeur(plateforme: str, d: AcheterIn) -> dict:
+        """Cœur de l'achat (lot 418 : partagé avec les applications identifiées par leur appareil, sans signature de plateforme)."""
+        emetteur = {"code": plateforme}
         m = await membre(emetteur["code"], d.utilisateur)
         formules = await formules_demandees(emetteur["code"], d.formule_id, d.formule_ids)     # lot 244 : une ou plusieurs formules
         lignes = lignes_achat(formules)
@@ -709,7 +719,10 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     @router.post("/formules-plateformes/achat")
     async def achat(request: Request):
         emetteur, corps = await plateforme_signee(request)
-        d = lire(AchatIn, corps)
+        return await achat_coeur(emetteur["code"], lire(AchatIn, corps))
+
+    async def achat_coeur(plateforme: str, d: AchatIn) -> dict:
+        emetteur = {"code": plateforme}
         m = await membre(emetteur["code"], d.utilisateur)
         p = await db.payments.find_one({"deposit_id": d.deposit_id, "flow": "formule_plateforme", "membre_id": m["id"]}, {"_id": 0})
         if not p:
@@ -1225,7 +1238,9 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
 
     # ------------------------------------------------------------------ administration (administrateur principal)
     async def plateformes_connues() -> List[dict]:
-        return [{"code": e["code"], "nom": e.get("nom") or e["code"]} async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1, "nom": 1}).sort("code", 1)]
+        connues = [{"code": e["code"], "nom": e.get("nom") or e["code"]} async for e in db.liluvine_emetteurs.find({}, {"_id": 0, "code": 1, "nom": 1}).sort("code", 1)]
+        codes = {c["code"] for c in connues}
+        return connues + [{"code": c, "nom": "Personnel de maison (application)"} for c in PLATEFORMES_DIRECTES if c not in codes]
 
     @router.get("/admin/formules-plateformes")
     async def admin_liste(_: dict = Depends(get_super_admin)):
@@ -1260,11 +1275,16 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         inconnues = [x for x in f.fonctions if x not in FONCTIONS]
         if inconnues:
             raise HTTPException(status_code=422, detail=f"Fonction inconnue : {', '.join(inconnues)}")
-        return f.model_dump()
+        limites = f.limites or {}
+        if any(k not in LIMITES_TV or not (1 <= int(v) <= 20) for k, v in limites.items()):
+            raise HTTPException(status_code=422, detail="Limites : « appareils » et « postes_tv », de 1 à 20")
+        doc = f.model_dump()
+        doc["limites"] = {k: int(v) for k, v in limites.items()}
+        return doc
 
     @router.post("/admin/formules-plateformes", status_code=201)
     async def admin_creer(f: FormuleIn, _: dict = Depends(get_super_admin)):
-        if not await db.liluvine_emetteurs.find_one({"code": f.plateforme}, {"_id": 1}):
+        if f.plateforme not in PLATEFORMES_DIRECTES and not await db.liluvine_emetteurs.find_one({"code": f.plateforme}, {"_id": 1}):
             raise HTTPException(status_code=422, detail="Plateforme inconnue (créez-la dans « Transmission WA universelle »)")
         doc = {"id": str(uuid.uuid4()), **verifier(f), "cree_le": _iso(_maintenant())}
         await db.formules_plateformes.insert_one(doc.copy())
@@ -1313,5 +1333,6 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
     # Outils partagés avec le module des annonceurs (lot 235) : signature des plateformes, fiche membre, lecture des corps
     from types import SimpleNamespace
     router.outils = SimpleNamespace(plateforme_signee=plateforme_signee, membre=membre, lire=lire,
-                                    acces_fonction=acces_fonction, exiger_abonnement=exiger_abonnement)
+                                    acces_fonction=acces_fonction, exiger_abonnement=exiger_abonnement,
+                                    catalogue_coeur=catalogue_coeur, acheter_coeur=acheter_coeur, achat_coeur=achat_coeur)
     return router

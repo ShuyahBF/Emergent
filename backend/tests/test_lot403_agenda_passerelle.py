@@ -122,7 +122,15 @@ def _appeler(c, chemin, corps, **kw):
     return c.post(f"/api/webhook/agenda/{chemin}", content=brut, headers=entetes)
 
 
-def _lier(c, utilisateur, code):
+def _autoriser(c, utilisateur, gmail):
+    """Demande d'accès de l'utilisateur, acceptée par l'administrateur."""
+    assert _appeler(c, "demander", {"utilisateur": utilisateur, "gmail": gmail}).json()["etat"] == "attente"
+    ident = next(d["id"] for d in c.get("/api/admin/agenda-passerelle/etat").json()["demandes"] if d["utilisateur"] == utilisateur)
+    assert c.post(f"/api/admin/agenda-passerelle/demandes/{ident}", json={"decision": "accepte"}).json()["etat"] == "accepte"
+
+
+def _lier(c, utilisateur, code, gmail=None):
+    _autoriser(c, utilisateur, gmail or ("a@gmail.com" if code == "code-A" else "b@gmail.com"))
     url = _appeler(c, "lier", {"utilisateur": utilisateur}).json()["url"]
     q = parse_qs(urlparse(url).query)
     assert q["client_id"] == ["id-client"] and q["redirect_uri"] == ["https://sawali.test/api/agenda/retour"] and "calendar.events" in q["scope"][0] and q["access_type"] == ["offline"]
@@ -133,7 +141,8 @@ def test_liaison_puis_isolation_entre_utilisateurs(banc):
     c, db, faux, boucle = banc
     assert _appeler(c, "etat", {"utilisateur": "awa"}).json()["lie"] is False
     assert "Agenda lié" in _lier(c, "awa", "code-A").text and "Agenda lié" in _lier(c, "issa", "code-B").text
-    assert _appeler(c, "etat", {"utilisateur": "awa"}).json() == {"lie": True, "email": "a@gmail.com", "lie_le": _appeler(c, "etat", {"utilisateur": "awa"}).json()["lie_le"]}
+    etat = _appeler(c, "etat", {"utilisateur": "awa"}).json()
+    assert etat["lie"] is True and etat["email"] == "a@gmail.com" and etat["demande"] == "accepte"
     # Le jeton Google est gardé CHIFFRÉ
     doc = boucle.run_until_complete(db.settings.find_one({"_id": ag.PREFIXE_LIAISON + ag.cle_liaison("auror", "awa")}))
     assert "refresh-A" not in json.dumps(doc) and ag.dechiffrer(doc["refresh_chiffre"]) == "refresh-A"
@@ -162,6 +171,7 @@ def test_authentification_obligatoire_et_par_appareil(banc):
 
 def test_consentement_a_usage_unique_et_expire(banc):
     c, db, faux, boucle = banc
+    _autoriser(c, "awa", "a@gmail.com")
     url = _appeler(c, "lier", {"utilisateur": "awa"}).json()["url"]
     etat = parse_qs(urlparse(url).query)["state"][0]
     assert c.get("/api/agenda/retour", params={"code": "code-A", "state": etat}).status_code == 200
@@ -199,4 +209,40 @@ def test_analyse_creation_validations_et_vue_admin(banc):
     assert ok.status_code == 200 and faux.evenements["acces-A"][0]["reminders"]["overrides"][0]["minutes"] == 30
     admin = c.get("/api/admin/agenda-passerelle/etat").json()
     assert admin["total"] == 1 and admin["liaisons_par_plateforme"] == {"auror": 1} and admin["adresse_retour"] == "https://sawali.test/api/agenda/retour"
-    assert "Appel" not in json.dumps(admin) and "gmail" not in json.dumps(admin)                    # aucun contenu d'agenda, aucune adresse
+    assert "Appel" not in json.dumps(admin) and "RDV" not in json.dumps(admin)                    # aucun contenu d'agenda
+
+
+def test_approbation_demande_puis_acceptation_et_bon_compte(banc):
+    """Responsabiliser : pas de « Lier » sans demande acceptée ; seul le compte Google indiqué est accepté au retour (l'autre est révoqué)."""
+    c, db, faux, boucle = banc
+    assert _appeler(c, "lier", {"utilisateur": "awa"}).status_code == 403                                   # aucune demande
+    assert _appeler(c, "demander", {"utilisateur": "awa", "gmail": "pas-un-mail"}).status_code == 422
+    assert _appeler(c, "demander", {"utilisateur": "awa", "gmail": "A@Gmail.com"}).json() == {"etat": "attente", "gmail": "a@gmail.com"}
+    assert _appeler(c, "lier", {"utilisateur": "awa"}).status_code == 403                                   # en attente
+    assert _appeler(c, "etat", {"utilisateur": "awa"}).json()["demande"] == "attente"
+    ident = c.get("/api/admin/agenda-passerelle/etat").json()["demandes"][0]["id"]
+    assert c.post(f"/api/admin/agenda-passerelle/demandes/{ident}", json={"decision": "refuse"}).status_code == 200
+    assert _appeler(c, "lier", {"utilisateur": "awa"}).status_code == 403                                   # refusée
+    assert c.post(f"/api/admin/agenda-passerelle/demandes/inconnue", json={"decision": "accepte"}).status_code == 404
+    assert c.post(f"/api/admin/agenda-passerelle/demandes/{ident}", json={"decision": "peut-etre"}).status_code == 422
+    c.post(f"/api/admin/agenda-passerelle/demandes/{ident}", json={"decision": "accepte"})
+    url = _appeler(c, "lier", {"utilisateur": "awa"}).json()["url"]
+    q = parse_qs(urlparse(url).query)
+    assert q["login_hint"] == ["a@gmail.com"]
+    # Mauvais compte Google (code-B = b@gmail.com) : refusé, accès révoqué, rien de gardé
+    r = c.get("/api/agenda/retour", params={"code": "code-B", "state": q["state"][0]})
+    assert r.status_code == 400 and "Compte non autorisé" in r.text and faux.revoques == ["refresh-B"]
+    assert _appeler(c, "etat", {"utilisateur": "awa"}).json()["lie"] is False
+    # Bon compte : lié
+    q = parse_qs(urlparse(_appeler(c, "lier", {"utilisateur": "awa"}).json()["url"]).query)
+    assert c.get("/api/agenda/retour", params={"code": "code-A", "state": q["state"][0]}).status_code == 200
+    assert _appeler(c, "etat", {"utilisateur": "awa"}).json()["lie"] is True
+
+
+def test_approbation_desactivable_par_l_administrateur(banc):
+    c, db, faux, boucle = banc
+    assert c.put("/api/admin/agenda-passerelle/approbation", json={"actif": False}).json() == {"approbation": False}
+    url = _appeler(c, "lier", {"utilisateur": "awa"}).json()["url"]                                          # sans demande : permis
+    q = parse_qs(urlparse(url).query)
+    assert "login_hint" not in q and c.get("/api/agenda/retour", params={"code": "code-B", "state": q["state"][0]}).status_code == 200
+    assert c.get("/api/admin/agenda-passerelle/etat").json()["approbation"] is False

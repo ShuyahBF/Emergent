@@ -12,13 +12,19 @@
 #
 #   POST /api/webhook/agenda/lier       {utilisateur, retour?}        -> {url}            à ouvrir dans le navigateur (consentement Google)
 #   GET  /api/agenda/retour?code&state                                 (retour de Google : enregistre la liaison, page de confirmation)
-#   POST /api/webhook/agenda/etat       {utilisateur}                  -> {lie, email}
+#   POST /api/webhook/agenda/demander   {utilisateur, gmail, nom?}    -> {etat}           demande d'accès : l'administrateur de SAWALI l'accepte ou la refuse
+#   POST /api/webhook/agenda/etat       {utilisateur}                  -> {lie, email, demande, gmail, approbation_requise}
 #   POST /api/webhook/agenda/analyser   {texte, maintenant?}           -> proposition de RDV (jour, heure, titre) ; ne crée RIEN
 #   POST /api/webhook/agenda/evenements {du?, au?, limite?}            -> événements de l'agenda principal
 #   POST /api/webhook/agenda/creer      {titre, debut, fin?, lieu?, description?, rappel_minutes?}   (après CONFIRMATION de l'utilisateur)
 #   POST /api/webhook/agenda/supprimer  {id}
 #   POST /api/webhook/agenda/delier     {}                              -> retire la liaison (et révoque l'accès chez Google)
-#   GET  /api/admin/agenda-passerelle/etat                              (administrateur : adresse de retour à déclarer chez Google, nombre de liaisons)
+#   GET  /api/admin/agenda-passerelle/etat                              (administrateur : adresse de retour, nombre de liaisons, demandes d'accès)
+#   POST /api/admin/agenda-passerelle/demandes/{id}  {decision: accepte|refuse}      PUT /api/admin/agenda-passerelle/approbation {actif}
+#
+# RESPONSABILISER LES UTILISATEURS : avec l'« approbation » active (défaut), un utilisateur doit d'abord DEMANDER l'accès en indiquant son compte Google ;
+# l'administrateur accepte ou refuse ; seulement ensuite le bouton « Lier » fonctionne, et seul CE compte Google est accepté au retour de Google
+# (un autre compte est refusé et son accès révoqué aussitôt). Cela décide aussi QUI occupe les places du plafond d'utilisateurs de Google.
 #
 # Stockage : documents de la collection `settings` (aucune nouvelle collection) : « agenda-utilisateurs:<clé> » (liaison) et « agenda-etat:<nonce> » (consentement en cours, 15 min).
 from __future__ import annotations
@@ -29,6 +35,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -44,6 +51,8 @@ from routes.contrats_plateformes import signature_valide
 
 PREFIXE_LIAISON = "agenda-utilisateurs:"
 PREFIXE_ETAT = "agenda-etat:"
+ID_CONFIG = "agenda-config"          # { approbation: bool (défaut True), demandes: [ {id, plateforme, utilisateur, nom, gmail, etat, cree_le, decide_le} ] }
+MAX_DEMANDES = 500
 VALIDITE_CONSENTEMENT_MIN = 15
 # Autorisations demandées : l'identité (e-mail) et les ÉVÉNEMENTS de l'agenda (pas le calendrier complet). À déclarer dans Google Auth Platform → Accès aux données.
 SCOPES = os.environ.get("AGENDA_GOOGLE_SCOPES") or "openid email https://www.googleapis.com/auth/calendar.events"
@@ -141,6 +150,20 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             return "appareil", ident, corps
         raise HTTPException(status_code=401, detail="Authentification requise (X-Emetteur + signature, ou X-Source + X-Cle)")
 
+    # ------------------------------------------------------------------ demandes d'accès (approbation par l'administrateur)
+    async def _config() -> Dict[str, Any]:
+        doc = await db.settings.find_one({"_id": ID_CONFIG}) or {}
+        return {"approbation": doc.get("approbation") is not False, "demandes": doc.get("demandes") or []}
+
+    async def _ecrire_config(cfg: Dict[str, Any]) -> None:
+        await db.settings.replace_one({"_id": ID_CONFIG}, {"_id": ID_CONFIG, **cfg}, upsert=True)
+
+    def _id_demande(plateforme: str, utilisateur: str) -> str:
+        return cle_liaison(plateforme, utilisateur)
+
+    def _trouver(cfg: Dict[str, Any], plateforme: str, utilisateur: str) -> Optional[Dict[str, Any]]:
+        return next((d for d in cfg["demandes"] if d["id"] == _id_demande(plateforme, utilisateur)), None)
+
     # ------------------------------------------------------------------ jetons Google
     async def _jeton_acces(cle: str) -> str:
         """Jeton d'accès de CET utilisateur (actualisé si besoin). 409 si la liaison n'existe pas ou a été retirée chez Google."""
@@ -179,6 +202,11 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
     async def lier(request: Request):
         plateforme, utilisateur, corps = await _appelant(request)
         client_id, _ = await _identifiants_google()
+        cfg = await _config()
+        demande = _trouver(cfg, plateforme, utilisateur)
+        if cfg["approbation"] and not (demande and demande["etat"] == "accepte"):
+            raise HTTPException(status_code=403, detail="Demandez d'abord l'accès avec votre compte Google : l'administrateur doit l'accepter" if not demande else
+                                ("Votre demande d'accès est en attente de l'administrateur" if demande["etat"] == "attente" else "Votre demande d'accès a été refusée"))
         nonce = secrets.token_urlsafe(24)
         retour = str(corps.get("retour") or "").strip()[:300]
         if retour and not retour.startswith(RETOURS_AUTORISES):
@@ -188,7 +216,8 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             "expire": (maintenant() + timedelta(minutes=VALIDITE_CONSENTEMENT_MIN)).isoformat()}, upsert=True)
         url = URL_AUTORISATION + "?" + urlencode({
             "client_id": client_id, "redirect_uri": _adresse_retour(request), "response_type": "code", "scope": SCOPES,
-            "access_type": "offline", "prompt": "consent select_account", "state": nonce})
+            "access_type": "offline", "prompt": "consent select_account", "state": nonce,
+            **({"login_hint": demande["gmail"]} if demande else {})})
         return {"url": url, "expire_minutes": VALIDITE_CONSENTEMENT_MIN}
 
     def _page(titre: str, message: str, retour: str = "", ok: bool = True) -> HTMLResponse:
@@ -217,6 +246,16 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
                 return _page("Liaison impossible", "Google n'a pas fourni l'autorisation permanente. Retirez l'accès de SAWALI sur myaccount.google.com/permissions puis recommencez.", retour, ok=False)
             infos = await http.get(URL_INFOS, headers={"Authorization": f"Bearer {jeton['access_token']}"})
         email = (infos.json() if infos.status_code == 200 else {}).get("email") or ""
+        cfg = await _config()
+        demande = _trouver(cfg, etat["plateforme"], etat["utilisateur"])
+        if cfg["approbation"] and not (demande and demande["etat"] == "accepte" and demande["gmail"].lower() == email.lower()):
+            try:                                                           # mauvais compte : l'accès est révoqué aussitôt, rien n'est gardé
+                async with _client() as http:
+                    await http.post(URL_REVOCATION, data={"token": jeton["refresh_token"]})
+            except Exception:  # noqa: BLE001
+                pass
+            return _page("Compte non autorisé", f"Le compte Google « {email or 'inconnu'} » n'est pas celui accepté pour vous ({(demande or {}).get('gmail') or 'aucune demande acceptée'}). "
+                         "Recommencez avec le bon compte.", retour, ok=False)
         cle = cle_liaison(etat["plateforme"], etat["utilisateur"])
         await db.settings.replace_one({"_id": PREFIXE_LIAISON + cle}, {
             "_id": PREFIXE_LIAISON + cle, "plateforme": etat["plateforme"], "utilisateur": etat["utilisateur"], "email": email,
@@ -230,7 +269,28 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
     async def etat_liaison(request: Request):
         plateforme, utilisateur, _ = await _appelant(request)
         doc = await db.settings.find_one({"_id": PREFIXE_LIAISON + cle_liaison(plateforme, utilisateur)})
-        return {"lie": bool(doc), "email": (doc or {}).get("email") or "", "lie_le": (doc or {}).get("lie_le")}
+        cfg = await _config()
+        demande = _trouver(cfg, plateforme, utilisateur)
+        return {"lie": bool(doc), "email": (doc or {}).get("email") or "", "lie_le": (doc or {}).get("lie_le"),
+                "approbation_requise": cfg["approbation"], "demande": (demande or {}).get("etat") or "", "gmail": (demande or {}).get("gmail") or ""}
+
+    @api.post("/webhook/agenda/demander", tags=["Agenda — passerelle"])
+    async def demander(request: Request):
+        """L'utilisateur indique SON compte Google ; l'administrateur de SAWALI accepte ou refuse. Une nouvelle demande remplace la précédente (et repasse « en attente »)."""
+        plateforme, utilisateur, corps = await _appelant(request)
+        gmail = str(corps.get("gmail") or "").strip().lower()[:120]
+        if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", gmail):
+            raise HTTPException(status_code=422, detail="Adresse e-mail du compte Google invalide")
+        cfg = await _config()
+        d = _trouver(cfg, plateforme, utilisateur)
+        if d and d["etat"] == "accepte" and d["gmail"] == gmail:
+            return {"etat": "accepte", "gmail": gmail}
+        nouvelle = {"id": _id_demande(plateforme, utilisateur), "plateforme": plateforme, "utilisateur": utilisateur, "nom": str(corps.get("nom") or "")[:80],
+                    "gmail": gmail, "etat": "attente", "cree_le": maintenant().isoformat(), "decide_le": None}
+        cfg["demandes"] = [x for x in cfg["demandes"] if x["id"] != nouvelle["id"]] + [nouvelle]
+        cfg["demandes"] = cfg["demandes"][-MAX_DEMANDES:]
+        await _ecrire_config(cfg)
+        return {"etat": "attente", "gmail": gmail}
 
     @api.post("/webhook/agenda/delier", tags=["Agenda — passerelle"])
     async def delier(request: Request):
@@ -329,14 +389,44 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
         await _api(cle_liaison(plateforme, utilisateur), "DELETE", f"/calendars/primary/events/{ident}")
         return {"ok": True}
 
-    # ------------------------------------------------------------------ administrateur : aucun contenu d'agenda, seulement l'état technique
-    @api.get("/admin/agenda-passerelle/etat", tags=["Agenda — passerelle"])
-    async def etat_admin(request: Request, user: dict = Depends(get_current_user)):
+    # ------------------------------------------------------------------ administrateur : aucun contenu d'agenda ; les demandes d'accès (compte Google indiqué par l'utilisateur) à accepter ou refuser
+    def _admin(user: dict) -> None:
         if user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+
+    @api.get("/admin/agenda-passerelle/etat", tags=["Agenda — passerelle"])
+    async def etat_admin(request: Request, user: dict = Depends(get_current_user)):
+        _admin(user)
         par: Dict[str, int] = {}
         async for d in db.settings.find({"_id": {"$regex": "^" + PREFIXE_LIAISON}}, {"plateforme": 1}):
             par[d.get("plateforme") or "?"] = par.get(d.get("plateforme") or "?", 0) + 1
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        return {"adresse_retour": _adresse_retour(request), "autorisations": SCOPES.split(), "google_configure": bool(s.get("google_client_id") and s.get("google_client_secret")),
-                "liaisons_par_plateforme": par, "total": sum(par.values())}
+        s_ = await db.settings.find_one({"_id": "global"}) or {}
+        cfg = await _config()
+        return {"adresse_retour": _adresse_retour(request), "autorisations": SCOPES.split(), "google_configure": bool(s_.get("google_client_id") and s_.get("google_client_secret")),
+                "liaisons_par_plateforme": par, "total": sum(par.values()), "approbation": cfg["approbation"],
+                "demandes": sorted(({k: d.get(k) for k in ("id", "plateforme", "utilisateur", "nom", "gmail", "etat", "cree_le", "decide_le")} for d in cfg["demandes"]),
+                                   key=lambda d: d["cree_le"] or "", reverse=True)}
+
+    @api.post("/admin/agenda-passerelle/demandes/{ident}", tags=["Agenda — passerelle"])
+    async def decider(ident: str, request: Request, user: dict = Depends(get_current_user)):
+        _admin(user)
+        corps = await request.json()
+        decision = str((corps or {}).get("decision") or "")
+        if decision not in ("accepte", "refuse"):
+            raise HTTPException(status_code=422, detail="decision : accepte ou refuse")
+        cfg = await _config()
+        d = next((x for x in cfg["demandes"] if x["id"] == ident), None)
+        if not d:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        d["etat"], d["decide_le"] = decision, maintenant().isoformat()
+        await _ecrire_config(cfg)
+        return {"id": ident, "etat": decision}
+
+    @api.put("/admin/agenda-passerelle/approbation", tags=["Agenda — passerelle"])
+    async def regler_approbation(request: Request, user: dict = Depends(get_current_user)):
+        _admin(user)
+        corps = await request.json()
+        cfg = await _config()
+        cfg["approbation"] = bool((corps or {}).get("actif"))
+        await _ecrire_config(cfg)
+        return {"approbation": cfg["approbation"]}

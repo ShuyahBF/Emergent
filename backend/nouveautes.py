@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "404", "date": "2026-11-15",
+        "titre": "🛡️ Agenda des plateformes : approbation des comptes Google par l'administrateur",
+        "description": "Chaque utilisateur indique d'abord son compte Google ; vous acceptez ou refusez ; seul ce compte peut ensuite lier son agenda (un autre compte est refusé et révoqué). Interrupteur d'approbation et tableau triable des demandes.",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "403", "date": "2026-11-15",
         "titre": "📅 Passerelle Agenda Google pour auRor, Concentration et Personnel Maison",
         "description": "Chaque utilisateur lie son propre Google Agenda (jamais lisible par un autre), consulte ses rendez-vous et en crée par note vocale avec confirmation. Adresse de retour à déclarer chez Google et nombre de liaisons dans les Paramètres.",

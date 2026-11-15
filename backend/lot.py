@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "403"
-LOT_LIBELLE = "Passerelle Agenda Google par utilisateur pour les autres plateformes : liaison OAuth, consultation, création d'événements, analyse des notes vocales en français."
+LOT = "404"
+LOT_LIBELLE = "Agenda des plateformes : demande d'accès avec le compte Google, acceptée ou refusée par l'administrateur avant toute liaison ; compte vérifié au retour de Google."

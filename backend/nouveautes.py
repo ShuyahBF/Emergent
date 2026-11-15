@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "400", "date": "2026-11-15",
+        "titre": "↕️ Transactions SMS : colonnes triables et pastilles-filtres",
+        "description": "Toutes les colonnes des tableaux de Transactions SMS se trient d'un clic (▲ croissant, ▼ décroissant, 3e clic = ordre d'origine) sur toutes les lignes ; les pastilles « alertes / promos / messages » restent visibles et filtrent la liste (règle 19).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "399", "date": "2026-11-14",
         "titre": "🔠 Menus : première lettre de chaque mot en majuscule",
         "description": "Tous les menus et sous-menus de la barre latérale écrivent chaque mot avec une majuscule (« Demandes Des Plateformes »), selon la règle 18 du propriétaire.",

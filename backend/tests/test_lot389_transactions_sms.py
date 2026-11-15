@@ -356,3 +356,20 @@ def test_l_historique_d_un_client_et_les_plateformes_ignorent_les_promos():
     corps = json.dumps({"sens": "entree"}).encode()
     pf = c.post("/api/webhook/plateforme-paiements", content=corps, headers=_signer("cle-albarka", corps)).json()
     assert pf["total"] == 1 and pf["transactions"][0]["montant"] == 25000                       # la promo n'est jamais transmise à la plateforme
+
+
+def test_tri_des_colonnes_cote_serveur_vides_en_dernier():
+    """Règle 19 : toutes les colonnes sont triables ; les valeurs vides restent en dernier, dans les deux sens."""
+    lignes = [
+        {"ms": 3, "operateur": "Orange Money", "tiers": "Zoé", "numero": "22670000003", "montant": 500, "genre": "DEPENSE", "categorie": "transaction", "client_nom": "Étoile", "plateforme": "albarka"},
+        {"ms": 1, "operateur": "Moov Money", "tiers": "", "numero": None, "montant": 36000, "genre": "RECETTE", "categorie": "transaction"},
+        {"ms": 2, "operateur": "Orange Money", "tiers": "Anne", "numero": "22670000001", "montant": 100, "genre": "DEPENSE", "categorie": "transaction", "lien_libelle": "Boutique"},
+    ]
+    ordre = lambda cle, sens="asc": [p["ms"] for p in ts.trier(lignes, cle, sens)]
+    assert ordre("date") == [1, 2, 3] and ordre("date", "desc") == [3, 2, 1]
+    assert ordre("beneficiaire") == [2, 3, 1] and ordre("beneficiaire", "desc") == [3, 2, 1]      # « Anne » < « Zoé » ; le vide reste dernier
+    assert ordre("numero") == [2, 3, 1] and ordre("numero", "desc") == [3, 2, 1]
+    assert ordre("montant") == [3, 2, 1] and ordre("montant", "desc") == [1, 2, 3]                  # dépenses négatives : − 500 < − 100 < + 36 000
+    assert ordre("association") == [2, 3, 1] and ordre("association", "desc") == [3, 2, 1]              # « Boutique » < « Étoile · albarka » ; sans association = dernier
+    assert ordre("operateur")[0] == 1
+    assert ts.trier(lignes, "inconnue") is lignes                                                      # clé inconnue : ordre d'origine

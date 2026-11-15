@@ -5,8 +5,10 @@
 // celle-ci retrouve ses paiements sans les ressaisir. Voir backend/routes/transactions_sms.py.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy, Tag } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy, Tag, Eye } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
+import ThTri from "@/components/ThTri";            // règle 19 : toutes les colonnes triables
+import { useTri, basculerTri } from "@/lib/tri";
 
 const fcfa = (v) => `${Number(v || 0).toLocaleString("fr-FR")} FCFA`;
 const dateHeure = (ms) => new Date(ms).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" });
@@ -99,6 +101,13 @@ export default function AdminTransactionsSms() {
   const [cleAffichee, setCleAffichee] = useState(null);       // { id, cle } montrée UNE SEULE FOIS
   const [lien, setLien] = useState({ cle: "", pays: "226", plateforme: "", client_id: "", libelle: "" });
   const [suggestions, setSuggestions] = useState([]);       // payeurs de numéro connu (client de SAWALI) pas encore associés
+  // Règle 19 : toutes les colonnes sont triables. La liste principale (paginée) est triée par le SERVEUR sur toutes les lignes filtrées ; les petits tableaux, ici dans le navigateur.
+  const [tri, setTri] = useState(null);                       // { cle, sens } de la liste des transactions, ou null = date décroissante
+  const triSuggestions = useTri(suggestions, { numero: (x) => x.numero_affiche || x.numero, client: (x) => x.client_nom, nombre: (x) => Number(x.nombre), total: (x) => Number(x.total) });
+  const triLiens = useTri(etat?.liens || [], { cle: (l) => l.cle_affichee || l.cle, client: (l) => l.client_nom, plateforme: (l) => l.plateforme, libelle: (l) => l.libelle });
+  const triSources = useTri(etat?.sources || [], { nom: (x) => x.nom, id: (x) => x.id, envoi: (x) => x.dernier_envoi || "", recues: (x) => Number(x.recues || 0) });
+  const triTiers = useTri((donnees?.stats?.top_tiers || []).map((x, i) => ({ ...x, rang: i + 1 })), { rang: (x) => x.rang, nom: (x) => x.nom, total: (x) => Number(x.total) });
+  const triMontants = useTri((donnees?.stats?.top_montants || []).map((x, i) => ({ ...x, rang: i + 1 })), { rang: (x) => x.rang, nom: (x) => x.tiers || "", montant: (x) => Number(x.montant) });
 
   // Modification d'un téléphone (intitulé) ou d'une association (client, plateforme, libellé) : une seule ligne en cours de modification à la fois
   const [editTel, setEditTel] = useState(null);       // { id, nom }
@@ -120,8 +129,8 @@ export default function AdminTransactionsSms() {
 
   const params = useMemo(() => {
     const { du, au } = bornes(filtres);
-    return Object.fromEntries(Object.entries({ du, au, operateur: filtres.operateur, genre: filtres.genre, source: filtres.source, plateforme: filtres.plateforme, categorie: filtres.categorie, q: filtres.q.trim() }).filter(([, v]) => v));
-  }, [filtres]);
+    return Object.fromEntries(Object.entries({ du, au, operateur: filtres.operateur, genre: filtres.genre, source: filtres.source, plateforme: filtres.plateforme, categorie: filtres.categorie, q: filtres.q.trim(), tri: tri?.cle, sens: tri?.sens }).filter(([, v]) => v));
+  }, [filtres, tri]);
   const charger = useCallback(async (limite) => {
     try { const { data } = await apiClient.get("/admin/transactions-sms", { params: { ...params, par_mois: parMois, classement, limite } }); setDonnees(data); } catch (e) { erreur(e); }
   }, [params, parMois, classement]);
@@ -259,34 +268,41 @@ export default function AdminTransactionsSms() {
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <p className="px-4 pt-3 font-semibold">Top 10 des {classement === "DEPENSE" ? "bénéficiaires" : "expéditeurs"}</p>
-              <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">#</th><th className="p-2">Nom</th><th className="p-2 text-right">Total</th></tr></thead>
-                <tbody>{stats.top_tiers.map((x, i) => (
+              <table className="tableau w-full text-sm"><thead><tr className="text-left"><ThTri cle="rang" tri={triTiers.tri} onTri={triTiers.basculer}>#</ThTri><ThTri cle="nom" tri={triTiers.tri} onTri={triTiers.basculer}>Nom</ThTri><ThTri cle="total" tri={triTiers.tri} onTri={triTiers.basculer} droite>Total</ThTri></tr></thead>
+                <tbody>{triTiers.lignes.map((x) => (
                   <tr key={x.nom} className="cursor-pointer border-t border-slate-100" onClick={() => setRecherche(x.nom)}>
-                    <td className="p-2">{i + 1}</td><td className="p-2">{x.nom}<div className="text-xs text-slate-500">{x.nombre} paiement(s)</div></td><td className="p-2 text-right font-semibold tabular-nums">{fcfa(x.total)}</td></tr>))}</tbody></table>
+                    <td className="p-2">{x.rang}</td><td className="p-2">{x.nom}<div className="text-xs text-slate-500">{x.nombre} paiement(s)</div></td><td className="p-2 text-right font-semibold tabular-nums">{fcfa(x.total)}</td></tr>))}</tbody></table>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <p className="px-4 pt-3 font-semibold">Top 10 des montants</p>
-              <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">#</th><th className="p-2">Nom</th><th className="p-2 text-right">Montant</th></tr></thead>
-                <tbody>{stats.top_montants.map((x, i) => (
-                  <tr key={`${x.ms}-${i}`} className="border-t border-slate-100"><td className="p-2">{i + 1}</td><td className="p-2">{x.tiers || "—"}<div className="text-xs text-slate-500">{x.operateur} · {dateHeure(x.ms)}</div></td>
+              <table className="tableau w-full text-sm"><thead><tr className="text-left"><ThTri cle="rang" tri={triMontants.tri} onTri={triMontants.basculer}>#</ThTri><ThTri cle="nom" tri={triMontants.tri} onTri={triMontants.basculer}>Nom</ThTri><ThTri cle="montant" tri={triMontants.tri} onTri={triMontants.basculer} droite>Montant</ThTri></tr></thead>
+                <tbody>{triMontants.lignes.map((x, i) => (
+                  <tr key={`${x.ms}-${i}`} className="border-t border-slate-100"><td className="p-2">{x.rang}</td><td className="p-2">{x.tiers || "—"}<div className="text-xs text-slate-500">{x.operateur} · {dateHeure(x.ms)}</div></td>
                     <td className="p-2 text-right font-semibold tabular-nums">{fcfa(x.montant)}</td></tr>))}</tbody></table>
             </div>
           </div>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-lg font-bold">Transactions ({donnees.total})</h2>
-          {Object.keys(donnees.exclus || {}).length > 0 && !filtres.categorie && (
+          <h2 className="text-lg font-bold">{filtres.categorie === "toutes" ? "Tous les SMS" : filtres.categorie ? `${(LIBELLE_CATEGORIE[filtres.categorie] || filtres.categorie)}s` : "Transactions"} ({donnees.total})</h2>
+          {/* Bandeau des SMS sortis du décompte : toujours visible ; chaque pastille est un FILTRE (clic = n'afficher que cette catégorie, second clic = retour aux transactions) */}
+          {Object.keys(donnees.exclus || {}).length > 0 && (
             <p className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 p-2 text-sm text-slate-700" data-testid="bandeau-exclus">
               <span>SMS sortis du décompte :</span>
-              {Object.entries(donnees.exclus).map(([cat, n]) => <span key={cat} className="rounded-full bg-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-700">{n} {(LIBELLE_CATEGORIE[cat] || cat).toLowerCase()}{n > 1 ? "s" : ""}</span>)}
-              <button type="button" className="underline" onClick={() => modifier("categorie", "toutes")}>Afficher</button>
+              {Object.entries(donnees.exclus).map(([cat, n]) => (
+                <button key={cat} type="button" aria-pressed={filtres.categorie === cat} data-testid={`pastille-filtre-${cat}`}
+                  title={filtres.categorie === cat ? "Retour aux transactions" : `N'afficher que : ${(LIBELLE_CATEGORIE[cat] || cat).toLowerCase()}s`}
+                  onClick={() => modifier("categorie", filtres.categorie === cat ? "" : cat)}
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${filtres.categorie === cat ? "bg-slate-700 text-white" : "bg-slate-300 text-slate-700 hover:bg-slate-400"}`}>
+                  {n} {(LIBELLE_CATEGORIE[cat] || cat).toLowerCase()}{n > 1 ? "s" : ""}</button>))}
+              {filtres.categorie !== "toutes" && <button type="button" className="underline" onClick={() => modifier("categorie", "toutes")}><Eye className="mr-1 inline h-4 w-4" />Afficher tout</button>}
+              {filtres.categorie !== "" && <button type="button" className="underline" onClick={() => modifier("categorie", "")}><RotateCcw className="mr-1 inline h-4 w-4" />Transactions seulement</button>}
             </p>
           )}
           {/* Tableau DÉFILANT (hauteur limitée, en-tête figé) : la page n'est plus entraînée vers le bas par une longue liste */}
           <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-sky-50" data-testid="liste-defilante">
             <table className="tableau w-full text-sm" data-testid="liste">
-              <thead><tr className="text-left"><th className="p-2">Date</th><th className="p-2">Opérateur</th><th className="p-2">Bénéficiaire / expéditeur</th><th className="p-2">Numéro</th><th className="p-2">Association</th><th className="p-2 text-right">Montant</th></tr></thead>
+              <thead><tr className="text-left">{[["date", "Date"], ["operateur", "Opérateur"], ["beneficiaire", "Bénéficiaire / expéditeur"], ["numero", "Numéro"], ["association", "Association"]].map(([k, n]) => <ThTri key={k} cle={k} tri={tri} onTri={(c) => setTri((t) => basculerTri(t, c))}>{n}</ThTri>)}<ThTri cle="montant" tri={tri} onTri={(c) => setTri((t) => basculerTri(t, c))} droite>Montant</ThTri></tr></thead>
               <tbody>{donnees.transactions.map((p, i) => (
                 <React.Fragment key={`${p.ms}-${i}`}>
                 <tr aria-selected={selection === `${p.ms}-${i}`} className={`cursor-pointer border-t border-slate-100 ${p.categorie && p.categorie !== "transaction" ? "text-slate-400" : ""} ${ligneMaj && p.numero === ligneMaj ? "animate-pulse bg-amber-100" : ""}`} onClick={() => setSelection(`${p.ms}-${i}`)}>
@@ -325,8 +341,8 @@ export default function AdminTransactionsSms() {
         {suggestions.length > 0 && (
           <div className="space-y-2 rounded-lg border border-sky-300 bg-sky-50 p-3" data-testid="suggestions">
             <div className="text-sm font-semibold">Payeurs de numéro connu, pas encore associés</div>
-            <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro</th><th className="p-2">Client de SAWALI</th><th className="p-2 text-right">Paiements</th><th className="p-2 text-right">Reçu (FCFA)</th><th className="p-2" /></tr></thead>
-              <tbody>{suggestions.map((x) => (<tr key={x.numero + x.client_id} className="border-t border-sky-100"><td className="p-2 font-mono text-xs">{x.numero_affiche || x.numero}</td><td className="p-2">{x.client_nom}</td>
+            <table className="tableau w-full text-sm"><thead><tr className="text-left"><ThTri cle="numero" tri={triSuggestions.tri} onTri={triSuggestions.basculer}>Numéro</ThTri><ThTri cle="client" tri={triSuggestions.tri} onTri={triSuggestions.basculer}>Client de SAWALI</ThTri><ThTri cle="nombre" tri={triSuggestions.tri} onTri={triSuggestions.basculer} droite>Paiements</ThTri><ThTri cle="total" tri={triSuggestions.tri} onTri={triSuggestions.basculer} droite>Reçu (FCFA)</ThTri><th className="p-2" /></tr></thead>
+              <tbody>{triSuggestions.lignes.map((x) => (<tr key={x.numero + x.client_id} className="border-t border-sky-100"><td className="p-2 font-mono text-xs">{x.numero_affiche || x.numero}</td><td className="p-2">{x.client_nom}</td>
                 <td className="p-2 text-right tabular-nums">{x.nombre}</td><td className="p-2 text-right tabular-nums">{Number(x.total).toLocaleString("fr-FR")}</td>
                 <td className="p-2 text-right"><button type="button" className="underline" onClick={() => associerSuggestion(x)}><Link2 className="mr-1 inline h-4 w-4" />Associer à ce client</button></td></tr>))}</tbody></table>
           </div>
@@ -340,8 +356,8 @@ export default function AdminTransactionsSms() {
           <div className="flex items-end"><button type="button" className="w-full rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={!lien.cle.trim() || (!lien.plateforme && !lien.client_id)} onClick={creerLien}><Link2 className="mr-1 inline h-4 w-4" />Associer</button></div>
         </div>
         {etat.liens.length > 0 && (
-          <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Numéro / nom</th><th className="p-2">Client de SAWALI</th><th className="p-2">Plateforme</th><th className="p-2">Libellé</th><th className="p-2" /></tr></thead>
-            <tbody>{etat.liens.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td>
+          <table className="tableau w-full text-sm"><thead><tr className="text-left"><ThTri cle="cle" tri={triLiens.tri} onTri={triLiens.basculer}>Numéro / nom</ThTri><ThTri cle="client" tri={triLiens.tri} onTri={triLiens.basculer}>Client de SAWALI</ThTri><ThTri cle="plateforme" tri={triLiens.tri} onTri={triLiens.basculer}>Plateforme</ThTri><ThTri cle="libelle" tri={triLiens.tri} onTri={triLiens.basculer}>Libellé</ThTri><th className="p-2" /></tr></thead>
+            <tbody>{triLiens.lignes.map((l) => (<tr key={l.id} className="border-t border-slate-100"><td className="p-2 font-mono text-xs">{l.cle_affichee || l.cle}</td>
               <td className="p-2">{l.client_nom || "—"}</td><td className="p-2">{l.plateforme || "—"}</td><td className="p-2">{l.libelle}</td>
               <td className="p-2 text-right whitespace-nowrap"><button type="button" className="mr-3 underline" onClick={() => setModale({ mode: "modifier", id: l.id, cle_affichee: l.cle_affichee || l.cle, numero: "", client_id: l.client_id || "", plateforme: l.plateforme || "", libelle: l.libelle || "" })} title="Modifier le client, la plateforme ou le libellé" data-testid={`modifier-lien-${l.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerLien(l)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></td></tr>))}</tbody></table>
         )}
@@ -364,8 +380,8 @@ export default function AdminTransactionsSms() {
           </div>
         )}
         {etat.sources.length > 0 && (
-          <table className="tableau w-full text-sm"><thead><tr className="text-left"><th className="p-2">Téléphone</th><th className="p-2">Identifiant</th><th className="p-2">Dernier envoi</th><th className="p-2 text-right">Reçues</th><th className="p-2" /></tr></thead>
-            <tbody>{etat.sources.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{editTel?.id === s.id
+          <table className="tableau w-full text-sm"><thead><tr className="text-left"><ThTri cle="nom" tri={triSources.tri} onTri={triSources.basculer}>Téléphone</ThTri><ThTri cle="id" tri={triSources.tri} onTri={triSources.basculer}>Identifiant</ThTri><ThTri cle="envoi" tri={triSources.tri} onTri={triSources.basculer}>Dernier envoi</ThTri><ThTri cle="recues" tri={triSources.tri} onTri={triSources.basculer} droite>Reçues</ThTri><th className="p-2" /></tr></thead>
+            <tbody>{triSources.lignes.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{editTel?.id === s.id
                 ? <input className="w-full rounded border border-slate-300 px-2 py-1 text-sm" value={editTel.nom} autoFocus onChange={(e) => setEditTel({ ...editTel, nom: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editTel.nom.trim().length >= 2) enregistrerTel(); if (e.key === "Escape") setEditTel(null); }} data-testid="edit-tel-nom" />
                 : s.nom}</td><td className="p-2 font-mono text-xs">{s.id}</td>
               <td className="p-2">{s.dernier_envoi ? new Date(s.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais"}</td><td className="p-2 text-right tabular-nums">{s.recues || 0}</td>

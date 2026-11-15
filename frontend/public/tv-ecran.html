@@ -147,7 +147,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 </div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "329";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "330";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   // Lot 328 : « /tv-ecran.html?admin=1 » = page /suivi-rdv en mode ADMINISTRATEUR : même rendu que la télé, mais connecté avec le compte SAWALI
   // (jeton du site), sans appairage ni code PIN, patients en clair. Le téléphone de l'admin joue le rôle d'une télé de contrôle.
   var ADMIN = /[?&]admin=1/.test(window.location.search);
@@ -262,7 +262,8 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   // Lot 304 : bascule entre le planning des médecins (défaut) et le suivi (messages + demandes de support)
   // Lot 317 : le Suivi Support est protégé par un code PIN (réglé dans Paramètres → Écrans TV) ; sans jeton valide, c'est le clavier du code qui s'affiche
   function basculer() { mode = (mode === "planning") ? "suivi" : "planning"; pinSaisie = ""; pinMsg = ""; vus = {}; dejaCharge = false; if (flux) { dessiner(); } }
-  function verrouille() { return !!(flux && flux.ecran && !flux.ecran.suivi_ouvert); }
+  // Lot 414 : le code PIN ne protège que la messagerie et le support ; un écran sans ces contenus (ex. vidéos seules) n'a rien à verrouiller
+  function verrouille() { return !!(flux && flux.ecran && flux.ecran.suivi_possible && !flux.ecran.suivi_ouvert); }
   function annulerPin() { pinSaisie = ""; pinMsg = ""; mode = "planning"; jeton = ""; dessiner(); }
   function toucherPin(t) {
     if (pinEnvoi) { return; }
@@ -520,7 +521,11 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
       }
       h += "</div>";
     }
-    if (!m.messagerie && !m.support && !m.hall) { h += '<div class="centre"><div class="vide">Aucun contenu choisi pour cet écran</div></div>'; }
+    if (!m.messagerie && !m.support && !m.hall) {
+      // Lot 414 : écran « vidéos seules » : écran d'attente (la vidéo se lance depuis la télécommande du téléphone) ; sinon aucun contenu
+      h += m.video ? '<div class="centre"><div class="vide">🎬 Écran prêt pour les vidéos<br><span style="font-size:0.6em;opacity:.8">En attente d\'une vidéo envoyée depuis votre téléphone</span></div></div>'
+                   : '<div class="centre"><div class="vide">Aucun contenu choisi pour cet écran</div></div>';
+    }
     racine.innerHTML = h + "</div>";
     var el = document.getElementById("direct");
     if (el) { el.scrollTop = (etaitEnBas || nouveauEntrant) ? el.scrollHeight : ancienHaut; }   // défilement automatique vers le dernier message

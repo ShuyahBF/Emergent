@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "413"
-LOT_LIBELLE = "Écrans TV : le client n'est plus exigé pour un écran qui ne montre que des vidéos."
+LOT = "414"
+LOT_LIBELLE = "Écran TV vidéos seules : plus de clavier PIN du Suivi Support, écran d'attente des vidéos (page /tv version 330)."

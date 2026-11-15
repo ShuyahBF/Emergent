@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "414", "date": "2026-11-15",
+        "titre": "🎬 Écran TV « vidéos seules » : plus de code PIN ni d'écran de support",
+        "description": "Un écran sans messagerie ni support n'affiche plus le clavier du code PIN : il montre « Écran prêt pour les vidéos » en attendant l'ordre du téléphone.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "413", "date": "2026-11-15",
         "titre": "📺 Écran TV « vidéos seules » : plus de client à choisir",
         "description": "Un écran dont seul le contenu « Vidéos » est coché s'appaire sans client ; le client reste exigé pour la messagerie, le support et le hall.",

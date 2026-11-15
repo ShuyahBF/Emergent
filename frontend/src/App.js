@@ -222,6 +222,7 @@ import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import PrivacyPage from "@/pages/public/Privacy";
+import PrivacyApplication from "@/pages/public/PrivacyApplication";
 import TermsOfServicePage from "@/pages/public/TermsOfService";
 import GardePage from "@/pages/public/Garde";
 import VerifierDocumentPage from "@/pages/public/VerifierDocument";   // lot 268 : vérification d'un document par QR code
@@ -356,6 +357,8 @@ export default function App() {
           <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
           {/* Iter43-fix17 — URL courte /privacy pour Google Search Console + OAuth Consent Screen */}
           <Route path="/privacy" element={<PublicRoute><PrivacyPage /></PublicRoute>} />
+          {/* Lot 407 — politique propre à chaque application Android : /privacy/concentration, /privacy/personnel-maison */}
+          <Route path="/privacy/:app" element={<PublicRoute><PrivacyApplication /></PublicRoute>} />
           {/* Iter43-fix24as (2026-02) — Validation TikTok pour `sawalismartsystems` :
               URLs canoniques /privacy-policy + /terms-of-service avec titres
               de page contenant exactement le nom de l'app. */}

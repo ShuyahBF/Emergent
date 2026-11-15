@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "418"
-LOT_LIBELLE = "Télé des familles : vidéos sur téléviseur depuis Personnel de maison, abonnement par foyer (appareils, postes TV), détenteur seul."
+LOT = "419"
+LOT_LIBELLE = "Télé des familles : approbation de SAWALI toujours exigée (même pour 1 télé), abonnement seulement à partir de 2 télés simultanées."

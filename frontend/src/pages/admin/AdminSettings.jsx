@@ -14,6 +14,7 @@ import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import PlanningWebhookSection from "@/pages/admin/sections/PlanningWebhookSection";
 import AgendaPasserelleSection from "@/pages/admin/sections/AgendaPasserelleSection";
+import FamilleTvSection from "@/pages/admin/sections/FamilleTvSection";
 import EcransTvSection from "@/pages/admin/sections/EcransTvSection";   // lot 289
 import NiveauxServiceSection from "@/pages/admin/sections/NiveauxServiceSection";   // lot 314
 import LiluvineReactionsSection from "@/pages/admin/sections/LiluvineReactionsSection";
@@ -1336,6 +1337,9 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)" anchorId="s-agenda-passerelle">
         <AgendaPasserelleSection />
+      </Filterable>
+      <Filterable title="👨‍👩‍👧 Télé des familles (Personnel de maison)" anchorId="s-famille-tv">
+        <FamilleTvSection />
       </Filterable>
       <Filterable title="📺 Écrans TV (Smart TV)" anchorId="s-ecrans-tv">
         <EcransTvSection />

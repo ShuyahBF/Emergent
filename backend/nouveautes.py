@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "419", "date": "2026-11-15",
+        "titre": "👨‍👩‍👧 Télé des familles : approbation de SAWALI et télés offertes",
+        "description": "Chaque appareil Personnel de maison demande l'accès à la télé, vous l'acceptez ou le refusez (même pour une seule télé) ; l'abonnement n'est nécessaire qu'à partir de 2 télés simultanées (nombre de télés offertes réglable).",
+        "rubrique": "👨‍👩‍👧 Télé des familles (Personnel de maison)",
+    },
+    {
         "lot": "418", "date": "2026-11-15",
         "titre": "📺 Télé des familles : vidéos sur téléviseur depuis Personnel de maison",
         "description": "Abonnement par foyer (appareils couverts, postes TV) ; seul le détenteur de l'appareil lance sa projection. Formules « Télé » avec leurs limites, et vidéos « visibles dans Personnel de maison » à choisir.",

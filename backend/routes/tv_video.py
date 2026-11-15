@@ -1,7 +1,7 @@
 """Lot 412 — Vidéos en streaming sur les écrans TV (Smart TV), pilotées depuis le téléphone.
 
 Comment ça marche (pour un développeur WinDev) :
-  1. La vidéo est chargée dans la « Bibliothèque de médias » de SAWALI (déjà en place : fichiers stockés dans Cloudflare R2, 200 Mo au plus).
+  1. La vidéo est chargée dans la « Bibliothèque de médias » de SAWALI (déjà en place : fichiers stockés dans Cloudflare R2, 300 Mo au plus).
   2. La télé est déjà appairée (Paramètres → « 📺 Écrans TV ») ; l'administrateur coche le contenu « Vidéos » pour cet écran.
   3. Depuis son téléphone, l'administrateur ouvre la « télécommande vidéo », choisit l'écran et la vidéo : « Lire », pause, ±10 s, position, arrêt.
      Chaque ordre est numéroté ; la page de la télé demande « y a-t-il un ordre plus récent que le n° N ? » toutes les 2 secondes (comme pour son flux).
@@ -81,7 +81,7 @@ def lire_en_tete_range(valeur: Optional[str], taille: int) -> Optional[Tuple[int
 
 
 def _ouvrir_plage(chemin: str, debut: int, fin: int) -> Iterator[bytes]:
-    """Octets [debut, fin] du fichier stocké, par morceaux. R2 : lecture partielle (Range) ; sinon repli sur la lecture complète (fichiers ≤ 200 Mo)."""
+    """Octets [debut, fin] du fichier stocké, par morceaux. R2 : lecture partielle (Range) ; sinon repli sur la lecture complète (fichiers ≤ 300 Mo)."""
     import storage as stockage
     cfg = stockage.config_r2()
     if cfg:

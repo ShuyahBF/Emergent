@@ -17,6 +17,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 
+import object_storage as _stockage_objet   # lot 415 : envoi par morceaux des vidéos
+
 logger = logging.getLogger("sawali.media_library")
 
 # Allowed kinds with their MIME / extension whitelists
@@ -28,7 +30,7 @@ ALLOWED_MIME = {
 
 MAX_BYTES = {
     "pdf": 50 * 1024 * 1024,    # 50 MB
-    "video": 200 * 1024 * 1024,  # 200 MB
+    "video": 300 * 1024 * 1024,  # 300 MB (lot 415 : envoyées vers R2 par morceaux, sans les charger en mémoire)
     "image": 15 * 1024 * 1024,   # 15 MB
 }
 
@@ -112,11 +114,19 @@ def setup_media_library_routes(*, db, api, get_current_user, save_and_log):
             raise HTTPException(status_code=400, detail=f"Type de fichier non supporté ({ct}). PDF, vidéo ou image attendu.")
         if ct and ct not in ALLOWED_MIME[detected_kind]:
             raise HTTPException(status_code=400, detail=f"MIME {ct} non autorisé pour {detected_kind}.")
-        content = await file.read()
-        if not content:
-            raise HTTPException(status_code=400, detail="Fichier vide.")
         cap = MAX_BYTES[detected_kind]
-        if len(content) > cap:
+        # Lot 415 : une vidéo (jusqu'à 300 Mo) n'est JAMAIS lue d'un bloc en mémoire (le serveur n'a que 512 Mo) : elle est envoyée vers R2 par morceaux.
+        # Les autres fichiers (PDF, images : petits) gardent le chemin d'origine.
+        par_morceaux = detected_kind == "video" and _stockage_objet.is_enabled()
+        content = b""
+        if par_morceaux:
+            file.file.seek(0, 2); taille = file.file.tell(); file.file.seek(0)
+        else:
+            content = await file.read()
+            taille = len(content)
+        if taille == 0:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if taille > cap:
             raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (>{cap // (1024 * 1024)} Mo).")
         title = (title or "").strip()[:200]
         if not title:
@@ -126,7 +136,10 @@ def setup_media_library_routes(*, db, api, get_current_user, save_and_log):
         ext = _ext_from_mime_or_name(ct, file.filename)
 
         try:
-            stored = await save_and_log(
+            stored = await (_stockage_objet.save_fileobj_and_log(db, fileobj=file.file, size=taille, kind=f"media_library/{detected_kind}", tenant_id="sawali_global",
+                                                                  ext=ext, content_type=ct or "application/octet-stream", original_filename=file.filename,
+                                                                  user_id=user.get("id"), metadata={"title": title, "media_kind": detected_kind})
+                            if par_morceaux else save_and_log(
                 db,
                 data=content,
                 kind=f"media_library/{detected_kind}",
@@ -136,7 +149,7 @@ def setup_media_library_routes(*, db, api, get_current_user, save_and_log):
                 original_filename=file.filename,
                 user_id=user.get("id"),
                 metadata={"title": title, "media_kind": detected_kind},
-            )
+            ))
         except Exception as exc:  # noqa: BLE001
             logger.exception("[media_library] upload failed")
             raise HTTPException(status_code=500, detail=f"Échec stockage : {exc}") from exc
@@ -150,7 +163,7 @@ def setup_media_library_routes(*, db, api, get_current_user, save_and_log):
             "description": description,
             "filename": file.filename,
             "content_type": ct,
-            "size": stored.get("size") or len(content),
+            "size": stored.get("size") or taille,
             "url": stored.get("url"),
             "storage_id": stored.get("id"),
             "storage_path": stored.get("path"),

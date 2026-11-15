@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "402", "date": "2026-11-15",
+        "titre": "🔔 Rappel des RDV aux patients : interrupteur activer / désactiver",
+        "description": "Un interrupteur dans « Webhook Planning consultations » active ou désactive uniquement le rappel WhatsApp envoyé aux patients 1 h avant leur RDV ; les autres envois ne changent pas.",
+        "rubrique": "Webhook Planning consultations (RDV patients)",
+    },
+    {
         "lot": "401", "date": "2026-11-15",
         "titre": "📊 Transactions SMS : chiffres et graphiques toujours calculés sur les vraies transactions",
         "description": "Même en affichant les alertes, promos ou messages, les chiffres clés, opérateurs, histogramme, classements et camembert ne comptent que les transactions ; Concentration et auRor alignent leurs compteurs.",

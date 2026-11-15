@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "401"
-LOT_LIBELLE = "Transactions SMS : chiffres clés et graphiques toujours calculés sur les vraies transactions, même quand la liste affiche les alertes, promos ou messages."
+LOT = "402"
+LOT_LIBELLE = "Planning : interrupteur pour activer ou désactiver le seul rappel WhatsApp des RDV aux patients."

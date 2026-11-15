@@ -308,6 +308,8 @@ class PlanningConfigUpdate(BaseModel):
     # Lot 293 — nom du client cité dans les messages envoyés aux patients (rappel et réponse aux reports)
     clients_noms: Optional[List[Dict[str, str]]] = Field(None, description="[{code_clinique, nom}] ex. CMCO → Clinique CMCO")
     reminder_wa_variable_client: Optional[bool] = Field(None, description="Le modèle Meta a une 5e variable : le nom du client")
+    # Interrupteur du SEUL rappel WhatsApp aux patients (1 h avant le RDV) : les réponses aux reports et les autres envois ne sont pas touchés
+    reminder_actif: Optional[bool] = Field(None, description="Active (défaut) ou désactive le rappel WhatsApp aux patients")
 
 
 class PlanningReportTest(BaseModel):
@@ -391,6 +393,9 @@ def attach_planning_routes(
         window_end = now + timedelta(minutes=65)
 
         s = await db.settings.find_one({"_id": "global"}) or {}
+        # Interrupteur « Rappel des RDV aux patients » : désactivé = AUCUN rappel part (le cron tourne mais ne fait rien). Absent = actif (comportement d'origine).
+        if s.get("planning_reminder_actif") is False:
+            return {"ok": True, "sent": 0, "skipped": 0, "desactive": True}
         template = (s.get("planning_reminder_template") or "").strip() or (
             "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. "
             "Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI"
@@ -499,6 +504,7 @@ def attach_planning_routes(
             "planning_webhook_secret": secret,
             "webhook_url": f"{base}/api/webhooks/planning/{secret}",
             "webhook_created_at": s.get("planning_webhook_created_at"),
+            "reminder_actif": s.get("planning_reminder_actif") is not False,
             "reminder_template": s.get("planning_reminder_template") or "",
             "reminder_wa_template": s.get("planning_reminder_wa_template") or "",
             "reminder_wa_language": s.get("planning_reminder_wa_language") or "fr",
@@ -551,6 +557,8 @@ def attach_planning_routes(
             "planning_webhook_updated_at": _now_iso(),
             "planning_webhook_updated_by": user.get("email"),
         }
+        if payload.reminder_actif is not None:
+            set_doc["planning_reminder_actif"] = bool(payload.reminder_actif)
         if payload.reminder_template is not None:
             set_doc["planning_reminder_template"] = payload.reminder_template.strip()
         if payload.reminder_wa_template is not None:

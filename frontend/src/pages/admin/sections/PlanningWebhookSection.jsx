@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play, Plus, Trash2, PhoneForwarded, Building2 } from "lucide-react";
+import { Copy, RefreshCw, Loader2, Webhook, ClipboardCheck, MessageCircle, Play, Plus, Trash2, PhoneForwarded, Building2, Power } from "lucide-react";
 
 const DEFAULT_TEMPLATE = "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI";
 
@@ -25,6 +25,8 @@ export default function PlanningWebhookSection() {
   const [regenerating, setRegenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [template, setTemplate] = useState("");
+  const [rappelActif, setRappelActif] = useState(true);          // interrupteur du rappel WhatsApp aux patients (1 h avant le RDV)
+  const [savingActif, setSavingActif] = useState(false);
   // Lot 74 — modèle Meta du rappel (hors fenêtre de 24 h) et sa langue
   const [modeleWa, setModeleWa] = useState("");
   const [langueWa, setLangueWa] = useState("fr");
@@ -53,6 +55,7 @@ export default function PlanningWebhookSection() {
       const c = await apiClient.get("/admin/planning/config");
       setCfg(c.data);
       setTemplate(c.data?.reminder_template || "");
+      setRappelActif(c.data?.reminder_actif !== false);
       setModeleWa(c.data?.reminder_wa_template || "");
       setLangueWa(c.data?.reminder_wa_language || "fr");
       setReportActif(Boolean(c.data?.report_actif));
@@ -242,7 +245,31 @@ export default function PlanningWebhookSection() {
                 <MessageCircle className="h-4 w-4 text-emerald-700" />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-semibold text-slate-800">Rappel WhatsApp 1h avant RDV</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="text-sm font-semibold text-slate-800">Rappel WhatsApp 1h avant RDV</h3>
+                  {/* Interrupteur : n'agit que sur ce rappel aux patients ; enregistré automatiquement avec confirmation (règle 15) */}
+                  <button
+                    type="button" role="switch" aria-checked={rappelActif} disabled={savingActif}
+                    data-testid="planning-reminder-actif"
+                    title={rappelActif ? "Rappels aux patients activés : cliquer pour les désactiver" : "Rappels aux patients désactivés : cliquer pour les activer"}
+                    onClick={async () => {
+                      const nouveau = !rappelActif;
+                      setSavingActif(true);
+                      toast.info(nouveau ? "Activation des rappels aux patients en cours…" : "Désactivation des rappels aux patients en cours…");
+                      try {
+                        await apiClient.put("/admin/planning/config", { reminder_actif: nouveau });
+                        setRappelActif(nouveau);
+                        toast.success(nouveau ? "Rappels aux patients ACTIVÉS" : "Rappels aux patients DÉSACTIVÉS : aucun rappel ne partira");
+                      } catch (e) { toast.error(e?.response?.data?.detail || "Réglage non enregistré"); }
+                      finally { setSavingActif(false); }
+                    }}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${rappelActif ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-slate-100 text-slate-600"}`}
+                  >
+                    {savingActif ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+                    {rappelActif ? "Rappels activés" : "Rappels désactivés"}
+                  </button>
+                  <span className="text-xs text-slate-500">enregistré automatiquement</span>
+                </div>
                 <p className="text-xs text-slate-500">
                   Un cron toutes les 5 minutes envoie ce message WA au patient si <code>patient_phone</code> est fourni.
                   Placeholders : <code className="bg-slate-100 px-1 rounded">{"{patient}"}</code>,{" "}
@@ -317,7 +344,7 @@ export default function PlanningWebhookSection() {
                   try {
                     const r = await apiClient.post("/admin/planning/reminders/run");
                     const d = r.data || {};
-                    toast.success(`Rappels envoyés : ${d.sent ?? 0} (skipped ${d.skipped ?? 0})`);
+                    if (d.desactive) toast.info("Rappels aux patients désactivés : rien envoyé. Réactivez-les avec l'interrupteur ci-dessus."); else toast.success(`Rappels envoyés : ${d.sent ?? 0} (skipped ${d.skipped ?? 0})`);
                   } catch (e) {
                     toast.error(e?.response?.data?.detail || "Erreur cron");
                   } finally {

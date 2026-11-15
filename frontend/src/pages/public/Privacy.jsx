@@ -62,6 +62,11 @@ export default function PrivacyPage() {
           accessibles via les <strong>API Google</strong> (Google Agenda, Gmail, Drive, etc.)
           lorsque l'utilisateur connecte son compte Google à notre application.
         </p>
+        <p className="mt-3 text-sm text-slate-400" data-testid="privacy-par-application">
+          Politiques propres à chaque application :{" "}
+          <a href="/privacy/concentration" className="text-sawali-blue-light underline hover:text-white">Concentration</a>{" · "}
+          <a href="/privacy/personnel-maison" className="text-sawali-blue-light underline hover:text-white">Personnel de maison</a>.
+        </p>
       </header>
 
       <div className="space-y-8">

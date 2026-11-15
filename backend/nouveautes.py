@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "407", "date": "2026-11-15",
+        "titre": "🔒 Politiques de confidentialité propres à Concentration et Personnel de maison",
+        "description": "Deux pages publiques dédiées (/privacy/concentration et /privacy/personnel-maison) décrivent ce que fait chaque application, ses données, ses autorisations et l'Agenda Google, pour la validation Google ; liens depuis /privacy et depuis les applications.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "406", "date": "2026-11-15",
         "titre": "📱 Agenda : Concentration et Personnel de maison sans téléphone source à créer",
         "description": "Ces deux applications se déclarent d'elles-mêmes avec le compte Google de l'utilisateur ; vous n'avez plus qu'à accepter la demande dans le tableau des demandes (nom de l'appareil affiché).",

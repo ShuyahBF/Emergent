@@ -108,6 +108,36 @@ def score_promo(corps: str, reference: Optional[str]) -> int:
     return pts
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+# TRI DES COLONNES (règle 19 : toutes les colonnes d'un tableau sont triables). Le tri se fait côté serveur, sur TOUTES les lignes filtrées (la liste est paginée) :
+# trier seulement les lignes affichées donnerait un faux classement. Clés : date, operateur, beneficiaire, numero, association, montant.
+# Les valeurs vides vont toujours en dernier, quel que soit le sens ; les textes sont comparés sans accents ni majuscules.
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
+COLONNES_TRI = ("date", "operateur", "beneficiaire", "numero", "association", "montant")
+
+
+def _valeur_tri(p: Dict[str, Any], cle: str):
+    """Valeur de comparaison d'une ligne pour une colonne (None = vide)."""
+    if cle == "date":
+        return p.get("ms")
+    if cle == "montant":
+        m = p.get("montant")
+        return None if m is None else (-m if p.get("genre") != "RECETTE" and p.get("categorie") in (None, "transaction") else m)   # dépense = négatif, comme à l'écran
+    texte = {"operateur": p.get("operateur"), "beneficiaire": p.get("tiers"), "numero": p.get("numero"),
+             "association": " · ".join(x for x in (p.get("client_nom"), p.get("plateforme")) if x) or p.get("lien_libelle")}.get(cle)
+    return normaliser(texte) if texte else None
+
+
+def trier(items: List[Dict[str, Any]], cle: str, sens: str = "asc") -> List[Dict[str, Any]]:
+    """Trie les lignes sur une colonne ; clé inconnue ou vide = ordre d'origine (date décroissante)."""
+    if cle not in COLONNES_TRI:
+        return items
+    avec = [p for p in items if _valeur_tri(p, cle) is not None]
+    sans = [p for p in items if _valeur_tri(p, cle) is None]
+    avec.sort(key=lambda p: _valeur_tri(p, cle), reverse=(sens == "desc"))
+    return avec + sans
+
+
 def categorie_auto(p: Dict[str, Any]) -> str:
     """Catégorie automatique d'un SMS : « alerte » (banque), « message » (expéditeur = numéro de téléphone), « promo » (score ≥ 4), sinon « transaction »."""
     adresse = (p.get("adresse") or "").strip()
@@ -714,7 +744,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
 
     @api.get("/admin/transactions-sms", tags=["Transactions SMS — écran"])
     async def lister(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "",
-                     par_mois: bool = False, classement: str = "DEPENSE", decalage: int = 0, limite: int = 50, categorie: str = "", user: dict = Depends(get_current_user)):
+                     par_mois: bool = False, classement: str = "DEPENSE", decalage: int = 0, limite: int = 50, categorie: str = "", tri: str = "", sens: str = "asc", user: dict = Depends(get_current_user)):
         """Transactions filtrées + statistiques calculées sur TOUTES les transactions filtrées (la liste est paginée).
         Lot 398 : `categorie` vide = transactions SEULEMENT (promos, alertes et messages sont sortis du décompte) ; « toutes » ou « promo » / « alerte » / « message » les affiche.
         `exclus` = nombre de SMS d'autres catégories pour les mêmes critères (affiché en bandeau)."""
@@ -722,6 +752,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         categorie = categorie if categorie in CATEGORIES or categorie == "toutes" else ""
         tout = await _filtrees(du, au, operateur, genre, q, source, plateforme, "toutes")
         items = [p for p in tout if categorie == "toutes" or p.get("categorie") == (categorie or "transaction")]
+        items = trier(items, tri, sens)    # tri demandé par un clic sur un en-tête de colonne (règle 19) : appliqué AVANT la pagination
         exclus: Dict[str, int] = defaultdict(int)
         for p in tout:
             if p.get("categorie") != "transaction":

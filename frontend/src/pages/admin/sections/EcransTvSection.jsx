@@ -5,13 +5,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient, API } from "@/lib/api";
 import { toast } from "sonner";
-import { Copy, Loader2, Tv, Trash2, Link2 } from "lucide-react";
+import { Copy, Loader2, Tv, Trash2, Link2, Film } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Plus as Ico15Plus, RefreshCw as Ico15RefreshCw, Trash2 as Ico15Trash2 } from "lucide-react";
 const CONTENUS = [
   { cle: "messagerie", libelle: "Messagerie (fil des messages)" },
   { cle: "support", libelle: "Demandes de support ouvertes" },
   { cle: "hall", libelle: "Consultations du jour (hall : prochain patient, portes)" },
+  { cle: "video", libelle: "Vidéos (lues en streaming depuis la télécommande du téléphone)" },
 ];
 
 // Date lisible « 24/10/2026 14:05 » ou « jamais »
@@ -205,6 +207,13 @@ export default function EcransTvSection() {
             Affichez sur une télé le fil de la messagerie et les demandes de support d'un client, sans aucun bouton. Les numéros de téléphone sont masqués.
           </p>
         </div>
+      </div>
+
+      {/* Lot 412 : vidéos en streaming — la télécommande se fait depuis le téléphone */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900" data-testid="bloc-video-tv">
+        <Film className="h-5 w-5 shrink-0" />
+        <span className="flex-1 min-w-[12rem]">🎬 <b>Vidéos sur la télé</b> : cochez « Vidéos » pour un écran, puis chargez et lisez vos vidéos en streaming depuis votre téléphone.</span>
+        <Link to="/admin/television" className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 font-semibold text-white"><Film className="h-4 w-4" /> Ouvrir la télécommande vidéo</Link>
       </div>
 
       <ol className="text-sm text-slate-600 list-decimal ml-5 space-y-1">

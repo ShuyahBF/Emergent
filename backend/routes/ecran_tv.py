@@ -39,6 +39,7 @@ MODULES = ("messagerie", "support", "hall", "video")  # contenus possibles ; « 
 STATUTS_OUVERTS = ("open", "in_progress", "suspended")
 PAGE_TV_VERSION = "329"        # lot 307 : version de la page /tv-ecran.html ; à changer (ici ET dans la page) à chaque modification de la page
 TAILLES_HEURE = ("normale", "grande", "tres_grande", "geante")   # lot 309 : taille de l'heure sur l'écran du hall (liste déroulante)
+MODULES_CLIENT = ("messagerie", "support", "hall")     # lot 412 : contenus qui lisent les données d'un client (seule « video » s'en passe)
 PIN_MIN, PIN_MAX = 4, 8                      # lot 317 : longueur du code PIN du « Suivi Support »
 PIN_ESSAIS_MAX = 5                           # échecs consécutifs avant blocage de l'écran…
 PIN_BLOCAGE_S = 60                           # … pendant 60 secondes
@@ -358,7 +359,7 @@ class AppairageDemande(BaseModel):
 class EcranAppairage(BaseModel):
     code: str = Field(..., min_length=4, max_length=12)
     nom: str = Field(..., min_length=1, max_length=60)
-    client_id: str = Field(..., min_length=1, max_length=64)
+    client_id: Optional[str] = Field(None, max_length=64)       # lot 412 : facultatif — inutile pour un écran qui ne montre que des vidéos
     modules: Optional[Dict[str, bool]] = None
     rdv_portee: Optional[str] = Field(None, max_length=10)      # lot 340 : « tous » (défaut) ou « compte »
     rdv_clair: Optional[bool] = None                           # lot 340 : patients en clair (seulement avec « compte » ou « medecin »)
@@ -563,7 +564,7 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
         modules = modules_valides(ecran.get("modules"))
-        ids = await _perimetre(ecran.get("client_id"))
+        ids = await _perimetre(ecran["client_id"]) if ecran.get("client_id") else []      # lot 412 : écran « vidéos seules » sans client
         # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)
         pin_defini = bool(((await _reglages()).get("tv_pin") or {}).get("hash"))
         suivi_possible = bool(modules["messagerie"] or modules["support"])      # lot 323 : possible aussi sans PIN (connexion administrateur)
@@ -669,12 +670,19 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         appairage = next((a for a in s.get("tv_appairages") or [] if a.get("code") == code and a.get("cree_le", "") >= limite), None)
         if not appairage:
             raise HTTPException(status_code=404, detail="Code inconnu ou expiré : relancez la page /tv sur la télé pour obtenir un nouveau code.")
-        client = await db.users.find_one({"id": payload.client_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
-        if not client:
-            raise HTTPException(status_code=404, detail="Client introuvable")
-        ecran = {"id": uuid.uuid4().hex, "nom": payload.nom.strip(), "code": code, "client_id": payload.client_id,
+        modules_choisis = modules_valides(payload.modules or {"messagerie": True, "support": True})
+        if payload.client_id:
+            client = await db.users.find_one({"id": payload.client_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
+            if not client:
+                raise HTTPException(status_code=404, detail="Client introuvable")
+        else:
+            # Lot 412 : sans client, seul le contenu « Vidéos » est possible (messagerie, support et hall lisent les données d'un client)
+            if any(modules_choisis[m] for m in MODULES_CLIENT):
+                raise HTTPException(status_code=422, detail="Choisissez un client pour les contenus messagerie, support ou hall (seules les vidéos n'en exigent pas).")
+            client = {}
+        ecran = {"id": uuid.uuid4().hex, "nom": payload.nom.strip(), "code": code, "client_id": payload.client_id or "",
                  "client_nom": client.get("company") or client.get("full_name") or "",
-                 "modules": modules_valides(payload.modules or {"messagerie": True, "support": True}),
+                 "modules": modules_choisis,
                  "rdv_portee": portee_rdv_valide(payload.rdv_portee), "rdv_clair": bool(payload.rdv_clair) and portee_rdv_valide(payload.rdv_portee) != "tous",
                  "rdv_medecin": (payload.rdv_medecin or "").strip() if portee_rdv_valide(payload.rdv_portee) == "medecin" else "",
                  "empreinte": appairage["empreinte"], "cree_le": _maintenant().isoformat(), "cree_par": user.get("email"), "vu_le": None}
@@ -694,6 +702,10 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
             champs["tv_ecrans.$.client_nom"] = client.get("company") or client.get("full_name") or ""
         if payload.modules is not None:
             champs["tv_ecrans.$.modules"] = modules_valides(payload.modules)
+            if any(champs["tv_ecrans.$.modules"][m] for m in MODULES_CLIENT) and not payload.client_id:
+                actuel = next((e for e in (await _reglages()).get("tv_ecrans") or [] if e.get("id") == ecran_id), {})
+                if actuel and not actuel.get("client_id"):
+                    raise HTTPException(status_code=422, detail="Choisissez un client pour les contenus messagerie, support ou hall (seules les vidéos n'en exigent pas).")
         if payload.taille_heure is not None:
             if payload.taille_heure not in TAILLES_HEURE:
                 raise HTTPException(status_code=400, detail="Taille inconnue : " + ", ".join(TAILLES_HEURE))

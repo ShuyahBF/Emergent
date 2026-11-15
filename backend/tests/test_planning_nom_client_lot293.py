@@ -111,3 +111,21 @@ def test_essai_signale_un_client_sans_nom_et_utilise_le_nom_saisi_a_l_ecran():
         boucle.run_until_complete(scenario())
     finally:
         boucle.close()
+
+
+def test_interrupteur_du_rappel_aux_patients():
+    """Désactivé : aucun rappel ne part ; réactivé (ou jamais réglé) : le rappel part comme avant."""
+    async def scenario():
+        for reglage, attendu in (({"planning_reminder_actif": False}, 0), ({"planning_reminder_actif": True}, 1), ({}, 1)):
+            db = mongomock_motor.AsyncMongoMockClient()["t"]
+            await db.settings.insert_one({"_id": "global", **reglage})
+            await _rdv(db, "CMCO")
+            envois = []
+            res = await _planning(db, envois)["run_planning_wa_reminders"]()
+            assert len(envois) == attendu and res["sent"] == attendu, reglage
+            assert bool(res.get("desactive")) is (attendu == 0)
+    boucle = asyncio.new_event_loop()
+    try:
+        boucle.run_until_complete(scenario())
+    finally:
+        boucle.close()

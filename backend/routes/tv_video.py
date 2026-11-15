@@ -35,7 +35,7 @@ VALIDITE_ADRESSE_H = 6                 # l'adresse signée du flux dure 6 heures
 ACTIONS = ("lire", "pause", "reprendre", "avancer", "reculer", "position", "stop")
 DELTA_MAX_S = 600                      # un saut d'avance / de recul : 10 minutes au plus
 TAILLE_MORCEAU = 256 * 1024            # morceaux envoyés à la télé
-EN_LIGNE_S = 60                        # écran « en ligne » s'il a été vu depuis moins de 60 secondes
+EN_LIGNE_S = 90                        # écran « en ligne » s'il a donné signe de vie depuis moins de 90 secondes (interrogation des ordres, état de lecture ou flux)
 
 
 def _maintenant() -> datetime:
@@ -113,6 +113,11 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
         d.setdefault("seq", 0); d.setdefault("commande", None); d.setdefault("etat", None)       # l'état peut exister avant le premier ordre
         return d
 
+    def _en_ligne(d: Dict[str, Any], ecran: Dict[str, Any], limite: str) -> bool:
+        """En ligne = un signe de vie récent : interrogation des ordres, état de lecture renvoyé, ou flux habituel de l'écran."""
+        etat = d.get("etat") or {}
+        return any(v and v >= limite for v in (d.get("vu"), etat.get("maj"), ecran.get("vu_le")))
+
     async def _media_video(media_id: str) -> Dict[str, Any]:
         m = await db.media_library.find_one({"id": media_id, "kind": "video", "is_deleted": {"$ne": True}}, {"_id": 0})
         if not m or not m.get("storage_path"):
@@ -131,6 +136,9 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
         if not (ecran.get("modules") or {}).get("video"):
             raise HTTPException(status_code=403, detail="Le contenu « Vidéos » n'est pas activé pour cet écran")
         d = await _doc(ecran["id"])
+        # Signe de vie : la télé interroge les ordres toutes les 2 s ; on le note au plus toutes les 20 s (une écriture légère), pour l'état « en ligne » de la télécommande
+        if not d.get("vu") or d["vu"] < (_maintenant() - timedelta(seconds=20)).isoformat():
+            await db.settings.update_one({"_id": PREFIXE + ecran["id"]}, {"$set": {"vu": _maintenant().isoformat()}}, upsert=True)
         if d["seq"] <= seq or not d.get("commande"):
             return {"seq": d["seq"], "commande": None}
         c = dict(d["commande"])
@@ -181,7 +189,7 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
             d = await _doc(e["id"])
             etat = d.get("etat") or {}
             sortie.append({"id": e["id"], "nom": e.get("nom") or "Écran", "client_nom": e.get("client_nom") or "",
-                           "en_ligne": bool(etat.get("maj") and etat["maj"] >= limite) or bool(e.get("vu_le") and e["vu_le"] >= limite), "etat": etat or None, "seq": d["seq"]})
+                           "en_ligne": _en_ligne(d, e, limite), "etat": etat or None, "seq": d["seq"]})
         return {"ecrans": sortie}
 
     @api.get("/admin/tv/video/videos", tags=["Admin — Vidéo TV"])
@@ -193,7 +201,10 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
     @api.get("/admin/tv/video/etat/{ecran_id}", tags=["Admin — Vidéo TV"])
     async def admin_etat(ecran_id: str, user: dict = Depends(get_current_admin)):
         d = await _doc(ecran_id)
-        return {"seq": d["seq"], "commande": d.get("commande"), "etat": d.get("etat")}
+        g = await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1}) or {}
+        ecran = next((e for e in g.get("tv_ecrans") or [] if e.get("id") == ecran_id), {})
+        limite = (_maintenant() - timedelta(seconds=EN_LIGNE_S)).isoformat()
+        return {"seq": d["seq"], "commande": d.get("commande"), "etat": d.get("etat"), "en_ligne": _en_ligne(d, ecran, limite)}
 
     @api.post("/admin/tv/video/commande", tags=["Admin — Vidéo TV"])
     async def admin_commande(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):

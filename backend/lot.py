@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "415"
-LOT_LIBELLE = "Vidéos : limite portée à 300 Mo, envoi vers R2 par morceaux (sans charger le fichier en mémoire)."
+LOT = "416"
+LOT_LIBELLE = "Télécommande vidéo : état « en ligne » fiable pendant la lecture, une seule jauge qui avance et se fait glisser."

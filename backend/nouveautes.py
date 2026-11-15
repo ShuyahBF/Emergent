@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "411", "date": "2026-11-15",
+        "titre": "✏️ Agenda Google : corriger un rendez-vous depuis la plateforme",
+        "description": "Un rendez-vous peut être corrigé (titre, jour, heure) depuis auRor ; il prend alors l'étiquette « Origine » de la plateforme.",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "410", "date": "2026-11-15",
         "titre": "🏷️ Agenda Google : origine des rendez-vous",
         "description": "Les rendez-vous créés depuis une plateforme (auRor…) portent une étiquette invisible dans Google ; la liste de la plateforme l'affiche pour les distinguer des autres.",

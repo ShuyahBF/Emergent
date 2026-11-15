@@ -83,6 +83,7 @@ FONCTIONS = {"ocr_ordonnances": "OCR (ordonnances et plaques de marchands)",
              "archives_cloud": "Archives en ligne chiffrées (documents importants)"}
 FONCTIONS["annonceur_pm"] = "Annonceur (passer des annonces, devis et statistiques)"   # lot 236
 FONCTIONS["cartes_virtuelles"] = "Cartes virtuelles (voeux illustrés par l'IA, envoyés par WhatsApp)"   # lot 242
+FONCTIONS["coach_liluvine"] = "Liluvine, ma coach : conversation de soutien du journal intime (auRor)"   # lot 423
 FONCTIONS["tv_video"] = "Télé : projeter des vidéos sur un téléviseur (Personnel de maison)"   # lot 418
 PLATEFORMES_DIRECTES = ("personnelmaison",)   # lot 418 : applications qui parlent à SAWALI SANS passer par une plateforme signée (identifiées par leur appareil)
 LIMITES_TV = ("appareils", "postes_tv")       # lot 418 : appareils couverts par la formule (le titulaire compris) et téléviseurs appairables

@@ -1316,6 +1316,9 @@ api.include_router(_make_annonceurs_plateformes(
 from routes.famille_tv import setup_famille_tv_routes as _setup_famille_tv_routes  # noqa: E402
 from services import famille as _services_famille_tv  # noqa: E402
 _setup_famille_tv_routes(db=db, api=api, outils=_routeur_formules.outils, authentifier=_services_famille_tv.authentifier, get_current_admin=get_current_admin)
+# Lot 423 — « Liluvine, ma coach » : conversation de soutien du journal intime d'auRor (abonnement + essais, garde-fous, rien n'est conservé)
+from routes.coach_plateformes import make_coach_plateformes as _make_coach_plateformes  # noqa: E402
+api.include_router(_make_coach_plateformes(db=db, outils=_routeur_formules.outils))
 # Lot 237 — résumés de la presse demandés par les plateformes (collecte faite par la plateforme, résumé par l'IA de SAWALI)
 from routes.presse_plateformes import make_presse_plateformes as _make_presse_plateformes  # noqa: E402
 api.include_router(_make_presse_plateformes(db=db, outils=_routeur_formules.outils))

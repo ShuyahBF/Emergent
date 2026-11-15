@@ -24,7 +24,7 @@ export default function PrivacyPage() {
   const contactEmail = info?.email || "contact@sawalismartsystems.com";
   const contactPhone = info?.phone || "—";
   const contactAddress = [info?.address, info?.city, info?.country].filter(Boolean).join(", ") || "Ouagadougou, Burkina Faso";
-  const lastUpdated = "14 juin 2026";
+  const lastUpdated = "15 novembre 2026";
 
   return (
     <section
@@ -158,6 +158,47 @@ export default function PrivacyPage() {
               myaccount.google.com/permissions
             </a>
             .
+          </p>
+        </Section>
+
+        {/* 2 bis. Agenda Google des applications partenaires (lot 403/404) : auRor, Concentration, Personnel de maison */}
+        <Section icon={Calendar} title="2 bis. Agenda Google dans nos applications (auRor, Concentration, Personnel de maison)">
+          <p>
+            Dans <strong>auRor</strong>, <strong>Concentration</strong> et <strong>Personnel de maison</strong>, vous pouvez, si vous le souhaitez, lier <em>votre propre</em>
+            {" "}compte Google à SAWALI SMART SYSTEMS, qui sert de passerelle sécurisée. Cette liaison est <strong>facultative</strong> et se fait par la page d'autorisation de Google
+            (OAuth 2.0). Elle permet de : (1) voir vos prochains rendez-vous, (2) créer un rendez-vous à partir d'une note vocale ou tapée (par exemple « samedi 8h15 rdv chez le dentiste »),
+            après que vous avez relu et confirmé le jour, l'heure et le titre, et (3) supprimer un rendez-vous.
+          </p>
+          <ul className="list-disc ml-6 space-y-2 mt-2">
+            <li>
+              <strong>Autorisations demandées</strong> : l'identité de votre compte (adresse e-mail, pour vérifier que c'est bien le compte que vous avez déclaré) et
+              {" "}<code className="rounded bg-white/10 px-1">https://www.googleapis.com/auth/calendar.events</code> (voir, créer et supprimer des événements). Nous n'utilisons que votre
+              agenda principal, et aucune autre donnée Google (ni contacts, ni courriels, ni fichiers).
+            </li>
+            <li>
+              <strong>Chaque personne ne voit que son agenda</strong> : l'accès est strictement individuel. Les applications ne reçoivent jamais de jeton Google ; SAWALI garde, pour chaque
+              utilisateur, un jeton d'actualisation <strong>chiffré</strong>. Avant toute liaison, l'administrateur de SAWALI valide le compte Google que vous déclarez ; un autre compte est refusé
+              et son accès aussitôt révoqué. L'administrateur ne peut pas lire le contenu de votre agenda.
+            </li>
+            <li>
+              <strong>Aucune conservation du contenu</strong> : vos événements sont lus chez Google au moment où vous les consultez ; SAWALI ne les copie pas dans sa base. Le texte d'une note
+              est analysé pour en tirer le jour, l'heure et le titre, puis oublié.
+            </li>
+            <li>
+              <strong>Délier à tout moment</strong> : bouton « Délier » dans l'application (l'accès est révoqué chez Google et le jeton supprimé de nos serveurs) ou
+              {" "}<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer" className="text-sawali-blue-light underline hover:text-white">myaccount.google.com/permissions</a>.
+            </li>
+            <li>
+              <strong>Mêmes engagements « Limited Use »</strong> que ci-dessus : pas de revente, pas de publicité, pas d'entraînement de modèles d'IA, accès humain restreint.
+            </li>
+          </ul>
+          <p className="mt-3">
+            <strong>English summary.</strong> If you choose to link your own Google Calendar in auRor, Concentration or Personnel de maison, SAWALI acts as a secure gateway and requests only your
+            account e-mail (to verify the account you declared) and the scope <code className="rounded bg-white/10 px-1">calendar.events</code>. We use it solely to show your upcoming appointments and to create
+            or delete appointments that you request and confirm. Each user can access only his or her own primary calendar; Google tokens are stored encrypted and never reach the apps; we do not store your
+            calendar events. We do not sell or share this data, we do not use it for advertising or to train AI models, and no human reads it except with your consent, for security or to comply with the law.
+            SAWALI's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements. You can disconnect at any time in
+            the app or at myaccount.google.com/permissions; access is then revoked and the token deleted.
           </p>
         </Section>
 

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "405", "date": "2026-11-15",
+        "titre": "🔒 Politique de confidentialité : Agenda Google des applications",
+        "description": "La page /privacy décrit maintenant la liaison facultative de l'Agenda Google dans auRor, Concentration et Personnel de maison (autorisation calendar.events, accès individuel, jetons chiffrés, Limited Use), en français et en anglais, pour la validation Google.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "404", "date": "2026-11-15",
         "titre": "🛡️ Agenda des plateformes : approbation des comptes Google par l'administrateur",
         "description": "Chaque utilisateur indique d'abord son compte Google ; vous acceptez ou refusez ; seul ce compte peut ensuite lier son agenda (un autre compte est refusé et révoqué). Interrupteur d'approbation et tableau triable des demandes.",

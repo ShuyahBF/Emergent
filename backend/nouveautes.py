@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "423", "date": "2026-11-15",
+        "titre": "💬 Liluvine, ma coach : journal intime d'auRor",
+        "description": "Nouvelle fonction de formule « Liluvine, ma coach » à ajouter à une formule auRor ; essais gratuits et plafond par jour réglables ; aucune confidence n'est conservée par SAWALI.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "421", "date": "2026-11-15",
         "titre": "🪟 Télé des familles : dossier du demandeur en fenêtre modale",
         "description": "Le dossier s'ouvre dans une fenêtre au lieu d'allonger la page ; vous pouvez accepter ou refuser directement depuis cette fenêtre.",

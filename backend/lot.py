@@ -9,4 +9,4 @@
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
 LOT = "421"
-LOT_LIBELLE = "Télé des familles : le dossier du demandeur s'ouvre dans une fenêtre modale (décision possible depuis la fenêtre)."
+LOT_LIBELLE = "Liluvine, ma coach : conversation de soutien du journal intime d'auRor (essais gratuits puis abonnement, détresse orientée vers une aide humaine, rien de conservé)."

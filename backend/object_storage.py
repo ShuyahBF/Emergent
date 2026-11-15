@@ -72,6 +72,24 @@ async def put_object(path: str, data: bytes, content_type: str) -> Dict[str, Any
     return await asyncio.to_thread(_put_sync, path, data, content_type)
 
 
+def _put_fileobj_sync(path: str, fileobj, content_type: str, taille: int) -> Dict[str, Any]:
+    """Envoi vers R2 PAR MORCEAUX (multipart, mémoire constante) : pour les gros fichiers (vidéos jusqu'à 300 Mo) sans les charger en mémoire."""
+    cfg = _stockage.config_r2()
+    if not cfg:
+        raise RuntimeError("Stockage R2 non configuré (R2_FICHIERS_BUCKET et identifiants R2).")
+    cle = _stockage.cle_r2_ecriture(path, normaliser=False, cfg=cfg)          # même clé que put_object (chemin gardé tel quel)
+    _stockage._client(cfg).upload_fileobj(fileobj, cfg["bucket"], cle, ExtraArgs={"ContentType": content_type or "application/octet-stream"})
+    try:
+        _stockage._missing.pop(path, None)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"path": path, "size": taille, "etag": None}
+
+
+async def put_fileobj(path: str, fileobj, content_type: str, taille: int) -> Dict[str, Any]:
+    return await asyncio.to_thread(_put_fileobj_sync, path, fileobj, content_type, taille)
+
+
 async def get_object(path: str) -> Tuple[bytes, str]:
     """Download bytes from a remote path. Returns (bytes, content_type)."""
     return await asyncio.to_thread(_get_sync, path)
@@ -165,6 +183,24 @@ async def save_and_log(
         "size": doc["size"],
         "content_type": ct,
     }
+
+
+async def save_fileobj_and_log(db, *, fileobj, size: int, kind: str, tenant_id: str, ext: str, content_type: Optional[str] = None,
+                               original_filename: Optional[str] = None, user_id: Optional[str] = None,
+                               metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Comme `save_and_log`, mais le fichier est lu et envoyé par morceaux (pas d'octets en mémoire) ; `size` en octets, connue de l'appelant."""
+    ct = content_type or guess_content_type(original_filename or ext)
+    path = build_path(kind, tenant_id, ext, original_filename)
+    result = await put_fileobj(path, fileobj, ct, size)
+    rec_id = secrets.token_urlsafe(12)
+    doc = {"id": rec_id, "storage_path": result["path"], "kind": kind, "tenant_id": tenant_id, "user_id": user_id,
+           "original_filename": original_filename, "content_type": ct, "size": size, "etag": result.get("etag"),
+           "metadata": metadata or {}, "is_deleted": False, "created_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        await db.stored_objects.insert_one(doc.copy())
+    except Exception:
+        logger.exception("[object_storage] DB log failed (object uploaded anyway)")
+    return {"id": rec_id, "path": result["path"], "url": f"/api/files/{result['path']}", "size": size, "content_type": ct}
 
 
 async def soft_delete(db, storage_path: str) -> bool:

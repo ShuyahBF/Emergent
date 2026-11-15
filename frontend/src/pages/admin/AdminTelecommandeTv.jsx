@@ -2,7 +2,7 @@
  * Lot 412 — Télécommande vidéo (pensée pour le TÉLÉPHONE) : charger une vidéo, la lire en streaming sur une Smart TV appairée, la piloter.
  * Pour un développeur WinDev : cette page ne parle qu'à SAWALI. Chaque bouton envoie un « ordre » numéroté à la télé (/admin/tv/video/commande) ;
  * la page de la télé l'exécute dans les 2 secondes et renvoie sa position, relue ici toutes les 2 secondes (/admin/tv/video/etat/{écran}).
- * Les vidéos sont celles de la « Bibliothèque de médias » (stockage Cloudflare R2, 200 Mo au plus par fichier).
+ * Les vidéos sont celles de la « Bibliothèque de médias » (stockage Cloudflare R2, 300 Mo au plus par fichier).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -59,7 +59,7 @@ export default function AdminTelecommandeTv() {
   // Chargement d'une vidéo dans la bibliothèque de médias (même route que l'écran « Bibliothèque de médias »)
   const televerser = async () => {
     if (!fichier || !titre.trim()) { toast.error("Indiquez un titre et choisissez un fichier vidéo."); return; }
-    if (fichier.size > 200 * 1024 * 1024) { toast.error("Fichier trop volumineux : 200 Mo au plus."); return; }
+    if (fichier.size > 300 * 1024 * 1024) { toast.error("Fichier trop volumineux : 300 Mo au plus."); return; }
     const f = new FormData();
     f.append("file", fichier); f.append("title", titre.trim()); f.append("kind", "video"); f.append("public", "false");
     setEnvoi(0); toast.info("Chargement de la vidéo en cours… ne fermez pas la page.");
@@ -151,7 +151,7 @@ export default function AdminTelecommandeTv() {
         <h2 className="text-sm font-semibold text-slate-700">4. Charger une vidéo</h2>
         <input value={titre} onChange={(e) => setTitre(e.target.value)} maxLength={200} placeholder="Titre de la vidéo" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" aria-label="Titre" />
         <input ref={entree} type="file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska" onChange={(e) => setFichier(e.target.files?.[0] || null)} className="w-full text-sm" aria-label="Fichier vidéo" />
-        <p className="text-xs text-slate-500">MP4 (H.264 + AAC) conseillé : il se lit sur toutes les télés. MKV, MOV et WebM dépendent du modèle. 200 Mo au plus.</p>
+        <p className="text-xs text-slate-500">MP4 (H.264 + AAC) conseillé : il se lit sur toutes les télés. MKV, MOV et WebM dépendent du modèle. 300 Mo au plus.</p>
         {envoi !== null && <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-emerald-600" style={{ width: `${envoi}%` }} /></div>}
         <button type="button" onClick={televerser} disabled={envoi !== null} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" data-testid="televerser">
           {envoi !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {envoi !== null ? `Envoi ${envoi} %` : "Charger la vidéo"}

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "421", "date": "2026-11-15",
+        "titre": "🪟 Télé des familles : dossier du demandeur en fenêtre modale",
+        "description": "Le dossier s'ouvre dans une fenêtre au lieu d'allonger la page ; vous pouvez accepter ou refuser directement depuis cette fenêtre.",
+        "rubrique": "👨‍👩‍👧 Télé des familles (Personnel de maison)",
+    },
+    {
         "lot": "420", "date": "2026-11-15",
         "titre": "🛡️ Ma Télé : dossier du demandeur pour décider de l'approbation",
         "description": "Chaque demande arrive avec téléphone, e-mail vérifié par code, adresse IP et lieu, détails du téléphone, un captcha anti-robots et des indicateurs de risque (VPN, e-mail jetable, doublons, émulateur…).",

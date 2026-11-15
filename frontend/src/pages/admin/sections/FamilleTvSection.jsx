@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Tv, RefreshCw, Loader2, Check, X, ShieldCheck, Save, FileSearch, MailCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";   // fenêtre modale (règle du 15/11/2026 : détails et corrections en modale)
 import ThTri from "@/components/ThTri";            // règle 19 : toutes les colonnes triables
 import { useTri } from "@/lib/tri";
 
@@ -108,24 +109,31 @@ export default function FamilleTvSection() {
                   </td></tr>))}</tbody>
             </table></div>)}
         </div>
-        {dossier && (
-          <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/40 p-3 text-sm" data-testid="famille-tv-dossier">
-            <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-slate-800">Dossier de {dossier.nom || "l'appareil"} — risque <span className={`rounded-full px-2 py-0.5 text-xs ${NIVEAUX[dossier.niveau]?.[1] || ""}`}>{NIVEAUX[dossier.niveau]?.[0]}</span> (score {dossier.score})</h4>
-              <button type="button" onClick={() => setDossier(null)} aria-label="Fermer le dossier" className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs"><X className="h-3.5 w-3.5" />Fermer</button>
-            </div>
-            <ul className="grid gap-1 text-xs text-slate-700 sm:grid-cols-2">
-              <li>📞 Téléphone : <b>{dossier.telephone?.e164 || "—"}</b> ({dossier.telephone?.pays || "?"})</li>
-              <li>✉️ E-mail : <b>{dossier.email || "—"}</b> {dossier.email_verifie ? "✔ vérifié par code" : "non vérifié"}</li>
-              <li>🌐 IP : <b>{dossier.ip || "—"}</b> — {[dossier.ip_infos?.ville, dossier.ip_infos?.pays, dossier.ip_infos?.fai].filter(Boolean).join(" · ") || "lieu inconnu"}</li>
-              <li>📱 Appareil : <b>{[dossier.appareil?.marque, dossier.appareil?.modele].filter(Boolean).join(" ") || "—"}</b> · Android {dossier.appareil?.android || "?"} · {dossier.appareil?.langue || ""} {dossier.appareil?.fuseau || ""}</li>
-              <li>🏠 Lieu indiqué : <b>{dossier.lieu || "—"}</b></li><li>👨‍👩‍👧 Liens de famille vérifiés : <b>{dossier.liens_verifies}</b></li>
-            </ul>
-            <ul className="space-y-1" data-testid="famille-tv-indicateurs">
-              {dossier.indicateurs.map((i) => <li key={i.code} className="text-xs text-slate-800">{POIDS[i.poids] || "•"} {i.texte}</li>)}
-            </ul>
-            {dossier.demandes_liees?.length > 0 && <p className="text-xs text-slate-700">🔗 Demandes liées : {dossier.demandes_liees.map((x) => `${x.nom || x.id} (${x.etat}; ${x.raison.join(", ")})`).join(" · ")}</p>}
-          </div>)}
+        {/* Dossier du demandeur : FENÊTRE MODALE (max-w-xl, 85 % de la hauteur, défilement dans la fenêtre) au lieu d'allonger la page */}
+        <Dialog open={!!dossier} onOpenChange={(ouvert) => { if (!ouvert) setDossier(null); }}>
+          <DialogContent className="max-h-[85dvh] max-w-xl overflow-y-auto" data-testid="famille-tv-dossier">
+            {dossier && (<>
+              <DialogHeader><DialogTitle>Dossier de {dossier.nom || "l'appareil"} — risque <span className={`rounded-full px-2 py-0.5 text-xs ${NIVEAUX[dossier.niveau]?.[1] || ""}`}>{NIVEAUX[dossier.niveau]?.[0]}</span> (score {dossier.score})</DialogTitle></DialogHeader>
+              <ul className="grid gap-1 text-xs text-slate-700 sm:grid-cols-2">
+                <li>📞 Téléphone : <b>{dossier.telephone?.e164 || "—"}</b> ({dossier.telephone?.pays || "?"})</li>
+                <li>✉️ E-mail : <b>{dossier.email || "—"}</b> {dossier.email_verifie ? "✔ vérifié par code" : "non vérifié"}</li>
+                <li>🌐 IP : <b>{dossier.ip || "—"}</b> — {[dossier.ip_infos?.ville, dossier.ip_infos?.pays, dossier.ip_infos?.fai].filter(Boolean).join(" · ") || "lieu inconnu"}</li>
+                <li>📱 Appareil : <b>{[dossier.appareil?.marque, dossier.appareil?.modele].filter(Boolean).join(" ") || "—"}</b> · Android {dossier.appareil?.android || "?"} · {dossier.appareil?.langue || ""} {dossier.appareil?.fuseau || ""}</li>
+                <li>🏠 Lieu indiqué : <b>{dossier.lieu || "—"}</b></li><li>👨‍👩‍👧 Liens de famille vérifiés : <b>{dossier.liens_verifies}</b></li>
+              </ul>
+              <ul className="space-y-1" data-testid="famille-tv-indicateurs">
+                {dossier.indicateurs.map((i) => <li key={i.code} className="text-xs text-slate-800">{POIDS[i.poids] || "•"} {i.texte}</li>)}
+              </ul>
+              {dossier.demandes_liees?.length > 0 && <p className="text-xs text-slate-700">🔗 Demandes liées : {dossier.demandes_liees.map((x) => `${x.nom || x.id} (${x.etat}; ${x.raison.join(", ")})`).join(" · ")}</p>}
+              {/* Décision possible directement depuis le dossier (règle 15 : pictogramme + légende) */}
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                {dossier.etat !== "accepte" && <button type="button" onClick={async () => { await decider(dossier, "accepte"); setDossier(null); }} className="inline-flex items-center gap-1 rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" />Accepter</button>}
+                {dossier.etat !== "refuse" && <button type="button" onClick={async () => { await decider(dossier, "refuse"); setDossier(null); }} className="inline-flex items-center gap-1 rounded border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700"><X className="h-3.5 w-3.5" />{dossier.etat === "accepte" ? "Retirer l'accès" : "Refuser"}</button>}
+                <button type="button" onClick={() => setDossier(null)} className="inline-flex items-center gap-1 rounded border border-slate-300 px-3 py-1.5 text-xs"><X className="h-3.5 w-3.5" />Fermer</button>
+              </div>
+            </>)}
+          </DialogContent>
+        </Dialog>
         <p className="text-sm text-slate-700"><span className="font-semibold">{etat.postes_appaires}</span> télé(s) appairée(s) par des appareils « Personnel de maison ».</p>
       </>)}
     </div>

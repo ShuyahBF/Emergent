@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "412", "date": "2026-11-15",
+        "titre": "🎬 Vidéos en streaming sur les écrans TV",
+        "description": "Chargez une vidéo, cochez « Vidéos » pour un écran TV appairé, puis lisez-la sur la Smart TV et pilotez-la (pause, ±10 s, position) depuis votre téléphone.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "411", "date": "2026-11-15",
         "titre": "✏️ Agenda Google : corriger un rendez-vous depuis la plateforme",
         "description": "Un rendez-vous peut être corrigé (titre, jour, heure) depuis auRor ; il prend alors l'étiquette « Origine » de la plateforme.",

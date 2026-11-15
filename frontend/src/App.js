@@ -82,6 +82,7 @@ import AdminInterventions from "@/pages/admin/AdminInterventions";
 import AdminDocuments from "@/pages/admin/AdminDocuments";
 import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminTelecommandeTv from "@/pages/admin/AdminTelecommandeTv";   // lot 412 : télécommande vidéo pour les Smart TV
 import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
 import AdminControleDistance from "@/pages/admin/AdminControleDistance";   // Lot 135.1 : Plateformes → Contrôle à distance
 import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
@@ -535,6 +536,7 @@ export default function App() {
             <Route path="i18n" element={<AdminI18n />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="television" element={<AdminTelecommandeTv />} />
             {/* Lot 63 — suivi en temps réel des plateformes (administrateur) */}
             <Route path="plateformes-temps-reel" element={<AdminPlateformesTempsReel />} />
             <Route path="controle-distance" element={<AdminControleDistance />} />

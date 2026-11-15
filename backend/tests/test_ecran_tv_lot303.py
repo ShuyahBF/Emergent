@@ -125,7 +125,7 @@ def test_contenu_hall_enregistre_et_relu():
     ecran = c.post("/api/admin/tv/appairer", json={"code": d["code"], "nom": "Hall", "client_id": "cli-1"}).json()["ecran"]
     r = c.put(f"/api/admin/tv/ecrans/{ecran['id']}", json={"modules": {"messagerie": True, "support": True, "hall": True}})
     assert r.status_code == 200
-    assert c.get("/api/admin/tv/ecrans").json()["ecrans"][0]["modules"] == {"messagerie": True, "support": True, "hall": True}
+    assert c.get("/api/admin/tv/ecrans").json()["ecrans"][0]["modules"] == {"messagerie": True, "support": True, "hall": True, "video": False}
 
 
 def test_photo_et_profession_du_medecin_dans_le_hall():

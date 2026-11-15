@@ -139,9 +139,15 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
 <body>
 <div id="racine"><div class="centre"><div class="aide">Chargement de l'écran SAWALI…</div></div></div>
 <div id="erreur"></div>
+<!-- Lot 412 : couche vidéo (lecture en streaming lancée depuis la télécommande du téléphone) -->
+<div id="couche-video" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:#000;z-index:9000">
+  <video id="lecteur" style="width:100%;height:100%;background:#000" playsinline></video>
+  <div id="video-titre" style="position:absolute;left:3vw;top:2.5vh;color:#fff;font-size:3vh;text-shadow:0 0 8px #000"></div>
+  <div id="video-msg" style="position:absolute;left:0;right:0;bottom:6vh;text-align:center;color:#fff;font-size:3.4vh;text-shadow:0 0 8px #000"></div>
+</div>
 <script>
 (function () {
-  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "328";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
+  var CLE = "sawali_tv_secret", API = "/api", VERSION_PAGE = "329";   // doit être identique à PAGE_TV_VERSION (backend/routes/ecran_tv.py)
   // Lot 328 : « /tv-ecran.html?admin=1 » = page /suivi-rdv en mode ADMINISTRATEUR : même rendu que la télé, mais connecté avec le compte SAWALI
   // (jeton du site), sans appairage ni code PIN, patients en clair. Le téléphone de l'admin joue le rôle d'une télé de contrôle.
   var ADMIN = /[?&]admin=1/.test(window.location.search);
@@ -331,6 +337,7 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
   document.addEventListener("keydown", function (e) {
     var k = e.keyCode;
     derniere = new Date().getTime();
+    if (videoActive) { toucheVideo(k); e.preventDefault(); return; }      // lot 412 : pendant une vidéo, la télécommande de la télé pilote la lecture
     if (adminCode && (k === 8 || k === 461 || k === 10009 || k === 27)) { annulerAdmin(); e.preventDefault(); return; }
     if (mode === "suivi" && verrouille()) {            // clavier du code PIN : chiffres, OK = valider, Retour = effacer puis annuler
       if (k >= 48 && k <= 57) { toucherPin(String(k - 48)); } else if (k >= 96 && k <= 105) { toucherPin(String(k - 96)); }
@@ -561,6 +568,65 @@ html,body{margin:0;padding:0;height:100%;background:#0b1220;color:#f1f5f9;font-f
     });
   }
   function demarrerFlux() { phase = "flux"; dejaCharge = false; vus = {}; charger(); }
+
+  // ---------- Lot 412 : vidéo lancée depuis la télécommande du téléphone ----------
+  // La page demande toutes les 2 s « y a-t-il un ordre plus récent que le n° N ? » ; la vidéo arrive en streaming (adresse signée) ; la page renvoie sa position.
+  var coucheVideo = document.getElementById("couche-video"), lecteur = document.getElementById("lecteur");
+  var videoTitre = document.getElementById("video-titre"), videoMsg = document.getElementById("video-msg");
+  var seqVideo = 0, premierSeq = true, videoActive = false, videoId = "", videoErreur = "";
+  function messageVideo(t) { videoMsg.innerHTML = esc(t || ""); }
+  function envoyerEtatVideo() {
+    if (ADMIN || !lire()) { return; }
+    var lect = !videoActive ? "arret" : (lecteur.paused ? "pause" : "lecture");
+    appeler("POST", "/tv/video/etat", lire(), { lecture: lect, video_id: videoId, position: lecteur.currentTime || 0, duree: (isFinite(lecteur.duration) ? lecteur.duration : 0), erreur: videoErreur }, function () {});
+  }
+  function lancerVideo(c) {
+    videoId = c.video_id; videoErreur = ""; videoActive = true;
+    videoTitre.innerHTML = esc(c.titre || "");
+    coucheVideo.style.display = "block"; messageVideo("Chargement de la vidéo…");
+    lecteur.src = c.url;
+    var p = lecteur.play();
+    if (p && p.catch) { p.catch(function () { messageVideo("Appuyez sur OK pour lancer la lecture"); }); }
+  }
+  function arreterVideo() {
+    try { lecteur.pause(); } catch (e) {}
+    lecteur.removeAttribute("src"); try { lecteur.load(); } catch (e) {}
+    coucheVideo.style.display = "none"; videoActive = false; videoId = ""; messageVideo("");
+  }
+  function basculerLecture() { if (lecteur.paused) { var p = lecteur.play(); if (p && p.catch) { p.catch(function () {}); } } else { lecteur.pause(); } }
+  function sauter(dt) { try { lecteur.currentTime = Math.max(0, (lecteur.currentTime || 0) + dt); } catch (e) {} }
+  function ordreVideo(c) {
+    if (c.action === "lire" && c.url) { lancerVideo(c); }
+    else if (!videoActive) { return; }
+    else if (c.action === "pause") { lecteur.pause(); }
+    else if (c.action === "reprendre") { var p = lecteur.play(); if (p && p.catch) { p.catch(function () {}); } }
+    else if (c.action === "avancer") { sauter(c.delta || 10); }
+    else if (c.action === "reculer") { sauter(-(c.delta || 10)); }
+    else if (c.action === "position") { try { lecteur.currentTime = c.position || 0; } catch (e) {} }
+    else if (c.action === "stop") { arreterVideo(); }
+    envoyerEtatVideo();
+  }
+  function toucheVideo(k) {
+    if (k === 13 || k === 415 || k === 19 || k === 179) { basculerLecture(); }                 // OK / Lecture / Pause
+    else if (k === 39 || k === 417) { sauter(10); } else if (k === 37 || k === 412) { sauter(-10); }   // → / avance rapide ; ← / retour rapide
+    else if (k === 27 || k === 461 || k === 10009 || k === 8 || k === 413) { arreterVideo(); }     // Échap / Retour / Stop
+    envoyerEtatVideo();
+  }
+  lecteur.addEventListener("error", function () { videoErreur = "Cette télé ne sait pas lire ce format : utilisez une vidéo MP4 (H.264 + AAC)."; messageVideo(videoErreur); envoyerEtatVideo(); }, false);
+  lecteur.addEventListener("playing", function () { videoErreur = ""; messageVideo(""); envoyerEtatVideo(); }, false);
+  lecteur.addEventListener("ended", function () { arreterVideo(); envoyerEtatVideo(); }, false);
+  coucheVideo.addEventListener("click", function () { if (videoActive) { basculerLecture(); envoyerEtatVideo(); } }, false);
+  function interrogerVideo() {
+    if (ADMIN || phase !== "flux" || !lire()) { return; }
+    appeler("GET", "/tv/video/commande?seq=" + seqVideo, lire(), null, function (st, d) {
+      if (st !== 200 || !d) { return; }                                  // 403 : contenu « Vidéos » non activé pour cet écran → rien à faire
+      if (premierSeq) { premierSeq = false; seqVideo = d.seq; return; }  // au chargement de la page, un ancien ordre n'est jamais rejoué
+      if (d.seq < seqVideo) { seqVideo = d.seq; return; }
+      if (d.commande && d.seq > seqVideo) { seqVideo = d.seq; ordreVideo(d.commande); }
+    });
+  }
+  setInterval(interrogerVideo, 2000);
+  setInterval(function () { if (videoActive) { envoyerEtatVideo(); } }, 2000);
 
   // Départ : télé déjà appairée → contenu ; sinon code
   if (ADMIN || lire()) { demarrerFlux(); } else { demarrerAppairage(); }

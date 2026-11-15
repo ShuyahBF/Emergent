@@ -132,11 +132,13 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
 
     # ------------------------------------------------------------------ côté télé
     @api.get("/tv/video/commande", tags=["Écran TV — Vidéo"])
-    async def tv_commande(seq: int = Query(0), x_tv_secret: str = Header(default="")):
+    async def tv_commande(request: Request, seq: int = Query(0), x_tv_secret: str = Header(default="")):
         """Interrogée toutes les 2 s par la page de la télé : rend l'ordre le plus récent s'il est plus récent que `seq`."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
         if not (ecran.get("modules") or {}).get("video"):
             raise HTTPException(status_code=403, detail="Le contenu « Vidéos » n'est pas activé pour cet écran")
+        import famille_tv_dossier as fd
+        await fd.observer_tele(db, ecran, fd.ip_client({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else ""))      # lot 422 : lieu observé
         d = await _doc(ecran["id"])
         # Signe de vie : la télé interroge les ordres toutes les 2 s ; on le note au plus toutes les 20 s (une écriture légère), pour l'état « en ligne » de la télécommande
         if not d.get("vu") or d["vu"] < (_maintenant() - timedelta(seconds=20)).isoformat():

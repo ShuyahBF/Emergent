@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, Depends, Header, HTTPException, Query
+from fastapi import Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.ecran_tv")
@@ -395,15 +395,20 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         s = await db.settings.find_one({"_id": "global"}, {"tv_portes": 1}) or {}
         return normaliser_portes(s.get("tv_portes"))
 
+    def _ip_de(request: Request) -> str:
+        import famille_tv_dossier as fd
+        return fd.ip_client({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else "")
+
     async def _reglages() -> Dict[str, Any]:
         return await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1, "tv_appairages": 1, "tv_pin": 1}) or {}
 
     # ---------------- Côté télé (public) ----------------
     @api.post("/tv/appairage", tags=["Écran TV"])
-    async def tv_demander_appairage(payload: AppairageDemande):
+    async def tv_demander_appairage(payload: AppairageDemande, request: Request):
         """La télé demande un code. Elle envoie son secret ; le serveur n'en garde que l'empreinte."""
         limite = (_maintenant() - timedelta(minutes=VALIDITE_CODE_MIN)).isoformat()
-        entree = {"id": uuid.uuid4().hex, "code": nouveau_code(), "empreinte": empreinte(payload.secret), "cree_le": _maintenant().isoformat()}
+        entree = {"id": uuid.uuid4().hex, "code": nouveau_code(), "empreinte": empreinte(payload.secret), "cree_le": _maintenant().isoformat(),
+                  "ip": _ip_de(request)}     # lot 422 : adresse IP de la télé = « ancre » de son lieu d'appairage
         # On retire les codes périmés puis on ajoute celui-ci en gardant les 20 plus récents
         await db.settings.update_one({"_id": "global"}, {"$pull": {"tv_appairages": {"cree_le": {"$lt": limite}}}}, upsert=True)
         await db.settings.update_one({"_id": "global"}, {"$push": {"tv_appairages": {"$each": [entree], "$slice": -MAX_APPAIRAGES}}})
@@ -559,10 +564,12 @@ def setup_ecran_tv_routes(*, db, api, get_current_admin, resolve_visible_client_
         return flux
 
     @api.get("/tv/flux", tags=["Écran TV"])
-    async def tv_flux(x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
+    async def tv_flux(request: Request, x_tv_secret: str = Header(default=""), x_tv_deverrou: str = Header(default=""), fil: str = Query("", max_length=40), photos: int = Query(0), jours: int = Query(1)):
         """Contenu à afficher : derniers messages du client et demandes de support ouvertes (selon les contenus choisis).
         `fil` (lot 301) : clé d'une conversation choisie sur la télé ; le fil en direct ne montre alors que ses messages."""
         ecran = await _ecran_de_la_tele(x_tv_secret)
+        import famille_tv_dossier as fd
+        await fd.observer_tele(db, ecran, _ip_de(request))      # lot 422 : lieu observé de la télé (calcul en arrière-plan, jamais bloquant)
         modules = modules_valides(ecran.get("modules"))
         ids = await _perimetre(ecran["client_id"]) if ecran.get("client_id") else []      # lot 412 : écran « vidéos seules » sans client
         # Lot 317 : messages et demandes de support ne sortent du serveur qu'avec le jeton obtenu par le code PIN (jamais sur le seul secret de la télé)

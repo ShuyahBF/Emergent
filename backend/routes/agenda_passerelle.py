@@ -53,6 +53,7 @@ from routes.contrats_plateformes import signature_valide
 
 PREFIXE_LIAISON = "agenda-utilisateurs:"
 PREFIXE_ETAT = "agenda-etat:"
+ADRESSE_RETOUR_DEFAUT = "https://api.sawalismartsystems.com/api/agenda/retour"
 PREFIXE_APPAREIL = "agenda-appareil:"     # { cle_hash, cree_le } : appareil qui s'est enregistré lui-même (clé générée par l'application)
 MAX_APPAREILS = 3000                       # plafond : jamais de croissance illimitée par des demandes en rafale
 ID_CONFIG = "agenda-config"          # { approbation: bool (défaut True), demandes: [ {id, plateforme, utilisateur, nom, gmail, etat, cree_le, decide_le} ] }
@@ -118,7 +119,10 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
         return (base or os.environ.get("PUBLIC_BASE_URL") or str(request.base_url)).rstrip("/")
 
     def _adresse_retour(request: Request) -> str:
-        return f"{_base(request)}/api/agenda/retour"
+        """Adresse de retour de Google : FIXE (jamais déduite de la page ou de l'application qui fait la demande). Google compare cette adresse, caractère par caractère, à celle
+        déclarée dans « Clients → URI de redirection autorisés » : si elle changeait selon le site d'origine (sawalismartsystems.com, api.sawalismartsystems.com…), Google répondrait
+        « redirect_uri_mismatch ». Réglable par la variable d'environnement AGENDA_ADRESSE_RETOUR ; l'écran des Paramètres affiche exactement cette valeur."""
+        return (os.environ.get("AGENDA_ADRESSE_RETOUR") or ADRESSE_RETOUR_DEFAUT).strip()
 
     async def _identifiants_google() -> Tuple[str, str]:
         s = await db.settings.find_one({"_id": "global"}) or {}

@@ -133,7 +133,7 @@ def _lier(c, utilisateur, code, gmail=None):
     _autoriser(c, utilisateur, gmail or ("a@gmail.com" if code == "code-A" else "b@gmail.com"))
     url = _appeler(c, "lier", {"utilisateur": utilisateur}).json()["url"]
     q = parse_qs(urlparse(url).query)
-    assert q["client_id"] == ["id-client"] and q["redirect_uri"] == ["https://sawali.test/api/agenda/retour"] and "calendar.events" in q["scope"][0] and q["access_type"] == ["offline"]
+    assert q["client_id"] == ["id-client"] and q["redirect_uri"] == [ag.ADRESSE_RETOUR_DEFAUT] and "calendar.events" in q["scope"][0] and q["access_type"] == ["offline"]
     return c.get("/api/agenda/retour", params={"code": code, "state": q["state"][0]})
 
 
@@ -208,7 +208,7 @@ def test_analyse_creation_validations_et_vue_admin(banc):
     ok = _appeler(c, "creer", {"utilisateur": "awa", "titre": "Appel", "debut": "2026-11-21T08:15:00+00:00", "rappel_minutes": 30})
     assert ok.status_code == 200 and faux.evenements["acces-A"][0]["reminders"]["overrides"][0]["minutes"] == 30
     admin = c.get("/api/admin/agenda-passerelle/etat").json()
-    assert admin["total"] == 1 and admin["liaisons_par_plateforme"] == {"auror": 1} and admin["adresse_retour"] == "https://sawali.test/api/agenda/retour"
+    assert admin["total"] == 1 and admin["liaisons_par_plateforme"] == {"auror": 1} and admin["adresse_retour"] == ag.ADRESSE_RETOUR_DEFAUT
     assert "Appel" not in json.dumps(admin) and "RDV" not in json.dumps(admin)                    # aucun contenu d'agenda
 
 
@@ -274,3 +274,19 @@ def test_appareil_qui_s_enregistre_tout_seul_avec_son_compte_google(banc):
     assert _appareil(c, "etat", appareil="court").status_code == 401 and _appareil(c, "etat", cle="courte").status_code == 401
     # Un autre appareil n'atteint jamais cet agenda
     assert _appareil(c, "evenements", appareil="f" * 20, cle="m" * 32).status_code == 409
+
+
+def test_adresse_de_retour_fixe_quel_que_soit_le_site_d_origine(banc, monkeypatch):
+    """redirect_uri_mismatch : l'adresse envoyée à Google ne dépend NI du site NI de l'application d'où vient la demande."""
+    c, db, faux, boucle = banc
+    brut, entetes = _signer({"utilisateur": "awa"})
+    entetes["Origin"] = "https://sawalismartsystems.com"
+    _autoriser(c, "awa", "a@gmail.com")
+    brut, entetes = _signer({"utilisateur": "awa"})
+    a = parse_qs(urlparse(c.post("/api/webhook/agenda/lier", content=brut, headers={**entetes, "Origin": "https://sawalismartsystems.com", "Host": "sawalismartsystems.com"}).json()["url"]).query)["redirect_uri"]
+    brut, entetes = _signer({"utilisateur": "awa"})
+    b = parse_qs(urlparse(c.post("/api/webhook/agenda/lier", content=brut, headers={**entetes, "Origin": "https://api.sawalismartsystems.com"}).json()["url"]).query)["redirect_uri"]
+    assert a == b == [ag.ADRESSE_RETOUR_DEFAUT]
+    monkeypatch.setenv("AGENDA_ADRESSE_RETOUR", "https://exemple.test/api/agenda/retour")
+    brut, entetes = _signer({"utilisateur": "awa"})
+    assert parse_qs(urlparse(c.post("/api/webhook/agenda/lier", content=brut, headers=entetes).json()["url"]).query)["redirect_uri"] == ["https://exemple.test/api/agenda/retour"]

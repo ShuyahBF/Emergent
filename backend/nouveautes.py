@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "401", "date": "2026-11-15",
+        "titre": "📊 Transactions SMS : chiffres et graphiques toujours calculés sur les vraies transactions",
+        "description": "Même en affichant les alertes, promos ou messages, les chiffres clés, opérateurs, histogramme, classements et camembert ne comptent que les transactions ; Concentration et auRor alignent leurs compteurs.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "400", "date": "2026-11-15",
         "titre": "↕️ Transactions SMS : colonnes triables et pastilles-filtres",
         "description": "Toutes les colonnes des tableaux de Transactions SMS se trient d'un clic (▲ croissant, ▼ décroissant, 3e clic = ordre d'origine) sur toutes les lignes ; les pastilles « alertes / promos / messages » restent visibles et filtrent la liste (règle 19).",

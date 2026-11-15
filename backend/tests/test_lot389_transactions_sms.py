@@ -323,6 +323,11 @@ def test_promos_alertes_et_messages_sortis_du_decompte_avec_correction_manuelle(
     toutes = c.get("/api/admin/transactions-sms", params={"categorie": "toutes"}).json()
     assert toutes["total"] == 4 and toutes["stats"]["totaux"]["recettes"] == 36000 and {t["categorie"] for t in toutes["transactions"]} == {"transaction", "promo", "alerte", "message"}
     assert c.get("/api/admin/transactions-sms", params={"categorie": "promo"}).json()["total"] == 1
+    # Blocs et graphiques (chiffres clés, opérateurs, histogramme, classements) : TOUJOURS les vraies transactions seulement, même quand la liste montre des alertes ou des promos
+    for cat in ("promo", "alerte", "message", "toutes"):
+        st = c.get("/api/admin/transactions-sms", params={"categorie": cat}).json()["stats"]
+        assert st["totaux"]["nombre"] == 1 and st["totaux"]["recettes"] == 36000 and st["totaux"]["depenses"] == 0, cat
+        assert sum(o["nombre"] for o in st["par_operateur"]) == 1 and sum(b["nombre"] for b in st["barres"]) == 1, cat
     # Correction manuelle : l'alerte est reclassée en transaction (puis rendue à son classement automatique)
     alerte = next(t for t in toutes["transactions"] if t["categorie"] == "alerte")
     assert c.put("/api/admin/transactions-sms/categorie", json={"id": alerte["id"], "categorie": "transaction"}).json()["corrigee"] is True

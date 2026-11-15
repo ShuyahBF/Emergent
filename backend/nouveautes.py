@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "417", "date": "2026-11-15",
+        "titre": "🎬 Vidéos : espace affiché (120 Mo / 2 Go) et suppression",
+        "description": "L'espace des vidéos est plafonné à 2 Go et affiché ; on peut cocher une ou plusieurs vidéos et les supprimer (le fichier est effacé, l'espace est rendu).",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "416", "date": "2026-11-15",
         "titre": "🎬 Télécommande vidéo : « en ligne » fiable, une seule jauge",
         "description": "L'écran reste « en ligne » pendant la lecture (relu toutes les 2 s) ; la jauge de position avance avec la vidéo et se fait glisser pour aller à un autre moment.",

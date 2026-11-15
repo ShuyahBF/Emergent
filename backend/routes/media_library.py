@@ -11,6 +11,7 @@ sort_order).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -33,6 +34,31 @@ MAX_BYTES = {
     "video": 300 * 1024 * 1024,  # 300 MB (lot 415 : envoyées vers R2 par morceaux, sans les charger en mémoire)
     "image": 15 * 1024 * 1024,   # 15 MB
 }
+
+
+# Lot 417 : espace total réservé aux vidéos (affiché « 120 Mo / 2 Go »). Modifiable par la variable d'environnement TV_VIDEOS_QUOTA_MO (en Mo).
+def quota_videos_octets() -> int:
+    try:
+        mo = int(os.environ.get("TV_VIDEOS_QUOTA_MO") or 2048)
+    except ValueError:
+        mo = 2048
+    return max(1, mo) * 1024 * 1024
+
+
+async def espace_videos_utilise(db) -> int:
+    """Octets occupés par les vidéos non supprimées (somme des tailles enregistrées)."""
+    cur = db.media_library.aggregate([{"$match": {"kind": "video", "is_deleted": {"$ne": True}}}, {"$group": {"_id": None, "t": {"$sum": "$size"}}}])
+    r = await cur.to_list(length=1)
+    return int(r[0]["t"]) if r else 0
+
+
+def libelle_taille(octets: int) -> str:
+    """« 120 Mo », « 1,5 Go » : en Mo jusqu'à 1 Go, ensuite en Go (une décimale utile)."""
+    mo = octets / (1024 * 1024)
+    if mo < 1024:
+        return f"{mo:.0f} Mo" if mo >= 10 or mo == int(mo) else f"{mo:.1f} Mo".replace(".", ",")
+    go = mo / 1024
+    return (f"{go:.0f}" if go == int(go) else f"{go:.1f}".replace(".", ",")) + " Go"
 
 
 def _ext_from_mime_or_name(content_type: str, filename: str) -> str:
@@ -128,6 +154,11 @@ def setup_media_library_routes(*, db, api, get_current_user, save_and_log):
             raise HTTPException(status_code=400, detail="Fichier vide.")
         if taille > cap:
             raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (>{cap // (1024 * 1024)} Mo).")
+        if detected_kind == "video":                                   # lot 417 : espace total des vidéos plafonné
+            utilise, maximum = await espace_videos_utilise(db), quota_videos_octets()
+            if utilise + taille > maximum:
+                raise HTTPException(status_code=413, detail=f"Espace vidéos insuffisant : {libelle_taille(utilise)} / {libelle_taille(maximum)} utilisés, "
+                                                            f"cette vidéo fait {libelle_taille(taille)}. Supprimez des vidéos pour libérer de la place.")
         title = (title or "").strip()[:200]
         if not title:
             raise HTTPException(status_code=400, detail="Titre requis.")

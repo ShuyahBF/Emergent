@@ -14,6 +14,7 @@ Formats : MP4 (H.264 + AAC) lu partout ; MKV / MOV / WebM dépendent de la tél�
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -27,6 +28,7 @@ from fastapi import Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from routes.ecran_tv import empreinte
+from routes.media_library import espace_videos_utilise, libelle_taille, quota_videos_octets
 
 logger = logging.getLogger("sawali.tv_video")
 
@@ -196,7 +198,42 @@ def setup_tv_video_routes(*, db, api, get_current_admin):
     async def admin_videos(user: dict = Depends(get_current_admin)):
         """Vidéos de la bibliothèque de médias (celles qu'on peut envoyer sur la télé)."""
         cur = db.media_library.find({"kind": "video", "is_deleted": {"$ne": True}}, {"_id": 0, "id": 1, "title": 1, "size": 1, "content_type": 1, "filename": 1, "created_at": 1}).sort("created_at", -1).limit(200)
-        return {"videos": await cur.to_list(length=200)}
+        return {"videos": await cur.to_list(length=200), "quota": await _quota()}
+
+    async def _quota() -> Dict[str, Any]:
+        """Espace des vidéos : utilisé / maximum, en octets et en clair (« 120 Mo / 2 Go »)."""
+        u, m = await espace_videos_utilise(db), quota_videos_octets()
+        return {"utilise": u, "max": m, "libelle": f"{libelle_taille(u)} / {libelle_taille(m)}"}
+
+    @api.post("/admin/tv/video/supprimer", tags=["Admin — Vidéo TV"])
+    async def admin_supprimer(corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+        """Supprime une ou plusieurs vidéos choisies : le fichier est effacé du stockage (l'espace est rendu), l'entrée de la bibliothèque est retirée,
+        et une télé qui la lisait reçoit l'ordre « stop ». Rend les vidéos supprimées, les échecs et l'espace restant."""
+        ids = [str(i) for i in (corps.get("ids") or []) if i][:50]
+        if not ids:
+            raise HTTPException(status_code=422, detail="Aucune vidéo choisie")
+        import storage as stockage
+        supprimees, echecs = [], []
+        for i in dict.fromkeys(ids):
+            m = await db.media_library.find_one({"id": i, "kind": "video", "is_deleted": {"$ne": True}}, {"_id": 0})
+            if not m:
+                echecs.append({"id": i, "raison": "Vidéo introuvable"}); continue
+            try:
+                if m.get("storage_path") and stockage.storage_available():
+                    await asyncio.to_thread(stockage.delete_bytes, m["storage_path"], False)
+            except Exception as exc:  # noqa: BLE001 — fichier non effacé : on ne retire pas l'entrée (rien de perdu, on peut réessayer)
+                logger.exception("[tv_video] suppression du fichier impossible")
+                echecs.append({"id": i, "raison": f"Fichier non effacé : {exc}"}); continue
+            await db.media_library.update_one({"id": i}, {"$set": {"is_deleted": True, "deleted_at": _maintenant().isoformat(), "deleted_by_id": user.get("id")}})
+            if m.get("storage_path"):
+                await db.stored_objects.update_one({"storage_path": m["storage_path"]}, {"$set": {"is_deleted": True, "deleted_at": _maintenant().isoformat()}})
+            supprimees.append(i)
+        # Une télé qui lit une vidéo supprimée reçoit « stop »
+        if supprimees:
+            cur = db.settings.find({"_id": {"$regex": "^" + PREFIXE}, "etat.video_id": {"$in": supprimees}, "etat.lecture": {"$ne": "arret"}})
+            for d in await cur.to_list(length=100):
+                await db.settings.update_one({"_id": d["_id"]}, {"$inc": {"seq": 1}, "$set": {"commande": {"action": "stop", "par": user.get("email") or "", "le": _maintenant().isoformat()}}})
+        return {"ok": not echecs, "supprimees": supprimees, "echecs": echecs, "quota": await _quota()}
 
     @api.get("/admin/tv/video/etat/{ecran_id}", tags=["Admin — Vidéo TV"])
     async def admin_etat(ecran_id: str, user: dict = Depends(get_current_admin)):

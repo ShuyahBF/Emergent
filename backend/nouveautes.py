@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "413", "date": "2026-11-15",
+        "titre": "📺 Écran TV « vidéos seules » : plus de client à choisir",
+        "description": "Un écran dont seul le contenu « Vidéos » est coché s'appaire sans client ; le client reste exigé pour la messagerie, le support et le hall.",
+        "rubrique": "📺 Écrans TV (Smart TV)",
+    },
+    {
         "lot": "412", "date": "2026-11-15",
         "titre": "🎬 Vidéos en streaming sur les écrans TV",
         "description": "Chargez une vidéo, cochez « Vidéos » pour un écran TV appairé, puis lisez-la sur la Smart TV et pilotez-la (pause, ±10 s, position) depuis votre téléphone.",

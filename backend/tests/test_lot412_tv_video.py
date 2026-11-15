@@ -112,3 +112,43 @@ def test_etat_renvoye_par_la_tele_et_vu_par_la_telecommande(banc):
     ecrans = c.get("/api/admin/tv/video/ecrans", headers=ADM).json()["ecrans"]
     assert [x["id"] for x in ecrans] == ["ecran-ok"] and ecrans[0]["en_ligne"] is True            # seul l'écran avec « Vidéos » est proposé
     assert [v["id"] for v in c.get("/api/admin/tv/video/videos", headers=ADM).json()["videos"]] == ["v1"]
+
+
+# ---------- Écran « vidéos seules » : le client n'est pas exigé ----------
+def _app_ecrans():
+    from routes.ecran_tv import setup_ecran_tv_routes
+    base = AsyncMongoMockClient()["test_tv_412_sans_client"]
+    _run(base.users.insert_one({"id": "cli-1", "company": "Clinique A"}))
+
+    async def admin(request: Request):
+        if request.headers.get("x-admin") != "1":
+            raise HTTPException(status_code=403, detail="admin requis")
+        return {"email": "admin@test"}
+    api = APIRouter(prefix="/api")
+    setup_ecran_tv_routes(db=base, api=api, get_current_admin=admin)
+    app = FastAPI(); app.include_router(api)
+    return TestClient(app), base
+
+
+def _code(c, secret):
+    return c.post("/api/tv/appairage", json={"secret": secret}).json()["code"]
+
+
+def test_ecran_videos_seules_sans_client():
+    c, _ = _app_ecrans()
+    # sans client, un contenu qui lit les données d'un client est refusé (messagerie, support par défaut ; hall)
+    assert c.post("/api/admin/tv/appairer", headers=ADM, json={"code": _code(c, "secret-un-0123456789abcdef"), "nom": "A"}).status_code == 422
+    assert c.post("/api/admin/tv/appairer", headers=ADM, json={"code": _code(c, "secret-deux-0123456789abcd"), "nom": "A", "modules": {"hall": True, "video": True}}).status_code == 422
+    # vidéos seules : accepté sans client
+    secret = "secret-trois-0123456789abc"
+    r = c.post("/api/admin/tv/appairer", headers=ADM, json={"code": _code(c, secret), "nom": "Salle", "modules": {"video": True}})
+    assert r.status_code == 200 and r.json()["ecran"]["client_id"] == "" and r.json()["ecran"]["modules"]["video"] is True
+    # le flux de la télé ne plante pas sans client et annonce le contenu « video »
+    f = c.get("/api/tv/flux", headers={"x-tv-secret": secret})
+    assert f.status_code == 200 and f.json()["ecran"]["modules"]["video"] is True and "messages" not in f.json()
+    # ajouter la messagerie plus tard exige un client
+    ecran_id = r.json()["ecran"]["id"]
+    assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", headers=ADM, json={"modules": {"video": True, "messagerie": True}}).status_code == 422
+    assert c.put(f"/api/admin/tv/ecrans/{ecran_id}", headers=ADM, json={"client_id": "cli-1", "modules": {"video": True, "messagerie": True}}).status_code == 200
+    # avec client : comportement inchangé
+    assert c.post("/api/admin/tv/appairer", headers=ADM, json={"code": _code(c, "secret-quatre-0123456789ab"), "nom": "B", "client_id": "cli-1"}).status_code == 200

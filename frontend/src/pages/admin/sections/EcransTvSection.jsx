@@ -83,11 +83,13 @@ export default function EcransTvSection() {
   };
 
   const appairer = async () => {
-    if (!code.trim() || !nom.trim() || !clientId) { toast.error("Code, nom de l'écran et client sont obligatoires"); return; }
+    if (!code.trim() || !nom.trim()) { toast.error("Le code et le nom de l'écran sont obligatoires"); return; }
+    // Lot 412 : le client n'est exigé que pour la messagerie, le support et le hall ; un écran « Vidéos » seul n'en a pas besoin
+    if (!clientId && (modules.messagerie || modules.support || modules.hall)) { toast.error("Choisissez un client pour la messagerie, le support ou le hall (seules les vidéos n'en exigent pas)"); return; }
     if (rdvPortee === "medecin" && !rdvMedecin) { toast.error("Choisissez le médecin dont cet écran affiche les rendez-vous"); return; }
     setEnvoi(true);
     try {
-      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId, modules, rdv_portee: rdvPortee, rdv_clair: rdvPortee !== "tous" && rdvClair, rdv_medecin: rdvPortee === "medecin" ? rdvMedecin : "" });
+      await apiClient.post("/admin/tv/appairer", { code: code.trim(), nom: nom.trim(), client_id: clientId || undefined, modules, rdv_portee: rdvPortee, rdv_clair: rdvPortee !== "tous" && rdvClair, rdv_medecin: rdvPortee === "medecin" ? rdvMedecin : "" });
       toast.success("Écran appairé : la télé démarre dans quelques secondes");
       setCode(""); setNom(""); setRdvMedecin("");
       charger();
@@ -236,9 +238,9 @@ export default function EcransTvSection() {
             <input value={nom} onChange={(e) => setNom(e.target.value)} maxLength={60} placeholder="Hall d'accueil"
                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-nom-saisi" />
           </label>
-          <label className="text-xs text-slate-600">Client
+          <label className="text-xs text-slate-600">Client <span className="text-slate-400">(facultatif pour les vidéos seules)</span>
             <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" data-testid="tv-client-saisi">
-              <option value="">— Choisir —</option>
+              <option value="">— Aucun (vidéos seules) —</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
           </label>
@@ -299,7 +301,7 @@ export default function EcransTvSection() {
                   <tr key={e.id} className="border-t border-slate-100">
                     <td className="py-2 pr-3 font-medium">{e.nom}</td>
                     <td className="pr-3 font-mono tracking-widest text-xs" title="Code saisi lors de l'appairage">{e.code || <span className="text-slate-400" title="Écran appairé avant le lot 303 : code non conservé">—</span>}</td>
-                    <td className="pr-3">{e.client_nom || e.client_id}</td>
+                    <td className="pr-3">{e.client_nom || e.client_id || "— (vidéos seules)"}</td>
                     <td className="pr-3">
                       <div className="flex flex-wrap gap-3">
                         {CONTENUS.map((c) => (

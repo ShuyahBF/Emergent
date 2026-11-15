@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "403", "date": "2026-11-15",
+        "titre": "📅 Passerelle Agenda Google pour auRor, Concentration et Personnel Maison",
+        "description": "Chaque utilisateur lie son propre Google Agenda (jamais lisible par un autre), consulte ses rendez-vous et en crée par note vocale avec confirmation. Adresse de retour à déclarer chez Google et nombre de liaisons dans les Paramètres.",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "402", "date": "2026-11-15",
         "titre": "🔔 Rappel des RDV aux patients : interrupteur activer / désactiver",
         "description": "Un interrupteur dans « Webhook Planning consultations » active ou désactive uniquement le rappel WhatsApp envoyé aux patients 1 h avant leur RDV ; les autres envois ne changent pas.",

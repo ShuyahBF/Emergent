@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import PlanningWebhookSection from "@/pages/admin/sections/PlanningWebhookSection";
+import AgendaPasserelleSection from "@/pages/admin/sections/AgendaPasserelleSection";
 import EcransTvSection from "@/pages/admin/sections/EcransTvSection";   // lot 289
 import NiveauxServiceSection from "@/pages/admin/sections/NiveauxServiceSection";   // lot 314
 import LiluvineReactionsSection from "@/pages/admin/sections/LiluvineReactionsSection";
@@ -1332,6 +1333,9 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Webhook Planning consultations (RDV patients)" anchorId="s-webhook-planning">
         <PlanningWebhookSection />
+      </Filterable>
+      <Filterable title="📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)" anchorId="s-agenda-passerelle">
+        <AgendaPasserelleSection />
       </Filterable>
       <Filterable title="📺 Écrans TV (Smart TV)" anchorId="s-ecrans-tv">
         <EcransTvSection />

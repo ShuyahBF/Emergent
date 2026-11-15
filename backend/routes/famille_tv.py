@@ -25,9 +25,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, Depends, Header, HTTPException
+from fastapi import Body, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
+import famille_tv_dossier as fd
 from routes.ecran_tv import VALIDITE_CODE_MIN, modules_valides
 from routes.formules_plateformes import AchatIn, AcheterIn, Utilisateur
 from routes.tv_video import ACTIONS, DELTA_MAX_S, EN_LIGNE_S, PREFIXE
@@ -56,7 +57,13 @@ def meilleur_abonnement(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return max(candidats, key=lambda c: (c["appareils"], c["expire_le"])) if candidats else None
 
 
-def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin):
+def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin, envoyer_email=None):
+    async def _envoyer(to: str, sujet: str, html: str, texte: str) -> bool:
+        if envoyer_email is not None:
+            return await envoyer_email(to, sujet, html, texte)
+        from email_service import send_email
+        return await send_email(to, sujet, html, texte)
+
     async def _compte(x_famille_compte: Optional[str] = Header(None), x_famille_jeton: Optional[str] = Header(None)) -> dict:
         compte = await authentifier(db, x_famille_compte, x_famille_jeton)
         if not compte:
@@ -274,19 +281,108 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin)
         d = await _doc(ecran_id)
         return {"seq": d["seq"], "etat": d.get("etat"), "en_ligne": _en_ligne(d, ecran)}
 
-    # ------------------------------------------------------------------ demande d'accès (le détenteur) et décision (l'administrateur)
-    @api.post("/famille/tv/demander", tags=["Ma famille — Télé"])
-    async def demander(donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
-        """Le détenteur demande l'accès à la télé en indiquant où se trouve la télé ; SAWALI l'accepte ou la refuse. Une demande acceptée n'est pas écrasée."""
+    # ------------------------------------------------------------------ demande d'accès (le détenteur) : captcha, e-mail vérifié, dossier
+    def _iso(v: Any) -> str:
+        return v.isoformat() if hasattr(v, "isoformat") else str(v or "")
+
+    async def _liste_horodatee(ident: str, maintenant: datetime, fenetre: timedelta, ajouter: bool) -> int:
+        """Compteur glissant (envois de codes) : liste d'horodatages dans un document « famille-tv-env:<clé> » ; rend le nombre d'envois dans la fenêtre (avant ajout)."""
+        d = await db.settings.find_one({"_id": ident}) or {}
+        limite = (maintenant - fenetre).isoformat()
+        recents = [t for t in d.get("envois") or [] if t >= limite]
+        if ajouter:
+            await db.settings.update_one({"_id": ident}, {"$set": {"envois": recents + [maintenant.isoformat()]}}, upsert=True)
+        return len(recents)
+
+    def _cle_ip(ip: str) -> str:
+        import hashlib
+        return "famille-tv-env:ip:" + hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+    @api.get("/famille/tv/captcha", tags=["Ma famille — Télé"])
+    async def captcha(compte: dict = Depends(_compte)):
+        """Image de 5 caractères à recopier (limite les robots) ; le jeton signé accompagne la réponse."""
+        jeton, _texte, png = fd.fabriquer_captcha()
+        return {"jeton": jeton, "image": fd.png_en_data_url(png), "validite_s": fd.CAPTCHA_VALIDITE_S}
+
+    @api.post("/famille/tv/verification", tags=["Ma famille — Télé"])
+    async def verification(request: Request, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
+        """Étape 1 de la demande : téléphone + e-mail + captcha ; un CODE est envoyé à l'adresse e-mail (15 minutes, 5 essais)."""
         cid = str(compte["_id"])
-        lieu = str(donnees.get("lieu") or "").strip()[:120]
+        tel = fd.normaliser_telephone(str(donnees.get("telephone") or ""))
+        if not tel:
+            raise HTTPException(status_code=422, detail="Numéro de téléphone invalide (8 à 15 chiffres, avec ou sans l'indicatif du pays).")
+        email = str(donnees.get("email") or "").strip()
+        if not fd.email_valide(email):
+            raise HTTPException(status_code=422, detail="Adresse e-mail invalide.")
+        jeton = str(donnees.get("captcha_jeton") or "")
+        if not fd.captcha_valide(jeton, str(donnees.get("captcha_reponse") or "")):
+            raise HTTPException(status_code=422, detail="Image recopiée incorrecte ou expirée : recopiez les caractères de la nouvelle image.")
+        nonce, expire = fd.lire_jeton_captcha(jeton)
+        cap = await db.settings.find_one({"_id": "famille-tv-captcha"}) or {}
+        maintenant = _maintenant()
+        utilises = [u for u in cap.get("utilises") or [] if u["e"] >= int(maintenant.timestamp())]
+        if any(u["n"] == nonce for u in utilises):
+            raise HTTPException(status_code=422, detail="Cette image a déjà servi : recopiez les caractères de la nouvelle image.")
+        await db.settings.update_one({"_id": "famille-tv-captcha"}, {"$set": {"utilises": (utilises + [{"n": nonce, "e": expire}])[-500:]}}, upsert=True)      # usage unique
+        # limites contre les rafales : par compte et par adresse IP
+        ip = fd.ip_client({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else "")
+        if await _liste_horodatee("famille-tv-env:" + cid, maintenant, timedelta(hours=1), False) >= fd.LIMITE_ENVOIS_CODE_COMPTE_H or \
+                await _liste_horodatee(_cle_ip(ip), maintenant, timedelta(hours=1), False) >= fd.LIMITE_ENVOIS_CODE_IP_H:
+            raise HTTPException(status_code=429, detail="Trop de codes demandés : réessayez dans une heure.")
+        code = fd.nouveau_code()
+        corps = (f"<p>Votre code de vérification pour demander l'accès à la télé (Personnel de maison) : <b style='font-size:22px;letter-spacing:3px'>{code}</b></p>"
+                 "<p>Il est valable 15 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</p>")
+        envoye = await _envoyer(email, f"Votre code SAWALI : {code}", corps, f"Votre code de vérification SAWALI : {code} (valable 15 minutes).")
+        if not envoye:
+            raise HTTPException(status_code=502, detail="L'e-mail n'a pas pu être envoyé : vérifiez l'adresse puis réessayez, ou contactez l'administrateur.")
+        await _liste_horodatee("famille-tv-env:" + cid, maintenant, timedelta(hours=1), True)
+        await _liste_horodatee(_cle_ip(ip), maintenant, timedelta(hours=1), True)
+        await db.settings.update_one({"_id": "famille-tv-verif:" + cid}, {"$set": {"email": email, "telephone": tel, "code_hash": fd.empreinte_code(cid, code), "essais": 0,
+                                                                                    "expire": (maintenant + timedelta(seconds=fd.CODE_EMAIL_VALIDITE_S)).isoformat()}}, upsert=True)
+        return {"ok": True, "email_masque": fd.masquer_email(email), "validite_minutes": fd.CODE_EMAIL_VALIDITE_S // 60}
+
+    async def _dossier_complet(demande: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """Évaluation à jour d'une demande (les doublons se calculent sur les demandes des AUTRES comptes)."""
+        autres = [d for d in cfg["demandes"] if d["id"] != demande["id"]]
+        return fd.evaluer(demande, autres, _maintenant().isoformat())
+
+    @api.post("/famille/tv/demander", tags=["Ma famille — Télé"])
+    async def demander(request: Request, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
+        """Étape 2 : le CODE reçu par e-mail prouve l'adresse ; le dossier (téléphone, e-mail vérifié, adresse IP et sa localisation, appareil, ancienneté du compte,
+        proches vérifiés, indicateurs) part à SAWALI avec le lieu de la télé. Une demande acceptée n'est pas écrasée."""
+        cid = str(compte["_id"])
         cfg = await _config()
         ancienne = _demande_de(cfg, cid)
         if ancienne and ancienne["etat"] == "accepte":
             return {"ok": True, "etat": "accepte"}
-        nouvelle = {"id": cid, "compte_id": cid, "nom": str(compte.get("nom") or "")[:80], "lieu": lieu, "etat": "attente", "cree_le": _maintenant().isoformat(), "decide_le": None}
+        maintenant = _maintenant()
+        if ancienne and ancienne["etat"] == "attente":
+            raise HTTPException(status_code=409, detail="Votre demande est déjà en attente de l'approbation de SAWALI.")
+        if ancienne and ancienne["etat"] == "refuse" and ancienne.get("decide_le") and ancienne["decide_le"] > (maintenant - timedelta(hours=24)).isoformat():
+            raise HTTPException(status_code=429, detail="Votre dernière demande a été refusée : une nouvelle demande sera possible dans 24 heures.")
+        verif = await db.settings.find_one({"_id": "famille-tv-verif:" + cid})
+        if not verif:
+            raise HTTPException(status_code=422, detail="Vérifiez d'abord votre adresse e-mail : demandez le code.")
+        if verif["expire"] < maintenant.isoformat():
+            raise HTTPException(status_code=422, detail="Le code a expiré : demandez-en un nouveau.")
+        if int(verif.get("essais") or 0) >= fd.CODE_EMAIL_ESSAIS:
+            raise HTTPException(status_code=429, detail="Trop d'essais : demandez un nouveau code.")
+        if verif["code_hash"] != fd.empreinte_code(cid, str(donnees.get("code_email") or "")):
+            await db.settings.update_one({"_id": verif["_id"]}, {"$inc": {"essais": 1}})
+            raise HTTPException(status_code=422, detail="Code incorrect.")
+        ip = fd.ip_client({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else "")
+        recentes = [d for d in cfg["demandes"] if d.get("ip") == ip and d["id"] != cid and d["cree_le"] > (maintenant - timedelta(hours=24)).isoformat()]
+        if ip and len(recentes) >= fd.LIMITE_DEMANDES_IP_24H:
+            raise HTTPException(status_code=429, detail="Trop de demandes depuis cette connexion : réessayez demain.")
+        liens = await db.famille_liens.count_documents({"comptes": cid, "statut": "verifie"})
+        nouvelle = {"id": cid, "compte_id": cid, "nom": str(compte.get("nom") or "")[:80], "lieu": str(donnees.get("lieu") or "").strip()[:120], "etat": "attente",
+                    "cree_le": maintenant.isoformat(), "decide_le": None, "telephone": verif["telephone"], "email": verif["email"], "email_verifie": True, "ip": ip,
+                    "ip_infos": await fd.localiser_ip(ip), "appareil": fd.nettoyer_appareil(donnees.get("appareil")), "compte_cree_le": _iso(compte.get("cree_le")),
+                    "liens_verifies": liens}
+        nouvelle["evaluation"] = await _dossier_complet(nouvelle, cfg)
         cfg["demandes"] = ([x for x in cfg["demandes"] if x["id"] != cid] + [nouvelle])[-MAX_DEMANDES:]
         await _enregistrer_config(cfg)
+        await db.settings.delete_one({"_id": verif["_id"]})
         return {"ok": True, "etat": "attente"}
 
     @api.get("/admin/famille-tv/etat", tags=["Admin — Télé des familles"])
@@ -295,9 +391,29 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin)
         ecrans = await _ecrans()
         demandes = []
         for d in cfg["demandes"]:
-            demandes.append({**{k: d.get(k) for k in ("id", "nom", "lieu", "etat", "cree_le", "decide_le")}, "postes": sum(1 for e in ecrans if e.get("proprietaire_compte") == d["id"])})
+            ev = await _dossier_complet(d, cfg)
+            a = d.get("appareil") or {}
+            demandes.append({**{k: d.get(k) for k in ("id", "nom", "lieu", "etat", "cree_le", "decide_le", "email", "email_verifie", "ip")},
+                             "postes": sum(1 for e in ecrans if e.get("proprietaire_compte") == d["id"]), "tel": (d.get("telephone") or {}).get("e164"),
+                             "pays_ip": (d.get("ip_infos") or {}).get("code_pays"), "niveau": ev["niveau"], "score": ev["score"],
+                             "appareil_resume": " ".join(x for x in (a.get("marque"), a.get("modele")) if x) + (f" · Android {a['android']}" if a.get("android") else "")})
         return {"approbation": cfg["approbation"], "postes_gratuits": cfg["postes_gratuits"], "demandes": sorted(demandes, key=lambda d: d.get("cree_le") or "", reverse=True),
                 "postes_appaires": sum(1 for e in ecrans if e.get("proprietaire_compte"))}
+
+    @api.get("/admin/famille-tv/demandes/{ident}/dossier", tags=["Admin — Télé des familles"])
+    async def admin_dossier(ident: str, user: dict = Depends(get_current_admin)):
+        """Dossier complet du demandeur : coordonnées, e-mail vérifié, adresse IP localisée, appareil, ancienneté, indicateurs de risque et demandes liées."""
+        cfg = await _config()
+        d = _demande_de(cfg, ident)
+        if not d:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        ev = await _dossier_complet(d, cfg)
+        liees = [{"id": a["id"], "nom": a.get("nom"), "etat": a.get("etat"), "cree_le": a.get("cree_le"), "raison": [r for r, ok in (("même IP", d.get("ip") and a.get("ip") == d.get("ip")),
+                 ("même téléphone", (a.get("telephone") or {}).get("e164") == (d.get("telephone") or {}).get("e164")), ("même e-mail", (a.get("email") or "").lower() == (d.get("email") or "").lower())) if ok]}
+                 for a in cfg["demandes"] if a["id"] != ident]
+        liees = [x for x in liees if x["raison"]]
+        champs = ("id", "nom", "lieu", "etat", "cree_le", "decide_le", "decide_par", "telephone", "email", "email_verifie", "ip", "ip_infos", "appareil", "compte_cree_le", "liens_verifies")
+        return {**{k: d.get(k) for k in champs}, **ev, "demandes_liees": liees}
 
     @api.post("/admin/famille-tv/demandes/{ident}", tags=["Admin — Télé des familles"])
     async def admin_decider(ident: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):

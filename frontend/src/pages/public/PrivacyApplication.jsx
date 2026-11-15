@@ -79,6 +79,7 @@ const APPLICATIONS = {
         liste: [
           "Sur le téléphone : toutes les données du foyer sont gardées dans une base locale CHIFFRÉE ; elles ne quittent pas le téléphone sans une fonction que vous activez.",
           "Ma famille : les échanges (messages, position, caméra, médicaments, repas) sont chiffrés de bout en bout entre les téléphones des proches liés ; le serveur de SAWALI ne fait que les relayer et ne peut pas les lire.",
+          "Ma Télé (demande d'accès à la télé) : pour vérifier qu'une demande est authentique et éviter les abus, SAWALI reçoit et garde votre numéro de téléphone, une adresse e-mail vérifiée par un code, l'adresse IP et le lieu approximatif qui en découle, quelques détails techniques du téléphone (marque, modèle, version Android, langue, fuseau, taille d'écran) et le résultat d'un captcha. Ces informations ne servent qu'à décider de l'approbation et à limiter les abus ; elles ne sont jamais vendues ni utilisées à d'autres fins.",
           "Récepteur de badges (si vous l'activez) : l'identifiant des balises entendues et le signal sont envoyés à SAWALI ; les autres appareils Bluetooth ne sont jamais envoyés. « Où suis-je ? » : seul l'identifiant de la balise la plus proche est envoyé pour retrouver le lieu.",
           "Signal de présence : version de l'application et modèle du téléphone, pour la supervision technique (aucun contenu).",
           "Agenda : voir la section « Agenda Google ».",

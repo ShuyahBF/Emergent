@@ -287,6 +287,9 @@ _setup_lieux_balises(db=db, api=api, get_current_user=get_current_user)
 # Lot 389 — Transactions SMS : paiements lus par le téléphone (Concentration), visualisés par l'administrateur, associés à une plateforme (ALBARKA…)
 from routes.transactions_sms import setup_transactions_sms_routes as _setup_transactions_sms  # noqa: E402
 _setup_transactions_sms(db=db, api=api, get_current_user=get_current_user)
+# Lot 403 — passerelle « Agenda Google » par utilisateur pour les autres plateformes (auRor, Concentration, Personnel Maison) : POST /api/webhook/agenda/…
+from routes.agenda_passerelle import setup_agenda_passerelle_routes as _setup_agenda_passerelle  # noqa: E402
+_setup_agenda_passerelle(db=db, api=api, get_current_user=get_current_user, public_base_url_fn=_public_base_url)
 # Lot 138 — nom de profil WhatsApp d'un numéro, lu (signé) par une plateforme : POST /api/webhook/plateforme-profils-wa
 from routes.profils_wa import setup_profils_wa_routes as _setup_profils_wa  # noqa: E402
 _setup_profils_wa(db=db, api=api)

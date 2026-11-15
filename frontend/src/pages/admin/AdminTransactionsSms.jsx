@@ -299,6 +299,7 @@ export default function AdminTransactionsSms() {
               {filtres.categorie !== "" && <button type="button" className="underline" onClick={() => modifier("categorie", "")}><RotateCcw className="mr-1 inline h-4 w-4" />Transactions seulement</button>}
             </p>
           )}
+          {filtres.categorie !== "" && <p className="text-xs text-slate-500" data-testid="note-decompte">Les chiffres clés et les graphiques de cette page ne comptent que les transactions : les SMS hors décompte (gris) y sont toujours exclus.</p>}
           {/* Tableau DÉFILANT (hauteur limitée, en-tête figé) : la page n'est plus entraînée vers le bas par une longue liste */}
           <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-10 [&_thead_th]:bg-sky-50" data-testid="liste-defilante">
             <table className="tableau w-full text-sm" data-testid="liste">

@@ -760,7 +760,7 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         limite = max(1, min(limite, 200))
         # `id` = identité de la transaction (sert à corriger sa catégorie) ; `k` n'est jamais montré tel quel
         retire = [{**{k: v for k, v in p.items() if k != "k"}, "id": p["k"]} for p in items[max(0, decalage):max(0, decalage) + limite]]
-        return {"total": len(items), "transactions": retire, "exclus": dict(exclus), "stats": statistiques([p for p in items if p.get("categorie") == "transaction"] if categorie in ("", "toutes") else items, par_mois, classement if classement in GENRES else "DEPENSE")}
+        return {"total": len(items), "transactions": retire, "exclus": dict(exclus), "stats": statistiques([p for p in tout if p.get("categorie") == "transaction"], par_mois, classement if classement in GENRES else "DEPENSE")}
 
     @api.get("/admin/transactions-sms/export.csv", tags=["Transactions SMS — écran"])
     async def exporter(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "", categorie: str = "",

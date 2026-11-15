@@ -205,7 +205,7 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
             if e.get("proprietaire_compte") != cid:
                 continue
             d = await _doc(e["id"])
-            sortie.append({"id": e["id"], "nom": e.get("nom") or "Télé", "en_ligne": _en_ligne(d, e), "etat": d.get("etat")})
+            sortie.append({"id": e["id"], "nom": e.get("nom") or "Télé", "en_ligne": _en_ligne(d, e), "etat": d.get("etat"), "deplacee": bool(e.get("deplacee"))})
         return {"ecrans": sortie}
 
     @api.post("/famille/tv/appairer", tags=["Ma famille — Télé"])
@@ -228,10 +228,11 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
         appairage = next((a for a in g.get("tv_appairages") or [] if a.get("code") == code and a.get("cree_le", "") >= limite), None)
         if not appairage:
             raise HTTPException(status_code=404, detail="Code inconnu ou expiré : relancez la page /tv sur la télé pour obtenir un nouveau code.")
-        ecran = {"id": uuid.uuid4().hex, "nom": nom, "code": code, "client_id": "", "client_nom": "", "modules": modules_valides({"video": True}),
+        ecran = {"id": uuid.uuid4().hex, "nom": nom, "code": code, "ancre_ip": appairage.get("ip") or "", "client_id": "", "client_nom": "", "modules": modules_valides({"video": True}),
                  "rdv_portee": "tous", "rdv_clair": False, "rdv_medecin": "", "empreinte": appairage["empreinte"], "cree_le": _maintenant().isoformat(),
                  "cree_par": "famille:" + cid, "vu_le": None, "proprietaire_compte": cid, "proprietaire_nom": str(compte.get("nom") or "")[:80]}
         await db.settings.update_one({"_id": "global"}, {"$push": {"tv_ecrans": ecran}, "$pull": {"tv_appairages": {"id": appairage["id"]}}})
+        await fd.ancrer_tele(db, ecran["id"], ecran["ancre_ip"])      # lieu de la télé relevé par le serveur (arrière-plan) : base de la détection de déplacement
         return {"ok": True, "ecran": {"id": ecran["id"], "nom": nom}}
 
     @api.delete("/famille/tv/ecrans/{ecran_id}", tags=["Ma famille — Télé"])
@@ -255,6 +256,8 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
         cid = str(compte["_id"])
         ecran = await _mon_ecran(cid, str(corps.get("ecran_id") or ""))
         await _exiger_approbation(compte)
+        if ecran.get("deplacee"):
+            raise HTTPException(status_code=409, detail="Cette télé semble avoir changé de pays depuis son appairage : SAWALI doit confirmer son nouvel emplacement avant de l'utiliser.")
         if ecran["id"] not in await _ecrans_autorises(await _droits(cid)):
             m = await outils.membre(PLATEFORME, _utilisateur(compte))
             await outils.exiger_abonnement(PLATEFORME, m, FONCTION, "Cette télé", refus="Cette télé dépasse les postes TV de votre offre (abonnement arrêté ou insuffisant).")
@@ -306,11 +309,10 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
 
     @api.post("/famille/tv/verification", tags=["Ma famille — Télé"])
     async def verification(request: Request, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
-        """Étape 1 de la demande : téléphone + e-mail + captcha ; un CODE est envoyé à l'adresse e-mail (15 minutes, 5 essais)."""
+        """Étape 1 de la demande : e-mail + captcha ; un CODE est envoyé à l'adresse e-mail (15 minutes, 5 essais).
+        Le téléphone est FACULTATIF et jamais vérifié (simple indice déclaré) : on ne demande que ce que SAWALI peut prouver."""
         cid = str(compte["_id"])
-        tel = fd.normaliser_telephone(str(donnees.get("telephone") or ""))
-        if not tel:
-            raise HTTPException(status_code=422, detail="Numéro de téléphone invalide (8 à 15 chiffres, avec ou sans l'indicatif du pays).")
+        tel = fd.normaliser_telephone(str(donnees.get("telephone") or "")) if donnees.get("telephone") else None
         email = str(donnees.get("email") or "").strip()
         if not fd.email_valide(email):
             raise HTTPException(status_code=422, detail="Adresse e-mail invalide.")
@@ -342,14 +344,15 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
         return {"ok": True, "email_masque": fd.masquer_email(email), "validite_minutes": fd.CODE_EMAIL_VALIDITE_S // 60}
 
     async def _dossier_complet(demande: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
-        """Évaluation à jour d'une demande (les doublons se calculent sur les demandes des AUTRES comptes)."""
+        """Évaluation à jour d'une demande (les doublons se calculent sur les demandes des AUTRES comptes ; les télés déplacées comptent)."""
         autres = [d for d in cfg["demandes"] if d["id"] != demande["id"]]
-        return fd.evaluer(demande, autres, _maintenant().isoformat())
+        teles_deplacees = sum(1 for e in await _ecrans() if e.get("proprietaire_compte") == demande["id"] and e.get("deplacee"))
+        return fd.evaluer({**demande, "teles_deplacees": teles_deplacees}, autres, _maintenant().isoformat())
 
     @api.post("/famille/tv/demander", tags=["Ma famille — Télé"])
     async def demander(request: Request, donnees: Dict[str, Any] = Body(...), compte: dict = Depends(_compte)):
-        """Étape 2 : le CODE reçu par e-mail prouve l'adresse ; le dossier (téléphone, e-mail vérifié, adresse IP et sa localisation, appareil, ancienneté du compte,
-        proches vérifiés, indicateurs) part à SAWALI avec le lieu de la télé. Une demande acceptée n'est pas écrasée."""
+        """Étape 2 : le CODE reçu par e-mail prouve l'adresse ; le dossier (e-mail vérifié, adresse IP relevée par le serveur et sa localisation, ancienneté du compte,
+        proches vérifiés, indicateurs, et les détails DÉCLARÉS du téléphone) part à SAWALI. Une demande acceptée n'est pas écrasée."""
         cid = str(compte["_id"])
         cfg = await _config()
         ancienne = _demande_de(cfg, cid)
@@ -376,7 +379,7 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
             raise HTTPException(status_code=429, detail="Trop de demandes depuis cette connexion : réessayez demain.")
         liens = await db.famille_liens.count_documents({"comptes": cid, "statut": "verifie"})
         nouvelle = {"id": cid, "compte_id": cid, "nom": str(compte.get("nom") or "")[:80], "lieu": str(donnees.get("lieu") or "").strip()[:120], "etat": "attente",
-                    "cree_le": maintenant.isoformat(), "decide_le": None, "telephone": verif["telephone"], "email": verif["email"], "email_verifie": True, "ip": ip,
+                    "cree_le": maintenant.isoformat(), "decide_le": None, "telephone": verif.get("telephone"), "email": verif["email"], "email_verifie": True, "ip": ip,
                     "ip_infos": await fd.localiser_ip(ip), "appareil": fd.nettoyer_appareil(donnees.get("appareil")), "compte_cree_le": _iso(compte.get("cree_le")),
                     "liens_verifies": liens}
         nouvelle["evaluation"] = await _dossier_complet(nouvelle, cfg)
@@ -396,6 +399,7 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
             demandes.append({**{k: d.get(k) for k in ("id", "nom", "lieu", "etat", "cree_le", "decide_le", "email", "email_verifie", "ip")},
                              "postes": sum(1 for e in ecrans if e.get("proprietaire_compte") == d["id"]), "tel": (d.get("telephone") or {}).get("e164"),
                              "pays_ip": (d.get("ip_infos") or {}).get("code_pays"), "niveau": ev["niveau"], "score": ev["score"],
+                             "alerte_tele": any(e.get("deplacee") for e in ecrans if e.get("proprietaire_compte") == d["id"]),
                              "appareil_resume": " ".join(x for x in (a.get("marque"), a.get("modele")) if x) + (f" · Android {a['android']}" if a.get("android") else "")})
         return {"approbation": cfg["approbation"], "postes_gratuits": cfg["postes_gratuits"], "demandes": sorted(demandes, key=lambda d: d.get("cree_le") or "", reverse=True),
                 "postes_appaires": sum(1 for e in ecrans if e.get("proprietaire_compte"))}
@@ -413,7 +417,21 @@ def setup_famille_tv_routes(*, db, api, outils, authentifier, get_current_admin,
                  for a in cfg["demandes"] if a["id"] != ident]
         liees = [x for x in liees if x["raison"]]
         champs = ("id", "nom", "lieu", "etat", "cree_le", "decide_le", "decide_par", "telephone", "email", "email_verifie", "ip", "ip_infos", "appareil", "compte_cree_le", "liens_verifies")
-        return {**{k: d.get(k) for k in champs}, **ev, "demandes_liees": liees}
+        teles = [{"id": e["id"], "nom": e.get("nom"), "cree_le": e.get("cree_le"), "vu_le": e.get("vu_le"), "ancre": e.get("ancre"), "observe": e.get("observe"), "deplacee": bool(e.get("deplacee"))}
+                 for e in await _ecrans() if e.get("proprietaire_compte") == ident]
+        return {**{k: d.get(k) for k in champs}, **ev, "demandes_liees": liees, "teles": teles, "fiabilite": fd.FIABILITE}
+
+    @api.post("/admin/famille-tv/ecrans/{ecran_id}/valider-lieu", tags=["Admin — Télé des familles"])
+    async def admin_valider_lieu(ecran_id: str, user: dict = Depends(get_current_admin)):
+        """SAWALI confirme le nouvel emplacement d'une télé « déplacée » : le lieu actuellement observé devient sa nouvelle ancre."""
+        e = next((x for x in await _ecrans() if x.get("id") == ecran_id and x.get("proprietaire_compte")), None)
+        if not e:
+            raise HTTPException(status_code=404, detail="Télé introuvable")
+        if not (e.get("observe") or {}).get("code_pays"):
+            raise HTTPException(status_code=409, detail="Le lieu actuel de la télé n'est pas encore connu : attendez qu'elle soit en ligne.")
+        await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran_id}, {"$set": {"tv_ecrans.$.ancre": e["observe"], "tv_ecrans.$.deplacee": False, "tv_ecrans.$.deplacee_le": None,
+                                                                                            "tv_ecrans.$.lieu_valide_par": user.get("email") or ""}})
+        return {"ok": True}
 
     @api.post("/admin/famille-tv/demandes/{ident}", tags=["Admin — Télé des familles"])
     async def admin_decider(ident: str, corps: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):

@@ -80,6 +80,8 @@ def banc():
     api.include_router(routeur)
     ENVOYES.clear()
     fd._localiser_remplace = _faux_geo
+    fd.OBSERVATION_SYNCHRONE = True                 # le lieu de la télé est calculé tout de suite (en production : arrière-plan)
+    fd._observations_en_cours.clear()
     ft.setup_famille_tv_routes(db=db, api=api, outils=routeur.outils, authentifier=fam.authentifier, get_current_admin=admin, envoyer_email=_faux_envoi)
     tv.setup_tv_video_routes(db=db, api=api, get_current_admin=admin)
     app = FastAPI(); app.include_router(api)
@@ -109,9 +111,9 @@ def _abonner(db, cid, fid="f-foyer", appareils=2, postes=2, jours=30):
                                             "abonnements": {fid: {"nom": "Télé foyer", "fonctions": ["tv_video"], "limites": {"appareils": appareils, "postes_tv": postes}, "expire_le": _futur(jours)}}}))
 
 
-def _telé(c, db, secret, code):
-    """Une télé affiche son code (page /tv) ; renvoie son secret."""
-    _run(db.settings.update_one({"_id": "global"}, {"$push": {"tv_appairages": {"id": code.lower(), "code": code, "empreinte": empreinte(secret), "cree_le": datetime.now(timezone.utc).isoformat()}}}))
+def _telé(c, db, secret, code, ip=""):
+    """Une télé affiche son code (page /tv) ; renvoie son secret. `ip` : adresse vue par le serveur quand la télé a demandé son code (ancre de son lieu)."""
+    _run(db.settings.update_one({"_id": "global"}, {"$push": {"tv_appairages": {"id": code.lower(), "code": code, "empreinte": empreinte(secret), "ip": ip, "cree_le": datetime.now(timezone.utc).isoformat()}}}))
     return secret
 
 
@@ -324,7 +326,6 @@ def test_captcha_image_signee_a_usage_unique(banc):
 
 def test_verification_valide_les_coordonnees_et_envoie_le_code_par_email(banc):
     c, db, _ = banc
-    assert _verif(c, "A", telephone="12").status_code == 422
     assert _verif(c, "A", email="pas-un-email").status_code == 422
     r = _verif(c, "A")
     assert r.status_code == 200 and r.json()["email_masque"] == "aw•••@example.com" and r.json()["validite_minutes"] == 15
@@ -412,3 +413,59 @@ def test_fonctions_pures_du_dossier():
     assert fd.empreinte_code("A", "123456") != fd.empreinte_code("B", "123456")                                  # un code ne vaut que pour son compte
     ev = fd.evaluer({"id": "A", "email": "a@mailinator.com", "email_verifie": True, "telephone": {"e164": "+1", "pays": "BF"}, "ip": "1.1.1.1", "ip_infos": {"code_pays": "BF"}, "appareil": {}, "liens_verifies": 1}, [], "2026-11-15T10:00:00+00:00")
     assert ev["score"] == 2 and ev["niveau"] == "faible" and ev["indicateurs"][0]["code"] == "email_jetable"
+
+
+# ---------- Lot 422 : demande simplifiée, fiabilité des informations, télé ancrée à son lieu d'appairage
+def test_demande_simplifiee_sans_lieu_ni_telephone_et_fiabilite_des_informations(banc):
+    c, db, _ = banc
+    jeton, texte, _png = fd.fabriquer_captcha()
+    assert c.post("/api/famille/tv/verification", headers=_hdr("A"), json={"email": "awa@example.com", "captcha_jeton": jeton, "captcha_reponse": texte}).status_code == 200    # ni téléphone ni lieu
+    code = ENVOYES[-1][2].split(" : ")[1].split(" ")[0]
+    assert c.post("/api/famille/tv/demander", headers=_hdr("A"), json={"code_email": code}).json()["etat"] == "attente"
+    d = c.get("/api/admin/famille-tv/demandes/A/dossier", headers={"x-admin": "1"}).json()
+    assert d["telephone"] is None and d["lieu"] == "" and d["email_verifie"] is True
+    assert d["fiabilite"]["email"] == "verifie" and d["fiabilite"]["ip"] == "constate" and {d["fiabilite"][k] for k in ("telephone", "lieu", "appareil")} == {"declare"}
+
+
+def test_une_tele_deplacee_dans_un_autre_pays_est_bloquee_jusqu_a_validation_de_sawali(banc):
+    c, db, _ = banc
+    pays = {"41.138.1.2": "BF", "41.138.9.9": "BF", "8.8.8.8": "US"}
+    async def geo(ip):
+        return {"pays": pays.get(ip, ""), "code_pays": pays.get(ip, ""), "ville": "X", "fai": "FAI", "mobile": False, "proxy": False, "hebergeur": False} if ip in pays else {}
+    fd._localiser_remplace = geo
+    adm = {"x-admin": "1"}
+    _approuver(db, "A"); _abonner(db, "A", appareils=1, postes=1)
+    secret = _telé(c, db, "secret-tele-deplacee-01", "AAAAAA", ip="41.138.1.2")                       # la télé s'est annoncée depuis le Burkina
+    ecran_id = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "AAAAAA", "nom": "Salon"}).json()["ecran"]["id"]
+    ordre = {"ecran_id": ecran_id, "action": "pause"}
+    sonde = lambda ip: c.get("/api/tv/video/commande?seq=0", headers={"x-tv-secret": secret, "x-forwarded-for": ip})
+    # même pays (autre box, autre quartier) : rien ne se passe
+    assert sonde("41.138.9.9").status_code == 200 and c.post("/api/famille/tv/commande", headers=_hdr("A"), json=ordre).status_code == 200
+    assert [e["deplacee"] for e in c.get("/api/famille/tv/ecrans", headers=_hdr("A")).json()["ecrans"]] == [False]
+    # la télé est vue aux États-Unis : déplacée, commandes refusées, alerte dans l'administration
+    assert sonde("8.8.8.8").status_code == 200
+    r = c.post("/api/famille/tv/commande", headers=_hdr("A"), json=ordre)
+    assert r.status_code == 409 and "changé de pays" in r.json()["detail"]
+    assert [e["deplacee"] for e in c.get("/api/famille/tv/ecrans", headers=_hdr("A")).json()["ecrans"]] == [True]
+    ligne = c.get("/api/admin/famille-tv/etat", headers=adm).json()["demandes"][0]
+    assert ligne["alerte_tele"] is True
+    d = c.get("/api/admin/famille-tv/demandes/A/dossier", headers=adm).json()
+    assert d["teles"][0]["deplacee"] is True and d["teles"][0]["ancre"]["code_pays"] == "BF" and d["teles"][0]["observe"]["code_pays"] == "US"
+    assert "tele_deplacee" in {i["code"] for i in d["indicateurs"]}
+    # SAWALI confirme le nouvel emplacement : la télé est de nouveau utilisable
+    assert c.post(f"/api/admin/famille-tv/ecrans/{ecran_id}/valider-lieu").status_code == 403
+    assert c.post(f"/api/admin/famille-tv/ecrans/{ecran_id}/valider-lieu", headers=adm).json() == {"ok": True}
+    assert c.post("/api/famille/tv/commande", headers=_hdr("A"), json=ordre).status_code == 200
+    assert c.post("/api/admin/famille-tv/ecrans/inconnu/valider-lieu", headers=adm).status_code == 404
+
+
+def test_observation_de_la_tele_ne_depend_pas_d_un_service_externe_en_ligne(banc):
+    c, db, _ = banc
+    async def hs(ip):
+        return {}                                          # service de localisation indisponible
+    fd._localiser_remplace = hs
+    _approuver(db, "A"); _abonner(db, "A", appareils=1, postes=1)
+    secret = _telé(c, db, "secret-tele-horsservice-1", "BBBBBB", ip="41.138.1.2")
+    ecran_id = c.post("/api/famille/tv/appairer", headers=_hdr("A"), json={"code": "BBBBBB"}).json()["ecran"]["id"]
+    assert c.get("/api/tv/video/commande?seq=0", headers={"x-tv-secret": secret, "x-forwarded-for": "8.8.8.8"}).status_code == 200      # la télé n'est jamais bloquée
+    assert c.post("/api/famille/tv/commande", headers=_hdr("A"), json={"ecran_id": ecran_id, "action": "pause"}).status_code == 200        # pas de preuve de déplacement : pas de blocage

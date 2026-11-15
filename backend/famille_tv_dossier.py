@@ -258,9 +258,83 @@ def evaluer(dossier: Dict[str, Any], autres: List[Dict[str, Any]], maintenant_is
                 ajouter(2, "compte_recent", "Compte « Ma famille » créé il y a moins de 24 heures")
         except ValueError:
             pass
+    if dossier.get("teles_deplacees"):
+        ajouter(3, "tele_deplacee", "Une télé de ce compte est vue dans un autre pays que celui de son appairage (télé déplacée ?)")
     if dossier.get("liens_verifies", 0) == 0:
         ajouter(1, "sans_lien", "Aucun proche vérifié dans « Ma famille »")
     else:
         ajouter(0, "avec_liens", f"{dossier['liens_verifies']} proche(s) vérifié(s) dans « Ma famille »")
     score = sum(i["poids"] for i in ind)
     return {"indicateurs": sorted(ind, key=lambda i: -i["poids"]), "score": score, "niveau": "eleve" if score >= 6 else "moyen" if score >= 3 else "faible"}
+
+
+# ------------------------------------------------------------------ fiabilité des informations d'un dossier
+# Règle du propriétaire (15/11/2026) : on ne s'appuie JAMAIS sur la seule bonne foi de l'utilisateur ; chaque information porte son degré de fiabilité :
+#  - « verifie »  : prouvée (le code reçu par e-mail prouve que la personne lit cette boîte) ;
+#  - « constate » : relevée par le serveur lui-même (adresse IP, localisation, ancienneté du compte, liens de famille vérifiés) ;
+#  - « declare »  : fournie par l'application ou par la personne, NON vérifiable (lieu, téléphone, détails du téléphone) : simple indice, jamais une preuve.
+FIABILITE = {"email": "verifie", "ip": "constate", "ip_infos": "constate", "compte_cree_le": "constate", "liens_verifies": "constate",
+             "telephone": "declare", "lieu": "declare", "appareil": "declare"}
+
+
+# ------------------------------------------------------------------ télé ancrée au lieu de son appairage
+# La demande part du téléphone : SAWALI ne sait RIEN de fiable sur la télé à ce moment. La seule preuve est ce que le serveur voit de la télé elle-même :
+#  - à l'appairage : l'adresse IP de la télé (relevée quand sa page /tv a demandé son code) est « l'ancre » (pays, ville, opérateur) ;
+#  - ensuite, à chaque interrogation de la télé : son adresse IP du moment est comparée à l'ancre ; un AUTRE PAYS marque la télé « déplacée »
+#    (les commandes sont refusées jusqu'à ce que SAWALI confirme le nouvel emplacement). Un changement de box ou d'opérateur dans le même pays ne déclenche rien.
+OBSERVATION_SYNCHRONE = False          # vrai dans les tests : le calcul est attendu au lieu de partir en arrière-plan
+_observations_en_cours: set = set()
+
+
+def _lieu(infos: Dict[str, Any], ip: str, quand: str) -> Dict[str, Any]:
+    return {"ip": ip, "code_pays": infos.get("code_pays", ""), "pays": infos.get("pays", ""), "ville": infos.get("ville", ""), "fai": infos.get("fai", ""), "le": quand}
+
+
+async def _comparer(db, ecran_id: str) -> None:
+    """Marque (ou démarque) la télé « déplacée » selon l'ancre et la dernière observation."""
+    g = await db.settings.find_one({"_id": "global"}, {"tv_ecrans": 1}) or {}
+    e = next((x for x in g.get("tv_ecrans") or [] if x.get("id") == ecran_id), None)
+    if not e:
+        return
+    a, o = e.get("ancre") or {}, e.get("observe") or {}
+    if not a.get("code_pays") or not o.get("code_pays"):
+        return
+    deplace = a["code_pays"] != o["code_pays"]
+    if bool(e.get("deplacee")) != deplace:
+        await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran_id}, {"$set": {"tv_ecrans.$.deplacee": deplace, "tv_ecrans.$.deplacee_le": o.get("le") if deplace else None}})
+
+
+async def _enregistrer_lieu(db, ecran_id: str, ip: str, champ: str) -> None:
+    from datetime import datetime, timezone
+    try:
+        infos = await localiser_ip(ip)
+        if infos:
+            await db.settings.update_one({"_id": "global", "tv_ecrans.id": ecran_id}, {"$set": {f"tv_ecrans.$.{champ}": _lieu(infos, ip, datetime.now(timezone.utc).isoformat())}})
+            await _comparer(db, ecran_id)
+    finally:
+        _observations_en_cours.discard((ecran_id, champ, ip))
+
+
+async def _lancer(db, ecran_id: str, ip: str, champ: str) -> None:
+    """Calcul lourd (service externe) : jamais dans la requête de la télé (règle 7), sauf dans les tests."""
+    import asyncio
+    cle = (ecran_id, champ, ip)
+    if cle in _observations_en_cours:
+        return
+    _observations_en_cours.add(cle)
+    if OBSERVATION_SYNCHRONE:
+        await _enregistrer_lieu(db, ecran_id, ip, champ)
+    else:
+        asyncio.create_task(_enregistrer_lieu(db, ecran_id, ip, champ))
+
+
+async def observer_tele(db, ecran: Dict[str, Any], ip: str) -> None:
+    """Appelée à chaque interrogation de la télé : ne fait rien tant que son adresse IP est la même (comparaison immédiate, sans base ni réseau)."""
+    if ip and ip != (ecran.get("observe") or {}).get("ip"):
+        await _lancer(db, ecran["id"], ip, "observe")
+
+
+async def ancrer_tele(db, ecran_id: str, ip: str) -> None:
+    """À l'appairage : la première adresse vue de la télé devient son ancre."""
+    if ip:
+        await _lancer(db, ecran_id, ip, "ancre")

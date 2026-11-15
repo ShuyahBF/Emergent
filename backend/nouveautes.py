@@ -22,6 +22,10 @@ NOUVEAUTES = [
         "titre": "💬 Liluvine, ma coach : journal intime d'auRor",
         "description": "Nouvelle fonction de formule « Liluvine, ma coach » à ajouter à une formule auRor ; essais gratuits et plafond par jour réglables ; aucune confidence n'est conservée par SAWALI.",
         "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+        "lot": "422", "date": "2026-11-15",
+        "titre": "🔐 Ma Télé : demande simplifiée et télé surveillée",
+        "description": "Le demandeur ne saisit plus que son e-mail (vérifié par code) ; chaque information du dossier indique sa fiabilité ; le lieu de la télé est relevé par SAWALI et une télé vue dans un autre pays est bloquée jusqu'à votre confirmation ; le tableau n'a plus qu'un lien « Voir les détails ».",
+        "rubrique": "👨‍👩‍👧 Télé des familles (Personnel de maison)",
     },
     {
         "lot": "421", "date": "2026-11-15",

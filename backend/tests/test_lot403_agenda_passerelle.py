@@ -246,3 +246,31 @@ def test_approbation_desactivable_par_l_administrateur(banc):
     q = parse_qs(urlparse(url).query)
     assert "login_hint" not in q and c.get("/api/agenda/retour", params={"code": "code-B", "state": q["state"][0]}).status_code == 200
     assert c.get("/api/admin/agenda-passerelle/etat").json()["approbation"] is False
+
+
+APP, CLE = "a1b2c3d4e5f60718293a4b5c", "k" * 32
+
+
+def _appareil(c, chemin, corps=None, appareil=APP, cle=CLE):
+    return c.post(f"/api/webhook/agenda/{chemin}", json=corps or {}, headers={"X-Appareil": appareil, "X-Cle-Appareil": cle})
+
+
+def test_appareil_qui_s_enregistre_tout_seul_avec_son_compte_google(banc):
+    """Concentration / Personnel de maison : aucun réglage à saisir ; l'appareil se déclare à la demande d'accès, puis l'administrateur accepte."""
+    c, db, faux, boucle = banc
+    assert _appareil(c, "etat").json()["lie"] is False                                              # inconnu : « non lié », rien n'est créé
+    assert boucle.run_until_complete(db.settings.count_documents({"_id": {"$regex": "^" + ag.PREFIXE_APPAREIL}})) == 0
+    assert _appareil(c, "lier").status_code == 403                                                  # pas de demande : pas de liaison
+    assert _appareil(c, "demander", {"gmail": "a@gmail.com", "nom": "Concentration · Pixel 7"}).json()["etat"] == "attente"
+    assert boucle.run_until_complete(db.settings.count_documents({"_id": {"$regex": "^" + ag.PREFIXE_APPAREIL}})) == 1
+    d = c.get("/api/admin/agenda-passerelle/etat").json()["demandes"][0]
+    assert d["plateforme"] == "appareil" and d["nom"] == "Concentration · Pixel 7" and d["gmail"] == "a@gmail.com"
+    c.post(f"/api/admin/agenda-passerelle/demandes/{d['id']}", json={"decision": "accepte"})
+    q = parse_qs(urlparse(_appareil(c, "lier").json()["url"]).query)
+    assert c.get("/api/agenda/retour", params={"code": "code-A", "state": q["state"][0]}).status_code == 200
+    assert _appareil(c, "etat").json()["lie"] is True
+    # Une autre clé pour le même identifiant est refusée ; des identifiants / clés trop courts aussi
+    assert _appareil(c, "etat", cle="z" * 32).status_code == 401
+    assert _appareil(c, "etat", appareil="court").status_code == 401 and _appareil(c, "etat", cle="courte").status_code == 401
+    # Un autre appareil n'atteint jamais cet agenda
+    assert _appareil(c, "evenements", appareil="f" * 20, cle="m" * 32).status_code == 409

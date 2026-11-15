@@ -6,7 +6,9 @@
 #   - Les plateformes parlent à SAWALI par des appels SIGNÉS, comme pour les paiements SMS :
 #       * plateforme serveur (auRor, Personnel Maison…) : en-têtes X-Emetteur / X-Timestamp / X-Signature (HMAC-SHA256 du corps avec la clé de l'émetteur)
 #         + « utilisateur » dans le corps (identifiant de l'utilisateur DANS la plateforme) ;
-#       * application sans serveur (Concentration) : en-têtes X-Source / X-Cle du téléphone (créés dans « Transactions SMS → Téléphones source »).
+#       * application sans serveur (Concentration, Personnel de maison) : en-têtes X-Appareil / X-Cle-Appareil, que l'application GÉNÈRE ELLE-MÊME au premier usage
+#         (aucun réglage à saisir) ; l'appareil est enregistré à sa première « demande d'accès » (avec le compte Google déclaré et le nom de l'appareil) et ne peut RIEN
+#         faire d'autre tant que l'administrateur n'a pas accepté la demande. Ancien mode toujours accepté : X-Source / X-Cle (téléphones source de « Transactions SMS »).
 #     L'utilisateur est donc toujours identifié par (plateforme, identifiant) : une requête ne peut JAMAIS atteindre l'agenda d'un autre utilisateur.
 #   - Confidentialité : l'administrateur de SAWALI ne peut pas lire les agendas des utilisateurs ; il voit seulement le NOMBRE de liaisons par plateforme.
 #
@@ -51,6 +53,8 @@ from routes.contrats_plateformes import signature_valide
 
 PREFIXE_LIAISON = "agenda-utilisateurs:"
 PREFIXE_ETAT = "agenda-etat:"
+PREFIXE_APPAREIL = "agenda-appareil:"     # { cle_hash, cree_le } : appareil qui s'est enregistré lui-même (clé générée par l'application)
+MAX_APPAREILS = 3000                       # plafond : jamais de croissance illimitée par des demandes en rafale
 ID_CONFIG = "agenda-config"          # { approbation: bool (défaut True), demandes: [ {id, plateforme, utilisateur, nom, gmail, etat, cree_le, decide_le} ] }
 MAX_DEMANDES = 500
 VALIDITE_CONSENTEMENT_MIN = 15
@@ -123,8 +127,9 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
         return s["google_client_id"], s["google_client_secret"]
 
     # ------------------------------------------------------------------ identification de l'appelant
-    async def _appelant(request: Request) -> Tuple[str, str, Dict[str, Any]]:
-        """(plateforme, utilisateur, corps JSON). Deux modes de signature ; sinon 401."""
+    async def _appelant(request: Request, enregistrer: bool = False) -> Tuple[str, str, Dict[str, Any]]:
+        """(plateforme, utilisateur, corps JSON). Trois modes ; sinon 401.
+        `enregistrer` (seulement pour la demande d'accès) : un appareil inconnu qui présente une clé suffisamment longue est ENREGISTRÉ (clé gardée sous forme d'empreinte)."""
         brut = await request.body()
         try:
             corps = json.loads(brut.decode("utf-8") or "{}") if brut else {}
@@ -141,6 +146,20 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             if not utilisateur:
                 raise HTTPException(status_code=422, detail="« utilisateur » obligatoire")
             return code, utilisateur, corps
+        appareil = (request.headers.get("X-Appareil") or "").strip()
+        if appareil:
+            cle = request.headers.get("X-Cle-Appareil") or ""
+            if not re.fullmatch(r"[A-Za-z0-9]{16,64}", appareil) or len(cle) < 24:
+                raise HTTPException(status_code=401, detail="Appareil refusé")
+            doc = await db.settings.find_one({"_id": PREFIXE_APPAREIL + appareil})
+            if doc:
+                if not hmac.compare_digest(doc.get("cle_hash") or "", hacher_cle(cle)):
+                    raise HTTPException(status_code=401, detail="Appareil refusé : clé différente")
+            elif enregistrer:
+                if await db.settings.count_documents({"_id": {"$regex": "^" + PREFIXE_APPAREIL}}) >= MAX_APPAREILS:
+                    raise HTTPException(status_code=503, detail="Trop d'appareils enregistrés : réessayez plus tard")
+                await db.settings.replace_one({"_id": PREFIXE_APPAREIL + appareil}, {"_id": PREFIXE_APPAREIL + appareil, "cle_hash": hacher_cle(cle), "cree_le": maintenant().isoformat()}, upsert=True)
+            return "appareil", appareil, corps          # appareil inconnu et sans demande : aucune liaison ni demande n'existe pour lui (« etat » répond « non lié »)
         ident = (request.headers.get("X-Source") or "").strip()
         if ident:
             cfg = await db.settings.find_one({"_id": "transactions-sms:config"}) or {}
@@ -148,7 +167,7 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             if not source or not hmac.compare_digest(source.get("cle_hash") or "", hacher_cle(request.headers.get("X-Cle") or "")):
                 raise HTTPException(status_code=401, detail="Téléphone inconnu ou clé refusée")
             return "appareil", ident, corps
-        raise HTTPException(status_code=401, detail="Authentification requise (X-Emetteur + signature, ou X-Source + X-Cle)")
+        raise HTTPException(status_code=401, detail="Authentification requise (X-Emetteur + signature, ou X-Appareil + X-Cle-Appareil, ou X-Source + X-Cle)")
 
     # ------------------------------------------------------------------ demandes d'accès (approbation par l'administrateur)
     async def _config() -> Dict[str, Any]:
@@ -277,7 +296,7 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
     @api.post("/webhook/agenda/demander", tags=["Agenda — passerelle"])
     async def demander(request: Request):
         """L'utilisateur indique SON compte Google ; l'administrateur de SAWALI accepte ou refuse. Une nouvelle demande remplace la précédente (et repasse « en attente »)."""
-        plateforme, utilisateur, corps = await _appelant(request)
+        plateforme, utilisateur, corps = await _appelant(request, enregistrer=True)
         gmail = str(corps.get("gmail") or "").strip().lower()[:120]
         if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", gmail):
             raise HTTPException(status_code=422, detail="Adresse e-mail du compte Google invalide")

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "406", "date": "2026-11-15",
+        "titre": "📱 Agenda : Concentration et Personnel de maison sans téléphone source à créer",
+        "description": "Ces deux applications se déclarent d'elles-mêmes avec le compte Google de l'utilisateur ; vous n'avez plus qu'à accepter la demande dans le tableau des demandes (nom de l'appareil affiché).",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel de maison)",
+    },
+    {
         "lot": "405", "date": "2026-11-15",
         "titre": "🔒 Politique de confidentialité : Agenda Google des applications",
         "description": "La page /privacy décrit maintenant la liaison facultative de l'Agenda Google dans auRor, Concentration et Personnel de maison (autorisation calendar.events, accès individuel, jetons chiffrés, Limited Use), en français et en anglais, pour la validation Google.",

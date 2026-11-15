@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "409"
-LOT_LIBELLE = "Agenda Google : refus clair quand la case Agenda est décochée sur l'écran Google (plus de faux « Agenda lié »)."
+LOT = "410"
+LOT_LIBELLE = "Agenda Google : chaque rendez-vous créé par une plateforme (auRor…) est étiqueté, pour le distinguer des autres dans la liste."

@@ -86,6 +86,13 @@ class FauxGoogle:
             e = {**json.loads(req.content), "id": f"ev{len(liste) + 1}", "htmlLink": "https://calendar.google.com/x"}
             liste.append(e)
             return httpx.Response(200, json=e)
+        if req.method == "PATCH":
+            ident = url.rsplit("/", 1)[1]
+            for e in liste:
+                if e["id"] == ident:
+                    e.update(json.loads(req.content))
+                    return httpx.Response(200, json=e)
+            return httpx.Response(404, json={})
         if req.method == "DELETE":
             ident = url.rsplit("/", 1)[1]
             liste[:] = [e for e in liste if e["id"] != ident]
@@ -300,3 +307,18 @@ def test_case_agenda_decochee_chez_google_n_est_pas_comptee_comme_liee(banc):
     assert r.status_code == 400 and "COCHEZ" in r.text
     assert any(m == "POST" and ag.URL_REVOCATION in u for m, u in faux.appels)
     assert boucle.run_until_complete(db.settings.count_documents({"_id": {"$regex": "^agenda-utilisateurs:"}})) == 0
+
+
+def test_modifier_un_rendez_vous_le_marque_comme_pris_en_charge_par_la_plateforme(banc):
+    """Un rendez-vous créé ailleurs (origine vide) peut être corrigé depuis la plateforme : il prend alors son étiquette."""
+    c, db, faux, boucle = banc
+    _lier(c, "awa", "code-A")
+    faux.evenements["acces-A"] = [{"id": "x1", "summary": "Courses", "start": {"dateTime": "2026-11-15T11:00:00+00:00"}, "end": {"dateTime": "2026-11-15T12:00:00+00:00"}}]
+    assert _appeler(c, "evenements", {"utilisateur": "awa"}).json()["evenements"][0]["origine"] == ""
+    r = _appeler(c, "modifier", {"utilisateur": "awa", "id": "x1", "debut": "2026-11-15T12:00:00+00:00", "fin": "2026-11-15T13:00:00+00:00"})
+    assert r.status_code == 200 and r.json()["evenement"]["origine"] == "auror" and r.json()["evenement"]["titre"] == "Courses"
+    assert r.json()["evenement"]["debut"].startswith("2026-11-15T12:00")
+    assert _appeler(c, "modifier", {"utilisateur": "awa", "id": "x1", "titre": "  "}).status_code == 422
+    assert _appeler(c, "modifier", {"utilisateur": "awa", "id": "x1", "debut": "2026-11-15T12:00:00"}).status_code == 422
+    assert _appeler(c, "modifier", {"utilisateur": "awa", "id": "inconnu", "titre": "Z"}).status_code == 404
+    assert _appeler(c, "modifier", {"utilisateur": "issa", "id": "x1", "titre": "Z"}).status_code == 409                 # pas lié : jamais l'agenda d'un autre

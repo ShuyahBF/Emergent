@@ -19,6 +19,7 @@
 #   POST /api/webhook/agenda/analyser   {texte, maintenant?}           -> proposition de RDV (jour, heure, titre) ; ne crée RIEN
 #   POST /api/webhook/agenda/evenements {du?, au?, limite?}            -> événements de l'agenda principal
 #   POST /api/webhook/agenda/creer      {titre, debut, fin?, lieu?, description?, rappel_minutes?}   (après CONFIRMATION de l'utilisateur)
+#   POST /api/webhook/agenda/modifier   {id, titre?, debut?, fin?}   (corrige un rendez-vous ; il prend l'étiquette « Origine » de la plateforme)
 #   POST /api/webhook/agenda/supprimer  {id}
 #   POST /api/webhook/agenda/delier     {}                              -> retire la liaison (et révoque l'accès chez Google)
 #   GET  /api/admin/agenda-passerelle/etat                              (administrateur : adresse de retour, nombre de liaisons, demandes d'accès)
@@ -414,6 +415,38 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
         if corps.get("rappel_minutes") is not None:
             corps_google["reminders"] = {"useDefault": False, "overrides": [{"method": "popup", "minutes": max(0, min(int(corps["rappel_minutes"]), 40320))}]}
         r = await _api(cle, "POST", "/calendars/primary/events", json=corps_google)
+        return {"ok": True, "evenement": _evenement_public(r.json())}
+
+    @api.post("/webhook/agenda/modifier", tags=["Agenda — passerelle"])
+    async def modifier(request: Request):
+        """Corrige un rendez-vous (titre, jour, heure, durée) — par exemple en cas de décalage. L'événement prend alors l'étiquette de la plateforme
+        qui le modifie : il est « pris en charge » par elle (colonne Origine). Seuls les champs envoyés sont changés."""
+        plateforme, utilisateur, corps = await _appelant(request)
+        ident = str(corps.get("id") or "").strip()
+        if not ident:
+            raise HTTPException(status_code=422, detail="« id » obligatoire")
+        fuseau = str(corps.get("fuseau") or FUSEAU_DEFAUT)
+        modif: Dict[str, Any] = {"extendedProperties": {"private": {"sawali_plateforme": plateforme}}}
+        if corps.get("titre") is not None:
+            titre = str(corps["titre"]).strip()[:200]
+            if not titre:
+                raise HTTPException(status_code=422, detail="« titre » ne peut pas être vide")
+            modif["summary"] = titre
+        if corps.get("debut"):
+            try:
+                debut = datetime.fromisoformat(str(corps["debut"]).replace("Z", "+00:00"))
+                fin = datetime.fromisoformat(str(corps["fin"]).replace("Z", "+00:00")) if corps.get("fin") else debut + timedelta(hours=1)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="« debut » / « fin » invalides (format ISO avec fuseau)")
+            if debut.tzinfo is None or fin.tzinfo is None:
+                raise HTTPException(status_code=422, detail="« debut » et « fin » doivent porter un fuseau horaire")
+            if fin <= debut:
+                raise HTTPException(status_code=422, detail="« fin » doit suivre « debut »")
+            modif["start"] = {"dateTime": debut.isoformat(), "timeZone": fuseau}
+            modif["end"] = {"dateTime": fin.isoformat(), "timeZone": fuseau}
+        r = await _api(cle_liaison(plateforme, utilisateur), "PATCH", f"/calendars/primary/events/{ident}", json=modif)
+        if r.status_code in (404, 410):
+            raise HTTPException(status_code=404, detail="Rendez-vous introuvable (déjà supprimé ?)")
         return {"ok": True, "evenement": _evenement_public(r.json())}
 
     @api.post("/webhook/agenda/supprimer", tags=["Agenda — passerelle"])

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "405"
-LOT_LIBELLE = "Politique de confidentialité (/privacy) : section Agenda Google des applications partenaires, en français et en anglais, pour la validation Google."
+LOT = "406"
+LOT_LIBELLE = "Agenda : les applications sans compte (Concentration, Personnel de maison) s'enregistrent d'elles-mêmes à la demande d'accès ; plus de téléphone source à créer."

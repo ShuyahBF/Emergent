@@ -267,6 +267,16 @@ def setup_agenda_passerelle_routes(db, api, get_current_user, public_base_url_fn
             jeton = r.json() if r.content else {}
             if "refresh_token" not in jeton:
                 return _page("Liaison impossible", "Google n'a pas fourni l'autorisation permanente. Retirez l'accès de SAWALI sur myaccount.google.com/permissions puis recommencez.", retour, ok=False)
+            # Autorisations granulaires de Google : la case « Agenda » peut rester décochée.
+            # Sans elle la liaison serait inutile : on révoque et on explique quoi cocher (rien n'est gardé).
+            if "calendar" not in (jeton.get("scope") or ""):
+                try:
+                    await http.post(URL_REVOCATION, data={"token": jeton["refresh_token"]})
+                except Exception:  # noqa: BLE001
+                    pass
+                return _page("Case Agenda non cochée",
+                             "Sur l'écran Google, la case « Afficher et modifier les événements de tous vos agendas » n'était pas cochée. "
+                             "Recommencez la liaison et COCHEZ cette case avant de toucher « Continuer ».", retour, ok=False)
             infos = await http.get(URL_INFOS, headers={"Authorization": f"Bearer {jeton['access_token']}"})
         email = (infos.json() if infos.status_code == 200 else {}).get("email") or ""
         cfg = await _config()

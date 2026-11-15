@@ -71,7 +71,7 @@ class FauxGoogle:
             donnees = parse_qs(req.content.decode())
             if donnees.get("grant_type") == ["authorization_code"]:
                 utilisateur = "A" if donnees["code"] == ["code-A"] else "B"
-                return httpx.Response(200, json={"access_token": f"acces-{utilisateur}", "refresh_token": f"refresh-{utilisateur}", "expires_in": 3600})
+                return httpx.Response(200, json={"access_token": f"acces-{utilisateur}", "refresh_token": f"refresh-{utilisateur}", "expires_in": 3600, "scope": "openid email" if donnees["code"] == ["code-SANS"] else "openid email https://www.googleapis.com/auth/calendar.events"})
             if donnees["refresh_token"][0] == "refresh-retire":
                 return httpx.Response(400, json={"error": "invalid_grant"})
             return httpx.Response(200, json={"access_token": "acces-" + donnees["refresh_token"][0].split("-")[1], "expires_in": 3600})
@@ -290,3 +290,12 @@ def test_adresse_de_retour_fixe_quel_que_soit_le_site_d_origine(banc, monkeypatc
     monkeypatch.setenv("AGENDA_ADRESSE_RETOUR", "https://exemple.test/api/agenda/retour")
     brut, entetes = _signer({"utilisateur": "awa"})
     assert parse_qs(urlparse(c.post("/api/webhook/agenda/lier", content=brut, headers=entetes).json()["url"]).query)["redirect_uri"] == ["https://exemple.test/api/agenda/retour"]
+
+
+def test_case_agenda_decochee_chez_google_n_est_pas_comptee_comme_liee(banc):
+    """Autorisations granulaires : si la case Agenda reste décochée, rien n'est gardé, l'accès est révoqué et le message dit quoi cocher."""
+    c, db, faux, boucle = banc
+    r = _lier(c, "u1", "code-SANS", gmail="b@gmail.com")
+    assert r.status_code == 400 and "COCHEZ" in r.text
+    assert any(m == "POST" and ag.URL_REVOCATION in u for m, u in faux.appels)
+    assert boucle.run_until_complete(db.settings.count_documents({"_id": {"$regex": "^agenda-utilisateurs:"}})) == 0

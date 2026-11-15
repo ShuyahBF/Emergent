@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "408"
-LOT_LIBELLE = "Agenda Google : adresse de retour fixe (https://api.sawalismartsystems.com/api/agenda/retour) pour éviter l'erreur redirect_uri_mismatch."
+LOT = "409"
+LOT_LIBELLE = "Agenda Google : refus clair quand la case Agenda est décochée sur l'écran Google (plus de faux « Agenda lié »)."

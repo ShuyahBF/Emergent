@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "409", "date": "2026-11-15",
+        "titre": "🔧 Agenda Google : case « Agenda » décochée détectée",
+        "description": "Si la case des événements d'agenda n'est pas cochée sur l'écran Google, la liaison est refusée avec le message « cochez la case » au lieu d'afficher à tort « Agenda lié ».",
+        "rubrique": "📅 Agenda Google des plateformes (auRor, Concentration, Personnel Maison)",
+    },
+    {
         "lot": "408", "date": "2026-11-15",
         "titre": "🔧 Agenda Google : adresse de retour fixe (erreur redirect_uri_mismatch)",
         "description": "L'adresse envoyée à Google ne dépend plus du site d'où part la demande : https://api.sawalismartsystems.com/api/agenda/retour. À déclarer telle quelle dans Google (Clients → URI de redirection autorisés) ; elle est affichée dans la rubrique.",

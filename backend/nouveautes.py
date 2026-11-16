@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "426", "date": "2026-11-16",
+        "titre": "🧹 Coffre des plateformes : repartir à zéro si le secret est perdu",
+        "description": "Un utilisateur d'auRor qui a perdu son secret ET son code de secours peut recréer un coffre neuf : les anciens documents en ligne, illisibles, sont supprimés.",
+        "rubrique": "🎟️ Formules des plateformes — abonnements et parrainage",
+    },
+    {
         "lot": "425", "date": "2026-11-16",
         "titre": "👁️ Œil afficher / masquer sur tous les champs secrets",
         "description": "Mots de passe, jetons, clés et codes PIN des Paramètres et de l'administration portent un pictogramme œil pour voir ou masquer ce qui est tapé (règle 22).",

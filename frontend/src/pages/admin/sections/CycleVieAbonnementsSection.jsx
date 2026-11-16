@@ -8,6 +8,7 @@
 // - « Simuler maintenant » (sans effet), « Lancer maintenant », dernier rapport, journal.
 // Backend : routes/cycle_vie_abonnements.py (/api/admin/cycle-vie).
 // =====================================================================
+import PasswordInput from "@/components/PasswordInput";
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Play, RefreshCw, FlaskConical } from "lucide-react";
@@ -260,7 +261,7 @@ export default function CycleVieAbonnementsSection() {
               onChange={(e) => setReouverture({ ...reouverture, reference: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-xs" />
             <input type="text" placeholder="Tapez REOUVRIR" value={reouverture.confirmation}
               onChange={(e) => setReouverture({ ...reouverture, confirmation: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-xs" />
-            <input type="password" placeholder="Votre mot de passe" value={reouverture.mot_de_passe} autoComplete="current-password"
+            <PasswordInput  placeholder="Votre mot de passe" value={reouverture.mot_de_passe} autoComplete="current-password"
               onChange={(e) => setReouverture({ ...reouverture, mot_de_passe: e.target.value })} className="rounded-lg border border-slate-300 px-2 py-1 text-xs" />
           </div>
           <div className="flex gap-2">

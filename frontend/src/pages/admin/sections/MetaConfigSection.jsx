@@ -2,6 +2,7 @@
 // Iter38h — Meta Graph API admin configuration section.
 // Stores App ID + secret + verify token + redirect URI + graph version.
 // =====================================================================
+import PasswordInput from "@/components/PasswordInput";
 import React, { useCallback, useEffect, useState } from "react";
 import { Facebook, Save, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -87,8 +88,8 @@ const MetaConfigSection = () => {
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">App Secret (laisser vide pour conserver)</label>
-              <input
-                type="password" value={form.meta_app_secret || ""}
+              <PasswordInput
+                 value={form.meta_app_secret || ""}
                 onChange={(e) => setForm({ ...form, meta_app_secret: e.target.value })}
                 placeholder={cfg.meta_app_secret_preview || "App Secret"}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
@@ -98,8 +99,8 @@ const MetaConfigSection = () => {
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">Verify Token Webhook (laisser vide pour conserver)</label>
-              <input
-                type="password" value={form.meta_webhook_verify_token || ""}
+              <PasswordInput
+                 value={form.meta_webhook_verify_token || ""}
                 onChange={(e) => setForm({ ...form, meta_webhook_verify_token: e.target.value })}
                 placeholder={cfg.meta_webhook_verify_token_preview || "Verify Token"}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"

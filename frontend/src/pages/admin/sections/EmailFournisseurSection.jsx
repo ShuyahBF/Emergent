@@ -8,6 +8,7 @@
 // - « Envoyer un essai » : utilise les réglages ENREGISTRÉS et affiche le message du fournisseur.
 // Backend : routes/fournisseurs_email.py (/api/admin/email-fournisseur).
 // =====================================================================
+import PasswordInput from "@/components/PasswordInput";
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Send, XCircle } from "lucide-react";
@@ -161,7 +162,7 @@ export default function EmailFournisseurSection() {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-xs text-slate-600">
             <span className="font-semibold">Clé API {LIBELLES[f]}</span>
-            <input type="password" autoComplete="new-password" className={champ} value={saisie.cle} disabled={occupe}
+            <PasswordInput  autoComplete="new-password" className={champ} value={saisie.cle} disabled={occupe}
               placeholder={aCle ? "(déjà définie — laisser vide pour la conserver)" : "Collez la clé API"}
               data-testid="email-fournisseur-cle" onChange={(e) => setSaisie({ ...saisie, cle: e.target.value })} />
           </label>
@@ -190,7 +191,7 @@ export default function EmailFournisseurSection() {
             <label className="space-y-1 text-xs text-slate-600"><span className="font-semibold">Utilisateur</span>
               <input className={champ} value={saisie.smtp.utilisateur} disabled={occupe} data-testid="smtp-user" onChange={(e) => majSmtp("utilisateur", e.target.value)} /></label>
             <label className="space-y-1 text-xs text-slate-600"><span className="font-semibold">Mot de passe</span>
-              <input type="password" autoComplete="new-password" className={champ} value={saisie.smtp.mot_de_passe} disabled={occupe} data-testid="smtp-password"
+              <PasswordInput  autoComplete="new-password" className={champ} value={saisie.smtp.mot_de_passe} disabled={occupe} data-testid="smtp-password"
                 placeholder={vue.smtp.a_mot_de_passe ? "(déjà défini — laisser vide pour le conserver)" : ""} onChange={(e) => majSmtp("mot_de_passe", e.target.value)} /></label>
           </div>
           <label className="flex items-center gap-2 text-xs text-slate-700">

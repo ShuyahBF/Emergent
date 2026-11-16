@@ -4,6 +4,7 @@
 // + bouton "Partager WhatsApp" (deep link mobile).
 // Phase 2 ajoutera : OAuth Meta/TikTok + publication automatique IG/FB/TikTok.
 
+import PasswordInput from "@/components/PasswordInput";
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -1235,7 +1236,7 @@ function SettingsTab({ settings, onSaved }) {
         <legend className="text-sm font-semibold text-violet-700">🎬 Fal.ai (vidéos HD payantes)</legend>
         <label className="block">
           <span className="block text-xs font-semibold text-slate-700 mb-1">Clé API Fal.ai {settings.fal_api_key_set && <span className="text-[10px] text-emerald-600 ml-1">✓ configurée ({settings.fal_api_key})</span>}</span>
-          <input type="password" value={form.fal_api_key || ""} onChange={update("fal_api_key")}
+          <PasswordInput  value={form.fal_api_key || ""} onChange={update("fal_api_key")}
                  placeholder={settings.fal_api_key_set ? "Laisser vide pour conserver" : "fal_xxxxxxxx"}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
                  data-testid="settings-fal-key" />
@@ -1277,7 +1278,7 @@ function SettingsTab({ settings, onSaved }) {
         </label>
         <label className="block">
           <span className="block text-xs font-semibold text-slate-700 mb-1">Meta App Secret {settings.meta_app_secret_set && <span className="text-[10px] text-emerald-600 ml-1">✓ configurée</span>}</span>
-          <input type="password" value={form.meta_app_secret || ""} onChange={update("meta_app_secret")}
+          <PasswordInput  value={form.meta_app_secret || ""} onChange={update("meta_app_secret")}
                  placeholder={settings.meta_app_secret_set ? "Laisser vide pour conserver" : "App secret"}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-meta-app-secret" />
         </label>
@@ -1319,7 +1320,7 @@ function SettingsTab({ settings, onSaved }) {
         </label>
         <label className="block">
           <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Client Secret {settings.tiktok_client_secret_set && <span className="text-[10px] text-emerald-600 ml-1">✓ configuré</span>}</span>
-          <input type="password" value={form.tiktok_client_secret || ""} onChange={update("tiktok_client_secret")}
+          <PasswordInput  value={form.tiktok_client_secret || ""} onChange={update("tiktok_client_secret")}
                  placeholder={settings.tiktok_client_secret_set ? "Laisser vide pour conserver" : "Client secret"}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-tiktok-client-secret" />
         </label>

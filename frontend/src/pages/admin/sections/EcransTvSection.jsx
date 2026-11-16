@@ -2,6 +2,7 @@
  * Lot 289 — Paramètres → « 📺 Écrans TV » : appairer une Smart TV (code affiché par la télé), choisir le client et les
  * contenus, voir quand chaque écran a été vu pour la dernière fois, le modifier ou le révoquer.
  */
+import PasswordInput from "@/components/PasswordInput";
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient, API } from "@/lib/api";
 import { toast } from "sonner";
@@ -398,7 +399,7 @@ export default function EcransTvSection() {
           {pinDefini ? "✔ Un code PIN est défini." : "⚠ Aucun code PIN : le Suivi Support est verrouillé sur toutes les télés."}
         </p>
         <div className="flex flex-wrap items-center gap-2 boutons-distincts">
-          <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={8} value={pinSaisi} onChange={(e) => setPinSaisi(e.target.value.replace(/\D/g, ""))}
+          <PasswordInput  inputMode="numeric" autoComplete="new-password" maxLength={8} value={pinSaisi} onChange={(e) => setPinSaisi(e.target.value.replace(/\D/g, ""))}
                  placeholder={pinDefini ? "Nouveau code" : "Code (4 à 8 chiffres)"} className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-sm tracking-widest" data-testid="tv-pin-saisi" />
           <button type="button" onClick={() => enregistrerPin(false)} disabled={savingPin || !pinSaisi} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-pin-enregistrer">
             {savingPin ? "Enregistrement…" : (pinDefini ? "Changer le code" : "Enregistrer le code")}

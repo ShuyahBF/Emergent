@@ -1,3 +1,4 @@
+import PasswordInput from "@/components/PasswordInput";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -1448,9 +1449,13 @@ const ClientCategoryManager = ({ categories, onClose, onChanged }) => {
 const Input = ({ label, type = "text", value, onChange, required, testid }) => (
   <div>
     <label className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
-    <input type={type} required={required} value={value} onChange={(e) => onChange(e.target.value)}
+    {/* Règle 22 : un mot de passe porte toujours le pictogramme œil (afficher / masquer) */}
+    {type === "password"
+      ? <PasswordInput required={required} value={value} onChange={(e) => onChange(e.target.value)} testid={testid} autoComplete="new-password"
+                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-sawali-blue" />
+      : <input type={type} required={required} value={value} onChange={(e) => onChange(e.target.value)}
            data-testid={testid}
-           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-sawali-blue" />
+           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-sawali-blue" />}
   </div>
 );
 const Select = ({ label, value, onChange, options }) => (

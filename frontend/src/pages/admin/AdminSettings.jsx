@@ -6314,11 +6314,11 @@ const SecretsVaultSection = () => {
         <div className="grid sm:grid-cols-2 gap-2">
           <label className="text-xs font-semibold">
             Mot de passe (min. 8 car.)
-            <input type="password" value={exportPwd} onChange={(e) => setExportPwd(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd" autoComplete="new-password" />
+            <PasswordInput  value={exportPwd} onChange={(e) => setExportPwd(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd" autoComplete="new-password" />
           </label>
           <label className="text-xs font-semibold">
             Confirmer le mot de passe
-            <input type="password" value={exportPwd2} onChange={(e) => setExportPwd2(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd2" autoComplete="new-password" />
+            <PasswordInput  value={exportPwd2} onChange={(e) => setExportPwd2(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd2" autoComplete="new-password" />
           </label>
         </div>
         <input
@@ -6349,8 +6349,8 @@ const SecretsVaultSection = () => {
           Importez un fichier <code>sawali-vault-*.json</code> précédemment téléchargé et saisissez son mot de passe.
           Le mode « aperçu » liste ce qui sera restauré sans rien modifier.
         </p>
-        <input
-          type="password"
+        <PasswordInput
+          
           value={importPwd}
           onChange={(e) => setImportPwd(e.target.value)}
           placeholder="Mot de passe du coffre"

@@ -23,7 +23,7 @@ const PasswordInput = forwardRef(function PasswordInput(
         ref={ref}
         type={revealed ? "text" : "password"}
         autoComplete={autoComplete}
-        data-testid={testid}
+        data-testid={testid ?? rest["data-testid"]}
         className={`${className} pr-10 ${icon ? "pl-9" : ""}`.trim()}
       />
       <button

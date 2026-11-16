@@ -1135,6 +1135,31 @@ def make_formules_plateformes(*, db, get_super_admin: Callable, pawapay: Dict[st
         await db.archives_cloud.delete_one({"id": a["id"]})
         return {"ok": True}
 
+    @router.post("/formules-plateformes/archives/reinitialiser")
+    async def archives_reinitialiser(request: Request):
+        """Lot 426 — coffre perdu (secret ET code de secours oubliés) : l'utilisateur repart d'un coffre neuf.
+        Les documents en ligne, chiffrés avec l'ancienne clé que personne ne peut retrouver, sont SUPPRIMÉS (ils étaient déjà illisibles),
+        puis la clé, le code et l'application d'authentification sont effacés. La plateforme émettrice (signée) a déjà fait retaper
+        le mot de passe du compte : ici, seul l'utilisateur concerné est touché."""
+        emetteur, corps = await plateforme_signee(request)
+        d = lire(CatalogueIn, corps)
+        m = await membre(emetteur["code"], d.utilisateur)
+        # Lecture EN BLOC des documents (règle 7), puis effacement de chaque objet ; une erreur de stockage n'empêche pas la remise à zéro
+        docs = await db.archives_cloud.find({"plateforme": m["plateforme"], "membre_id": m["id"]}, {"_id": 0, "id": 1, "chemin": 1}).to_list(5000)
+        for a in docs:
+            try:
+                if _effacer_archive:
+                    await _effacer_archive(a["chemin"])
+                else:
+                    import storage
+                    await asyncio.to_thread(storage.delete_bytes, a["chemin"], False)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[archives] objet non supprimé à la remise à zéro (%s)", type(exc).__name__)
+        await db.archives_cloud.delete_many({"plateforme": m["plateforme"], "membre_id": m["id"]})
+        await db.membres_plateformes.update_one({"id": m["id"]}, {"$unset": {"archives_cle": "", "archives_pin": ""}})
+        logger.info("[archives] coffre remis à zéro (%s documents supprimés)", len(docs))   # aucun secret ni identité dans le journal
+        return {"ok": True, "supprimes": len(docs)}
+
     @router.post("/formules-plateformes/ocr")
     async def ocr(request: Request):
         """Lecture OCR d'une photo (plaque de marchand, ordonnance), réservée aux abonnés d'une formule qui débloque l'OCR."""

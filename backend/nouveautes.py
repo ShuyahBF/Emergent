@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "424", "date": "2026-11-16",
+        "titre": "📩 Transactions SMS : les recharges ne sont plus classées promo",
+        "description": "Un SMS qui porte un numéro de transaction de l'opérateur (ex. recharge Orange avec phrase commerciale) est une transaction ; les mots promotionnels ne comptent que sans numéro.",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "423", "date": "2026-11-15",
         "titre": "💬 Liluvine, ma coach : journal intime d'auRor",
         "description": "Nouvelle fonction de formule « Liluvine, ma coach » à ajouter à une formule auRor ; essais gratuits et plafond par jour réglables ; aucune confidence n'est conservée par SAWALI.",

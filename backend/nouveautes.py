@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "425", "date": "2026-11-16",
+        "titre": "👁️ Œil afficher / masquer sur tous les champs secrets",
+        "description": "Mots de passe, jetons, clés et codes PIN des Paramètres et de l'administration portent un pictogramme œil pour voir ou masquer ce qui est tapé (règle 22).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "424", "date": "2026-11-16",
         "titre": "📩 Transactions SMS : les recharges ne sont plus classées promo",
         "description": "Un SMS qui porte un numéro de transaction de l'opérateur (ex. recharge Orange avec phrase commerciale) est une transaction ; les mots promotionnels ne comptent que sans numéro.",

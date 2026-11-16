@@ -1,3 +1,4 @@
+import PasswordInput from "@/components/PasswordInput";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -261,8 +262,8 @@ export default function AdminVoiceNotifications() {
                   <span className="text-[10px] text-emerald-600 ml-1">(actuelle : {config.voice_monkey_url_masked})</span>
                 )}
               </span>
-              <input
-                type="password"
+              <PasswordInput
+                
                 value={vmUrlInput}
                 onChange={(e) => setVmUrlInput(e.target.value)}
                 placeholder={config.voice_monkey_url_set ? "Laisser vide pour conserver" : "https://api-v2.voicemonkey.io/announcement?token=…&device=…"}
@@ -297,8 +298,8 @@ export default function AdminVoiceNotifications() {
                 <span className="text-[10px] text-emerald-600 ml-1">(actuel : {config.ha_token_masked})</span>
               )}
             </span>
-            <input
-              type="password"
+            <PasswordInput
+              
               value={haTokenInput}
               onChange={(e) => setHaTokenInput(e.target.value)}
               placeholder={config.ha_token_set ? "Laisser vide pour conserver" : "eyJhbGciOi..."}

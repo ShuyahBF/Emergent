@@ -88,7 +88,7 @@ _RE_VALIDITE = re.compile(r"jusqu|valable|a partir de")
 _RE_POURCENT = re.compile(r"[0-9]\s?%")
 _RE_OFFRE = re.compile(r"beneficiez|profitez|gagnez|retirez|reglez|rechargez|abonnez|obtenez|offre|promo|bonus|cadeau|vous accompagne|decouvrez")
 _RE_VRAIE_FORME = re.compile(r"(debit|credit)\s*montant\s*:")
-_RE_VOUS_AVEZ = re.compile(r"vous avez (recu|envoye|paye|transfere|effectu)")
+_RE_VOUS_AVEZ = re.compile(r"vous avez (recu|envoye|paye|transfere|effectu|recharge)")
 _RE_BANQUE = re.compile(r"ubabf|\buba\b|banque|bank|coris|ecobank|sgbf|\bboa\b|bicia|bdm|cbao|sonibank|societe generale")
 _RE_NUMERO_EXPEDITEUR = re.compile(r"^\+?\d{7,}$")
 

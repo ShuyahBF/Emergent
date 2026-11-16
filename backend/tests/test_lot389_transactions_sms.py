@@ -378,3 +378,12 @@ def test_tri_des_colonnes_cote_serveur_vides_en_dernier():
     assert ordre("association") == [2, 3, 1] and ordre("association", "desc") == [3, 2, 1]              # « Boutique » < « Étoile · albarka » ; sans association = dernier
     assert ordre("operateur")[0] == 1
     assert ts.trier(lignes, "inconnue") is lignes                                                      # clé inconnue : ordre d'origine
+
+
+def test_recharge_avec_numero_de_transaction_n_est_pas_une_promo():
+    """SMS Orange du 15/11/2026 : « Vous avez recharge 1,000 FCFA… Gagnez 100% de bonus… TRANS ID: RC261115… » est une transaction (signalé le 16/11/2026)."""
+    corps = ("Vous avez recharge 1,000.00 FCFA d unites. Gagnez 100% de bonus sur toutes vos recharges Orange Money. Bonus valable 7 jours et utilisable vers tous les reseaux nationaux. "
+             "Votre solde est de 66622.5202 FCFA. TRANS ID: RC261115.2130.68181965. Rendez-vous sur Max it : http://urlz.fr/bpmE pour profiter de nos meilleures offres.")
+    assert ts.score_promo(corps, "RC261115.2130.68181965") < ts.SEUIL_PROMO
+    assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": corps, "reference": "RC261115.2130.68181965"}) == "transaction"
+    assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": "Gagnez 100% de bonus sur vos recharges. Offre valable 7 jours. Composez *144*9#.", "reference": None}) == "promo"

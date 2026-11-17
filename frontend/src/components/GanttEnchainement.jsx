@@ -9,7 +9,7 @@
 */
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, ChevronDown, ChevronRight, HelpCircle, OctagonAlert, Play, Send } from "lucide-react";
-import { avecPredecesseurs, bornesEnchainement, demandesOuvertes, pointsMorts, resume } from "@/lib/enchainementDemandes";
+import { avecPredecesseurs, bornesEnchainement, chevauchements, demandesOuvertes, pointsMorts, projet, resume } from "@/lib/enchainementDemandes";
 
 const JOUR = 86400000;
 const L = 26;          // largeur d'un jour (px)
@@ -32,10 +32,10 @@ const INITIALES = ["D", "L", "M", "M", "J", "V", "S"];
 
 export default function GanttEnchainement({ demandes, maintenant = Date.now() }) {
   const [replies, setReplies] = useState({});                    // plateformes repliées
-  const { lignes, trous, b, r } = useMemo(() => {
+  const { lignes, trous, b, r, chev, ensemble } = useMemo(() => {
     const ouvertes = demandesOuvertes(demandes, maintenant);
     const trous = pointsMorts(ouvertes);
-    return { lignes: avecPredecesseurs(ouvertes), trous, b: bornesEnchainement(ouvertes, maintenant), r: resume(ouvertes, trous) };
+    return { lignes: avecPredecesseurs(ouvertes), trous, b: bornesEnchainement(ouvertes, maintenant), r: resume(ouvertes, trous), chev: chevauchements(ouvertes), ensemble: projet(ouvertes) };
   }, [demandes, maintenant]);
 
   // Échelle : un jour de marge avant, au moins 4 semaines, 400 jours au plus
@@ -49,13 +49,13 @@ export default function GanttEnchainement({ demandes, maintenant = Date.now() })
   const rangees = useMemo(() => {
     const groupes = new Map();
     for (const l of lignes) { const k = l.plateforme || "Demandes"; if (!groupes.has(k)) groupes.set(k, []); groupes.get(k).push(l); }
-    const sortie = [];
+    const sortie = ensemble ? [{ type: "ensemble", ...ensemble }] : [];
     for (const [nom, items] of groupes) {
       sortie.push({ type: "synthese", nom, debut: Math.min(...items.map((i) => i.debut)), fin: Math.max(...items.map((i) => i.fin)), nb: items.length });
       if (!replies[nom]) items.forEach((it) => sortie.push({ type: "tache", ...it }));
     }
     return sortie;
-  }, [lignes, replies]);
+  }, [lignes, replies, ensemble]);
 
   if (lignes.length === 0) return <p className="text-sm text-muted-foreground" data-testid="enchainement-vide">Aucune demande en cours : tout est terminé.</p>;
   const indexDe = new Map(rangees.map((g, i) => [g.id, i]));
@@ -72,6 +72,8 @@ export default function GanttEnchainement({ demandes, maintenant = Date.now() })
         {r.en_retard > 0 && <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">{r.en_retard} date(s) dépassée(s)</span>}
         {r.points_morts > 0 && <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-900">{r.points_morts} point(s) mort(s)</span>}
         {r.sans_date > 0 && <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-800">{r.sans_date} sans date</span>}
+        {r.chevauchements > 0 && <span className="rounded-full bg-violet-100 px-3 py-1 text-violet-900">{r.chevauchements} chevauchement(s) : demandes menées en même temps</span>}
+        {ensemble && <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-900">Ensemble : {ensemble.jours} j, du {jourFr(ensemble.debut)} au {jourFr(ensemble.fin)}</span>}
         {r.trous > 0 && <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">{r.trous} période(s) sans aucune demande en cours ({r.jours_a_l_arret} j)</span>}
       </div>
 
@@ -82,7 +84,12 @@ export default function GanttEnchainement({ demandes, maintenant = Date.now() })
             <div className="grid items-end border-b bg-slate-100 px-2 text-[11px] font-semibold text-slate-700" style={{ height: ENTETE, gridTemplateColumns: "1fr 58px 62px 62px" }}>
               <span>Demande</span><span className="text-right">Durée</span><span className="text-right">Début</span><span className="text-right">Fin</span>
             </div>
-            {rangees.map((g, i) => g.type === "synthese" ? (
+            {rangees.map((g, i) => g.type === "ensemble" ? (
+              <div key="ensemble" className="grid items-center border-b bg-slate-800 px-2 text-xs font-bold text-white" style={{ height: H, gridTemplateColumns: "1fr 58px 62px 62px" }} data-testid="ligne-ensemble">
+                <span>Ensemble des demandes</span><span className="text-right tabular-nums">{g.jours} j</span>
+                <span className="text-right tabular-nums">{jourFr(g.debut)}</span><span className="text-right tabular-nums">{jourFr(g.fin)}</span>
+              </div>
+            ) : g.type === "synthese" ? (
               <button key={`s-${g.nom}`} type="button" onClick={() => setReplies({ ...replies, [g.nom]: !replies[g.nom] })} aria-expanded={!replies[g.nom]}
                 className="grid w-full items-center border-b bg-sky-50 px-2 text-left text-xs font-bold text-slate-900" style={{ height: H, gridTemplateColumns: "1fr 58px 62px 62px" }}>
                 <span className="flex items-center gap-1 truncate">{replies[g.nom] ? <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}{g.nom} <span className="font-normal text-slate-500">({g.nb})</span></span>
@@ -113,7 +120,10 @@ export default function GanttEnchainement({ demandes, maintenant = Date.now() })
             <div className="relative" style={{ height: hauteur }}>
               {jours.map((j) => <div key={j.i} className={`absolute top-0 border-l ${j.we ? "bg-slate-100 border-slate-200" : "border-slate-100"}`} style={{ left: j.i * L, width: L, height: hauteur }} />)}
               {trous.map((t, i) => <div key={i} className="absolute top-0 bg-amber-200/50" style={{ left: x(t.debut), width: x(t.fin) - x(t.debut), height: hauteur, backgroundImage: HACHURE }} title={`Aucune demande en cours pendant ${t.jours} j`} />)}
-              {rangees.map((g, i) => g.type === "synthese" ? (
+              {chev.map((c, i) => <div key={`c-${i}`} className="absolute top-0 bg-violet-400/20 border-x border-violet-400" style={{ left: x(c.debut), width: x(c.fin) - x(c.debut), height: hauteur }} title={`Chevauchement de ${c.a} et ${c.b} : ${c.jours} j (menées en même temps)`} />)}
+              {rangees.map((g, i) => g.type === "ensemble" ? (
+                <div key="ensemble" className="absolute rounded bg-slate-900" style={{ left: x(g.debut), width: Math.max(x(g.fin) - x(g.debut), 4), top: i * H + 8, height: 12 }} title={`Ensemble : ${g.jours} j, du ${jourFr(g.debut)} au ${jourFr(g.fin)}`} />
+              ) : g.type === "synthese" ? (
                 <div key={`s-${g.nom}`} className="absolute rounded-sm bg-slate-800" style={{ left: x(g.debut), width: Math.max(x(g.fin) - x(g.debut), 4), top: i * H + 10, height: 8 }} title={`${g.nom} : ${jourFr(g.debut)} → ${jourFr(g.fin)}`} />
               ) : (() => {
                 const s = STYLE[g.etat] || STYLE.prevue; const P = s.Picto; const w = Math.max(x(g.fin) - x(g.debut), 6);
@@ -147,9 +157,11 @@ export default function GanttEnchainement({ demandes, maintenant = Date.now() })
         {Object.entries(STYLE).map(([k, s]) => <li key={k} className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded" style={{ background: s.fond, backgroundImage: s.hachure ? HACHURE : undefined }} />{s.texte}</li>)}
         <li className="flex items-center gap-1"><span className="inline-block h-2 w-5 rounded-sm bg-slate-800" />Synthèse d'une plateforme (cliquer pour replier)</li>
         <li className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded bg-amber-200" style={{ backgroundImage: HACHURE }} />Période sans aucune demande en cours</li>
+        <li className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded border-x border-violet-400 bg-violet-400/20" />Chevauchement (demandes menées en même temps)</li>
+        <li className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded bg-slate-900" />Ensemble : début de la première à fin de la dernière</li>
         <li className="flex items-center gap-1"><span className="inline-block h-3 w-0.5 bg-orange-500" />Aujourd'hui</li>
       </ul>
-      <p className="text-xs text-muted-foreground">Les flèches montrent l'enchaînement : chaque demande commence quand la précédente se termine, selon la DURÉE ESTIMÉE saisie par SAWALI (une demande sans durée ne peut pas être placée). Un point mort sort la demande de la file. La partie foncée d'une barre est le temps écoulé depuis son début.</p>
+      <p className="text-xs text-muted-foreground">Les flèches montrent l'enchaînement : chaque demande commence quand la précédente se termine, selon la DURÉE ESTIMÉE saisie par SAWALI ; un DÉBUT IMPOSÉ la place en parallèle (chevauchement, bande violette). Une demande sans durée ne peut pas être placée. Un point mort sort la demande de la file. La partie foncée d'une barre est le temps écoulé depuis son début.</p>
     </div>
   );
 }

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "429.1", "date": "2026-11-17",
+        "titre": "📮 Gantt des demandes : chevauchements et dates de l'ensemble",
+        "description": "Une demande en attente peut recevoir un début imposé : elle se déroule alors en parallèle des autres (les barres se chevauchent). Le diagramme affiche la durée et les dates de début et de fin de l'ensemble, et les périodes de chevauchement.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "429", "date": "2026-11-17",
         "titre": "📮 Demandes des plateformes : « En cours », « Point mort » et durée estimée (Gantt)",
         "description": "Les demandes ont maintenant les statuts En cours et Point mort, et une durée estimée (jours, semaines, mois, années) qui place chaque demande dans un vrai diagramme de Gantt : elle commence quand la précédente se termine. Le détail est repris dans le bloc de traitement, la demande en cours d'édition reste sélectionnée.",

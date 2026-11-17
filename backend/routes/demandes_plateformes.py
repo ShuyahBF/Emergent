@@ -83,6 +83,7 @@ def planifier(demandes: List[Dict[str, Any]], aujourdhui: date) -> Dict[str, Dic
     """PLANNING (diagramme de Gantt) : logique pure, testée. Entrée : demandes de TOUTES les plateformes (clés : cle, statut, recue_le,
     duree_valeur, duree_unite, debut_le). Sortie : cle → {debut, fin, jours, retard_jours} (dates ISO).
       - « en_cours » : commence à `debut_le` (aujourd'hui si absent) et dure sa durée estimée ; sans durée, pas de fin connue.
+      - « remontee » (en attente) avec un début imposé (`debut_le`) : placée à cette date, EN PARALLÈLE (les barres peuvent se chevaucher), sans décaler la file ;
       - « remontee » (en attente) : mises en file dans l'ordre d'arrivée ; la 1re commence quand le travail en cours est fini (ou aujourd'hui),
         chacune commence à la fin de la précédente. Sans durée estimée, une demande ne peut pas être placée (et n'avance pas la file).
       - « point_mort » : sort de la file (le travail est arrêté) ; ne décale personne ; seul son début connu est rendu.
@@ -101,6 +102,11 @@ def planifier(demandes: List[Dict[str, Any]], aujourdhui: date) -> Dict[str, Dic
         jours = duree_en_jours(d.get("duree_valeur"), d.get("duree_unite"))
         if not jours:
             continue                                        # sans durée : pas de place dans la file
+        imposee = _jour(d.get("debut_le"))
+        if imposee:                                         # début IMPOSÉ : travail en parallèle (chevauchement possible), ne décale pas la file
+            fin = imposee + timedelta(days=jours)
+            plan[d["cle"]] = {"debut": imposee.isoformat(), "fin": fin.isoformat(), "jours": jours, "retard_jours": 0}
+            continue
         fin = curseur + timedelta(days=jours)
         plan[d["cle"]] = {"debut": curseur.isoformat(), "fin": fin.isoformat(), "jours": jours, "retard_jours": 0}
         curseur = fin
@@ -156,6 +162,8 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
         if not 1 <= duree_valeur <= 999:
             raise ValueError("La durée doit être comprise entre 1 et 999")
     debut_le = jour("debut_le")
+    if statut == "remontee" and not duree_valeur:
+        debut_le = None                                     # un début imposé n'a de sens qu'avec une durée estimée
     if statut == "en_cours":
         debut_le = debut_le or aujourdhui.isoformat()
         realisee_le = prevue_le = None
@@ -276,7 +284,8 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=422, detail=str(exc))
         maintenant = datetime.now(timezone.utc).isoformat()
         champs["traitee_le"] = maintenant
-        ajout = {k: v for k, v in champs.items() if not (k == "debut_le" and v is None)}   # un début déjà connu n'est pas effacé
+        # un début déjà connu n'est effacé que pour une demande « en attente » (début imposé retiré) ; sinon on le garde
+        ajout = {k: v for k, v in champs.items() if not (k == "debut_le" and v is None and champs["statut"] != "remontee")}
         filtre = {"code": code.strip().lower(), "demandes.numero": numero}
         avant = await db.liluvine_emetteurs.find_one({"code": filtre["code"]}, {"_id": 0, "demandes": 1})
         cible = next((x for x in ((avant or {}).get("demandes") or []) if x.get("numero") == numero), None)

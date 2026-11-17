@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "431", "date": "2026-11-17",
+        "titre": "💬 Centre de messagerie : onglet « Produits & services » dans une conversation",
+        "description": "À l'ouverture d'une conversation, un nouvel onglet (à côté de « Groupes ») liste les logiciels, produits et services du client relié au contact, sans aucun tarif. Seul le superviseur peut les modifier ; les tarifs, échéances et rappels restent intouchés.",
+        "lien": "/portal/contacts",
+    },
+    {
         "lot": "430", "date": "2026-11-17",
         "titre": "📎 Demandes des plateformes : pièces jointes et images annotées",
         "description": "Les plateformes joignent des captures (annotées de flèches, rectangles et textes) ou des PDF à leurs demandes : 5 par demande, 400 Ko chacune, vérifiés à la réception. Elles se lisent dans « Détails » et dans le bloc de traitement.",

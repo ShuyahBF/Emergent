@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "426"
-LOT_LIBELLE = "Coffre des plateformes : remise à zéro quand le secret et le code de secours sont perdus (auRor)."
+LOT = "427"
+LOT_LIBELLE = "Centre de Messagerie : saisie fluide (tri de la liste et bulles de conversation ne sont plus recalculés à chaque frappe)."

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
 import PuceContrat from "../../components/PuceContrat";             // Lot 120 : puce carrée de l'état du contrat
 import BandeauContrat from "../../components/BandeauContrat";       // Lot 123 : bandeau contrat au-dessus des Tickets
@@ -352,26 +352,29 @@ function ContactsListe() {
     }
   }, [unread.total]);
 
-  const filtered = items.filter((c) => {
+  // Lenteur de saisie (17/11/2026) : le champ de recherche reste fluide (valeur différée pour le filtrage), et le filtre ne se recalcule plus
+  // à chaque rendu (avant : liste refiltrée et RETRIÉE entièrement à chaque frappe et à chaque relecture des non-lus).
+  const filtreDiffere = useDeferredValue(filter);
+  const filtered = useMemo(() => items.filter((c) => {
     if (companyFilter && (c.company || "") !== companyFilter) return false;
     if (shareFilter === "shared" && !c.shared) return false;
     if (shareFilter === "private" && c.shared) return false;
     if (shareFilter === "unread" && !(unread.by_contact && unread.by_contact[c.id])) return false;
     if (!avecProspects && (c.tags || []).some((t) => (t || "").trim().toLowerCase() === "prospect")) return false;
-    if (!filter.trim()) return true;
-    const q = filter.toLowerCase();
+    if (!filtreDiffere.trim()) return true;
+    const q = filtreDiffere.toLowerCase();
     return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
       .some((v) => (v || "").toLowerCase().includes(q));
-  });
+  }), [items, companyFilter, shareFilter, unread, avecProspects, filtreDiffere]);
 
   // Iter43-fix5 — Tri appliqué après filtres. Le champ `last_interaction_at`
   // est calculé côté backend depuis wa_messages + sms_messages (digits-10).
   const sorted = useMemo(() => {
     const arr = filtered.slice();
     if (sortBy === "name_asc") {
-      arr.sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr", { sensitivity: "base" }));
+      arr.sort((a, b) => COLLATEUR_NOMS.compare(a.name || "", b.name || ""));
     } else if (sortBy === "name_desc") {
-      arr.sort((a, b) => (b.name || "").localeCompare(a.name || "", "fr", { sensitivity: "base" }));
+      arr.sort((a, b) => COLLATEUR_NOMS.compare(b.name || "", a.name || ""));
     } else {
       // interaction_desc (défaut) — contacts sans interaction passent en fin de liste
       arr.sort((a, b) => {
@@ -379,7 +382,7 @@ function ContactsListe() {
         const tb = b.last_interaction_at || "";
         if (ta && !tb) return -1;
         if (!ta && tb) return 1;
-        if (!ta && !tb) return (a.name || "").localeCompare(b.name || "", "fr", { sensitivity: "base" });
+        if (!ta && !tb) return COLLATEUR_NOMS.compare(a.name || "", b.name || "");
         return tb.localeCompare(ta);
       });
     }
@@ -392,8 +395,8 @@ function ContactsListe() {
     const base = items.filter((c) => {
       if (companyFilter && (c.company || "") !== companyFilter) return false;
       if (!avecProspects && (c.tags || []).some((t) => (t || "").trim().toLowerCase() === "prospect")) return false;
-      if (!filter.trim()) return true;
-      const q = filter.toLowerCase();
+      if (!filtreDiffere.trim()) return true;
+      const q = filtreDiffere.toLowerCase();
       return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
         .some((v) => (v || "").toLowerCase().includes(q));
     });
@@ -403,7 +406,7 @@ function ContactsListe() {
       private: base.filter((c) => !c.shared).length,
       unread: base.filter((c) => unread.by_contact && unread.by_contact[c.id]).length,
     };
-  }, [items, companyFilter, filter, unread, avecProspects]);
+  }, [items, companyFilter, filtreDiffere, unread, avecProspects]);
 
   return (
     // Lot 20 — pleine largeur : l'ancien plafond max-w-6xl (1152 px) laissait
@@ -768,6 +771,9 @@ function formatLastInteraction(iso) {
 }
 
 // --- Contact row with inline WhatsApp edit ---
+// Collateur UNIQUE pour trier les noms : « localeCompare(…, "fr", options) » recrée un collateur à CHAQUE comparaison (très lent sur plusieurs milliers de contacts)
+const COLLATEUR_NOMS = new Intl.Collator("fr", { sensitivity: "base" });
+
 const ContactRow = ({ c, onReload, onPatch, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0, contrat = null }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
@@ -1892,6 +1898,10 @@ const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
   );
 };
 
+// Bulles mémoïsées : tant que leur message n'a pas changé, elles ne sont pas redessinées (saisie fluide dans une longue conversation)
+const BulleNoteSystemeMemo = React.memo(BulleNoteSysteme);
+const BulleAppelWaMemo = React.memo(BulleAppelWa);
+
 // --- Conversation history modal ---
 const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const { user } = useAuth();
@@ -1922,7 +1932,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // Lot 71 — transfert de messages : messages à transférer (dialogue ouvert) et sélection multiple
   const [aTransferer, setATransferer] = useState(null);     // tableau de messages, ou null (dialogue fermé)
   const [selection, setSelection] = useState(null);         // null = pas de sélection ; sinon tableau d'ids
-  const basculerSelection = (m) => setSelection((s) => (s || []).includes(m.id) ? s.filter((x) => x !== m.id) : [...(s || []), m.id].slice(0, 20));
+  // Callbacks STABLES (useCallback) : les bulles sont mémoïsées, taper un message ne les redessine plus toutes
+  const basculerSelection = React.useCallback((m) => setSelection((s) => (s || []).includes(m.id) ? s.filter((x) => x !== m.id) : [...(s || []), m.id].slice(0, 20)), []);
+  const transfererUn = React.useCallback((x) => setATransferer([x]), []);
   const fileInputRef = React.useRef(null);
   // Iter34o — Auto-scroll to the latest message so the composer is always
   // anchored on the last exchange (matches WhatsApp/Messenger UX).
@@ -1956,6 +1968,11 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         const prevIds = new Set((dataRef.current.messages || []).map((m) => m.id));
         const newInbound = (next.messages || []).some((m) => m.direction === "inbound" && !prevIds.has(m.id));
         if (newInbound) markRead();
+      }
+      // Relecture silencieuse (toutes les 8 s) : les messages INCHANGÉS gardent leur objet d'avant, pour que les bulles mémoïsées ne soient pas redessinées
+      if (silent && Array.isArray(next.messages)) {
+        const avant = new Map((dataRef.current.messages || []).map((m) => [m.id, m]));
+        next.messages = next.messages.map((m) => { const o = avant.get(m.id); return o && JSON.stringify(o) === JSON.stringify(m) ? o : m; });
       }
       setData(next);
     } catch (err) {
@@ -3004,11 +3021,11 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             <p className="text-center text-slate-400 italic text-sm py-8">Aucun message échangé pour l'instant.</p>
           ) : (
             filAvecAppels.map((m) => (m.__note
-              ? <BulleNoteSysteme key={m.id} n={m} />
+              ? <BulleNoteSystemeMemo key={m.id} n={m} />
               : m.__appel
-              ? <BulleAppelWa key={m.id} a={m} />
-              : <MessageBubble key={m.id} m={m} contact={contact} allMessages={messages} onReply={setReplyTo}
-                  onForward={(x) => setATransferer([x])}
+              ? <BulleAppelWaMemo key={m.id} a={m} />
+              : <MessageBubbleMemo key={m.id} m={m} contact={contact} allMessages={messages} onReply={setReplyTo}
+                  onForward={transfererUn}
                   selection={selection} onToggleSelect={basculerSelection} />))
           )}
           <div ref={scrollEndRef} data-testid="conversation-scroll-end" />
@@ -4455,3 +4472,6 @@ const PendingImportsBanner = ({ items, onChange }) => {
     </div>
   );
 };
+
+// Bulle de message mémoïsée (déclarée après sa définition) : utilisée par le fil de la conversation
+const MessageBubbleMemo = React.memo(MessageBubble);

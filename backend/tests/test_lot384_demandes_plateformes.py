@@ -112,3 +112,34 @@ def test_modification_et_suppression_tant_que_non_validee():
     restantes = {x["numero"]: x for x in c.get("/api/admin/plateformes/demandes").json()["demandes"]}
     assert restantes["DEM-ALBARKA-0001"]["texte"] == "Texte A modifié" and restantes["DEM-ALBARKA-0001"]["type"] == "nouveaute"
     assert restantes["DEM-ALBARKA-0002"]["texte"] == "Texte B" and "DEM-ALBARKA-0003" not in restantes
+
+
+def test_plateforme_prevenue_a_l_instant_signal_signe_sans_donnees(monkeypatch):
+    """Lot 433 — après « Traiter », signal signé « demandes_maj » à l'URL de retour ; jamais bloquant (sans URL ou injoignable : faux, sans erreur)."""
+    import httpx
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot433"]
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(db.liluvine_emetteurs.insert_many([
+        {"code": "albarka", "secret": "cle-test", "url_retour": "https://albarka.example/api/webhooks/liluvine-retour"},
+        {"code": "sansurl", "secret": "cle-test"}]))
+    vu = {}
+
+    class FauxClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, content=None, headers=None):
+            vu.update(url=url, corps=content, entetes=headers)
+            return type("R", (), {"status_code": 200})()
+    monkeypatch.setattr(httpx, "AsyncClient", FauxClient)
+    assert loop.run_until_complete(dp.prevenir_plateforme(db, "albarka")) is True
+    assert json.loads(vu["corps"]) == {"type": "demandes_maj"}                                    # aucune donnée dans le signal
+    attendu = hmac.new(b"cle-test", f"{vu['entetes']['X-Timestamp']}.".encode() + vu["corps"], hashlib.sha256).hexdigest()
+    assert vu["entetes"]["X-Signature"] == attendu                                                # même signature que « stats_du_jour »
+    assert loop.run_until_complete(dp.prevenir_plateforme(db, "sansurl")) is False
+    assert loop.run_until_complete(dp.prevenir_plateforme(db, "inconnue")) is False
+
+    class Panne(FauxClient):
+        async def post(self, *a, **k): raise httpx.ConnectError("hors ligne")
+    monkeypatch.setattr(httpx, "AsyncClient", Panne)
+    assert loop.run_until_complete(dp.prevenir_plateforme(db, "albarka")) is False                # injoignable : ignoré

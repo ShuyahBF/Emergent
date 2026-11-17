@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "431"
-LOT_LIBELLE = "Centre de messagerie : onglet Produits & services dans une conversation (offre du client relié au contact, sans tarifs, modifiable par le superviseur)."
+LOT = "432"
+LOT_LIBELLE = "Paiements reçus par SMS : suggestions à valider (ou écarter) par client, bandeau d'ensemble dans Admin → Clients."

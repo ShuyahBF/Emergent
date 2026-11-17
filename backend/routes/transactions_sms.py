@@ -465,6 +465,34 @@ async def transactions_du_client(db, client_id: str) -> List[Dict[str, Any]]:
     return sorted((p for p in sortie if p.get("associe") and p.get("categorie") == "transaction"), key=lambda p: p["ms"], reverse=True)
 
 
+async def suggestions_par_client(db) -> List[Dict[str, Any]]:
+    """Lot 432 — SUGGESTIONS de paiements à valider, pour TOUS les clients ayant un numéro (ou un nom) associé : un paiement reçu par SMS, pas encore dans l'historique du
+    client (`tenant_payments.sms_id`) et pas écarté par l'administrateur (`users.sms_ecartes`). Lecture EN BLOC (config, mois de SMS, paiements, clients : une lecture chacun,
+    jamais une lecture par client). Rend [{client_id, client_nom, nombre, montant_total, dernier_ms}] du plus de suggestions au moins."""
+    config = await db.settings.find_one({"_id": PREFIXE_CONFIG}) or {}
+    liens_par_client: Dict[str, List[Dict[str, Any]]] = {}
+    for l in config.get("liens") or []:
+        if l.get("client_id"):
+            liens_par_client.setdefault(l["client_id"], []).append(l)
+    if not liens_par_client:
+        return []
+    corrections = config.get("corrections") or {}
+    recettes: List[Dict[str, Any]] = []
+    async for doc in db.settings.find({"_id": {"$regex": r"^transactions-sms:\d{4}-\d{2}$"}}):
+        recettes += [p for p in doc.get("items") or [] if p.get("genre") == "RECETTE"]
+    utilises = {p.get("sms_id") async for p in db.tenant_payments.find({"sms_id": {"$ne": None}}, {"_id": 0, "sms_id": 1})}
+    ecartes_par_client = {u["id"]: set(u.get("sms_ecartes") or []) async for u in db.users.find({"id": {"$in": list(liens_par_client)}}, {"_id": 0, "id": 1, "sms_ecartes": 1})}
+    sortie = []
+    for client_id, liens in liens_par_client.items():
+        ecartes = ecartes_par_client.get(client_id, set())
+        mes = [p for p in (enrichir(r, liens, corrections) for r in recettes)
+               if p.get("associe") and p.get("categorie") == "transaction" and p["k"] not in utilises and p["k"] not in ecartes]
+        if mes:
+            sortie.append({"client_id": client_id, "client_nom": liens[0].get("client_nom") or "", "nombre": len(mes),
+                           "montant_total": sum(float(p["montant"]) for p in mes), "dernier_ms": max(p["ms"] for p in mes)})
+    return sorted(sortie, key=lambda x: (-x["nombre"], x["client_nom"]))
+
+
 # =====================================================================================
 # Routes
 # =====================================================================================

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "428", "date": "2026-11-17",
+        "titre": "📮 Demandes des plateformes : aperçu de 20 caractères, bouton Détails et vue d'enchaînement",
+        "description": "Les demandes, souvent longues, n'affichent plus que leurs 20 premiers caractères : « Détails » ouvre la demande complète dans une fenêtre. Une vue d'ensemble montre l'enchaînement des demandes non terminées, les retards et les points morts.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "427", "date": "2026-11-17",
         "titre": "⚡ Centre de Messagerie : saisie fluide, même avec beaucoup de contacts et de messages",
         "description": "La recherche de contacts et la zone de réponse d'une conversation ne ralentissent plus à chaque frappe : le tri n'est plus recalculé inutilement et les bulles de message ne sont plus toutes redessinées.",

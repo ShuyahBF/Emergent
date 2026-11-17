@@ -5,6 +5,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
+import DetailDemandeModal from "@/components/DetailDemandeModal";   // lot 427 : 20 premiers caractères + « Détails » (modale)
+import GanttEnchainement from "@/components/GanttEnchainement";       // lot 427 : enchaînement, points morts des demandes non terminées
 
 import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 const jour = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "—");
@@ -40,13 +42,18 @@ export default function DemandesPlateformesSection() {
         Les plateformes (ALBARKA…) remontent leurs demandes de corrections et de nouvelles fonctionnalités ; chacune reçoit ici un numéro
         <b> DEM-…</b> retourné à la plateforme avec votre commentaire et la date de réalisation (ou la date prévue).
       </p>
+      {/* Lot 427 : vue d'ensemble des demandes NON terminées de toutes les plateformes (enchaînement, points morts, retards) — repliée par défaut */}
+      <details className="rounded-lg border border-slate-200 p-3" data-testid="vue-enchainement">
+        <summary className="cursor-pointer text-sm font-semibold">📈 Enchaînement des demandes non terminées (points morts, retards)</summary>
+        <div className="mt-3"><GanttEnchainement demandes={demandes.map((d) => ({ ...d, id: d.numero, numero_sawali: d.numero, plateforme: d.plateforme_nom, demandee_le: d.demandee_le || d.recue_le }))} /></div>
+      </details>
       <table className="w-full text-xs">
         <thead className="text-left text-slate-500"><tr><th className="py-1">N°</th><th>Plateforme</th><th>Type</th><th>Demande</th><th>Statut</th><th>Suivi</th><th /></tr></thead>
         <tbody>
           {demandes.map((d) => (
             <tr key={d.numero} className="border-t border-slate-100 align-top">
               <td className="py-1 font-mono">{d.numero}</td><td>{d.plateforme_nom}</td>
-              <td>{d.type === "correction" ? "Correction" : "Nouveauté"}</td><td className="max-w-xs">{d.texte}</td>
+              <td>{d.type === "correction" ? "Correction" : "Nouveauté"}</td><td className="max-w-xs"><DetailDemandeModal d={{ ...d, id: d.numero, numero_sawali: d.numero, type_libelle: d.type === "correction" ? "Correction" : "Nouveauté", statut_libelle: LIBELLE[d.statut] || d.statut, plateforme: d.plateforme_nom }} /></td>
               <td className={`font-semibold ${COULEUR[d.statut] || ""}`}>{LIBELLE[d.statut] || d.statut}</td>
               <td>{d.statut === "realisee" ? `Réalisée le ${jour(d.realisee_le)}` : d.statut === "remontee" && d.prevue_le ? `Prévue le ${jour(d.prevue_le)}` : ""}
                 {d.commentaire && <div className="text-slate-500">{d.commentaire}</div>}</td>

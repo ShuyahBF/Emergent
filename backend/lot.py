@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "427"
-LOT_LIBELLE = "Centre de Messagerie : saisie fluide (tri de la liste et bulles de conversation ne sont plus recalculés à chaque frappe)."
+LOT = "428"
+LOT_LIBELLE = "Demandes des plateformes : aperçu de 20 caractères, bouton Détails (fenêtre) et vue d'enchaînement des demandes non terminées (retards, points morts)."

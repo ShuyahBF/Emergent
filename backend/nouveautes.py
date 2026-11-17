@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "427", "date": "2026-11-17",
+        "titre": "⚡ Centre de Messagerie : saisie fluide, même avec beaucoup de contacts et de messages",
+        "description": "La recherche de contacts et la zone de réponse d'une conversation ne ralentissent plus à chaque frappe : le tri n'est plus recalculé inutilement et les bulles de message ne sont plus toutes redessinées.",
+        "rubrique": "🚧 Barrière anti-rafale WhatsApp (messages sans réponse)",
+    },
+    {
         "lot": "426", "date": "2026-11-16",
         "titre": "🧹 Coffre des plateformes : repartir à zéro si le secret est perdu",
         "description": "Un utilisateur d'auRor qui a perdu son secret ET son code de secours peut recréer un coffre neuf : les anciens documents en ligne, illisibles, sont supprimés.",

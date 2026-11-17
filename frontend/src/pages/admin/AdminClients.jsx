@@ -30,6 +30,9 @@ export default function AdminClients() {
   const [recherche, setRecherche] = useState("");
   const [tri, setTri] = useState({ cle: "", sens: "asc" });
   const [categories, setCategories] = useState([]);
+  // Lot 432 : clients dont des paiements reçus par SMS attendent la validation de l'administrateur (suggestions)
+  const [suggestionsPaiements, setSuggestionsPaiements] = useState([]);
+  const chargerSuggestions = () => apiClient.get("/admin/paiements-sms-suggestions").then((r) => setSuggestionsPaiements(r.data.clients || [])).catch(() => {});
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -93,6 +96,7 @@ export default function AdminClients() {
   useEffect(() => {
     load().catch(() => {});
     loadCats().catch(() => {});
+    chargerSuggestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceFilter, sortBy, sortOrder]);
 
@@ -387,6 +391,21 @@ export default function AdminClients() {
           </button>
         </div>
       </div>
+
+      {/* Lot 432 — SUGGESTIONS de paiements : des paiements reçus par SMS (numéro associé à un client) attendent votre validation ; rien n'est enregistré sans elle */}
+      {suggestionsPaiements.length > 0 && (
+        <div className="rounded-xl border border-sky-300 bg-sky-50 p-3 text-sm space-y-2" data-testid="suggestions-paiements">
+          <p className="font-semibold text-slate-800 inline-flex items-center gap-1.5"><Smartphone className="h-4 w-4" /> {suggestionsPaiements.reduce((n, s) => n + s.nombre, 0)} paiement(s) reçu(s) par SMS à valider</p>
+          <div className="flex flex-wrap gap-2">
+            {suggestionsPaiements.map((s) => (
+              <button key={s.client_id} type="button" onClick={() => setRecherche(s.client_nom)} title="Filtrer la liste sur ce client, puis ouvrir son onglet Paiements"
+                className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs ring-1 ring-sky-300 hover:bg-sky-100" data-testid={`suggestion-client-${s.client_id}`}>
+                {s.client_nom || "Client"} <span className="rounded-full bg-sky-600 px-1.5 text-[10px] font-semibold text-white tabular-nums">{s.nombre}</span>
+              </button>))}
+          </div>
+          <p className="text-[11px] text-slate-600">Ouvrez la fiche du client, onglet Paiements : validez ou écartez chaque suggestion.</p>
+        </div>
+      )}
 
       {/* Iter34q — Quick role filter pills with live counts */}
       <div className="flex items-center gap-2 flex-wrap" data-testid="clients-role-filter">
@@ -1135,7 +1154,7 @@ export default function AdminClients() {
         <ClientCategoryManager
           categories={categories}
           onClose={() => setCatManagerOpen(false)}
-          onChanged={async () => { await loadCats(); await load(); }}
+          onChanged={async () => { await loadCats(); await load(); await chargerSuggestions(); }}
         />
       )}
 
@@ -1152,7 +1171,7 @@ export default function AdminClients() {
         <PaymentsModal
           client={paymentsFor}
           onClose={() => setPaymentsFor(null)}
-          onChanged={async () => { await load(); }}
+          onChanged={async () => { await load(); await chargerSuggestions(); }}
         />
       )}
     </div>
@@ -1504,6 +1523,7 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
   const [apercu, setApercu] = useState(null);      // lot 390 : couvert jusqu'au / période réglée par ce paiement
   // Lot 391 — paiements REÇUS PAR SMS (téléphone source) dont le numéro est associé à ce client : à enregistrer en un clic, sans ressaisie
   const [smsListe, setSmsListe] = useState([]);
+  const [smsEcartesVisibles, setSmsEcartesVisibles] = useState(false);   // lot 432 : paiements SMS écartés, masqués par défaut
   const [smsChoix, setSmsChoix] = useState([]);
   const [smsOccupe, setSmsOccupe] = useState(false);
 
@@ -1544,6 +1564,16 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
     try { const { data } = await apiClient.get(`/admin/clients/${client.id}/payments/sms`); setSmsListe(data.paiements || []); } catch { setSmsListe([]); }
   };
   useEffect(() => { chargerSms(); /* eslint-disable-next-line */ }, [client.id]);
+  // Lot 432 — « Écarter » : ce paiement SMS n'est pas celui de ce client ; il n'est plus suggéré (rien n'est enregistré). « Remettre » l'annule.
+  const ecarterSms = async (ids, annuler = false) => {
+    setSmsOccupe(true);
+    const attente = toast.loading(annuler ? "Remise en suggestion en cours…" : "Mise à l'écart en cours…");
+    try {
+      await apiClient.post(`/admin/clients/${client.id}/payments/sms/ecarter`, { ids, annuler });
+      toast.success(annuler ? `${ids.length} paiement(s) remis en suggestion` : `${ids.length} paiement(s) écarté(s) : ils ne seront plus suggérés`, { id: attente });
+      setSmsChoix((c) => c.filter((k) => !ids.includes(k))); await chargerSms(); await onChanged?.();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur", { id: attente }); } finally { setSmsOccupe(false); }
+  };
   const basculerSms = (k) => setSmsChoix((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
   const enregistrerSms = async () => {
     setSmsOccupe(true);
@@ -1667,26 +1697,50 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
             )}
           </div>
 
-          {/* Lot 391 — paiements reçus par SMS associés à ce client (Transactions SMS) : un paiement SMS ne s'enregistre qu'une fois */}
-          {smsListe.length > 0 && (
-            <div className="rounded-lg border border-sky-300 bg-sky-50/60 p-3 space-y-2" data-testid="payments-sms">
-              <p className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1"><Smartphone className="h-4 w-4" /> Paiements reçus par SMS (numéros associés à ce client)</p>
-              <table className="w-full text-xs">
-                <thead><tr className="text-left"><th className="px-2 py-1" /><th className="px-2 py-1">Reçu le</th><th className="px-2 py-1">De</th><th className="px-2 py-1">Référence</th><th className="px-2 py-1 text-right">Montant</th></tr></thead>
-                <tbody>{smsListe.map((t) => (
-                  <tr key={t.k} className={t.deja_enregistre ? "opacity-50" : ""}>
-                    <td className="px-2 py-1"><input type="checkbox" disabled={t.deja_enregistre} checked={smsChoix.includes(t.k)} onChange={() => basculerSms(t.k)} aria-label="Enregistrer ce paiement" /></td>
-                    <td className="px-2 py-1 font-mono">{t.recu_le}</td><td className="px-2 py-1">{t.tiers || t.numero}</td><td className="px-2 py-1 font-mono">{t.reference || "—"}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">{formatMoney(t.montant, currency)}{t.deja_enregistre && <div className="text-[10px] text-slate-500">déjà enregistré</div>}</td>
-                  </tr>))}</tbody>
-              </table>
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" disabled={smsChoix.length === 0 || smsOccupe} onClick={enregistrerSms} data-testid="payments-sms-enregistrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm disabled:opacity-50"><Check className="h-4 w-4" /> Enregistrer {smsChoix.length || ""} paiement(s) dans l'historique</button>
-                <span className="text-[11px] text-slate-500">Chaque paiement règle la plus ancienne période impayée ; montants, dates et références viennent du SMS.</span>
+          {/* Lot 391 / 432 — paiements reçus par SMS associés à ce client : d'abord des SUGGESTIONS À VALIDER (rien n'est enregistré sans l'accord de l'administrateur) */}
+          {smsListe.length > 0 && (() => {
+            const suggestions = smsListe.filter((t) => !t.deja_enregistre && !t.ecarte);
+            const ecartes = smsListe.filter((t) => !t.deja_enregistre && t.ecarte);
+            const enregistres = smsListe.filter((t) => t.deja_enregistre);
+            const ligne = (t, mode) => (
+              <tr key={t.k} className={mode === "enregistre" ? "opacity-50" : ""}>
+                <td className="px-2 py-1">{mode === "suggestion" && <input type="checkbox" checked={smsChoix.includes(t.k)} onChange={() => basculerSms(t.k)} aria-label="Valider ce paiement" />}</td>
+                <td className="px-2 py-1 font-mono">{t.recu_le}</td><td className="px-2 py-1">{t.tiers || t.numero}</td><td className="px-2 py-1 font-mono">{t.reference || "—"}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{formatMoney(t.montant, currency)}{mode === "enregistre" && <div className="text-[10px] text-slate-500">déjà enregistré</div>}</td>
+                <td className="px-2 py-1 text-right">{mode === "ecarte" && <button type="button" disabled={smsOccupe} onClick={() => ecarterSms([t.k], true)} className="text-sky-700 underline text-[11px]">Remettre en suggestion</button>}</td>
+              </tr>);
+            return (
+              <div className="rounded-lg border border-sky-300 bg-sky-50/60 p-3 space-y-2" data-testid="payments-sms">
+                <p className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1"><Smartphone className="h-4 w-4" /> Suggestions de paiements à valider ({suggestions.length}) — reçus par SMS, numéros associés à ce client</p>
+                {suggestions.length === 0 && <p className="text-xs text-slate-600" data-testid="payments-sms-aucune">Aucune suggestion en attente.</p>}
+                {suggestions.length > 0 && (
+                  <>
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-left"><th className="px-2 py-1" /><th className="px-2 py-1">Reçu le</th><th className="px-2 py-1">De</th><th className="px-2 py-1">Référence</th><th className="px-2 py-1 text-right">Montant</th><th /></tr></thead>
+                      <tbody>{suggestions.map((t) => ligne(t, "suggestion"))}</tbody>
+                    </table>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={() => setSmsChoix(suggestions.map((t) => t.k))} className="text-xs text-sky-700 underline">Tout cocher</button>
+                      <button type="button" disabled={smsChoix.length === 0 || smsOccupe} onClick={enregistrerSms} data-testid="payments-sms-enregistrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm disabled:opacity-50"><Check className="h-4 w-4" /> Valider {smsChoix.length || ""} paiement(s) dans l'historique</button>
+                      <button type="button" disabled={smsChoix.length === 0 || smsOccupe} onClick={() => ecarterSms(smsChoix)} data-testid="payments-sms-ecarter"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 text-sm disabled:opacity-50"><X className="h-4 w-4" /> Écarter (pas ce client)</button>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Rien n'est enregistré sans votre validation. Chaque paiement validé règle la plus ancienne période impayée ; montants, dates et références viennent du SMS.</p>
+                  </>
+                )}
+                {(ecartes.length > 0 || enregistres.length > 0) && (
+                  <div className="text-[11px] text-slate-600 flex flex-wrap gap-3">
+                    {ecartes.length > 0 && <button type="button" onClick={() => setSmsEcartesVisibles((v) => !v)} className="underline" data-testid="payments-sms-voir-ecartes">{smsEcartesVisibles ? "Masquer" : "Voir"} les {ecartes.length} paiement(s) écarté(s)</button>}
+                    {enregistres.length > 0 && <span>{enregistres.length} déjà enregistré(s) dans l'historique</span>}
+                  </div>
+                )}
+                {smsEcartesVisibles && ecartes.length > 0 && (
+                  <table className="w-full text-xs"><tbody>{ecartes.map((t) => ligne(t, "ecarte"))}</tbody></table>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {showForm && (
             <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 p-3 space-y-3" data-testid="payments-form">

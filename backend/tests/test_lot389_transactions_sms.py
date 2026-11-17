@@ -387,3 +387,26 @@ def test_recharge_avec_numero_de_transaction_n_est_pas_une_promo():
     assert ts.score_promo(corps, "RC261115.2130.68181965") < ts.SEUIL_PROMO
     assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": corps, "reference": "RC261115.2130.68181965"}) == "transaction"
     assert ts.categorie_auto({"adresse": "OrangeMoney", "corps": "Gagnez 100% de bonus sur vos recharges. Offre valable 7 jours. Composez *144*9#.", "reference": None}) == "promo"
+
+
+def test_suggestions_de_paiements_par_client():
+    """Lot 432 — suggestions à valider : paiements SMS d'un numéro associé à un client, ni déjà dans son historique, ni écartés, ni d'un autre client ; une lecture en bloc."""
+    db = mongomock_motor.AsyncMongoMockClient()["sawali_lot432"]
+    loop = asyncio.get_event_loop()
+    item = lambda k, genre, corps, ms_: {"k": k, "source": "s1", "adresse": "OrangeMoney", "ms": ms_, "genre": genre, "montant": 25000, "tiers": "Payeur", "solde": None, "reference": k, "corps": corps}
+    loop.run_until_complete(db.settings.insert_many([
+        {"_id": "transactions-sms:config", "sources": [], "liens": [{"id": "1", "type": "numero", "cle": "22671828394", "plateforme": None, "libelle": "Cabinet", "client_id": "c1", "client_nom": "Cabinet"},
+                                                                  {"id": "2", "type": "numero", "cle": "22670112233", "plateforme": None, "libelle": "Autre", "client_id": "c2", "client_nom": "Boutique"}]},
+        {"_id": "transactions-sms:2026-11", "mois": "2026-11", "items": [
+            item("a", "RECETTE", "Vous avez recu 25000 FCFA du 71828394,awa.", ms(2026, 11, 13)),
+            item("b", "RECETTE", "Vous avez recu 25000 FCFA du 71828394,awa.", ms(2026, 11, 10)),     # déjà dans l'historique
+            item("c", "RECETTE", "Vous avez recu 25000 FCFA du 71828394,awa.", ms(2026, 11, 5)),      # écarté
+            item("d", "RECETTE", "Vous avez recu 25000 FCFA du 70112233,x.", ms(2026, 11, 2)),        # autre client
+            item("e", "DEPENSE", "Paiement de 25000 FCFA a 71828394", ms(2026, 11, 1))]},             # dépense : jamais suggérée
+    ]))
+    loop.run_until_complete(db.users.insert_many([{"id": "c1", "sms_ecartes": ["c"]}, {"id": "c2"}]))
+    loop.run_until_complete(db.tenant_payments.insert_one({"tenant_id": "c1", "sms_id": "b"}))
+    res = loop.run_until_complete(ts.suggestions_par_client(db))
+    par = {r["client_id"]: r for r in res}
+    assert par["c1"]["nombre"] == 1 and par["c1"]["montant_total"] == 25000          # seul « a » est à valider
+    assert par["c2"]["nombre"] == 1 and par["c2"]["client_nom"] == "Boutique"

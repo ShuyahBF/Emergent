@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "432", "date": "2026-11-17",
+        "titre": "💬 Paiements SMS : suggestions à valider",
+        "description": "Les paiements reçus par SMS dont le numéro est associé à un client sont proposés en suggestions : vous validez ou écartez, rien n'est enregistré sans vous (Admin → Clients).",
+        "rubrique": "💬 Transactions SMS",
+    },
+    {
         "lot": "431", "date": "2026-11-17",
         "titre": "💬 Centre de messagerie : onglet « Produits & services » dans une conversation",
         "description": "À l'ouverture d'une conversation, un nouvel onglet (à côté de « Groupes ») liste les logiciels, produits et services du client relié au contact, sans aucun tarif. Seul le superviseur peut les modifier ; les tarifs, échéances et rappels restent intouchés.",

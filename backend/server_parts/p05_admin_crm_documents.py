@@ -72,9 +72,34 @@ async def admin_client_paiements_sms(client_id: str, _: dict = Depends(get_curre
     from routes.transactions_sms import transactions_du_client
     await _ensure_client_exists(client_id)
     utilises = {p.get("sms_id") async for p in db.tenant_payments.find({"sms_id": {"$ne": None}}, {"_id": 0, "sms_id": 1})}
-    return {"paiements": [{"k": p["k"], "recu_le": datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%Y-%m-%d"), "montant": p["montant"], "tiers": p.get("tiers") or "",
+    ecartes = set((await db.users.find_one({"id": client_id}, {"_id": 0, "sms_ecartes": 1}) or {}).get("sms_ecartes") or [])
+    return {"paiements": [{"k": p["k"], "ecarte": p["k"] in ecartes, "recu_le": datetime.fromtimestamp(p["ms"] / 1000, timezone.utc).strftime("%Y-%m-%d"), "montant": p["montant"], "tiers": p.get("tiers") or "",
                            "numero": p.get("numero_affiche") or "", "reference": p.get("reference") or "", "operateur": p.get("operateur"), "deja_enregistre": p["k"] in utilises}
                           for p in await transactions_du_client(db, client_id)]}
+
+
+class SmsEcarterCorps(BaseModel):
+    ids: List[str]
+    annuler: bool = False        # vrai = remettre ces paiements dans les suggestions
+
+
+@api.post("/admin/clients/{client_id}/payments/sms/ecarter", tags=["Admin"])
+async def admin_client_ecarter_paiements_sms(client_id: str, payload: SmsEcarterCorps, _: dict = Depends(get_current_admin)):
+    """Lot 432 — « ce n'est pas un paiement de ce client » : les paiements SMS écartés ne sont plus suggérés (ils restent consultables et peuvent être remis en suggestion).
+    Rien n'est enregistré dans l'historique du client."""
+    await _ensure_client_exists(client_id)
+    if payload.annuler:
+        await db.users.update_one({"id": client_id}, {"$pull": {"sms_ecartes": {"$in": payload.ids}}})
+    else:
+        await db.users.update_one({"id": client_id}, {"$addToSet": {"sms_ecartes": {"$each": payload.ids}}})
+    return {"ok": True}
+
+
+@api.get("/admin/paiements-sms-suggestions", tags=["Admin"])
+async def admin_suggestions_paiements_sms(_: dict = Depends(get_current_admin)):
+    """Lot 432 — pour tous les clients : combien de paiements reçus par SMS (numéro associé) sont SUGGÉRÉS et attendent la validation de l'administrateur."""
+    from routes.transactions_sms import suggestions_par_client
+    return {"clients": await suggestions_par_client(db)}
 
 
 @api.post("/admin/clients/{client_id}/payments/sms", tags=["Admin"])
@@ -99,6 +124,8 @@ async def admin_client_enregistrer_paiements_sms(client_id: str, payload: SmsPai
         corps = TenantPaymentCreate(payment_date=jour, invoice_ref=p.get("reference") or None, amount_paid=float(p["montant"]), send_confirmation=False,
                                     notes="Reçu par SMS" + (f" de {p['tiers']}" if p.get("tiers") else ""), imputation=payload.imputation or "plus_ancienne", sms_id=p["k"])
         await admin_create_client_payment(client_id, corps, admin_user)
+    if choisis:      # un paiement validé n'est plus « écarté »
+        await db.users.update_one({"id": client_id}, {"$pull": {"sms_ecartes": {"$in": [p["k"] for p in choisis]}}})
     return {"enregistres": len(choisis)}
 
 

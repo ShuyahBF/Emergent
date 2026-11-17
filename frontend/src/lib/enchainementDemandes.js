@@ -6,19 +6,27 @@ import { enMs, dateEstimee } from "./ganttDemandes";
 const JOUR = 86400000;
 export const SEUIL_SANS_REPONSE_JOURS = 14;      // demande sans date de SAWALI depuis plus de 14 jours : point mort
 
-/** Demandes NON terminées (ni réalisées, ni refusées), avec début, fin estimée et état. Tri : début croissant. */
+/**
+ * Demandes NON terminées (ni réalisées, ni refusées), avec début, fin estimée et état. Tri : début croissant.
+ * Lot 429 : quand SAWALI a calculé le PLANNING (durée estimée), la barre va du DÉBUT PRÉVU à la FIN PRÉVUE : les demandes s'enchaînent
+ * comme dans un vrai diagramme de Gantt. Sans planning, on retombe sur l'ancien calcul (de la date de la demande à la date prévue).
+ */
 export function demandesOuvertes(demandes, maintenant = Date.now()) {
   return (demandes || [])
     .filter((d) => d.statut !== "realisee" && d.statut !== "refusee")
     .map((d) => {
-      const debut = enMs(d.demandee_le) ?? maintenant;
-      const prevue = dateEstimee(d);
-      const fin = Math.max(prevue ?? maintenant, debut + JOUR);
+      const debutPlan = enMs(d.debut_prevu_le || (d.statut === "point_mort" ? d.debut_le : null));
+      const finPlan = enMs(d.fin_prevue_le || d.prevue_le);
+      const debut = debutPlan ?? enMs(d.demandee_le) ?? maintenant;
+      const prevue = dateEstimee({ ...d, prevue_le: d.fin_prevue_le || d.prevue_le });
+      let fin = Math.max(prevue ?? maintenant, debut + JOUR);
       let etat = "prevue";
       if (d.statut === "a_remonter") etat = "a_remonter";
+      else if (d.statut === "point_mort") { etat = "point_mort_declare"; fin = Math.max(maintenant, debut + JOUR); }     // travail arrêté : de son début à aujourd'hui
+      else if (d.statut === "en_cours") etat = prevue !== null && prevue < maintenant ? "en_retard" : "en_cours";
       else if (prevue === null) etat = (maintenant - debut) / JOUR > SEUIL_SANS_REPONSE_JOURS ? "point_mort" : "sans_date";
       else if (prevue < maintenant) etat = "en_retard";
-      return { id: d.id, numero: d.numero_sawali || d.id, plateforme: d.plateforme || "", texte: d.texte || "", debut, fin, etat, prevue };
+      return { id: d.id, numero: d.numero_sawali || d.id, plateforme: d.plateforme || "", texte: d.texte || "", debut, fin, etat, prevue, planifiee: debutPlan !== null && finPlan !== null };
     })
     .sort((a, b) => a.debut - b.debut || a.fin - b.fin);
 }
@@ -54,6 +62,6 @@ export function bornesEnchainement(ouvertes, maintenant = Date.now()) {
 /** Résumé chiffré : nombre ouvertes, en retard, sans réponse (points morts), trous, chaînes. */
 export function resume(ouvertes, trous) {
   const nb = (e) => ouvertes.filter((d) => d.etat === e).length;
-  return { ouvertes: ouvertes.length, en_retard: nb("en_retard"), points_morts: nb("point_mort"), sans_date: nb("sans_date"), a_remonter: nb("a_remonter"),
+  return { ouvertes: ouvertes.length, en_cours: nb("en_cours"), en_retard: nb("en_retard"), points_morts: nb("point_mort") + nb("point_mort_declare"), sans_date: nb("sans_date"), a_remonter: nb("a_remonter"),
     trous: trous.length, jours_a_l_arret: trous.reduce((s, t) => s + t.jours, 0) };
 }

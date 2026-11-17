@@ -1,7 +1,7 @@
 // Demandes à SAWALI : fenêtre MODALE de détails (règle 20 : les détails d'une ligne s'ouvrent en modale, jamais en allongeant la page).
 // Une demande est souvent très longue : le tableau n'en montre que les 20 premiers caractères (`apercu`) ; ce bouton « Détails » ouvre la demande COMPLÈTE.
 import React, { useState } from "react";
-import { Eye, X } from "lucide-react";
+import { Eye, FileText, Image as ImageIcone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -14,8 +14,41 @@ export const apercu = (texte, n = 20) => {
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtJour = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString("fr-FR") : "—");
 
-/** Cellule « Demande » : aperçu de 20 caractères + bouton « Détails » (pictogramme œil + légende) qui ouvre la fenêtre. */
-export default function DetailDemandeModal({ d }) {
+const taille = (o) => (o < 1024 ? `${o} o` : `${Math.round(o / 1024)} Ko`);
+
+/** Pièces jointes (lot 430) : chaque pièce se charge À LA DEMANDE (jamais toutes d'un coup) ; image affichée dans la fenêtre, PDF ouvert dans un nouvel onglet. */
+export function PiecesLecture({ d, chargerPiece }) {
+  const [images, setImages] = useState({});                   // id → adresse temporaire
+  const [occupe, setOccupe] = useState(null);
+  const ouvrir = async (p) => {
+    setOccupe(p.id);
+    try {
+      const blob = await chargerPiece(d, p);
+      const url = URL.createObjectURL(blob);
+      if (p.type === "application/pdf") window.open(url, "_blank", "noopener"); else setImages((x) => ({ ...x, [p.id]: url }));
+    } catch { /* l'erreur est montrée par le parent (toast) */ } finally { setOccupe(null); }
+  };
+  return (
+    <div data-testid="pieces-lecture">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Pièces jointes ({d.pieces.length})</p>
+      <ul className="space-y-2">
+        {d.pieces.map((p) => (
+          <li key={p.id} className="rounded border p-2 text-sm">
+            <div className="flex items-center gap-2">
+              {p.type === "application/pdf" ? <FileText className="h-4 w-4 text-red-700" aria-hidden="true" /> : <ImageIcone className="h-4 w-4 text-sky-700" aria-hidden="true" />}
+              <span className="min-w-0 flex-1 truncate" title={p.nom}>{p.nom}</span><span className="text-xs tabular-nums text-muted-foreground">{taille(p.taille)}</span>
+              {!images[p.id] && <Button size="sm" variant="outline" disabled={occupe === p.id} onClick={() => ouvrir(p)}><Eye className="w-4 h-4 mr-1" aria-hidden="true" />{occupe === p.id ? "Chargement…" : p.type === "application/pdf" ? "Ouvrir" : "Voir"}</Button>}
+            </div>
+            {images[p.id] && <img src={images[p.id]} alt={p.nom} className="mt-2 max-h-80 w-full rounded object-contain" />}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Cellule « Demande » : aperçu de 20 caractères + bouton « Détails » (pictogramme œil + légende) qui ouvre la fenêtre. `chargerPiece(d, piece)` → Promise<Blob> (lot 430). */
+export default function DetailDemandeModal({ d, chargerPiece }) {
   const [ouvert, setOuvert] = useState(false);
   return (
     <>
@@ -39,6 +72,8 @@ export default function DetailDemandeModal({ d }) {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Demande complète</p>
             <p className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm" data-testid="detail-demande-texte">{d.texte}</p>
           </div>
+          {Array.isArray(d.pieces) && d.pieces.length > 0 && chargerPiece && <PiecesLecture d={d} chargerPiece={chargerPiece} />}
+          {d.alerte_pieces && <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">⚠ {d.alerte_pieces}</p>}
           {d.commentaire && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Commentaire de SAWALI</p>

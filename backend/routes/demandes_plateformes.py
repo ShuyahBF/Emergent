@@ -34,6 +34,13 @@ OUVERTS = ("remontee", "en_cours", "point_mort")          # statuts « non termi
 UNITES_JOURS = {"jour": 1, "semaine": 7, "mois": 30, "annee": 365}
 MAX_PAR_ENVOI = 100
 MAX_TEXTE = 2000
+# Pièces jointes (lot 430) : AUCUNE nouvelle collection (cluster plein) → rangées dans la demande ; d'où des limites strictes.
+# Les images sont réduites et recompressées par le navigateur AVANT l'envoi pour tenir dans la limite ; un PDF doit déjà y tenir.
+PIECES_MAX = 5                                  # par demande
+PIECE_MAX_OCTETS = 400 * 1024                   # par pièce, après décodage
+PIECES_TOTAL_MAX = 8 * 1024 * 1024              # total par plateforme (le document de l'émetteur reste très en dessous de la limite de 16 Mo de MongoDB)
+# Type accepté → début attendu du fichier (le type DÉCLARÉ n'est pas cru : on vérifie les premiers octets)
+SIGNATURES_PIECES = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",), "image/webp": (b"RIFF",), "application/pdf": (b"%PDF-",)}
 
 
 # =====================================================================================
@@ -43,6 +50,47 @@ MAX_TEXTE = 2000
 def numero_demande(code: str, n: int) -> str:
     """« albarka », 7 → « DEM-ALBARKA-0007 »."""
     return f"DEM-{re.sub(r'[^A-Z0-9]', '', (code or '').upper())}-{int(n):04d}"
+
+
+def nettoyer_pieces(brut: Any) -> tuple:
+    """Pièces jointes reçues (base64) → (pièces valides, motif de refus ou None). Logique pure, testée.
+    Refus de TOUTE la liste au moindre défaut (type inconnu, signature qui ne correspond pas, trop lourde, trop nombreuses) : jamais de demi-succès silencieux."""
+    import base64
+    import binascii
+    import uuid
+    if not brut:
+        return [], None
+    if not isinstance(brut, list) or len(brut) > PIECES_MAX:
+        return [], f"{PIECES_MAX} pièces jointes au plus par demande"
+    sortie: List[Dict[str, Any]] = []
+    for p in brut:
+        if not isinstance(p, dict):
+            return [], "Pièce jointe illisible"
+        nom = re.sub(r"[^\w .()\-]", "_", str(p.get("nom") or "piece"))[:80] or "piece"
+        type_ = p.get("type")
+        if type_ not in SIGNATURES_PIECES:
+            return [], f"« {nom} » : type non accepté (images JPEG, PNG, WebP ou PDF)"
+        try:
+            octets = base64.b64decode(str(p.get("data") or ""), validate=True)
+        except (binascii.Error, ValueError):
+            return [], f"« {nom} » : contenu illisible"
+        if not octets or len(octets) > PIECE_MAX_OCTETS:
+            return [], f"« {nom} » : {PIECE_MAX_OCTETS // 1024} Ko au plus par pièce"
+        if not octets.startswith(SIGNATURES_PIECES[type_]) or (type_ == "image/webp" and octets[8:12] != b"WEBP"):
+            return [], f"« {nom} » : le fichier ne correspond pas à son type"
+        sortie.append({"id": str(p.get("id") or uuid.uuid4())[:40], "nom": nom, "type": type_, "taille": len(octets),
+                       "data": base64.b64encode(octets).decode()})
+    return sortie, None
+
+
+def octets_pieces(demandes: List[Dict[str, Any]]) -> int:
+    """Total d'octets de pièces déjà rangées dans les demandes d'une plateforme."""
+    return sum(int(p.get("taille") or 0) for d in demandes or [] for p in d.get("pieces") or [])
+
+
+def sans_contenu(pieces: Any) -> List[Dict[str, Any]]:
+    """Pièces SANS leur contenu (nom, type, taille, id) : ce que les listes renvoient."""
+    return [{k: p.get(k) for k in ("id", "nom", "type", "taille")} for p in pieces or []]
 
 
 def nettoyer_envoi(brut: Any) -> List[Dict[str, Any]]:
@@ -55,7 +103,7 @@ def nettoyer_envoi(brut: Any) -> List[Dict[str, Any]]:
         texte = str(d.get("texte") or "").strip()[:MAX_TEXTE]
         type_ = d.get("type") if d.get("type") in TYPES else None
         if ref and texte and type_:
-            sortie.append({"ref_locale": ref, "type": type_, "texte": texte,
+            sortie.append({"ref_locale": ref, "type": type_, "texte": texte, "pieces_brutes": d.get("pieces"),
                            "demandee_le": str(d.get("demandee_le") or "")[:40] or None,
                            "demandee_par": str(d.get("demandee_par") or "").strip()[:80] or None})
     return sortie
@@ -124,7 +172,7 @@ def vue_pour_plateforme(d: Dict[str, Any], plan: Optional[Dict[str, Any]] = None
             "commentaire": d.get("commentaire"), "realisee_le": d.get("realisee_le"),
             "prevue_le": p.get("fin") or d.get("prevue_le"), "debut_prevu_le": p.get("debut"),
             "duree_valeur": d.get("duree_valeur"), "duree_unite": d.get("duree_unite"),
-            "historique": d.get("historique") or []}
+            "historique": d.get("historique") or [], "pieces": sans_contenu(d.get("pieces"))}
 
 
 def modifiable(demande: Dict[str, Any]) -> bool:
@@ -199,7 +247,7 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
     async def _planning_global() -> Dict[str, Dict[str, Any]]:
         """Planning de TOUTES les demandes ouvertes de toutes les plateformes (une seule chaîne : le travail se fait l'un après l'autre)."""
         toutes: List[Dict[str, Any]] = []
-        async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "demandes": 1}):
+        async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "secret": 0, "demandes.pieces.data": 0}):
             toutes += [{**d, "cle": d.get("numero")} for d in e.get("demandes") or [] if d.get("statut", "remontee") in OUVERTS]
         return planifier(toutes, date.today())
 
@@ -226,9 +274,15 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
             if cible is None or not modifiable(cible):
                 refus.append({"ref_locale": m["ref_locale"], "motif": "Demande introuvable ou déjà validée par SAWALI"})
                 continue
-            await db.liluvine_emetteurs.update_one({"code": code, "demandes.ref_locale": m["ref_locale"]},
-                                                   {"$set": {"demandes.$.texte": m["texte"], "demandes.$.type": m["type"],
-                                                             "demandes.$.modifiee_le": datetime.now(timezone.utc).isoformat()}})
+            maj = {"demandes.$.texte": m["texte"], "demandes.$.type": m["type"], "demandes.$.modifiee_le": datetime.now(timezone.utc).isoformat()}
+            if m.get("pieces_brutes") is not None:           # la plateforme a renvoyé la liste de ses pièces : elle REMPLACE l'ancienne
+                pieces, motif = nettoyer_pieces(m["pieces_brutes"])
+                if motif or octets_pieces([d for d in existantes if d is not cible]) + sum(p["taille"] for p in pieces) > PIECES_TOTAL_MAX:
+                    refus.append({"ref_locale": m["ref_locale"], "motif": motif or "Place de stockage des pièces jointes épuisée pour cette plateforme"})
+                else:
+                    maj["demandes.$.pieces"] = pieces
+                    cible["pieces"] = pieces
+            await db.liluvine_emetteurs.update_one({"code": code, "demandes.ref_locale": m["ref_locale"]}, {"$set": maj})
             cible["texte"], cible["type"] = m["texte"], m["type"]
         for ref in [str(r).strip()[:80] for r in ((donnees or {}).get("suppressions") or [])[:MAX_PAR_ENVOI]]:
             cible = next((d for d in existantes if d.get("ref_locale") == ref), None)
@@ -247,9 +301,19 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
                 {"code": code}, {"$inc": {"demandes_compteur": len(nouvelles)}}, return_document=True)
             premier = int((apres or {}).get("demandes_compteur") or len(nouvelles)) - len(nouvelles) + 1
             maintenant = datetime.now(timezone.utc).isoformat()
-            ajout = [{**d, "numero": numero_demande(code, premier + i), "statut": "remontee", "recue_le": maintenant,
-                      "commentaire": None, "realisee_le": None, "prevue_le": None,
-                      "duree_valeur": None, "duree_unite": None, "debut_le": None, "historique": []} for i, d in enumerate(nouvelles)]
+            ajout = []
+            total = octets_pieces(existantes)
+            for i, d in enumerate(nouvelles):
+                pieces, motif = nettoyer_pieces(d.get("pieces_brutes"))
+                if not motif and total + sum(p["taille"] for p in pieces) > PIECES_TOTAL_MAX:
+                    pieces, motif = [], "Place de stockage des pièces jointes épuisée pour cette plateforme"
+                if motif:                                    # la demande est enregistrée SANS ses pièces, et on le dit à la plateforme
+                    refus.append({"ref_locale": d["ref_locale"], "motif": f"Pièces jointes refusées : {motif}"})
+                total += sum(p["taille"] for p in pieces)
+                base = {k: v for k, v in d.items() if k != "pieces_brutes"}
+                ajout.append({**base, "numero": numero_demande(code, premier + i), "statut": "remontee", "recue_le": maintenant,
+                              "commentaire": None, "realisee_le": None, "prevue_le": None, "pieces": pieces,
+                              "duree_valeur": None, "duree_unite": None, "debut_le": None, "historique": []})
             await db.liluvine_emetteurs.update_one({"code": code}, {"$push": {"demandes": {"$each": ajout}}})
             existantes = existantes + ajout
         plan = await _planning_global()
@@ -262,7 +326,7 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
         mots = [m for m in re.split(r"\s+", q.lower().strip()) if m]
         sortie: List[Dict[str, Any]] = []
         plan = await _planning_global()
-        async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "secret": 0}):
+        async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "secret": 0, "demandes.pieces.data": 0}):
             for d in e.get("demandes") or []:
                 botte = " ".join(str(x or "") for x in (e.get("code"), e.get("nom"), d.get("numero"), d.get("texte"),
                                                          d.get("commentaire"), d.get("statut"), d.get("type"))).lower()
@@ -272,6 +336,20 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
                                    "debut_prevu_le": p.get("debut"), "fin_prevue_le": p.get("fin"), "retard_jours": p.get("retard_jours", 0)})
         sortie.sort(key=lambda d: d.get("recue_le") or "", reverse=True)
         return {"demandes": sortie}
+
+    @api.get("/admin/plateformes/{code}/demandes/{numero}/pieces/{piece_id}", tags=["Plateformes — demandes"])
+    async def piece(code: str, numero: str, piece_id: str, user: dict = Depends(get_current_user)):
+        """Contenu d'une pièce jointe (administrateur seulement), servi en « inline » et sans devinette de type (nosniff)."""
+        import base64
+        from fastapi import Response
+        _admin(user)
+        e = await db.liluvine_emetteurs.find_one({"code": code.strip().lower()}, {"_id": 0, "demandes": 1})
+        d = next((x for x in (e or {}).get("demandes") or [] if x.get("numero") == numero), None)
+        p = next((x for x in (d or {}).get("pieces") or [] if x.get("id") == piece_id), None)
+        if not p:
+            raise HTTPException(status_code=404, detail="Pièce jointe introuvable")
+        return Response(content=base64.b64decode(p["data"]), media_type=p["type"],
+                        headers={"Content-Disposition": f'inline; filename="{p["nom"]}"', "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
     @api.put("/admin/plateformes/{code}/demandes/{numero}", tags=["Plateformes — demandes"])
     async def traiter(code: str, numero: str, request: Request, user: dict = Depends(get_current_user)):

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "430", "date": "2026-11-17",
+        "titre": "📎 Demandes des plateformes : pièces jointes et images annotées",
+        "description": "Les plateformes joignent des captures (annotées de flèches, rectangles et textes) ou des PDF à leurs demandes : 5 par demande, 400 Ko chacune, vérifiés à la réception. Elles se lisent dans « Détails » et dans le bloc de traitement.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "429.1", "date": "2026-11-17",
         "titre": "📮 Gantt des demandes : chevauchements et dates de l'ensemble",
         "description": "Une demande en attente peut recevoir un début imposé : elle se déroule alors en parallèle des autres (les barres se chevauchent). Le diagramme affiche la durée et les dates de début et de fin de l'ensemble, et les périodes de chevauchement.",

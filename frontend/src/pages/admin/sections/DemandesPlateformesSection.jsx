@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
-import DetailDemandeModal from "@/components/DetailDemandeModal";   // lot 427 : 20 premiers caractères + « Détails » (modale)
+import DetailDemandeModal, { PiecesLecture } from "@/components/DetailDemandeModal";   // lot 427 : 20 premiers caractères + « Détails » (modale)
 import GanttEnchainement from "@/components/GanttEnchainement";       // lot 427 : enchaînement, points morts des demandes non terminées
 
 import { Clock, OctagonAlert, Play, Save as Ico15Save, X as Ico15X } from "lucide-react";
@@ -23,6 +23,9 @@ export default function DemandesPlateformesSection() {
   const [demandes, setDemandes] = useState(null);
   const [edition, setEdition] = useState(null);   // { plateforme, numero, statut, commentaire, realisee_le, prevue_le, duree_valeur, duree_unite, debut_le, demande }
   const blocEdition = useRef(null);
+  // Pièces jointes (lot 430) : le contenu est lu À LA DEMANDE, avec la session de l'administrateur (jamais d'adresse publique)
+  const chargerPiece = (d, p) => apiClient.get(`/admin/plateformes/${d.plateforme}/demandes/${d.numero}/pieces/${p.id}`, { responseType: "blob" })
+    .then((r) => r.data).catch((e) => { toast.error(e?.response?.status === 404 ? "Pièce introuvable" : "Pièce illisible"); throw e; });
 
   const charger = useCallback(() => apiClient.get("/admin/plateformes/demandes", { params: { q } })
     .then((r) => setDemandes(r.data.demandes)).catch(() => setDemandes([])), [q]);
@@ -68,7 +71,7 @@ export default function DemandesPlateformesSection() {
             <tr key={d.numero} aria-selected={edition?.numero === d.numero} data-testid={`demande-${d.numero}`}
               className={`border-t border-slate-100 align-top ${edition?.numero === d.numero ? "bg-red-600 text-white [&_*]:!text-white" : ""}`}>
               <td className="py-1 font-mono">{d.numero}</td><td>{d.plateforme_nom}</td>
-              <td>{d.type === "correction" ? "Correction" : "Nouveauté"}</td><td className="max-w-xs"><DetailDemandeModal d={{ ...d, id: d.numero, numero_sawali: d.numero, type_libelle: d.type === "correction" ? "Correction" : "Nouveauté", statut_libelle: LIBELLE[d.statut] || d.statut, plateforme: d.plateforme_nom }} /></td>
+              <td>{d.type === "correction" ? "Correction" : "Nouveauté"}</td><td className="max-w-xs"><DetailDemandeModal chargerPiece={(_, p) => chargerPiece(d, p)} d={{ ...d, id: d.numero, numero_sawali: d.numero, type_libelle: d.type === "correction" ? "Correction" : "Nouveauté", statut_libelle: LIBELLE[d.statut] || d.statut, plateforme: d.plateforme_nom }} /></td>
               <td className={`font-semibold ${COULEUR[d.statut] || ""}`}>{(() => { const P = PICTO[d.statut]; return <>{P && <P className="mr-1 inline-block h-3.5 w-3.5" aria-hidden="true" />}{LIBELLE[d.statut] || d.statut}</>; })()}</td>
               <td className="tabular-nums">{duree(d)}{d.debut_prevu_le && d.fin_prevue_le && <div>{jour(d.debut_prevu_le)} → {jour(d.fin_prevue_le)}</div>}
                 {d.retard_jours > 0 && <div className="font-semibold">⚠ en retard de {d.retard_jours} j</div>}</td>
@@ -88,6 +91,7 @@ export default function DemandesPlateformesSection() {
           <div className="rounded border border-sky-200 bg-white p-2 text-xs" data-testid="edition-detail">
             <div className="text-slate-600">{edition.demande.plateforme_nom} · {edition.demande.type === "correction" ? "Correction" : "Nouveauté"} · demandée le {jour(edition.demande.demandee_le || edition.demande.recue_le)}{edition.demande.demandee_par ? ` par ${edition.demande.demandee_par}` : ""}</div>
             <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-sm">{edition.demande.texte}</div>
+            {(edition.demande.pieces || []).length > 0 && <div className="mt-2"><PiecesLecture d={edition.demande} chargerPiece={(_, p) => chargerPiece(edition.demande, p)} /></div>}
           </div>
           <select value={edition.statut} onChange={(e) => setEdition({ ...edition, statut: e.target.value })} className="rounded border border-slate-300 px-2 py-1 text-sm">
             <option value="remontee">En attente</option>

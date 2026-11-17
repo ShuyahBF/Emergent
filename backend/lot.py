@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "429"
-LOT_LIBELLE = "Demandes des plateformes : statuts En cours et Point mort, durée estimée qui organise l'enchaînement (Gantt avec tableau, échelle des jours, flèches), détail repris dans le bloc de traitement."
+LOT = "429.1"
+LOT_LIBELLE = "Gantt des demandes : début imposé (travaux en parallèle, chevauchements), durée et dates de l'ensemble."

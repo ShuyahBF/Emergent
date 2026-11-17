@@ -65,3 +65,24 @@ test("le résumé compte les demandes en cours et les points morts déclarés", 
   expect(r.points_morts).toBe(1);
   expect(r.en_retard).toBe(1);
 });
+
+// ---- Chevauchement et dates de l'ensemble (lot 429.1)
+import { chevauchements, projet } from "./enchainementDemandes";
+const enParallele = [
+  { id: "x", statut: "en_cours", demandee_le: iso(-5), debut_prevu_le: jour(0), prevue_le: jour(10) },
+  { id: "y", statut: "remontee", demandee_le: iso(-4), debut_prevu_le: jour(5), prevue_le: jour(12) },      // chevauche x pendant 5 j
+  { id: "z", statut: "remontee", demandee_le: iso(-3), debut_prevu_le: jour(12), prevue_le: jour(15) },     // suit y : pas de chevauchement
+];
+
+test("chevauchement : deux demandes menées en même temps ; une qui commence quand l'autre finit n'en est pas un", () => {
+  const ch = chevauchements(demandesOuvertes(enParallele, NOW));
+  expect(ch.length).toBe(1);
+  expect(ch[0].jours).toBe(5);
+});
+
+test("durée et dates de l'ensemble : de la première à la dernière", () => {
+  const p = projet(demandesOuvertes(enParallele, NOW));
+  expect(p.jours).toBe(15);
+  expect(projet([])).toBeNull();
+  expect(resume(demandesOuvertes(enParallele, NOW), []).chevauchements).toBe(1);
+});

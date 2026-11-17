@@ -52,6 +52,36 @@ export function pointsMorts(ouvertes) {
   return trous.filter((t) => t.jours >= 1);
 }
 
+/** Demandes réellement PLACÉES dans le temps (ni point mort, ni sans date, ni pas encore envoyées) : seules elles peuvent se chevaucher. */
+const placees = (ouvertes) => ouvertes.filter((d) => ["en_cours", "prevue", "en_retard"].includes(d.etat));
+
+/**
+ * CHEVAUCHEMENTS : périodes où deux demandes (ou plus) sont menées EN MÊME TEMPS (barres qui se recouvrent). [{ a, b, debut, fin, jours }]
+ * Une demande qui commence quand l'autre finit n'est pas un chevauchement.
+ */
+export function chevauchements(ouvertes) {
+  const p = placees(ouvertes);
+  const sortie = [];
+  for (let i = 0; i < p.length; i++) {
+    for (let j = i + 1; j < p.length; j++) {
+      const debut = Math.max(p[i].debut, p[j].debut);
+      const fin = Math.min(p[i].fin, p[j].fin);
+      const jours = Math.round((fin - debut) / JOUR);
+      if (jours >= 1) sortie.push({ a: p[i].numero, b: p[j].numero, debut, fin, jours });
+    }
+  }
+  return sortie;
+}
+
+/** DURÉE ET DATES DE L'ENSEMBLE : du début de la première demande placée à la fin de la dernière ; null s'il n'y en a aucune. */
+export function projet(ouvertes) {
+  const p = placees(ouvertes);
+  if (p.length === 0) return null;
+  const debut = Math.min(...p.map((d) => d.debut));
+  const fin = Math.max(...p.map((d) => d.fin));
+  return { debut, fin, jours: Math.max(1, Math.round((fin - debut) / JOUR)) };
+}
+
 /** Bornes de l'axe commun (du début de la plus ancienne ouverte à la fin la plus lointaine, aujourd'hui compris). */
 export function bornesEnchainement(ouvertes, maintenant = Date.now()) {
   let debut = maintenant, fin = maintenant;
@@ -61,7 +91,8 @@ export function bornesEnchainement(ouvertes, maintenant = Date.now()) {
 
 /** Résumé chiffré : nombre ouvertes, en retard, sans réponse (points morts), trous, chaînes. */
 export function resume(ouvertes, trous) {
+  const nbChevauchements = chevauchements(ouvertes).length;
   const nb = (e) => ouvertes.filter((d) => d.etat === e).length;
   return { ouvertes: ouvertes.length, en_cours: nb("en_cours"), en_retard: nb("en_retard"), points_morts: nb("point_mort") + nb("point_mort_declare"), sans_date: nb("sans_date"), a_remonter: nb("a_remonter"),
-    trous: trous.length, jours_a_l_arret: trous.reduce((s, t) => s + t.jours, 0) };
+    chevauchements: nbChevauchements, trous: trous.length, jours_a_l_arret: trous.reduce((s, t) => s + t.jours, 0) };
 }

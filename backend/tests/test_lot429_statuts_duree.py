@@ -37,6 +37,19 @@ def test_planning_enchaine_les_demandes_en_file():
     assert "C" not in plan                                                                  # sans durée : pas de place dans la file
 
 
+def test_debut_impose_permet_le_chevauchement_sans_decaler_la_file():
+    plan = dp.planifier([d("A", "remontee", "2026-11-10", 2, "semaine"), d("B", "remontee", "2026-11-11", 1, "semaine", "2026-11-20"),
+                         d("C", "remontee", "2026-11-12", 3, "jour")], J)
+    assert plan["A"]["debut"] == "2026-11-17" and plan["A"]["fin"] == "2026-12-01"
+    assert plan["B"]["debut"] == "2026-11-20" and plan["B"]["fin"] == "2026-11-27"          # chevauche A
+    assert plan["C"]["debut"] == "2026-12-01"                                               # la file continue après A, B ne l'a pas décalée
+
+
+def test_debut_impose_sans_duree_est_ignore_a_la_validation():
+    assert dp.valider_traitement({"statut": "remontee", "debut_le": "2026-11-20"}, J)["debut_le"] is None
+    assert dp.valider_traitement({"statut": "remontee", "debut_le": "2026-11-20", "duree_valeur": 1, "duree_unite": "jour"}, J)["debut_le"] == "2026-11-20"
+
+
 def test_la_file_attend_la_demande_en_cours():
     plan = dp.planifier([d("E", "en_cours", "2026-11-01", 2, "semaine", "2026-11-15"), d("A", "remontee", "2026-11-10", 5, "jour")], J)
     assert plan["E"]["fin"] == "2026-11-29" and plan["A"]["debut"] == "2026-11-29" and plan["A"]["fin"] == "2026-12-04"

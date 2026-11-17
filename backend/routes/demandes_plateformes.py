@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import Request  # au niveau du module : l'annotation de la route doit être résolue (from __future__)
@@ -27,7 +27,11 @@ from fastapi import Request  # au niveau du module : l'annotation de la route do
 from routes.contrats_plateformes import signature_valide
 
 TYPES = ("correction", "nouveaute")
-STATUTS = ("remontee", "realisee", "refusee")
+# Lot 429 : « remontee » = En attente ; « en_cours » = SAWALI y travaille ; « point_mort » = travail arrêté (raison obligatoire) ; puis réalisée / refusée.
+STATUTS = ("remontee", "en_cours", "point_mort", "realisee", "refusee")
+OUVERTS = ("remontee", "en_cours", "point_mort")          # statuts « non terminés »
+# Durée estimée : unité → nombre de jours (mois = 30 j, année = 365 j : estimation de planning, pas un calendrier)
+UNITES_JOURS = {"jour": 1, "semaine": 7, "mois": 30, "annee": 365}
 MAX_PAR_ENVOI = 100
 MAX_TEXTE = 2000
 
@@ -57,10 +61,64 @@ def nettoyer_envoi(brut: Any) -> List[Dict[str, Any]]:
     return sortie
 
 
-def vue_pour_plateforme(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Ce que la plateforme relit pour chaque demande (jamais de note interne)."""
+def duree_en_jours(valeur: Any, unite: Any) -> Optional[int]:
+    """Durée estimée convertie en jours ; None si absente ou invalide."""
+    try:
+        v = int(valeur)
+    except (TypeError, ValueError):
+        return None
+    if unite not in UNITES_JOURS or v < 1:
+        return None
+    return v * UNITES_JOURS[unite]
+
+
+def _jour(valeur: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(valeur)[:10]) if valeur else None
+    except ValueError:
+        return None
+
+
+def planifier(demandes: List[Dict[str, Any]], aujourdhui: date) -> Dict[str, Dict[str, Any]]:
+    """PLANNING (diagramme de Gantt) : logique pure, testée. Entrée : demandes de TOUTES les plateformes (clés : cle, statut, recue_le,
+    duree_valeur, duree_unite, debut_le). Sortie : cle → {debut, fin, jours, retard_jours} (dates ISO).
+      - « en_cours » : commence à `debut_le` (aujourd'hui si absent) et dure sa durée estimée ; sans durée, pas de fin connue.
+      - « remontee » (en attente) : mises en file dans l'ordre d'arrivée ; la 1re commence quand le travail en cours est fini (ou aujourd'hui),
+        chacune commence à la fin de la précédente. Sans durée estimée, une demande ne peut pas être placée (et n'avance pas la file).
+      - « point_mort » : sort de la file (le travail est arrêté) ; ne décale personne ; seul son début connu est rendu.
+      - réalisées et refusées : absentes."""
+    plan: Dict[str, Dict[str, Any]] = {}
+    curseur = aujourdhui
+    for d in sorted((x for x in demandes if x.get("statut") == "en_cours"), key=lambda x: (x.get("debut_le") or "", x.get("recue_le") or "")):
+        debut = _jour(d.get("debut_le")) or aujourdhui
+        jours = duree_en_jours(d.get("duree_valeur"), d.get("duree_unite"))
+        fin = debut + timedelta(days=jours) if jours else None
+        plan[d["cle"]] = {"debut": debut.isoformat(), "fin": fin.isoformat() if fin else None, "jours": jours,
+                          "retard_jours": (aujourdhui - fin).days if fin and fin < aujourdhui else 0}
+        if fin and fin > curseur:
+            curseur = fin
+    for d in sorted((x for x in demandes if x.get("statut") == "remontee"), key=lambda x: x.get("recue_le") or ""):
+        jours = duree_en_jours(d.get("duree_valeur"), d.get("duree_unite"))
+        if not jours:
+            continue                                        # sans durée : pas de place dans la file
+        fin = curseur + timedelta(days=jours)
+        plan[d["cle"]] = {"debut": curseur.isoformat(), "fin": fin.isoformat(), "jours": jours, "retard_jours": 0}
+        curseur = fin
+    for d in demandes:
+        if d.get("statut") == "point_mort":
+            debut = _jour(d.get("debut_le"))
+            plan[d["cle"]] = {"debut": debut.isoformat() if debut else None, "fin": None, "jours": duree_en_jours(d.get("duree_valeur"), d.get("duree_unite")), "retard_jours": 0}
+    return plan
+
+
+def vue_pour_plateforme(d: Dict[str, Any], plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Ce que la plateforme relit pour chaque demande (jamais de note interne). La date prévue est celle du PLANNING quand une durée est connue."""
+    p = plan or {}
     return {"ref_locale": d.get("ref_locale"), "numero": d.get("numero"), "statut": d.get("statut") or "remontee",
-            "commentaire": d.get("commentaire"), "realisee_le": d.get("realisee_le"), "prevue_le": d.get("prevue_le")}
+            "commentaire": d.get("commentaire"), "realisee_le": d.get("realisee_le"),
+            "prevue_le": p.get("fin") or d.get("prevue_le"), "debut_prevu_le": p.get("debut"),
+            "duree_valeur": d.get("duree_valeur"), "duree_unite": d.get("duree_unite"),
+            "historique": d.get("historique") or []}
 
 
 def modifiable(demande: Dict[str, Any]) -> bool:
@@ -72,7 +130,7 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
     """Champs à enregistrer quand l'administrateur traite une demande ; ValueError (message lisible) si incohérent."""
     statut = corps.get("statut")
     if statut not in STATUTS:
-        raise ValueError("Statut attendu : remontee, realisee ou refusee")
+        raise ValueError("Statut attendu : remontee, en_cours, point_mort, realisee ou refusee")
     commentaire = str(corps.get("commentaire") or "").strip()[:MAX_TEXTE] or None
 
     def jour(cle: str) -> Optional[str]:
@@ -84,7 +142,28 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
         except ValueError:
             raise ValueError(f"Date « {cle} » invalide (AAAA-MM-JJ)")
     realisee_le, prevue_le = jour("realisee_le"), jour("prevue_le")
-    if statut == "realisee":
+    # Durée estimée (lot 429) : un nombre entier de jours, semaines, mois ou années ; vide = non estimée
+    duree_valeur, duree_unite = corps.get("duree_valeur"), corps.get("duree_unite")
+    if duree_valeur in (None, ""):
+        duree_valeur = duree_unite = None
+    else:
+        if duree_unite not in UNITES_JOURS:
+            raise ValueError("Unité de durée attendue : jour, semaine, mois ou annee")
+        try:
+            duree_valeur = int(duree_valeur)
+        except (TypeError, ValueError):
+            raise ValueError("La durée doit être un nombre entier")
+        if not 1 <= duree_valeur <= 999:
+            raise ValueError("La durée doit être comprise entre 1 et 999")
+    debut_le = jour("debut_le")
+    if statut == "en_cours":
+        debut_le = debut_le or aujourdhui.isoformat()
+        realisee_le = prevue_le = None
+    elif statut == "point_mort":
+        if not commentaire:
+            raise ValueError("Indiquez la raison du point mort dans le commentaire")
+        realisee_le = prevue_le = None
+    elif statut == "realisee":
         realisee_le = realisee_le or aujourdhui.isoformat()
         prevue_le = None
     elif statut == "refusee":
@@ -93,7 +172,8 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
         realisee_le = prevue_le = None
     else:
         realisee_le = None
-    return {"statut": statut, "commentaire": commentaire, "realisee_le": realisee_le, "prevue_le": prevue_le}
+    return {"statut": statut, "commentaire": commentaire, "realisee_le": realisee_le, "prevue_le": prevue_le,
+            "duree_valeur": duree_valeur, "duree_unite": duree_unite, "debut_le": debut_le}
 
 
 # =====================================================================================
@@ -107,6 +187,13 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
     def _admin(user: dict) -> None:
         if user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+
+    async def _planning_global() -> Dict[str, Dict[str, Any]]:
+        """Planning de TOUTES les demandes ouvertes de toutes les plateformes (une seule chaîne : le travail se fait l'un après l'autre)."""
+        toutes: List[Dict[str, Any]] = []
+        async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "demandes": 1}):
+            toutes += [{**d, "cle": d.get("numero")} for d in e.get("demandes") or [] if d.get("statut", "remontee") in OUVERTS]
+        return planifier(toutes, date.today())
 
     @api.post("/webhook/plateforme-demandes", tags=["Plateformes — demandes"])
     async def recevoir(request: Request):
@@ -153,10 +240,12 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
             premier = int((apres or {}).get("demandes_compteur") or len(nouvelles)) - len(nouvelles) + 1
             maintenant = datetime.now(timezone.utc).isoformat()
             ajout = [{**d, "numero": numero_demande(code, premier + i), "statut": "remontee", "recue_le": maintenant,
-                      "commentaire": None, "realisee_le": None, "prevue_le": None} for i, d in enumerate(nouvelles)]
+                      "commentaire": None, "realisee_le": None, "prevue_le": None,
+                      "duree_valeur": None, "duree_unite": None, "debut_le": None, "historique": []} for i, d in enumerate(nouvelles)]
             await db.liluvine_emetteurs.update_one({"code": code}, {"$push": {"demandes": {"$each": ajout}}})
             existantes = existantes + ajout
-        return {"demandes": [vue_pour_plateforme(d) for d in existantes], "refus": refus}
+        plan = await _planning_global()
+        return {"demandes": [vue_pour_plateforme(d, plan.get(d.get("numero"))) for d in existantes], "refus": refus}
 
     @api.get("/admin/plateformes/demandes", tags=["Plateformes — demandes"])
     async def lister(q: str = "", user: dict = Depends(get_current_user)):
@@ -164,12 +253,15 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
         _admin(user)
         mots = [m for m in re.split(r"\s+", q.lower().strip()) if m]
         sortie: List[Dict[str, Any]] = []
+        plan = await _planning_global()
         async for e in db.liluvine_emetteurs.find({"demandes.0": {"$exists": True}}, {"_id": 0, "secret": 0}):
             for d in e.get("demandes") or []:
                 botte = " ".join(str(x or "") for x in (e.get("code"), e.get("nom"), d.get("numero"), d.get("texte"),
                                                          d.get("commentaire"), d.get("statut"), d.get("type"))).lower()
                 if all(m in botte for m in mots):
-                    sortie.append({**d, "plateforme": e.get("code"), "plateforme_nom": e.get("nom") or e.get("code")})
+                    p = plan.get(d.get("numero")) or {}
+                    sortie.append({**d, "plateforme": e.get("code"), "plateforme_nom": e.get("nom") or e.get("code"),
+                                   "debut_prevu_le": p.get("debut"), "fin_prevue_le": p.get("fin"), "retard_jours": p.get("retard_jours", 0)})
         sortie.sort(key=lambda d: d.get("recue_le") or "", reverse=True)
         return {"demandes": sortie}
 
@@ -182,10 +274,18 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
             champs = valider_traitement(corps if isinstance(corps, dict) else {}, date.today())
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        champs["traitee_le"] = datetime.now(timezone.utc).isoformat()
-        res = await db.liluvine_emetteurs.update_one(
-            {"code": code.strip().lower(), "demandes.numero": numero},
-            {"$set": {f"demandes.$.{k}": v for k, v in champs.items()}})
-        if res.matched_count == 0:
+        maintenant = datetime.now(timezone.utc).isoformat()
+        champs["traitee_le"] = maintenant
+        ajout = {k: v for k, v in champs.items() if not (k == "debut_le" and v is None)}   # un début déjà connu n'est pas effacé
+        filtre = {"code": code.strip().lower(), "demandes.numero": numero}
+        avant = await db.liluvine_emetteurs.find_one({"code": filtre["code"]}, {"_id": 0, "demandes": 1})
+        cible = next((x for x in ((avant or {}).get("demandes") or []) if x.get("numero") == numero), None)
+        if cible is None:
             raise HTTPException(status_code=404, detail="Demande introuvable")
+        ancien = cible.get("statut") or "remontee"
+        await db.liluvine_emetteurs.update_one(filtre, {"$set": {f"demandes.$.{k}": v for k, v in ajout.items()}})
+        # Historique des changements de statut (lot 429) : permet de voir les arrêts et les REPRISES dans le diagramme de Gantt
+        if champs["statut"] != ancien:
+            rang = ((avant or {}).get("demandes") or []).index(cible)          # position dans la liste (chemin sans « $ » : même effet, plus portable)
+            await db.liluvine_emetteurs.update_one({"code": filtre["code"]}, {"$push": {f"demandes.{rang}.historique": {"statut": champs["statut"], "le": maintenant}}})
         return {"ok": True, **champs}

@@ -15,7 +15,7 @@ export function enMs(valeur) {
 /** Date estimée d'une demande : réalisée → date de réalisation ; remontée → date prévue ; refusée ou sans date → null. */
 export function dateEstimee(d) {
   if (d.statut === "realisee") return enMs(d.realisee_le);
-  if (d.statut === "remontee") return enMs(d.prevue_le);
+  if (d.statut === "remontee" || d.statut === "en_cours") return enMs(d.prevue_le);     // lot 429 : la date prévue vient du planning (durée estimée)
   return null;
 }
 
@@ -50,6 +50,7 @@ export function barreGantt(d, b, maintenant = Date.now()) {
   const jourFr = (t) => new Date(t).toLocaleDateString("fr-FR");
   if (d.statut === "a_remonter") return { gauche, largeur: 0, etat: "a_remonter", libelle: "Pas encore envoyée à SAWALI", jours: null };
   if (d.statut === "refusee") return sortie(debut + JOUR, "refusee", "Refusée par SAWALI");
+  if (d.statut === "point_mort") return sortie(maintenant, "point_mort", "Point mort : le travail est arrêté");
   const fin = dateEstimee(d);
   if (d.statut === "realisee") return sortie(fin ?? maintenant, "realisee", `Réalisée le ${jourFr(fin ?? maintenant)}`);
   if (fin === null) return sortie(maintenant, "sans_date", "Date de disponibilité à venir");

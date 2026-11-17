@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "429", "date": "2026-11-17",
+        "titre": "📮 Demandes des plateformes : « En cours », « Point mort » et durée estimée (Gantt)",
+        "description": "Les demandes ont maintenant les statuts En cours et Point mort, et une durée estimée (jours, semaines, mois, années) qui place chaque demande dans un vrai diagramme de Gantt : elle commence quand la précédente se termine. Le détail est repris dans le bloc de traitement, la demande en cours d'édition reste sélectionnée.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "428", "date": "2026-11-17",
         "titre": "📮 Demandes des plateformes : aperçu de 20 caractères, bouton Détails et vue d'enchaînement",
         "description": "Les demandes, souvent longues, n'affichent plus que leurs 20 premiers caractères : « Détails » ouvre la demande complète dans une fenêtre. Une vue d'ensemble montre l'enchaînement des demandes non terminées, les retards et les points morts.",

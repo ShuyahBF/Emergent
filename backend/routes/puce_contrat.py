@@ -435,6 +435,51 @@ def setup_puce_contrat_routes(*, db, api, get_current_user,
         except (TypeError, ValueError):
             return {"forfait": 0.0}
 
+    async def _client_visible_du_contact(user: dict, contact_id: str):
+        """(fiche du client principal, nom) du client relié à un contact que l'utilisateur voit ; None sinon (mêmes règles que le forfait et la puce)."""
+        ctx = await _contexte(user)
+        if ctx is None:
+            return None
+        contact = await db.directory_contacts.find_one(
+            {"id": str(contact_id or ""), "client_id": {"$in": ctx["visibles_ids"]}},
+            {"_id": 0, "id": 1, "email": 1, "phone": 1, "whatsapp": 1, "company": 1})
+        if not contact or not a_une_societe(contact):
+            return None
+        index = await _index()
+        client, _critere = index.client_du_contact(contact)
+        if not client or est_interne(client, ctx["internes"], ctx["domaines"]):
+            return None
+        principal = index.principal(client) or client
+        fiche = await db.users.find_one({"id": principal.get("id")}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "offre_client": 1}) or {}
+        return fiche if fiche.get("id") else None
+
+    @api.post("/me/contact-offre", tags=["Portail Client"])
+    async def offre_du_contact(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Lot 431 — « Produits et services » du client relié à un contact (onglet de la conversation), SANS tarifs.
+        Réponse : {client, lignes, modifiable} ; client = null si le contact n'est relié à aucun client (ou est interne à SAWALI)."""
+        from routes.offre_client import normaliser_offre, peut_modifier_offre, vue_sans_tarif
+        fiche = await _client_visible_du_contact(user, payload.get("contact_id"))
+        modifiable = peut_modifier_offre(user.get("role"))
+        if not fiche:
+            return {"client": None, "lignes": [], "modifiable": modifiable}
+        return {"client": {"id": fiche["id"], "nom": fiche.get("company") or fiche.get("full_name") or ""},
+                "lignes": vue_sans_tarif(normaliser_offre(fiche.get("offre_client"))), "modifiable": modifiable}
+
+    @api.put("/me/contact-offre", tags=["Portail Client"])
+    async def modifier_offre_du_contact(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Lot 431 — édition des produits et services depuis la conversation : SUPERVISEUR (et administrateur) seulement. N'écrit jamais de tarif."""
+        from fastapi import HTTPException
+        from routes.offre_client import modifier_sans_tarif, normaliser_offre, peut_modifier_offre, vue_sans_tarif
+        if not peut_modifier_offre(user.get("role")):
+            raise HTTPException(status_code=403, detail="Réservé au superviseur")
+        fiche = await _client_visible_du_contact(user, payload.get("contact_id"))
+        if not fiche:
+            raise HTTPException(status_code=404, detail="Aucun client relié à ce contact")
+        lignes = modifier_sans_tarif(normaliser_offre(fiche.get("offre_client")), payload.get("lignes"))
+        maj = {"le": datetime.now(timezone.utc).isoformat(), "par": user.get("full_name") or user.get("email")}
+        await db.users.update_one({"id": fiche["id"]}, {"$set": {"offre_client": lignes, "offre_client_maj": maj}})
+        return {"ok": True, "lignes": vue_sans_tarif(lignes), "maj": maj}
+
     @api.post("/me/contacts-contrats", tags=["Portail Client"])
     async def contrats_des_contacts(payload: DemandeContrats, user: dict = Depends(get_current_user)):
         """Lot 120 — puce « contrat » des contacts du Centre de messagerie, en UNE requête pour toute la liste.

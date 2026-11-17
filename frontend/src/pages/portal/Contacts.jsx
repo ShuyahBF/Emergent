@@ -19,6 +19,7 @@ import {
 import { CalendarDays } from "lucide-react";                          // lot 41
 import { Phone, PhoneCall, Forward } from "lucide-react";              // lot 71.1 : pictogrammes de l'en-tête de conversation
 import CalendrierModal from "@/components/CalendrierModal";           // lot 41
+import OffreConversation from "@/components/OffreConversation";       // lot 431 : onglet « Produits & services » (sans tarifs)
 import SuiviRdv from "@/components/SuiviRdv";                         // lot 292 : onglet « Suivi des RDV »
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -2614,8 +2615,24 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           >
             Groupes ({groupCount})
           </button>
+          <button
+            type="button"
+            onClick={() => setConvTab("offre")}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              convTab === "offre"
+                ? "text-sawali-blue border-b-2 border-sawali-blue bg-white"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+            role="tab"
+            aria-selected={convTab === "offre"}
+            data-testid="wa-tab-offre"
+          >
+            Produits &amp; services
+          </button>
         </div>
-        {convTab === "groups" ? (
+        {convTab === "offre" ? (
+          <OffreConversation contact={contact} />
+        ) : convTab === "groups" ? (
           <div className="flex-1 overflow-y-auto px-5 py-4" data-testid="wa-tab-groups-content">
             <ContactGroupChips
               contact={contact}

@@ -76,6 +76,7 @@ def test_chaque_carte_ouvre_une_rubrique_des_parametres():
             assert n["rubrique"] in rubriques, f"rubrique introuvable dans les Paramètres : {n['rubrique']} ({n['titre']})"
         else:
             # Exceptions du propriétaire : le formulaire des automates vit dans la page Formulaires (06/11/2026) ; les demandes des plateformes ont leur
-            # propre option du menu « Plateformes », ce n'est pas un paramétrage (14/11/2026)
-            assert n.get("lien") in ("/admin/settings", "/admin/forms", "/admin/forms?automates=1", "/admin/demandes-plateformes", "/admin/transactions-sms"), (
+            # propre option du menu « Plateformes », ce n'est pas un paramétrage (14/11/2026) ; l'onglet « Produits & services » vit dans une conversation du
+            # Centre de messagerie (lot 431) : il n'a aucun réglage à présenter dans les Paramètres
+            assert n.get("lien") in ("/admin/settings", "/admin/forms", "/admin/forms?automates=1", "/admin/demandes-plateformes", "/admin/transactions-sms", "/portal/contacts"), (
                 f"la carte « {n['titre']} » ouvre {n.get('lien')} hors des Paramètres : créez sa rubrique")

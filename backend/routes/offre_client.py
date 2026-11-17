@@ -447,6 +447,38 @@ class CopieOffreIn(BaseModel):
     mode: str = Field(default="ajouter", pattern="^(remplacer|ajouter)$")
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Lot 431 — « Produits et services » dans une conversation du Centre de messagerie : l'offre du client relié au contact, SANS aucun tarif.
+# Lecture pour toute l'équipe qui voit le contact ; édition réservée au superviseur (et à l'administrateur). Les tarifs, échéances et rappels
+# d'une ligne existante ne sont JAMAIS touchés par cette édition (ils s'éditent dans la fiche du client).
+# ---------------------------------------------------------------------------------------------------------------------
+CHAMPS_SANS_TARIF = ("id", "type", "nom", "description", "version", "actif")
+ROLES_EDITION_OFFRE = ("admin", "superviseur")
+
+
+def vue_sans_tarif(lignes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Lignes de l'offre sans montant, devise, échéance ni rappel : seulement ce qu'on peut montrer en conversation."""
+    return [{k: l.get(k) for k in CHAMPS_SANS_TARIF} for l in lignes or []]
+
+
+def peut_modifier_offre(role: Any) -> bool:
+    return str(role or "") in ROLES_EDITION_OFFRE
+
+
+def modifier_sans_tarif(existantes: List[Dict[str, Any]], nouvelles: Any) -> List[Dict[str, Any]]:
+    """Applique une édition faite SANS tarifs : une ligne dont l'identifiant est connu garde tout son tarif / échéance / rappels et ne change que
+    type, nom, description, version, actif ; une ligne nouvelle part des valeurs par défaut (montant 0) ; une ligne absente de `nouvelles` est retirée."""
+    par_id = {l["id"]: l for l in existantes or []}
+    fusion: List[Dict[str, Any]] = []
+    for n in (nouvelles if isinstance(nouvelles, list) else [])[:MAX_LIGNES]:
+        if not isinstance(n, dict):
+            continue
+        base = par_id.get(str(n.get("id") or ""))
+        champs = {k: n.get(k) for k in ("type", "nom", "description", "version", "actif")}
+        fusion.append({**(base or {}), **champs, "id": base["id"] if base else None})
+    return normaliser_offre(fusion)
+
+
 def fusionner_offre(existante: List[Dict[str, Any]], copiee: List[Dict[str, Any]], mode: str) -> Tuple[List[Dict[str, Any]], int]:
     """Lot 169 — liste obtenue en copiant `copiee` sur `existante`, et nombre de lignes reprises.
     `remplacer` : la liste devient la copie ; `ajouter` : on garde l'existante et on ajoute les lignes absentes (même type

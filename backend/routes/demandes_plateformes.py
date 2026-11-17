@@ -17,8 +17,12 @@
 #     « refusee » (commentaire) ; la plateforme les relit à chaque échange.
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
 import json
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +45,27 @@ PIECE_MAX_OCTETS = 400 * 1024                   # par pièce, après décodage
 PIECES_TOTAL_MAX = 8 * 1024 * 1024              # total par plateforme (le document de l'émetteur reste très en dessous de la limite de 16 Mo de MongoDB)
 # Type accepté → début attendu du fichier (le type DÉCLARÉ n'est pas cru : on vérifie les premiers octets)
 SIGNATURES_PIECES = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",), "image/webp": (b"RIFF",), "application/pdf": (b"%PDF-",)}
+
+
+async def prevenir_plateforme(db, code: str, delai: float = 5.0) -> bool:
+    """Lot 433 — TEMPS RÉEL : après un traitement chez SAWALI, la plateforme est PRÉVENUE tout de suite (POST signé « demandes_maj » à son URL de retour, même canal et même
+    signature que « stats_du_jour »). Le signal ne contient aucune donnée : la plateforme relit elle-même ses demandes par son canal signé habituel. Jamais bloquant : une
+    plateforme injoignable ou sans URL de retour est ignorée (elle se mettra à jour à sa prochaine relecture). Rend vrai si la plateforme a accusé réception."""
+    import httpx
+    from routes.stats_plateformes import adresse_stats
+    emetteur = await db.liluvine_emetteurs.find_one({"code": (code or "").strip().lower()}, {"_id": 0}) or {}
+    url, cle = adresse_stats(emetteur), (emetteur.get("secret") or "").encode()
+    if not url or not cle:
+        return False
+    corps = json.dumps({"type": "demandes_maj"}, ensure_ascii=False)
+    ts = str(int(time.time()))
+    signature = hmac.new(cle, f"{ts}.{corps}".encode(), hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=delai) as http:
+            r = await http.post(url, content=corps.encode(), headers={"Content-Type": "application/json", "X-Emetteur": "sawali", "X-Timestamp": ts, "X-Signature": signature})
+        return r.status_code < 300
+    except Exception:   # noqa: BLE001 — jamais bloquant
+        return False
 
 
 # =====================================================================================
@@ -375,4 +400,6 @@ def setup_demandes_plateformes_routes(*, db, api, get_current_user) -> None:
         if champs["statut"] != ancien:
             rang = ((avant or {}).get("demandes") or []).index(cible)          # position dans la liste (chemin sans « $ » : même effet, plus portable)
             await db.liluvine_emetteurs.update_one({"code": filtre["code"]}, {"$push": {f"demandes.{rang}.historique": {"statut": champs["statut"], "le": maintenant}}})
+        # Lot 433 : la plateforme est prévenue À L'INSTANT, en arrière-plan (la réponse au superviseur n'attend pas)
+        asyncio.create_task(prevenir_plateforme(db, filtre["code"]))
         return {"ok": True, **champs}

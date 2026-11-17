@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "433", "date": "2026-11-17",
+        "titre": "⚡ Demandes des plateformes : échange en temps réel",
+        "description": "Dès que vous traitez une demande, la plateforme (ALBARKA…) est prévenue à l'instant et se met à jour ; et ses nouvelles demandes arrivent chez vous sans attendre.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "432", "date": "2026-11-17",
         "titre": "💬 Paiements SMS : suggestions à valider",
         "description": "Les paiements reçus par SMS dont le numéro est associé à un client sont proposés en suggestions : vous validez ou écartez, rien n'est enregistré sans vous (Admin → Clients).",

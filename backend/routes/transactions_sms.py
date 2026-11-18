@@ -427,6 +427,36 @@ def statistiques(items: List[Dict[str, Any]], par_mois: bool = False, genre_clas
             "parts": parts, "total_classement": total_genre}
 
 
+def evaluer_terme(terme: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Lot 435 — « Évaluer un terme » (comme dans l'historique d'auRor) : pour les transactions (déjà filtrées sur le terme), les chiffres MOIS PAR MOIS, dépenses et recettes
+    à part, le total, la moyenne par mois, la plus grosse dépense, la répartition par opérateur et les dernières opérations. Fonction pure, testée."""
+    mois: Dict[str, Dict[str, Any]] = {}
+    ops: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"nombre": 0, "depenses": 0, "recettes": 0})
+    for p in items:
+        m = mois.setdefault(mois_de(p["ms"]), {"mois": mois_de(p["ms"]), "occurrences": 0, "nb_depenses": 0, "depenses": 0, "nb_recettes": 0, "recettes": 0})
+        m["occurrences"] += 1
+        o = ops[p["operateur"]]
+        o["nombre"] += 1
+        if p["genre"] == "DEPENSE":
+            m["nb_depenses"] += 1; m["depenses"] += p["montant"]; o["depenses"] += p["montant"]
+        else:
+            m["nb_recettes"] += 1; m["recettes"] += p["montant"]; o["recettes"] += p["montant"]
+    par_mois = [mois[k] for k in sorted(mois)]
+    dep = [p["montant"] for p in items if p["genre"] == "DEPENSE"]
+    rec = [p["montant"] for p in items if p["genre"] == "RECETTE"]
+    mois_dep = [m for m in par_mois if m["nb_depenses"]]
+    mois_rec = [m for m in par_mois if m["nb_recettes"]]
+    ms = sorted(p["ms"] for p in items)
+    jour = lambda v: datetime.fromtimestamp(v / 1000, timezone.utc).strftime("%Y-%m-%d")
+    recentes = sorted(items, key=lambda p: p["ms"], reverse=True)[:200]
+    return {"terme": terme, "occurrences": len(items), "nb_depenses": len(dep), "depenses": sum(dep), "nb_recettes": len(rec), "recettes": sum(rec),
+            "plus_grosse_depense": max(dep, default=0), "moyenne_mensuelle_depenses": sum(dep) // len(mois_dep) if mois_dep else 0,
+            "moyenne_mensuelle_recettes": sum(rec) // len(mois_rec) if mois_rec else 0,
+            "premiere": jour(ms[0]) if ms else None, "derniere": jour(ms[-1]) if ms else None, "par_mois": par_mois,
+            "par_operateur": sorted(({"operateur": k, **v} for k, v in ops.items()), key=lambda o: o["nombre"], reverse=True),
+            "operations": [{"ms": p["ms"], "operateur": p["operateur"], "genre": p["genre"], "tiers": p.get("tiers") or "", "reference": p.get("reference") or "", "montant": p["montant"]} for p in recentes]}
+
+
 def csv_de(items: List[Dict[str, Any]]) -> str:
     """Export CSV (séparateur « ; », accents conservés, BOM pour Excel) des transactions affichées."""
     sortie = io.StringIO()
@@ -789,6 +819,19 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         # `id` = identité de la transaction (sert à corriger sa catégorie) ; `k` n'est jamais montré tel quel
         retire = [{**{k: v for k, v in p.items() if k != "k"}, "id": p["k"]} for p in items[max(0, decalage):max(0, decalage) + limite]]
         return {"total": len(items), "transactions": retire, "exclus": dict(exclus), "stats": statistiques([p for p in tout if p.get("categorie") == "transaction"], par_mois, classement if classement in GENRES else "DEPENSE")}
+
+    @api.get("/admin/transactions-sms/evaluation-terme", tags=["Transactions SMS — écran"])
+    async def evaluation_terme(terme: str = "", du: str = "", au: str = "", evaluer: bool = False, operateur: str = "", source: str = "", user: dict = Depends(get_current_user)):
+        """Lot 435 — « Évaluer un terme » (bénéficiaire, marchand, motif, numéro, référence… : SONABEL, Pharmacie…). Sans `evaluer` : seulement le NOMBRE d'occurrences (cherché pendant la frappe) ;
+        avec `evaluer` : les chiffres mois par mois. Seules les TRANSACTIONS comptent (promos, alertes et messages sont écartés)."""
+        _admin(user)
+        terme = " ".join((terme or "").split())
+        if len(terme) < 2:
+            raise HTTPException(status_code=422, detail="Tapez au moins 2 caractères")
+        items = await _filtrees(du, au, operateur, "", terme, source, "", "")
+        if not evaluer:
+            return {"terme": terme, "occurrences": len(items)}
+        return evaluer_terme(terme, items)
 
     @api.get("/admin/transactions-sms/export.csv", tags=["Transactions SMS — écran"])
     async def exporter(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "", categorie: str = "",

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.8", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : dossiers et noms en une requête",
+        "description": "Chaque base étant complète et autonome, la page lit les dossiers ET les noms des patients en une seule requête par tranche (jointure sur Numéro_Enreg) : environ deux fois moins de requêtes. Si la base refuse la jointure, la lecture en parallèle du lot 449.7 prend le relais.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.7", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : noms lus en parallèle",
         "description": "Les noms des patients sont maintenant lus pendant que les dossiers sont lus : ils apparaissent au fur et à mesure (les plus récents d'abord) au lieu d'attendre la fin des dossiers.",

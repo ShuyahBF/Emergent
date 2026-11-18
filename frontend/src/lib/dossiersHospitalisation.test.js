@@ -1,7 +1,7 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
   FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
+  dansLaPeriode, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetreJointure, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
 const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé"];
@@ -54,6 +54,22 @@ describe("lecture des cellules", () => {
     expect(libellePatient({ codePatient: 321 }, noms)).toBe("BADINI Awa");
     expect(libellePatient({ codePatient: 999 }, noms)).toBe("Code n° 999");
     expect(libellePatient({ codePatient: null }, noms)).toBe("—");
+  });
+});
+
+describe("jointure dossiers + patients (une requête par tranche)", () => {
+  test("requête : une seule instruction, LEFT JOIN sur Numéro_Enreg, 200 lignes au plus", () => {
+    const sql = sqlFenetreJointure(105001, 105200);
+    expect(sql).toContain("FROM [DOSSIER EXAMEN] D LEFT JOIN [Patient] P ON D.[Numéro_Enreg] = P.[Numéro_Enreg]");
+    expect(sql).toContain("WHERE D.[Dos_num] >= 105001 AND D.[Dos_num] <= 105200 LIMIT 200");
+    assert.ok(!sql.includes(";"));
+  });
+  test("noms lus dans le résultat ; null si ce n'est pas une jointure", () => {
+    const cols = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé", "Nom", "Prénoms"];
+    const lignes = [["1", "x", "2026-11-18", "10:00", "0", "321", "AB", "1", "DIALLO", "Ousseni"], ["2", "x", "2026-11-18", "10:01", "0", "654", "AB", "0", "", ""], ["3", "x", "2026-11-18", "10:02", "0", "", "AB", "0", "ZONGO", "R"]];
+    expect(lireNomsJointure(lignes, cols)).toEqual({ 321: "DIALLO Ousseni" });             // patient absent (LEFT JOIN) ou code illisible : ignorés
+    expect(lireNomsJointure(lignes, ["Dos_num", "Dos_lib"])).toBeNull();
+    expect(lireNomsJointure(lignes, ["DOS_NUM", "NUMERO_ENREG", "NOM", "PRENOMS"])).toEqual({});   // accents et casse ignorés (indices décalés : aucune ligne valide)
   });
 });
 

@@ -17,7 +17,7 @@ import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  lireNoms, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
+  lireNoms, lireNomsJointure, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -110,6 +110,7 @@ export default function LooisDossiersHospitalisation() {
     let termine = false;
     let retenus = [];
     let toutesColonnes = false;          // repli : lecture avec toutes les colonnes si le nom exact d'une colonne est refusé
+    let modeJointure = true;             // dossiers ET noms en UNE requête (jointure) ; repli sur « dossiers puis noms » si HFSQL la refuse (première tranche)
     // ---- Noms des patients EN PARALLÈLE des dossiers (retour du propriétaire, 18/11/2026) : la lecture des dossiers dépose les codes de patients dans une FILE
     // (les plus récents d'abord) ; ce travail les prend par paquets de 150 pendant que les dossiers continuent d'être lus, et affiche chaque nom dès qu'il arrive.
     // Chez un client à UNE seule machine les requêtes passent l'une après l'autre (le temps total est le même) mais les noms apparaissent tout de suite ;
@@ -155,21 +156,42 @@ export default function LooisDossiersHospitalisation() {
         const { bas, haut: h } = fenetre(haut);
         setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus) · noms de patients lus : ${Object.keys(nomsLus).length}…`);
         let r;
-        try {
-          r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h));
-        } catch (e) {
-          if (e instanceof Annulation || toutesColonnes || n > 0) throw e;   // le repli ne sert qu'à la PREMIÈRE tranche
-          toutesColonnes = true;
-          toast.warning("Une colonne a été refusée : lecture avec toutes les colonnes.");
-          r = await executer(clientLu, sqlFenetreToutes(bas, h));
+        let nomsJoints = null;
+        if (modeJointure) {
+          // Chaque base est complète et autonome (propriétaire, 18/11/2026) : dossiers et patients sont dans la même base, une jointure donne les deux en une requête
+          try {
+            r = await executer(clientLu, sqlFenetreJointure(bas, h));
+            nomsJoints = lireNomsJointure(r.lignes, r.colonnes);
+            if (nomsJoints === null) throw new Error("Résultat de la jointure sans colonnes Nom / Prénoms.");
+          } catch (e) {
+            if (e instanceof Annulation || n > 0) throw e;                    // le repli ne sert qu'à la PREMIÈRE tranche
+            modeJointure = false; r = undefined; nomsJoints = null;
+            toast.info("Jointure dossiers + patients non acceptée : lecture en deux temps (dossiers puis noms).");
+          }
+        }
+        if (!modeJointure) {
+          try {
+            r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h));
+          } catch (e) {
+            if (e instanceof Annulation || toutesColonnes || n > 0) throw e;   // le repli ne sert qu'à la PREMIÈRE tranche
+            toutesColonnes = true;
+            toast.warning("Une colonne a été refusée : lecture avec toutes les colonnes.");
+            r = await executer(clientLu, sqlFenetreToutes(bas, h));
+          }
         }
         if (r.tronque && r.lignes.length < TAILLE_FENETRE) throw new Error("Résultat trop volumineux pour une réponse distante : réduisez la période.");
         const lus = r.lignes.map((l) => lireDossier(l, r.colonnes)).filter(Boolean);
         cumul = cumul.concat(lus);
         retenus = dansLaPeriode(cumul, debutIso, finIso);
         setDossiers(plusRecentsDabord(retenus));                                                // on affiche d'abord ce qui est prêt (règle 7), du plus récent au plus ancien
-        for (const d of dansLaPeriode(lus, debutIso, finIso)) {                                  // les patients de cette tranche rejoignent la file des noms
-          if (d.codePatient && !mis.has(d.codePatient)) { mis.add(d.codePatient); file.push(d.codePatient); }
+        if (modeJointure && nomsJoints) {
+          // Jointure : les noms de cette tranche sont déjà là ; les codes de la tranche sont « interrogés » (sans nom = patient vraiment introuvable)
+          nomsLus = { ...nomsLus, ...nomsJoints }; setNoms(nomsLus);
+          setInterroges((s) => new Set([...s, ...lus.map((d) => d.codePatient).filter(Boolean)]));
+        } else {
+          for (const d of dansLaPeriode(lus, debutIso, finIso)) {                                // deux temps : les patients de cette tranche rejoignent la file des noms
+            if (d.codePatient && !mis.has(d.codePatient)) { mis.add(d.codePatient); file.push(d.codePatient); }
+          }
         }
         haut = bas - 1;
         if (periodeDepassee(lus, debutIso) || haut <= 0) { termine = true; break; }

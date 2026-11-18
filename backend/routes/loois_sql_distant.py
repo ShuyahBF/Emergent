@@ -50,6 +50,7 @@ SANS_REPONSE = timedelta(minutes=10)       # machine qui a pris la requête mais
 EN_LIGNE = timedelta(minutes=12)           # même seuil que « Postes Windows — versions déployées »
 ESSAIS_CLE_MAX = 10                        # clés fausses par adresse IP et par 15 minutes
 CREATIONS_PAR_HEURE = 600          # lot 444 : une session distante (écrans de données) envoie beaucoup de petites requêtes
+SCRUTATION_VALIDE_S = 90           # lot 448.2 : une machine qui interroge SAWALI (« prochaine ») depuis moins de 90 s est « en ligne » pour les requêtes distantes
 SESSION_VALIDE_S = 180             # lot 444 : une session « client distant » ouverte dans Loois reste active 3 minutes après son dernier signal
 
 PREMIERS_MOTS = ("SELECT", "INSERT", "UPDATE", "DELETE")
@@ -204,6 +205,13 @@ def vue_requete(req: Dict[str, Any], avec_lignes: bool = True) -> Dict[str, Any]
     return sortie
 
 
+def machines_qui_scrutent(table: Dict[str, Dict[str, float]], client: str, maintenant: float) -> List[str]:
+    """Lot 448.2 : noms des machines d'un client qui ont interrogé SAWALI (« prochaine ») depuis moins de SCRUTATION_VALIDE_S secondes.
+    `table` = {code client : {machine : instant monotone du dernier appel}}. Une machine qui répond réellement aux requêtes est « en ligne »,
+    même si son signal de présence (toutes les 5 minutes) est en retard ou enregistré sous un autre nom."""
+    return sorted(m for m, t in (table.get(client) or {}).items() if maintenant - t <= SCRUTATION_VALIDE_S)
+
+
 def clients_en_ligne(fiches: List[Dict[str, Any]], maintenant: datetime) -> List[Dict[str, Any]]:
     """Regroupe les signaux de présence du service Windows par code de client : machines et état « en ligne » (vu depuis moins de 12 minutes)."""
     groupes: Dict[str, Dict[str, Any]] = {}
@@ -235,6 +243,7 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
     echecs: Dict[str, Deque[float]] = defaultdict(deque)       # adresse IP → instants des clés fausses
     sessions: Dict[str, float] = {}                            # lot 444 : code client → instant (monotone) du dernier signal d'une session Loois
     creations: Deque[float] = deque()
+    scrutations: Dict[str, Dict[str, float]] = defaultdict(dict)   # lot 448.2 : code client → {machine : instant du dernier « prochaine »} (mémoire seulement)
 
     def _ip(request: Request) -> str:
         return request.client.host if request.client else "inconnue"
@@ -304,6 +313,24 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             {"application": {"$regex": "^LooisSyncService", "$options": "i"}, "vu_le": {"$gte": seuil}},
             {"_id": 0, "site": 1, "machine": 1, "vu_le": 1})]
         liste = clients_en_ligne(fiches, _maintenant())
+        # Lot 448.2 : une machine qui interroge SAWALI en ce moment répond aux requêtes : son client est « en ligne », même sans signal de présence récent
+        instant = time.monotonic()
+        par_code = {c["code"]: c for c in liste}
+        for code_scrute in list(scrutations.keys()):
+            actives = machines_qui_scrutent(scrutations, code_scrute, instant)
+            if not actives:
+                continue
+            c = par_code.get(code_scrute)
+            if c is None:
+                c = {"code": code_scrute, "machines": [], "en_ligne": True}
+                liste.append(c)
+                par_code[code_scrute] = c
+            c["en_ligne"] = True
+            c["repond"] = True
+            for m in actives:
+                if m not in c["machines"]:
+                    c["machines"].append(m)
+        liste.sort(key=lambda g: g["code"])
         interdites = await _interdites_doc()
         vus = {c["code"] for c in liste}
         for c in liste:
@@ -475,6 +502,7 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         # Lot 447 : une machine INTERDITE pour ce client ne reçoit jamais de requête (elle voit « rien à faire ») ; la requête reste pour les autres machines
         if machine_interdite(poste["machine"], (await _interdites_doc()).get(poste["base"], [])):
             return Response(status_code=204)
+        scrutations[poste["base"]][poste["machine"]] = time.monotonic()      # lot 448.2 : cette machine répond en ce moment (jamais écrit en base)
         doc = await _lire()
         await _vieillir_tout(doc)
         for r in doc.get("requetes", []):

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "441", "date": "2026-11-18",
+        "titre": "🧾 Clients : corriger le type d'un règlement",
+        "description": "Dans Clients → Paiements, modifiez un règlement : facture contractuelle, de prestations ou d'achats, avec sa période (année + mois). Seul le contractuel compte dans la couverture du contrat.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "440", "date": "2026-11-18",
         "titre": "📜 Tableaux longs : barre de défilement",
         "description": "Tout tableau de plus de 30 lignes défile dans son cadre (en-tête toujours visible) : la page reste courte. À l'impression, toutes les lignes sortent.",

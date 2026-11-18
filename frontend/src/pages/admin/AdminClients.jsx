@@ -1656,6 +1656,48 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
     }
   };
 
+  // Lot 441 — correction du TYPE d'un règlement (facture contractuelle / de prestations / d'achats) et de sa période (année + mois)
+  const [edition, setEdition] = useState(null);          // règlement en cours de correction (null = fenêtre fermée)
+  const [editType, setEditType] = useState("contractuelle");
+  const [editAnnee, setEditAnnee] = useState("");
+  const [editMois, setEditMois] = useState("");
+  const [editOccupe, setEditOccupe] = useState(false);
+  const TYPES_REGLEMENT = [
+    { id: "contractuelle", label: "Facture contractuelle", couleur: "bg-teal-100 text-teal-800" },
+    { id: "prestations", label: "Facture de prestations", couleur: "bg-indigo-100 text-indigo-800" },
+    { id: "achats", label: "Facture d'achats", couleur: "bg-amber-100 text-amber-800" },
+  ];
+  const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  const anneeCourante = new Date().getFullYear();
+  const ouvrirEdition = (p) => {
+    // Pré-remplissage : type déjà choisi, sinon « contractuelle » ; période déjà notée, sinon celle de la date du règlement
+    setEdition(p);
+    setEditType(p.type_reglement || "contractuelle");
+    const d = (p.payment_date || "").slice(0, 7).split("-");
+    setEditAnnee(String(p.periode_annee || d[0] || ""));
+    setEditMois(String(p.periode_mois || (d[1] ? Number(d[1]) : "")));
+  };
+  const enregistrerEdition = async () => {
+    if (!edition) return;
+    setEditOccupe(true);
+    const tid = toast.loading("Correction du règlement en cours…");
+    try {
+      const { data } = await apiClient.patch(`/admin/clients/${client.id}/payments/${edition.id}/type`, {
+        type_reglement: editType,
+        annee: editAnnee ? Number(editAnnee) : null,
+        mois: editMois ? Number(editMois) : null,
+      });
+      toast.success(`Règlement corrigé : ${TYPES_REGLEMENT.find((t) => t.id === editType)?.label}${data.couvert_jusqu_au ? ` · contrat couvert jusqu'au ${data.couvert_jusqu_au}` : ""}`, { id: tid });
+      setEdition(null);
+      await load();
+      await onChanged?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Correction impossible", { id: tid });
+    } finally {
+      setEditOccupe(false);
+    }
+  };
+
   const formatMoney = (amount, currency) => {
     if (amount == null || amount === "" || Number.isNaN(Number(amount))) return "—";
     try {
@@ -1850,8 +1892,18 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                     <td className="px-2 py-1.5">{p.invoice_ref || "—"}{p.periode_debut && <div className="text-[10px] text-slate-500">prestations {p.periode_debut} → {p.periode_fin}</div>}</td>
                     <td className="px-2 py-1.5 text-right text-slate-600 font-mono text-xs">{formatMoney(p.amount_due, currency)}</td>
                     <td className="px-2 py-1.5 text-right text-teal-700 font-semibold font-mono text-xs">{formatMoney(p.amount_paid, currency)}</td>
-                    <td className="px-2 py-1.5 text-xs text-slate-600">{resolvedType}</td>
-                    <td className="px-2 py-1.5 text-right">
+                    <td className="px-2 py-1.5 text-xs text-slate-600">
+                      {p.type_reglement ? (
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${TYPES_REGLEMENT.find((t) => t.id === p.type_reglement)?.couleur || ""}`} data-testid={`payment-type-${p.id}`}>
+                          {TYPES_REGLEMENT.find((t) => t.id === p.type_reglement)?.label || p.type_reglement}
+                        </span>
+                      ) : resolvedType}
+                      {p.periode_mois && p.periode_annee ? <div className="text-[10px] text-slate-500">{MOIS_FR[p.periode_mois - 1]} {p.periode_annee}</div> : null}
+                    </td>
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <button onClick={() => ouvrirEdition(p)} className="mr-2 inline-flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900" title="Corriger le type de règlement" aria-label="Corriger le type de règlement" data-testid={`payment-edit-${p.id}`}>
+                        <Edit2 className="h-3 w-3" /> Type
+                      </button>
                       <button onClick={() => remove(p.id)} className="text-slate-400 hover:text-rose-600" title="Supprimer" data-testid={`payment-delete-${p.id}`}>
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -1864,6 +1916,45 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
           )}
         </div>
       </div>
+
+      {/* Lot 441 — fenêtre de correction du type de règlement (règles 11 et 20 : fenêtre modale dimensionnée) */}
+      {edition && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={(e) => { e.stopPropagation(); setEdition(null); }} data-testid="payment-edit-modal">
+          <div className="bg-white rounded-xl w-full max-w-md max-h-[85dvh] overflow-auto p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h4 className="font-semibold text-slate-800">Corriger le règlement</h4>
+                <p className="text-xs text-slate-500 mt-0.5 font-mono">{edition.payment_date} · {formatMoney(edition.amount_paid, currency)} · {edition.invoice_ref || "sans référence"}</p>
+              </div>
+              <button onClick={() => setEdition(null)} className="text-slate-500 hover:text-slate-700" aria-label="Fermer"><X className="h-5 w-5" /></button>
+            </div>
+            <label className="block text-xs font-semibold text-slate-600">Type de règlement
+              <select value={editType} onChange={(e) => setEditType(e.target.value)} className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm" data-testid="payment-edit-type">
+                {TYPES_REGLEMENT.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs font-semibold text-slate-600">Mois (si applicable)
+                <select value={editMois} onChange={(e) => setEditMois(e.target.value)} className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm" data-testid="payment-edit-mois">
+                  <option value="">—</option>
+                  {MOIS_FR.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">Année
+                <select value={editAnnee} onChange={(e) => setEditAnnee(e.target.value)} className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm" data-testid="payment-edit-annee">
+                  <option value="">—</option>
+                  {Array.from({ length: 6 }, (_, i) => anneeCourante - 4 + i).map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500">Seul un règlement « contractuelle » compte dans la couverture du contrat ; le montant, la date et la référence ne changent pas.</p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setEdition(null)} className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm text-slate-600"><X className="h-4 w-4" /> Annuler</button>
+              <button onClick={enregistrerEdition} disabled={editOccupe} className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50" data-testid="payment-edit-save"><Check className="h-4 w-4" /> Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

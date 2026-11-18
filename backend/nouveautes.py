@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "439", "date": "2026-11-18",
+        "titre": "🧾 Loois : requête SQL à distance",
+        "description": "Depuis Loois (Outils → Requête SQL distante), exécutez une requête sur la base HFSQL d'un client (ex. IPM) : une seule machine l'exécute et le retour dit laquelle. Clé à saisir : LOOIS_SQL_DISTANT_CLE (Render).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "438", "date": "2026-11-18",
         "titre": "🔎 Évaluer un terme : période couverte par les SMS reçus",
         "description": "Quand un terme n'est pas trouvé, SAWALI indique de quelle date à quelle date il a reçu des paiements, et pourquoi auRor peut en trouver davantage (lecture directe du téléphone).",

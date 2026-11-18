@@ -410,3 +410,24 @@ def test_suggestions_de_paiements_par_client():
     par = {r["client_id"]: r for r in res}
     assert par["c1"]["nombre"] == 1 and par["c1"]["montant_total"] == 25000          # seul « a » est à valider
     assert par["c2"]["nombre"] == 1 and par["c2"]["client_nom"] == "Boutique"
+
+
+def test_evaluer_un_terme_mois_par_mois():
+    """Lot 435 — « Évaluer un terme » : dépenses et recettes mois par mois, moyenne, plus grosse dépense, opérateurs ; le terme sert de filtre (SONABEL…)."""
+    liens = []
+    mk = lambda k, genre, montant, ms_, corps, op="OrangeMoney": {"k": k, "source": "s1", "adresse": op, "ms": ms_, "genre": genre, "montant": montant, "tiers": "SONABEL" if "SONABEL" in corps else "Autre", "solde": None, "reference": k, "corps": corps}
+    brut = [mk("a", "DEPENSE", 20000, ms(2026, 9, 5), "Paiement SONABEL facture"), mk("b", "DEPENSE", 30000, ms(2026, 9, 20), "Paiement SONABEL facture"),
+            mk("c", "DEPENSE", 25000, ms(2026, 10, 7), "Paiement SONABEL facture", "MoovMoney"), mk("d", "RECETTE", 5000, ms(2026, 10, 9), "Remboursement SONABEL"),
+            mk("e", "DEPENSE", 9000, ms(2026, 10, 10), "Paiement pharmacie")]
+    items = [ts.enrichir(p, liens) for p in brut]
+    trouves = ts.filtrer(items, q="sonabel")
+    assert {p["k"] for p in trouves} == {"a", "b", "c", "d"}                       # « pharmacie » n'est pas dans le terme
+    r = ts.evaluer_terme("SONABEL", trouves)
+    assert r["occurrences"] == 4 and r["depenses"] == 75000 and r["nb_depenses"] == 3 and r["recettes"] == 5000
+    assert [m["mois"] for m in r["par_mois"]] == ["2026-09", "2026-10"]
+    assert r["par_mois"][0]["depenses"] == 50000 and r["par_mois"][1]["depenses"] == 25000 and r["par_mois"][1]["recettes"] == 5000
+    assert r["plus_grosse_depense"] == 30000 and r["moyenne_mensuelle_depenses"] == 37500
+    assert r["premiere"] == "2026-09-05" and r["derniere"] == "2026-10-09" and r["operations"][0]["reference"] == "d"
+    assert {o["operateur"] for o in r["par_operateur"]} == {"Orange Money", "Moov Money"}
+    vide = ts.evaluer_terme("zzz", [])
+    assert vide["occurrences"] == 0 and vide["par_mois"] == [] and vide["premiere"] is None

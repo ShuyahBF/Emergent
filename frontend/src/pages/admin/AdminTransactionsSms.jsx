@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw, RotateCcw, Download, Calendar, CalendarDays, Banknote, Hash, Link2, Plus, Trash2, Check, ChevronsDown, Pencil, Save, X, MessageSquare, Copy, Tag, Eye } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient } from "@/lib/api";
+import EvaluationTermeSms from "./EvaluationTermeSms";   // lot 435 : « Évaluer un terme »
 import ThTri from "@/components/ThTri";            // règle 19 : toutes les colonnes triables
 import { useTri, basculerTri } from "@/lib/tri";
 
@@ -191,6 +192,8 @@ export default function AdminTransactionsSms() {
         <h1 className="font-display text-xl font-bold">Transactions SMS</h1>
         <p className="text-sm text-slate-600">Paiements lus dans les SMS d'un téléphone (application Concentration, onglet Paiements → « Envoyer à SAWALI »). Réservé à l'administrateur.</p>
       </div>
+
+      <EvaluationTermeSms />
 
       {/* Filtres : mêmes critères que l'historique d'auRor + téléphone et plateforme associée */}
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="filtres">

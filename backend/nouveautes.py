@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "435", "date": "2026-11-18",
+        "titre": "🔎 Transactions SMS : évaluer un terme",
+        "description": "Tapez un terme (SONABEL, Pharmacie…) : nombre d'occurrences, dépenses et recettes mois par mois, moyenne, plus gros paiement, opérateurs, export CSV et impression — comme dans auRor.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "434", "date": "2026-11-18",
         "titre": "📮 Demandes des plateformes : statut « Déjà répondu »",
         "description": "En traitant une demande d'une plateforme (ALBARKA…), SAWALI peut répondre « Déjà répondu » avec l'endroit où la réponse existe ; la demande est close et la plateforme est prévenue.",

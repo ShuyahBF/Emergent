@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "448", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation sur le web",
+        "description": "Nouvelle page Plateformes → Loois → Dossiers d'hospitalisation : la même liste que Loois, lue chez le client (n° de dossier, libellé, date de dépôt, patient), réservée aux administrateurs, rien n'est conservé dans SAWALI.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "447", "date": "2026-11-18",
         "titre": "🚫 SQL distant : machines interdites par client",
         "description": "Pour chaque client, interdisez des noms de machines : une machine interdite ne reçoit jamais de requête distante, les autres continuent de répondre. Réglage dans SQL Distant et dans Loois.",

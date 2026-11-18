@@ -38,8 +38,10 @@ def jours_periode(u: Dict[str, Any]) -> int:
 
 
 def _est_paiement_de_contrat(p: Dict[str, Any]) -> bool:
-    """Les frais de réouverture et autres lignes typées ne règlent pas une période de prestations."""
-    return not p.get("type")
+    """Les frais de réouverture et autres lignes typées ne règlent pas une période de prestations.
+    Lot 441 : un règlement reclassé « prestations » ou « achats » (champ `type_reglement`) ne compte pas non plus dans la couverture du CONTRAT ;
+    sans `type_reglement` (anciens paiements) ou « contractuelle » : il compte comme avant."""
+    return not p.get("type") and (p.get("type_reglement") or "contractuelle") == "contractuelle"
 
 
 def _ordre(p: Dict[str, Any]) -> str:

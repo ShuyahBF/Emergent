@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
+from fastapi.responses import JSONResponse  # lot 449.1 : réponse 200 avec en-tête
 from fastapi import Request, Response  # au niveau du module : les annotations des routes doivent être résolues (from __future__)
 
 logger = logging.getLogger("sawali.loois_sql_distant")
@@ -620,7 +621,9 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
                           "requetes.$.cle_id": poste["identite"].get("id")}})
             if res.modified_count == 1:                      # une seule machine gagne ; les autres passent à la suivante
                 logger.info("[loois-sql] requête %s prise par la machine %s (client %s)", r["id"], poste["machine"], poste["base"])
-                return {"id": r["id"], "sql": r["sql"]}
+                # Lot 449.1 : la réponse « 200 » porte AUSSI l'en-tête X-Sql-Rapide (session ouverte) : sans lui, le service Windows retombait à 5 s d'attente
+                # après CHAQUE requête exécutée (≈ 6 s par requête mesurées chez IPM le 18/11/2026) au lieu de 1 s.
+                return JSONResponse({"id": r["id"], "sql": r["sql"]}, headers={"X-Sql-Rapide": "1"} if _rapide(poste["base"]) else {})
         # Lot 444 : rien à faire ; si une session Loois est ouverte pour ce client, on dit au service d'interroger toutes les secondes
         return Response(status_code=204, headers={"X-Sql-Rapide": "1"} if _rapide(poste["base"]) else {})
 

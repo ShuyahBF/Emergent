@@ -1,7 +1,7 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
   FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  JOINTURE_ACTIVE, NOMS_AUTO, PAQUET_PATIENTS, dansLaPeriode, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetreJointure, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
+  JOINTURE_ACTIVE, LIGNES_AFFICHEES, NOMS_AUTO, PAQUET_PATIENTS, dansLaPeriode, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetreJointure, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
 const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé"];
@@ -73,6 +73,13 @@ describe("jointure dossiers + patients (une requête par tranche)", () => {
     expect(lireNomsJointure(lignes, cols)).toEqual({ 321: "DIALLO Ousseni" });             // patient absent (LEFT JOIN) ou code illisible : ignorés
     expect(lireNomsJointure(lignes, ["Dos_num", "Dos_lib"])).toBeNull();
     expect(lireNomsJointure(lignes, ["DOS_NUM", "NUMERO_ENREG", "NOM", "PRENOMS"])).toEqual({});   // accents et casse ignorés (indices décalés : aucune ligne valide)
+  });
+});
+
+describe("affichage progressif du tableau", () => {
+  test("200 lignes à la fois (jamais les ~4 000 d'un coup sur un téléphone)", () => {
+    expect(LIGNES_AFFICHEES).toBe(200);
+    expect([...Array(450).keys()].slice(0, LIGNES_AFFICHEES).length).toBe(200);
   });
 });
 

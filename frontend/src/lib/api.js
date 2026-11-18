@@ -109,6 +109,10 @@ const TRACE_SKIP_PATTERNS = [
             // (would cause /me/api-trace to be called without auth → 401 → forced logout race)
   "/me/formations/", // visit/close happens silently
   "/me/activite",    // lot 50 — signal d'activité (contrôle serveur de l'inactivité), silencieux
+  // Lot 450.1 — requêtes SQL distantes : une lecture complète en envoie des dizaines (une par tranche de dossiers ou paquet de noms). Les tracer ajoutait, pour CHACUNE, un
+  // message « Opération effectuée avec succès » et une écriture de trace contenant le SQL (donc des numéros de patients) ; le téléphone du propriétaire a fini par geler
+  // (« Chrome ne répond pas »). Elles restent journalisées côté serveur (créateur de la requête) et par le journal de Loois.
+  "/loois-sql/requetes",
 ];
 
 // Paths that should NEVER trigger a forced logout on 401, even if the user is logged in.

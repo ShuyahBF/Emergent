@@ -49,6 +49,31 @@ export const sqlFenetre = (bas, haut) =>
 export const sqlFenetreToutes = (bas, haut) =>
   `SELECT * FROM [${FICHIER}] WHERE [Dos_num] >= ${Math.trunc(bas)} AND [Dos_num] <= ${Math.trunc(haut)} LIMIT ${TAILLE_FENETRE}`;
 
+/**
+ * Dossiers ET noms des patients en UNE requête (propriétaire, 18/11/2026 : « chaque base de données est complète et autonome » : le fichier des dossiers et celui des patients sont dans la même base).
+ * LEFT JOIN : un dossier sans patient reste dans la liste (nom vide). Une requête par tranche au lieu de deux : environ deux fois moins de requêtes.
+ * Syntaxe non encore éprouvée sur HFSQL : la page essaie cette forme sur la première tranche et se replie sur la lecture en deux temps si elle est refusée.
+ */
+export const sqlFenetreJointure = (bas, haut) =>
+  `SELECT D.[Dos_num], D.[Dos_lib], D.[Da_dépôt], D.[He_Dépôt], D.[Montant], D.[Numéro_Enreg], D.[Modificateur], D.[Réglé], P.[Nom], P.[Prénoms] ` +
+  `FROM [${FICHIER}] D LEFT JOIN [Patient] P ON D.[Numéro_Enreg] = P.[Numéro_Enreg] ` +
+  `WHERE D.[Dos_num] >= ${Math.trunc(bas)} AND D.[Dos_num] <= ${Math.trunc(haut)} LIMIT ${TAILLE_FENETRE}`;
+
+/** Noms des patients lus dans le résultat d'une jointure : { code: « NOM Prénoms » } ; null si le résultat n'a pas les colonnes Nom, Prénoms et Numéro_Enreg (ce n'est pas une jointure). */
+export function lireNomsJointure(lignes, colonnes) {
+  const iNom = indexColonne(colonnes, "Nom");
+  const iPrenoms = indexColonne(colonnes, "Prénoms");
+  const iCode = indexColonne(colonnes, "Numéro_Enreg");
+  if (iNom < 0 || iPrenoms < 0 || iCode < 0) return null;
+  const noms = {};
+  for (const l of lignes || []) {
+    const code = Number.parseInt(l[iCode], 10);
+    const nom = `${String(l[iNom] || "").trim()} ${String(l[iPrenoms] || "").trim()}`.trim();
+    if (Number.isInteger(code) && code > 0 && nom) noms[code] = nom;
+  }
+  return noms;
+}
+
 /** Requête des noms de patients pour une liste de codes (seuls les entiers positifs sont gardés : jamais de texte libre dans le SQL). */
 export function sqlPatients(codes) {
   const propres = [...new Set((codes || []).map((c) => Number(c)).filter((n) => Number.isInteger(n) && n > 0))];

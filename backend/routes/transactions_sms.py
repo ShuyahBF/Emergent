@@ -434,7 +434,7 @@ def diagnostic_terme(tous: List[Dict[str, Any]], terme: str, du_ms: Optional[int
     autres = Counter(p.get("categorie", "transaction") for p in meme_periode if p.get("categorie", "transaction") != "transaction")
     ailleurs = filtrer(tous, None, None, operateur, "", terme, source, "", "")
     hors = [p for p in ailleurs if (du_ms is not None and p["ms"] < du_ms) or (au_ms is not None and p["ms"] >= au_ms)]
-    return {"autres_categories": dict(autres), "autres_periodes": len(hors), "sms_recus": len(tous), "dernier_sms_ms": max((p["ms"] for p in tous), default=None)}
+    return {"autres_categories": dict(autres), "autres_periodes": len(hors), "sms_recus": len(tous), "dernier_sms_ms": max((p["ms"] for p in tous), default=None), "premier_sms_ms": min((p["ms"] for p in tous), default=None)}
 
 
 def evaluer_terme(terme: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:

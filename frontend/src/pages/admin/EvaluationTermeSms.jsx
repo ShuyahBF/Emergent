@@ -24,9 +24,11 @@ function texteDiagnostic(d) {
   const cats = Object.entries(d.autres_categories || {});
   if (cats.length) l.push(`${cats.map(([c, n]) => `${n} ${NOM_CATEGORIE[c] || c}`).join(", ")} sur cette période (SMS classés hors transactions : changez la catégorie dans la liste si besoin)`);
   if (d.autres_periodes > 0) l.push(`${d.autres_periodes} transaction(s) sur d'autres périodes : choisissez « Toute la période »`);
-  if (!l.length) l.push(d.sms_recus ? `aucune trace dans les ${d.sms_recus} SMS reçus de vos téléphones` : "SAWALI n'a encore reçu aucun SMS");
-  const dernier = d.dernier_sms_ms ? ` Dernier SMS reçu par SAWALI : ${new Date(d.dernier_sms_ms).toLocaleDateString("fr-FR", { timeZone: "UTC" })}.` : "";
-  return `Mais : ${l.join(" ; ")}.${dernier} auRor lit aussi les SMS de votre téléphone : un paiement absent ici n'a peut-être pas encore été envoyé à SAWALI (Concentration → Paiements → « Envoyer à SAWALI »).`;
+  if (!l.length) l.push(d.sms_recus ? `ce terme n'apparaît dans aucun des ${d.sms_recus} paiements reçus de vos téléphones` : "SAWALI n'a encore reçu aucun paiement");
+  const date = (ms) => new Date(ms).toLocaleDateString("fr-FR", { timeZone: "UTC" });
+  const periode = d.premier_sms_ms && d.dernier_sms_ms ? ` Les paiements reçus par SAWALI vont du ${date(d.premier_sms_ms)} au ${date(d.dernier_sms_ms)}.` : "";
+  // SAWALI ne reçoit que les paiements que Concentration a LUS et ENVOYÉS ; auRor, lui, lit directement les SMS du téléphone
+  return `Mais : ${l.join(" ; ")}.${periode} SAWALI ne reçoit que les paiements lus par Concentration puis envoyés (onglet Paiements → « Envoyer à SAWALI ») ; auRor lit directement les SMS de votre téléphone. Pour des SMS plus anciens : dans Concentration, relancez la lecture des SMS passés puis « Envoyer à SAWALI ».`;
 }
 
 /** Dates « du » / « au » de la période choisie. */

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "437"
-LOT_LIBELLE = "Bandeau « nouvelle version » : vérification chaque minute, au focus et au retour du réseau, sans attendre de réduire le navigateur."
+LOT = "438"
+LOT_LIBELLE = "Évaluer un terme : le diagnostic « 0 occurrence » indique la période couverte par les paiements reçus et ce qu'il faut faire dans Concentration."

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "438", "date": "2026-11-18",
+        "titre": "🔎 Évaluer un terme : période couverte par les SMS reçus",
+        "description": "Quand un terme n'est pas trouvé, SAWALI indique de quelle date à quelle date il a reçu des paiements, et pourquoi auRor peut en trouver davantage (lecture directe du téléphone).",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "437", "date": "2026-11-18",
         "titre": "🔄 Bandeau « nouvelle version » plus réactif",
         "description": "Le bandeau apparaît dans la minute qui suit un déploiement, dès que vous revenez sur la fenêtre, sans avoir à réduire puis restaurer le navigateur.",

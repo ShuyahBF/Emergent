@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "444", "date": "2026-11-18",
+        "titre": "🌐 Loois : client distant de la session",
+        "description": "Dans Loois, l'administrateur choisit un client : ses écrans lisent et enregistrent les données de CE client via SAWALI. Pendant la session, le service du client répond en 1 seconde au lieu de 5.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "443", "date": "2026-11-18",
         "titre": "🧾 Loois : modifier une fiche (SQL distant)",
         "description": "Dans Loois → Requête SQL distante, en mode Fiche, modifiez les valeurs des champs (sauf clés primaires, champs automatiques ou calculés) : Loois prépare l'UPDATE, vous confirmez, une seule machine l'exécute.",

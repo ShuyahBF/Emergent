@@ -46,7 +46,8 @@ ATTENTE_MAX = timedelta(minutes=30)        # sans machine au bout de ce délai :
 SANS_REPONSE = timedelta(minutes=10)       # machine qui a pris la requête mais ne répond plus
 EN_LIGNE = timedelta(minutes=12)           # même seuil que « Postes Windows — versions déployées »
 ESSAIS_CLE_MAX = 10                        # clés fausses par adresse IP et par 15 minutes
-CREATIONS_PAR_HEURE = 60
+CREATIONS_PAR_HEURE = 600          # lot 444 : une session distante (écrans de données) envoie beaucoup de petites requêtes
+SESSION_VALIDE_S = 180             # lot 444 : une session « client distant » ouverte dans Loois reste active 3 minutes après son dernier signal
 
 PREMIERS_MOTS = ("SELECT", "INSERT", "UPDATE", "DELETE")
 MOTS_INTERDITS = ("DROP", "ALTER", "CREATE", "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE", "RENAME", "MERGE")
@@ -160,7 +161,7 @@ def resultat_borne(corps: Dict[str, Any]) -> Dict[str, Any]:
     schema = []
     for c in (corps.get("schema") or [])[:COLONNES_MAX]:
         if isinstance(c, dict):
-            schema.append({"nom": str(c.get("nom") or "")[:100], "cle": bool(c.get("cle")), "auto": bool(c.get("auto")), "calcule": bool(c.get("calcule")),
+            schema.append({"nom": str(c.get("nom") or "")[:100], "cle": bool(c.get("cle")), "auto": bool(c.get("auto")), "calcule": bool(c.get("calcule")), "memo": bool(c.get("memo")),
                            "type": str(c.get("type") or "")[:20], "table": str(c.get("table") or "")[:100]})
     return {"ok": bool(corps.get("ok")), "message": str(corps.get("message") or "")[:2000], "base": str(corps.get("base") or "")[:120],
             "colonnes": colonnes, "lignes": lignes, "tronque": tronque, "lignes_affectees": affectees, "duree_ms": duree, "schema": schema}
@@ -205,6 +206,7 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         identifier_cle = _identifier
 
     echecs: Dict[str, Deque[float]] = defaultdict(deque)       # adresse IP → instants des clés fausses
+    sessions: Dict[str, float] = {}                            # lot 444 : code client → instant (monotone) du dernier signal d'une session Loois
     creations: Deque[float] = deque()
 
     def _ip(request: Request) -> str:
@@ -284,7 +286,9 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         creations.append(maintenant)
         req = {"id": secrets.token_hex(6), "client": client, "sql": sql.rstrip(";").strip(), "nature": nature, "etat": "attente", "machine": None,
                "cree_le": _maintenant().isoformat(), "cree_ip": _ip(request), "ok": None, "message": "", "base": "", "colonnes": [], "lignes": [],
-               "tronque": False, "lignes_affectees": 0, "duree_ms": 0}
+               "tronque": False, "lignes_affectees": 0, "duree_ms": 0, "schema": [],
+               "ephemere": bool((corps or {}).get("ephemere"))}
+        sessions[client] = time.monotonic()                      # envoyer une requête vaut signal de session
         await db.loois_reglages.update_one({"id": ID_DOC}, {"$push": {"requetes": {"$each": [req], "$slice": -MAX_REQUETES}}}, upsert=True)
         logger.info("[loois-sql] requête %s déposée pour le client %s (%s)", req["id"], client, nature)
         return vue_requete(req)
@@ -306,7 +310,29 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         r = next((x for x in doc.get("requetes", []) if x.get("id") == requete_id), None)
         if not r:
             raise HTTPException(status_code=404, detail="Requête introuvable (l'historique garde les 100 dernières).")
-        return vue_requete(r)
+        vue = vue_requete(r)
+        # Lot 444 : une requête « éphémère » (lecture d'un écran) rend ses lignes UNE fois puis les efface : le document ne grossit pas
+        if r.get("ephemere") and r.get("etat") in ("terminee", "echec") and r.get("lignes"):
+            await db.loois_reglages.update_one({"id": ID_DOC, "requetes.id": requete_id}, {"$set": {"requetes.$.lignes": []}})
+        return vue
+
+    @api.post("/loois-sql/session", tags=["Loois SQL à distance"])
+    async def session(request: Request):
+        """Lot 444 : Loois signale qu'une session « client distant » est ouverte pour ce client ; les services de ce client passent alors à une
+        interrogation rapide (1 seconde au lieu de 5) pendant SESSION_VALIDE_S secondes après le dernier signal."""
+        _proprietaire(request)
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        client = code_client((corps or {}).get("client"))
+        if not client:
+            raise HTTPException(status_code=422, detail="Client invalide")
+        sessions[client] = time.monotonic()
+        return {"ok": True, "valide_secondes": SESSION_VALIDE_S}
+
+    def _rapide(client: str) -> bool:
+        return time.monotonic() - sessions.get(client, -10 ** 9) < SESSION_VALIDE_S
 
     # ----------------------------------------------------------------- service Windows d'une machine
     @api.get("/loois-sql/poste/prochaine", tags=["Loois SQL à distance"])
@@ -331,7 +357,8 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             if res.modified_count == 1:                      # une seule machine gagne ; les autres passent à la suivante
                 logger.info("[loois-sql] requête %s prise par la machine %s (client %s)", r["id"], poste["machine"], poste["base"])
                 return {"id": r["id"], "sql": r["sql"]}
-        return Response(status_code=204)
+        # Lot 444 : rien à faire ; si une session Loois est ouverte pour ce client, on dit au service d'interroger toutes les secondes
+        return Response(status_code=204, headers={"X-Sql-Rapide": "1"} if _rapide(poste["base"]) else {})
 
     @api.post("/loois-sql/poste/resultat", tags=["Loois SQL à distance"])
     async def resultat(request: Request):

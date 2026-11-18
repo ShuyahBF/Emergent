@@ -216,10 +216,42 @@ def test_resultat_borne_garde_la_description_des_champs():
     """Lot 443 : la description des champs (clé / automatique / calculé) est conservée, bornée et nettoyée."""
     r = sd.resultat_borne({"ok": True, "colonnes": ["Id", "Nom"], "lignes": [["1", "A"]],
                            "schema": [{"nom": "Id", "cle": True, "auto": True, "type": "Int32", "table": "Client"}, {"nom": "Nom", "type": "String"}, "pas un dict"]})
-    assert r["schema"][0] == {"nom": "Id", "cle": True, "auto": True, "calcule": False, "type": "Int32", "table": "Client"}
+    assert r["schema"][0] == {"nom": "Id", "cle": True, "auto": True, "calcule": False, "memo": False, "type": "Int32", "table": "Client"}
     assert r["schema"][1]["cle"] is False and len(r["schema"]) == 2
 
 
 def test_vue_requete_expose_le_schema():
     assert sd.vue_requete({"id": "x", "schema": [{"nom": "Id"}]})["schema"] == [{"nom": "Id"}]
     assert sd.vue_requete({"id": "x"})["schema"] == []
+
+
+# ------------------------------------------------------------------ lot 444 : session « client distant » (interrogation rapide, résultats éphémères)
+def test_session_rend_l_interrogation_rapide(env):
+    client, _ = env
+    sans = client.get("/api/loois-sql/poste/prochaine", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"))
+    assert sans.status_code == 204 and "x-sql-rapide" not in sans.headers                 # aucune session : rythme normal
+    assert client.post("/api/loois-sql/session", json={"client": "IPM"}).status_code == 401   # clé propriétaire exigée
+    assert client.post("/api/loois-sql/session", headers=OWNER, json={"client": "mauvais!"}).status_code == 422
+    assert client.post("/api/loois-sql/session", headers=OWNER, json={"client": "IPM"}).json()["ok"] is True
+    avec = client.get("/api/loois-sql/poste/prochaine", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"))
+    assert avec.status_code == 204 and avec.headers.get("x-sql-rapide") == "1"            # session ouverte : 1 seconde
+    autre = client.get("/api/loois-sql/poste/prochaine", headers=poste("LK-cmc", "PC-CMC", "CMC"))
+    assert "x-sql-rapide" not in autre.headers                                            # un autre client n'est pas concerné
+
+
+def test_resultat_ephemere_rendu_une_fois(env):
+    client, _ = env
+    rid = client.post("/api/loois-sql/requetes", headers=OWNER, json={"client": "IPM", "sql": "SELECT * FROM Client", "ephemere": True}).json()["id"]
+    client.get("/api/loois-sql/poste/prochaine", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"))
+    client.post("/api/loois-sql/poste/resultat", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"),
+                json={"id": rid, "ok": True, "colonnes": ["Id"], "lignes": [["1"], ["2"]], "schema": [{"nom": "Id", "cle": True}]})
+    premiere = client.get(f"/api/loois-sql/requetes/{rid}", headers=OWNER).json()
+    assert premiere["lignes"] == [["1"], ["2"]] and premiere["schema"][0]["cle"] is True
+    seconde = client.get(f"/api/loois-sql/requetes/{rid}", headers=OWNER).json()
+    assert seconde["lignes"] == [] and seconde["etat"] == "terminee"                       # lignes effacées après la première lecture
+
+
+def test_schema_garde_l_indicateur_memo():
+    """Un champ mémo n'est jamais transmis par le service ; SAWALI relaie seulement son indicateur."""
+    r = sd.resultat_borne({"ok": True, "colonnes": ["Obs"], "lignes": [["▤ mémo (non transmis)"]], "schema": [{"nom": "Obs", "memo": True, "type": "String"}]})
+    assert r["schema"][0]["memo"] is True

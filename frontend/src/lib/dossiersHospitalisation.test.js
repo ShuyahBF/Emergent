@@ -1,7 +1,7 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
   FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  dansLaPeriode, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetreJointure, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
+  JOINTURE_ACTIVE, dansLaPeriode, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetreJointure, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
 const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé"];
@@ -58,6 +58,9 @@ describe("lecture des cellules", () => {
 });
 
 describe("jointure dossiers + patients (une requête par tranche)", () => {
+  test("désactivée : le pilote OLE DB HFSQL ne fait pas de jointure de tables (propriétaire, 18/11/2026)", () => {
+    expect(JOINTURE_ACTIVE).toBe(false);
+  });
   test("requête : une seule instruction, LEFT JOIN sur Numéro_Enreg, 200 lignes au plus", () => {
     const sql = sqlFenetreJointure(105001, 105200);
     expect(sql).toContain("FROM [DOSSIER EXAMEN] D LEFT JOIN [Patient] P ON D.[Numéro_Enreg] = P.[Numéro_Enreg]");

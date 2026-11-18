@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "449.8"
-LOT_LIBELLE = "Dossiers d'hospitalisation (web) : dossiers et noms des patients en une requête (jointure), repli en parallèle."
+LOT = "449.9"
+LOT_LIBELLE = "Dossiers d'hospitalisation (web) : jointure désactivée (pilote HFSQL), noms lus en parallèle."

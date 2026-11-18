@@ -17,7 +17,7 @@ import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  lireNoms, lireNomsJointure, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
+  JOINTURE_ACTIVE, lireNoms, lireNomsJointure, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -110,7 +110,7 @@ export default function LooisDossiersHospitalisation() {
     let termine = false;
     let retenus = [];
     let toutesColonnes = false;          // repli : lecture avec toutes les colonnes si le nom exact d'une colonne est refusé
-    let modeJointure = true;             // dossiers ET noms en UNE requête (jointure) ; repli sur « dossiers puis noms » si HFSQL la refuse (première tranche)
+    let modeJointure = JOINTURE_ACTIVE;  // dossiers ET noms en UNE requête (jointure) : désactivée (le pilote HFSQL ne gère pas les jointures) ; sinon repli sur « dossiers puis noms » si HFSQL la refuse
     // ---- Noms des patients EN PARALLÈLE des dossiers (retour du propriétaire, 18/11/2026) : la lecture des dossiers dépose les codes de patients dans une FILE
     // (les plus récents d'abord) ; ce travail les prend par paquets de 150 pendant que les dossiers continuent d'être lus, et affiche chaque nom dès qu'il arrive.
     // Chez un client à UNE seule machine les requêtes passent l'une après l'autre (le temps total est le même) mais les noms apparaissent tout de suite ;

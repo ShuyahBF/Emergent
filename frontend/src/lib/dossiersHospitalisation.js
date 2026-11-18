@@ -50,6 +50,12 @@ export const sqlFenetreToutes = (bas, haut) =>
   `SELECT * FROM [${FICHIER}] WHERE [Dos_num] >= ${Math.trunc(bas)} AND [Dos_num] <= ${Math.trunc(haut)} LIMIT ${TAILLE_FENETRE}`;
 
 /**
+ * Jointure dossiers + patients : DÉSACTIVÉE (propriétaire, 18/11/2026 : « le pilote OLE DB HFSQL ne fait pas de jointure de tables »). Le code reste en réserve ; mettre `true` seulement
+ * si une base l'accepte. Désactivée, la page lit les dossiers et, EN PARALLÈLE, les noms des patients par paquets de 150 (lot 449.7), sans requête d'essai.
+ */
+export const JOINTURE_ACTIVE = false;
+
+/**
  * Dossiers ET noms des patients en UNE requête (propriétaire, 18/11/2026 : « chaque base de données est complète et autonome » : le fichier des dossiers et celui des patients sont dans la même base).
  * LEFT JOIN : un dossier sans patient reste dans la liste (nom vide). Une requête par tranche au lieu de deux : environ deux fois moins de requêtes.
  * Syntaxe non encore éprouvée sur HFSQL : la page essaie cette forme sur la première tranche et se replie sur la lecture en deux temps si elle est refusée.

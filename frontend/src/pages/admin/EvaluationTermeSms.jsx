@@ -15,6 +15,20 @@ const libMois = (m) => `${MOIS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 const iso = (d) => d.toISOString().slice(0, 10);
 const PERIODES = [["tout", "Toute la période"], ["an", "12 derniers mois"], ["annee", "Année en cours"], ["annee-1", "Année précédente"], ["perso", "Personnalisée…"]];
 
+const NOM_CATEGORIE = { promo: "promo", alerte: "alerte", message: "message" };
+
+/** Explique un « 0 occurrence » : le terme existe-t-il dans une autre catégorie, une autre période, ou SAWALI n'a-t-il jamais reçu le SMS ? */
+function texteDiagnostic(d) {
+  if (!d) return null;
+  const l = [];
+  const cats = Object.entries(d.autres_categories || {});
+  if (cats.length) l.push(`${cats.map(([c, n]) => `${n} ${NOM_CATEGORIE[c] || c}`).join(", ")} sur cette période (SMS classés hors transactions : changez la catégorie dans la liste si besoin)`);
+  if (d.autres_periodes > 0) l.push(`${d.autres_periodes} transaction(s) sur d'autres périodes : choisissez « Toute la période »`);
+  if (!l.length) l.push(d.sms_recus ? `aucune trace dans les ${d.sms_recus} SMS reçus de vos téléphones` : "SAWALI n'a encore reçu aucun SMS");
+  const dernier = d.dernier_sms_ms ? ` Dernier SMS reçu par SAWALI : ${new Date(d.dernier_sms_ms).toLocaleDateString("fr-FR", { timeZone: "UTC" })}.` : "";
+  return `Mais : ${l.join(" ; ")}.${dernier} auRor lit aussi les SMS de votre téléphone : un paiement absent ici n'a peut-être pas encore été envoyé à SAWALI (Concentration → Paiements → « Envoyer à SAWALI »).`;
+}
+
 /** Dates « du » / « au » de la période choisie. */
 function bornes(p, du, au) {
   const n = new Date(), a = n.getUTCFullYear();
@@ -32,6 +46,7 @@ export default function EvaluationTermeSms() {
   const [du, setDu] = useState("");
   const [au, setAu] = useState("");
   const [nombre, setNombre] = useState(null);       // occurrences trouvées pendant la frappe
+  const [diag, setDiag] = useState(null);           // explication d'un « 0 occurrence » (pendant la frappe)
   const [res, setRes] = useState(null);             // résultat complet après « Évaluer »
   const [enCours, setEnCours] = useState(false);
   const jeton = useRef(0);
@@ -40,12 +55,12 @@ export default function EvaluationTermeSms() {
 
   // Décompte automatique après 400 ms sans frappe (au moins 2 caractères)
   useEffect(() => {
-    setNombre(null);
+    setNombre(null); setDiag(null);
     if (t.length < 2) return undefined;
     const n = ++jeton.current;
     const id = setTimeout(() => {
       apiClient.get("/admin/transactions-sms/evaluation-terme", { params: params() })
-        .then((r) => { if (n === jeton.current) setNombre(r.data.occurrences); }).catch(() => {});
+        .then((r) => { if (n === jeton.current) { setNombre(r.data.occurrences); setDiag(r.data.diagnostic || null); } }).catch(() => {});
     }, 400);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,10 +118,11 @@ export default function EvaluationTermeSms() {
             {res && <button type="button" className={`${bouton} border border-emerald-600 text-emerald-700`} onClick={evaluer} disabled={enCours}><RefreshCw size={15} /> Actualiser</button>}
             {nombre !== null && <span className="text-sm text-slate-700" data-testid="nombre">{nombre} occurrence{nombre > 1 ? "s" : ""} trouvée{nombre > 1 ? "s" : ""}</span>}
           </div>
+          {nombre === 0 && diag && <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-900" data-testid="diagnostic">{texteDiagnostic(diag)}</p>}
 
           {res && (
             <div className="space-y-4" data-testid="resultat-terme" id="zone-evaluation-terme">
-              {res.occurrences === 0 ? <p className="text-sm text-slate-600">Aucune transaction ne contient « {res.terme} » sur cette période.</p> : (<>
+              {res.occurrences === 0 ? <div className="space-y-2 text-sm"><p className="text-slate-600">Aucune transaction ne contient « {res.terme} » sur cette période.</p>{res.diagnostic && <p className="rounded-lg bg-amber-50 p-2 text-amber-900">{texteDiagnostic(res.diagnostic)}</p>}</div> : (<>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   {[["Dépenses", fcfa(res.depenses), `${res.nb_depenses} paiement(s)`, "text-red-700"], ["Moyenne par mois", fcfa(res.moyenne_mensuelle_depenses), "dépenses", "text-sky-800"],
                     ["Plus gros paiement", fcfa(res.plus_grosse_depense), `du ${res.premiere} au ${res.derniere}`, "text-red-700"], ["Recettes", fcfa(res.recettes), `${res.nb_recettes} reçu(s)`, "text-emerald-700"]].map(([n, v, s, c]) => (

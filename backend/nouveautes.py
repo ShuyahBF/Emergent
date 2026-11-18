@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "448.1", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : « tranches » de 200 numéros",
+        "description": "Dans la page web des dossiers d'hospitalisation, l'avancement indique maintenant « tranche 6 sur 40 » (une tranche = 200 numéros de dossiers lus en une requête) au lieu de « fenêtre ».",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "448", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation sur le web",
         "description": "Nouvelle page Plateformes → Loois → Dossiers d'hospitalisation : la même liste que Loois, lue chez le client (n° de dossier, libellé, date de dépôt, patient), réservée aux administrateurs, rien n'est conservé dans SAWALI.",

@@ -114,7 +114,7 @@ export default function LooisDossiersHospitalisation() {
       for (let n = 0; n < FENETRES_MAX && haut > 0; n++) {
         if (Date.now() - debutRef.current > BUDGET_MS) break;                                   // limite de temps : lecture partielle
         const { bas, haut: h } = fenetre(haut);
-        setAvancement(`Dossiers n° ${bas} à ${h} (fenêtre ${n + 1} sur ${FENETRES_MAX} au plus)…`);
+        setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus)…`);
         const r = await executer(clientLu, sqlFenetre(bas, h));
         if (r.tronque && r.lignes.length < TAILLE_FENETRE) throw new Error("Résultat trop volumineux pour une réponse distante : réduisez la période.");
         const lus = r.lignes.map((l) => lireDossier(l, r.colonnes)).filter(Boolean);
@@ -143,7 +143,7 @@ export default function LooisDossiersHospitalisation() {
         toast.warning("Noms des patients indisponibles : les codes sont affichés à la place.");
       }
       const s = Math.floor((Date.now() - debutRef.current) / 1000);
-      toast.success(`${retenus.length} dossier(s) lus chez ${clientLu} en ${dureeMmSs(s)}${termine ? "." : " — lecture PARTIELLE (limite de temps ou de fenêtres atteinte) : réduisez la période."}`, { id: toastId });
+      toast.success(`${retenus.length} dossier(s) lus chez ${clientLu} en ${dureeMmSs(s)}${termine ? "." : " — lecture PARTIELLE (limite de temps ou de tranches atteinte) : réduisez la période."}`, { id: toastId });
     } catch (e) {
       if (e instanceof Annulation) { toast.info("Lecture arrêtée.", { id: toastId }); }
       else {
@@ -228,11 +228,11 @@ export default function LooisDossiersHospitalisation() {
       {partielle && !enCours && (
         <div className="flex items-start gap-2 rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800" role="status" data-testid="partielle">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} fenêtres ou de 2 minutes). Choisissez une période plus courte.</span>
+          <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} tranches ou de 2 minutes). Choisissez une période plus courte.</span>
         </div>
       )}
 
-      {/* Liste : toutes les colonnes sont triables ; clic sur une ligne = détail dans une fenêtre */}
+      {/* Liste : toutes les colonnes sont triables ; clic sur une ligne = détail dans une fenêtre modale */}
       {dossiers.length > 0 && (
         <>
           <label className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 text-sm">

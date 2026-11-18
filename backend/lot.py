@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "449.2"
-LOT_LIBELLE = "Dossiers d'hospitalisation (web) : du plus récent au plus ancien, 7 jours par défaut, jusqu'à 90 jours."
+LOT = "449.3"
+LOT_LIBELLE = "Dossiers d'hospitalisation (web) : le patient d'un dossier est retrouvé par Numéro_Enreg."

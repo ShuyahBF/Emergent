@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.3", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : le bon lien vers le patient",
+        "description": "Le patient d'un dossier est retrouvé par le numéro d'enregistrement (Numéro_Enreg) du dossier, comme dans la table Patient : les noms des patients s'affichent à la place du code.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.2", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : récents d'abord, 7 jours par défaut",
         "description": "La liste web affiche les dossiers du plus récent au plus ancien ; la période par défaut est de 7 jours (30, 60 ou 90 jours disponibles) ; la lecture va jusqu'à 80 tranches et 3 minutes.",

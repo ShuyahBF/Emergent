@@ -17,7 +17,7 @@ import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  lireNoms, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlMax, sqlPatients, TAILLE_FENETRE,
+  lireNoms, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -104,6 +104,7 @@ export default function LooisDossiersHospitalisation() {
     let cumul = [];
     let termine = false;
     let retenus = [];
+    let toutesColonnes = false;          // repli : lecture avec toutes les colonnes si le nom exact d'une colonne est refusé
     try {
       // 1. Dernier numéro de dossier
       const rMax = await executer(clientLu, sqlMax());
@@ -115,7 +116,15 @@ export default function LooisDossiersHospitalisation() {
         if (Date.now() - debutRef.current > BUDGET_MS) break;                                   // limite de temps : lecture partielle
         const { bas, haut: h } = fenetre(haut);
         setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus)…`);
-        const r = await executer(clientLu, sqlFenetre(bas, h));
+        let r;
+        try {
+          r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h));
+        } catch (e) {
+          if (e instanceof Annulation || toutesColonnes || n > 0) throw e;   // le repli ne sert qu'à la PREMIÈRE tranche
+          toutesColonnes = true;
+          toast.warning("Une colonne a été refusée : lecture avec toutes les colonnes.");
+          r = await executer(clientLu, sqlFenetreToutes(bas, h));
+        }
         if (r.tronque && r.lignes.length < TAILLE_FENETRE) throw new Error("Résultat trop volumineux pour une réponse distante : réduisez la période.");
         const lus = r.lignes.map((l) => lireDossier(l, r.colonnes)).filter(Boolean);
         cumul = cumul.concat(lus);

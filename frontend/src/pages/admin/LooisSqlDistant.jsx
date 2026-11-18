@@ -1,4 +1,4 @@
-// LooisSqlDistant.jsx — Lot 446 : page « Plateformes → Loois → SQL Distant » (administrateur, utilisable sur téléphone).
+// LooisSqlDistant.jsx — Lot 446 : page « Loois SQL distant → Requêtes SQL distantes » (menu regroupé au lot 449) (administrateur, utilisable sur téléphone).
 //
 // Demande du propriétaire (18/11/2026) : version Android du module de requêtes HFSQL distantes. Option retenue : une PAGE de l'administration
 // SAWALI, ouverte dans le navigateur du téléphone (puis, plus tard, dans une application hybride avec verrou par empreinte).
@@ -13,7 +13,7 @@
 // Routes : /api/admin/loois-sql/{clients, requetes, requetes/{id}} (backend/routes/loois_sql_distant.py).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Ban, CheckCircle2, Clock, History, Play, Plus, RefreshCw, Save, Server, ShieldCheck, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowUp, Ban, CheckCircle2, Clock, History, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Star, X, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
@@ -83,33 +83,53 @@ function TableauResultat({ colonnes, lignes }) {
 // Même règle de comparaison que le serveur : casse et espaces ignorés
 const meme = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 
-// Fenêtre « Machines du client » (lot 447) : l'administrateur INTERDIT des noms de machines pour un client ; une machine interdite ne reçoit jamais de requête
-// (les autres machines du client, si). Enregistrement par un bouton explicite, actif seulement quand la liste a changé (règle 15).
+// Fenêtre « Machines du client » (lots 447 et 449) : l'administrateur INTERDIT des noms de machines pour un client (une machine interdite ne reçoit jamais de
+// requête distante) et désigne des machines FAVORITES (ordre = priorité) : une favorite en ligne a la priorité pendant 4 s, puis la requête passe à la prochaine
+// machine disponible. Enregistrement par un bouton explicite, actif seulement quand une liste a changé (règle 15).
 function FenetreMachines({ client, onFermer, onEnregistre }) {
   const [interdites, setInterdites] = useState(client.interdites || []);
+  const [favorites, setFavorites] = useState(client.favorites || []);
   const [nouveau, setNouveau] = useState("");
   const [enCours, setEnCours] = useState(false);
-  const modifie = JSON.stringify([...interdites].sort()) !== JSON.stringify([...(client.interdites || [])].sort());
-  // Machines vues par le service du client + machines interdites (même absentes : on doit pouvoir lever une interdiction)
+  const interditesModifiees = JSON.stringify([...interdites].sort()) !== JSON.stringify([...(client.interdites || [])].sort());
+  const favoritesModifiees = JSON.stringify(favorites) !== JSON.stringify(client.favorites || []);   // l'ORDRE compte pour les favorites
+  const modifie = interditesModifiees || favoritesModifiees;
+  // Machines vues par le service du client + machines interdites ou favorites (même absentes : on doit pouvoir les modifier)
   const toutes = useMemo(() => {
     const liste = [...client.machines];
-    interdites.forEach((m) => { if (!liste.some((x) => meme(x, m))) liste.push(m); });
+    [...interdites, ...favorites].forEach((m) => { if (!liste.some((x) => meme(x, m))) liste.push(m); });
     return liste.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }));
-  }, [client.machines, interdites]);
+  }, [client.machines, interdites, favorites]);
   const estInterdite = (m) => interdites.some((x) => meme(x, m));
-  const basculer = (m) => setInterdites((l) => (estInterdite(m) ? l.filter((x) => !meme(x, m)) : [...l, m]));
+  const estFavorite = (m) => favorites.some((x) => meme(x, m));
+  const rang = (m) => favorites.findIndex((x) => meme(x, m));
+  // Interdire une machine la retire des favorites (une machine interdite ne répond jamais)
+  const basculer = (m) => {
+    if (!estInterdite(m)) setFavorites((l) => l.filter((x) => !meme(x, m)));
+    setInterdites((l) => (estInterdite(m) ? l.filter((x) => !meme(x, m)) : [...l, m]));
+  };
+  const basculerFavorite = (m) => setFavorites((l) => (estFavorite(m) ? l.filter((x) => !meme(x, m)) : [...l, m]));
+  const monter = (m) => setFavorites((l) => {
+    const i = l.findIndex((x) => meme(x, m));
+    if (i <= 0) return l;
+    const copie = [...l];
+    [copie[i - 1], copie[i]] = [copie[i], copie[i - 1]];
+    return copie;
+  });
   const ajouter = () => {
     const n = nouveau.trim();
     if (!n) return;
-    if (!estInterdite(n)) setInterdites((l) => [...l, n]);
+    if (!estInterdite(n)) { setInterdites((l) => [...l, n]); setFavorites((l) => l.filter((x) => !meme(x, n))); }
     setNouveau("");
   };
   const enregistrer = async () => {
     setEnCours(true);
-    const t = toast.loading("Enregistrement des machines interdites en cours…");
+    const t = toast.loading("Enregistrement des machines en cours…");
     try {
-      const r = (await apiClient.put(`${BASE}/machines-interdites/${encodeURIComponent(client.code)}`, { machines: interdites })).data;
-      toast.success(r.machines.length ? `Enregistré : ${r.machines.length} machine(s) interdite(s) pour ${client.code}.` : `Enregistré : plus aucune machine interdite pour ${client.code}.`, { id: t });
+      const code = encodeURIComponent(client.code);
+      if (interditesModifiees) await apiClient.put(`${BASE}/machines-interdites/${code}`, { machines: interdites });
+      if (favoritesModifiees) await apiClient.put(`${BASE}/machines-favorites/${code}`, { machines: favorites });
+      toast.success(`Enregistré pour ${client.code} : ${interdites.length} interdite(s), ${favorites.length} favorite(s).`, { id: t });
       onEnregistre();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Enregistrement impossible.", { id: t });
@@ -120,20 +140,43 @@ function FenetreMachines({ client, onFermer, onEnregistre }) {
       <DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto" data-testid="fenetre-machines">
         <DialogHeader>
           <DialogTitle>Machines du client {client.code}</DialogTitle>
-          <DialogDescription>Une machine <b>interdite</b> ne reçoit jamais de requête distante de ce client : les autres machines continuent de répondre.</DialogDescription>
+          <DialogDescription>
+            Une machine <b>interdite</b> ne reçoit jamais de requête distante de ce client. Une machine <b>favorite</b> en ligne passe en premier (4 secondes) ;
+            si elle ne répond pas, la requête passe à la prochaine machine disponible. L'ordre des favorites est leur priorité.
+          </DialogDescription>
         </DialogHeader>
         <ul className="divide-y divide-slate-100 rounded border border-slate-200">
           {toutes.map((m) => (
-            <li key={m} className="flex items-center justify-between gap-2 p-2">
-              <span className="flex items-center gap-2 text-sm">
-                {estInterdite(m) ? <Ban className="h-4 w-4 text-red-600" aria-hidden="true" /> : <Server className="h-4 w-4 text-emerald-600" aria-hidden="true" />}
-                <b className={estInterdite(m) ? "text-red-700 line-through" : "text-slate-800"}>{m}</b>
-                <span className="text-xs text-slate-500">{estInterdite(m) ? "interdite" : "autorisée"}{client.machines.some((x) => meme(x, m)) ? "" : " · non vue récemment"}</span>
+            <li key={m} className="flex flex-wrap items-center justify-between gap-2 p-2">
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                {estInterdite(m) ? <Ban className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+                  : estFavorite(m) ? <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-500" aria-hidden="true" />
+                  : <Server className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />}
+                <b className={`truncate ${estInterdite(m) ? "text-red-700 line-through" : "text-slate-800"}`}>{m}</b>
+                <span className="text-xs text-slate-500">
+                  {estInterdite(m) ? "interdite" : estFavorite(m) ? `favorite n° ${rang(m) + 1}` : "autorisée"}
+                  {client.machines.some((x) => meme(x, m)) ? "" : " · non vue récemment"}
+                </span>
               </span>
-              <button type="button" onClick={() => basculer(m)} data-testid={`bascule-${m}`}
-                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${estInterdite(m) ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-red-400 bg-red-50 text-red-800"}`}>
-                {estInterdite(m) ? <><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Autoriser</> : <><Ban className="h-3.5 w-3.5" aria-hidden="true" />Interdire</>}
-              </button>
+              <span className="flex flex-wrap items-center gap-1">
+                {!estInterdite(m) && (
+                  <button type="button" onClick={() => basculerFavorite(m)} data-testid={`favorite-${m}`}
+                          title={estFavorite(m) ? `Retirer ${m} des favorites` : `Mettre ${m} en favorite`}
+                          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${estFavorite(m) ? "border-amber-500 bg-amber-50 text-amber-800" : "border-slate-400 bg-white text-slate-700"}`}>
+                    <Star className={`h-3.5 w-3.5 ${estFavorite(m) ? "fill-amber-400" : ""}`} aria-hidden="true" />{estFavorite(m) ? "Favorite" : "Favoriser"}
+                  </button>
+                )}
+                {estFavorite(m) && rang(m) > 0 && (
+                  <button type="button" onClick={() => monter(m)} data-testid={`monter-${m}`} title={`Donner à ${m} une priorité plus haute`} aria-label={`Monter ${m} dans les favorites`}
+                          className="inline-flex items-center rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800">
+                    <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                )}
+                <button type="button" onClick={() => basculer(m)} data-testid={`bascule-${m}`}
+                        className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${estInterdite(m) ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-red-400 bg-red-50 text-red-800"}`}>
+                  {estInterdite(m) ? <><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Autoriser</> : <><Ban className="h-3.5 w-3.5" aria-hidden="true" />Interdire</>}
+                </button>
+              </span>
             </li>
           ))}
           {!toutes.length && <li className="p-3 text-center text-sm text-slate-500">Aucune machine vue pour ce client. Saisissez un nom ci-dessous pour l'interdire à l'avance.</li>}
@@ -281,13 +324,13 @@ export default function LooisSqlDistant() {
           Client
           <select value={client} onChange={(e) => setClient(e.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2 text-base" data-testid="choix-client">
             <option value="">— Choisir le client —</option>
-            {clients.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.en_ligne ? "en ligne" : "hors ligne"} · {c.machines.length} machine(s){(c.interdites || []).length ? ` · ${c.interdites.length} interdite(s)` : ""}</option>)}
+            {clients.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.en_ligne ? "en ligne" : "hors ligne"} · {c.machines.length} machine(s){(c.interdites || []).length ? ` · ${c.interdites.length} interdite(s)` : ""}{(c.favorites || []).length ? ` · ${c.favorites.length} favorite(s)` : ""}</option>)}
           </select>
         </label>
         {clientChoisi && (
           <button type="button" onClick={() => setMachinesOuvert(true)} data-testid="bouton-machines"
                   className="inline-flex items-center gap-2 rounded border border-violet-400 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800">
-            <Server className="h-4 w-4" aria-hidden="true" />Machines du client{(clientChoisi.interdites || []).length ? ` (${clientChoisi.interdites.length} interdite(s))` : ""}
+            <Server className="h-4 w-4" aria-hidden="true" />Machines du client{((clientChoisi.interdites || []).length + (clientChoisi.favorites || []).length) ? ` (${(clientChoisi.interdites || []).length} interdite(s), ${(clientChoisi.favorites || []).length} favorite(s))` : ""}
           </button>
         )}
         {clientChoisi && !clientChoisi.en_ligne && (

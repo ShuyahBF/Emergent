@@ -50,6 +50,10 @@ SANS_REPONSE = timedelta(minutes=10)       # machine qui a pris la requête mais
 EN_LIGNE = timedelta(minutes=12)           # même seuil que « Postes Windows — versions déployées »
 ESSAIS_CLE_MAX = 10                        # clés fausses par adresse IP et par 15 minutes
 CREATIONS_PAR_HEURE = 600          # lot 444 : une session distante (écrans de données) envoie beaucoup de petites requêtes
+ID_FAVORITES = "sql_distant_favorites"     # lot 449 : machines FAVORITES par client (même collection, autre document : aucune nouvelle collection)
+FAVORITES_MAX = 20                         # par client
+DELAI_FAVORITE_S = 4                       # lot 449 : une requête reste ce temps (secondes) réservée à une machine favorite EN LIGNE avant de passer à la suivante
+FAVORITE_ACTIVE_S = 15                     # lot 449 : une favorite est « en ligne » si elle a interrogé SAWALI depuis moins de 15 secondes
 SCRUTATION_VALIDE_S = 90           # lot 448.2 : une machine qui interroge SAWALI (« prochaine ») depuis moins de 90 s est « en ligne » pour les requêtes distantes
 SESSION_VALIDE_S = 180             # lot 444 : une session « client distant » ouverte dans Loois reste active 3 minutes après son dernier signal
 
@@ -205,6 +209,33 @@ def vue_requete(req: Dict[str, Any], avec_lignes: bool = True) -> Dict[str, Any]
     return sortie
 
 
+def rang_machine(machine: Any, favorites: Any) -> int:
+    """Lot 449 : rang de préférence d'une machine (0 = la plus favorite). Une machine non favorite a le rang « nombre de favorites » (donc toutes les non favorites sont à égalité)."""
+    liste = favorites if isinstance(favorites, list) else []
+    m = nom_machine(machine).casefold()
+    for i, f in enumerate(liste):
+        if nom_machine(f).casefold() == m:
+            return i
+    return len(liste)
+
+
+def doit_attendre(machine: Any, favorites: Any, interdites: Any, scrutations_client: Dict[str, float], maintenant: float, age_requete_s: float) -> bool:
+    """Lot 449 : vrai si `machine` doit LAISSER la requête à une machine plus favorite.
+    Condition : il existe une AUTRE machine, plus favorite, non interdite, EN LIGNE (a interrogé SAWALI depuis moins de FAVORITE_ACTIVE_S secondes),
+    et la requête attend depuis moins de DELAI_FAVORITE_S secondes. Passé ce délai (favorite occupée ou lente), ou si aucune favorite n'est en ligne,
+    la requête passe tout de suite à la première machine disponible."""
+    if not isinstance(favorites, list) or not favorites or age_requete_s >= DELAI_FAVORITE_S:
+        return False
+    mon_rang = rang_machine(machine, favorites)
+    moi = nom_machine(machine).casefold()
+    for autre, instant in (scrutations_client or {}).items():
+        if maintenant - instant > FAVORITE_ACTIVE_S or nom_machine(autre).casefold() == moi or machine_interdite(autre, interdites):
+            continue
+        if rang_machine(autre, favorites) < mon_rang:
+            return True
+    return False
+
+
 def machines_qui_scrutent(table: Dict[str, Dict[str, float]], client: str, maintenant: float) -> List[str]:
     """Lot 448.2 : noms des machines d'un client qui ont interrogé SAWALI (« prochaine ») depuis moins de SCRUTATION_VALIDE_S secondes.
     `table` = {code client : {machine : instant monotone du dernier appel}}. Une machine qui répond réellement aux requêtes est « en ligne »,
@@ -283,6 +314,30 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         doc = await db.loois_reglages.find_one({"id": ID_INTERDITES}, {"_id": 0}) or {}
         return {c: normaliser_machines(m) for c, m in (doc.get("clients") or {}).items()}
 
+    cache_favorites: Dict[str, Any] = {"instant": 0.0, "donnees": {}}      # lot 449 : relu au plus toutes les 5 s (les machines interrogent chaque seconde)
+
+    async def _favorites_doc() -> Dict[str, List[str]]:
+        """Machines favorites de TOUS les clients : {code client : [noms dans l'ordre de préférence]} (cache de 5 s)."""
+        if time.monotonic() - cache_favorites["instant"] < 5:
+            return cache_favorites["donnees"]
+        doc = await db.loois_reglages.find_one({"id": ID_FAVORITES}, {"_id": 0}) or {}
+        cache_favorites["donnees"] = {c: normaliser_machines(m)[:FAVORITES_MAX] for c, m in (doc.get("clients") or {}).items()}
+        cache_favorites["instant"] = time.monotonic()
+        return cache_favorites["donnees"]
+
+    async def _favorites_definir(client_code: Any, machines: Any, auteur: str) -> Dict[str, Any]:
+        """Remplace la liste (ORDONNÉE : la première est la plus favorite) des machines favorites d'UN client. Liste vide = plus de favorite."""
+        client = code_client(client_code)
+        if not client:
+            raise HTTPException(status_code=422, detail="Client invalide (lettres, chiffres, « _ » ou « - », 20 au plus).")
+        if not isinstance(machines, list):
+            raise HTTPException(status_code=422, detail="Liste « machines » attendue.")
+        propre = normaliser_machines(machines)[:FAVORITES_MAX]
+        await db.loois_reglages.update_one({"id": ID_FAVORITES}, {"$set": {f"clients.{client}": propre, "modifie_le": _maintenant().isoformat(), "modifie_par": auteur}}, upsert=True)
+        cache_favorites["instant"] = 0.0                                   # relecture immédiate
+        logger.info("[loois-sql] machines favorites du client %s : %d machine(s)", client, len(propre))
+        return {"client": client, "machines": propre}
+
     async def _interdites_definir(client_code: Any, machines: Any, auteur: str) -> Dict[str, Any]:
         """Remplace la liste des machines interdites d'UN client (liste vide = plus aucune interdiction). `auteur` = compte ou « Loois » (clé)."""
         client = code_client(client_code)
@@ -339,6 +394,14 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         for code, noms in sorted(interdites.items()):
             if code not in vus and noms:
                 liste.append({"code": code, "machines": [], "en_ligne": False, "interdites": noms})
+        # Lot 449 : machines favorites de chaque client (même traitement : un client avec des favorites reste visible)
+        favorites = await _favorites_doc()
+        deja = {c["code"] for c in liste}
+        for c in liste:
+            c["favorites"] = favorites.get(c["code"], [])
+        for code, noms in sorted(favorites.items()):
+            if code not in deja and noms:
+                liste.append({"code": code, "machines": [], "en_ligne": False, "interdites": [], "favorites": noms})
         return {"clients": liste}
 
     async def _creer_impl(corps, ip: str, auteur: str = ""):
@@ -424,6 +487,21 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         return await _interdites_definir(client, (corps or {}).get("machines"), "Loois")
 
+    @api.get("/loois-sql/machines-favorites", tags=["Loois SQL à distance"])
+    async def favorites_lire(request: Request):
+        """Lot 449 : machines favorites de chaque client (clé « SQL à distance » : Loois sous Windows)."""
+        _proprietaire(request)
+        return {"clients": await _favorites_doc()}
+
+    @api.put("/loois-sql/machines-favorites/{client}", tags=["Loois SQL à distance"])
+    async def favorites_definir(client: str, request: Request):
+        _proprietaire(request)
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        return await _favorites_definir(client, (corps or {}).get("machines"), "Loois")
+
     # ----------------------------------------------------------------- lot 446 : page d'administration SAWALI (navigateur, téléphone, application Android)
     # Le compte administrateur SAWALI (connexion avec code à usage unique) remplace la clé « SQL à distance » : AUCUNE clé n'est gardée sur le téléphone.
     # Toute MODIFICATION (INSERT / UPDATE / DELETE) exige en plus une confirmation renforcée explicite (« confirme_modification »).
@@ -466,6 +544,20 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
                 raise HTTPException(status_code=422, detail="corps JSON attendu")
             return await _interdites_definir(client, (corps or {}).get("machines"), auteur)
 
+        @api.get("/admin/loois-sql/machines-favorites", tags=["Loois SQL à distance"])
+        async def admin_favorites_lire(user: dict = Depends(get_current_user)):
+            _admin(user)
+            return {"clients": await _favorites_doc()}
+
+        @api.put("/admin/loois-sql/machines-favorites/{client}", tags=["Loois SQL à distance"])
+        async def admin_favorites_definir(client: str, request: Request, user: dict = Depends(get_current_user)):
+            auteur = _admin(user)
+            try:
+                corps = await request.json()
+            except Exception:  # noqa: BLE001
+                raise HTTPException(status_code=422, detail="corps JSON attendu")
+            return await _favorites_definir(client, (corps or {}).get("machines"), auteur)
+
         @api.get("/admin/loois-sql/requetes", tags=["Loois SQL à distance"])
         async def admin_historique(user: dict = Depends(get_current_user)):
             _admin(user)
@@ -500,7 +592,8 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         """Une machine réclame une requête pour son client : la première qui la réclame la reçoit (mise à jour conditionnelle atomique)."""
         poste = await _poste(request)
         # Lot 447 : une machine INTERDITE pour ce client ne reçoit jamais de requête (elle voit « rien à faire ») ; la requête reste pour les autres machines
-        if machine_interdite(poste["machine"], (await _interdites_doc()).get(poste["base"], [])):
+        interdites_client = (await _interdites_doc()).get(poste["base"], [])
+        if machine_interdite(poste["machine"], interdites_client):
             return Response(status_code=204)
         scrutations[poste["base"]][poste["machine"]] = time.monotonic()      # lot 448.2 : cette machine répond en ce moment (jamais écrit en base)
         doc = await _lire()
@@ -508,6 +601,13 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         for r in doc.get("requetes", []):
             if r.get("etat") != "attente" or r.get("client") != poste["base"]:
                 continue
+            # Lot 449 : une machine FAVORITE en ligne a la priorité pendant DELAI_FAVORITE_S ; passé ce délai (ou sans favorite en ligne), la machine qui réclame la prend
+            favorites_client = (await _favorites_doc()).get(poste["base"], [])
+            if favorites_client:
+                cree = _date(r.get("cree_le"))
+                age = (_maintenant() - cree).total_seconds() if cree else DELAI_FAVORITE_S
+                if doit_attendre(poste["machine"], favorites_client, interdites_client, scrutations[poste["base"]], time.monotonic(), age):
+                    continue
             # Contrôle refait au moment de la remise (défense en profondeur) : une requête douteuse n'est jamais donnée
             ok, _, raison = verifier(r.get("sql"))
             if not ok:

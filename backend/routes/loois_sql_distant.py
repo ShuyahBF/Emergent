@@ -199,7 +199,7 @@ def clients_en_ligne(fiches: List[Dict[str, Any]], maintenant: datetime) -> List
 # ---------------------------------------------------------------------------
 def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier_cle=None) -> None:
     """Branche les routes du lot 439 (appelée depuis server_parts/p20). `identifier_cle` injectable pour les tests."""
-    from fastapi import HTTPException
+    from fastapi import Depends, HTTPException
 
     if identifier_cle is None:
         from routes.loois_cles_clients import identifier_cle as _identifier
@@ -253,24 +253,16 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
                 r.update(maj)
 
     # ----------------------------------------------------------------- propriétaire (Loois)
-    @api.get("/loois-sql/clients", tags=["Loois SQL à distance"])
-    async def clients(request: Request):
+    async def _clients_impl():
         """Clients dont un service Windows Loois a donné signe de vie (code de la base, machines, en ligne ou non)."""
-        _proprietaire(request)
         seuil = (_maintenant() - timedelta(days=30)).isoformat()
         fiches = [f async for f in db.presences_logiciels.find(
             {"application": {"$regex": "^LooisSyncService", "$options": "i"}, "vu_le": {"$gte": seuil}},
             {"_id": 0, "site": 1, "machine": 1, "vu_le": 1})]
         return {"clients": clients_en_ligne(fiches, _maintenant())}
 
-    @api.post("/loois-sql/requetes", tags=["Loois SQL à distance"], status_code=201)
-    async def creer(request: Request):
-        """Dépose une requête : elle attend qu'UNE machine du client la prenne."""
-        _proprietaire(request)
-        try:
-            corps = await request.json()
-        except Exception:  # noqa: BLE001
-            raise HTTPException(status_code=422, detail="corps JSON attendu")
+    async def _creer_impl(corps, ip: str, auteur: str = ""):
+        """Dépose une requête : elle attend qu'UNE machine du client la prenne. `auteur` = compte SAWALI (page web / Android), vide pour Loois (clé)."""
         client = code_client((corps or {}).get("client"))
         if not client:
             raise HTTPException(status_code=422, detail="Client invalide (lettres, chiffres, « _ » ou « - », 20 au plus).")
@@ -285,7 +277,7 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             raise HTTPException(status_code=429, detail="Trop de requêtes envoyées cette heure.")
         creations.append(maintenant)
         req = {"id": secrets.token_hex(6), "client": client, "sql": sql.rstrip(";").strip(), "nature": nature, "etat": "attente", "machine": None,
-               "cree_le": _maintenant().isoformat(), "cree_ip": _ip(request), "ok": None, "message": "", "base": "", "colonnes": [], "lignes": [],
+               "cree_le": _maintenant().isoformat(), "cree_ip": ip, "cree_par": auteur, "ok": None, "message": "", "base": "", "colonnes": [], "lignes": [],
                "tronque": False, "lignes_affectees": 0, "duree_ms": 0, "schema": [],
                "ephemere": bool((corps or {}).get("ephemere"))}
         sessions[client] = time.monotonic()                      # envoyer une requête vaut signal de session
@@ -293,18 +285,14 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         logger.info("[loois-sql] requête %s déposée pour le client %s (%s)", req["id"], client, nature)
         return vue_requete(req)
 
-    @api.get("/loois-sql/requetes", tags=["Loois SQL à distance"])
-    async def historique(request: Request):
+    async def _historique_impl():
         """Les 30 dernières requêtes, de la plus récente à la plus ancienne (sans les lignes : voir le détail de chacune)."""
-        _proprietaire(request)
         doc = await _lire()
         await _vieillir_tout(doc)
         return {"requetes": [vue_requete(r, avec_lignes=False) for r in reversed(doc.get("requetes", [])[-30:])]}
 
-    @api.get("/loois-sql/requetes/{requete_id}", tags=["Loois SQL à distance"])
-    async def detail(requete_id: str, request: Request):
+    async def _detail_impl(requete_id: str):
         """État et résultat d'une requête (avec le nom de la machine qui l'a exécutée)."""
-        _proprietaire(request)
         doc = await _lire()
         await _vieillir_tout(doc)
         r = next((x for x in doc.get("requetes", []) if x.get("id") == requete_id), None)
@@ -315,6 +303,69 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         if r.get("ephemere") and r.get("etat") in ("terminee", "echec") and r.get("lignes"):
             await db.loois_reglages.update_one({"id": ID_DOC, "requetes.id": requete_id}, {"$set": {"requetes.$.lignes": []}})
         return vue
+
+    # ----------------------------------------------------------------- routes avec la clé « SQL à distance » (Loois sous Windows)
+    @api.get("/loois-sql/clients", tags=["Loois SQL à distance"])
+    async def clients(request: Request):
+        _proprietaire(request)
+        return await _clients_impl()
+
+    @api.post("/loois-sql/requetes", tags=["Loois SQL à distance"], status_code=201)
+    async def creer(request: Request):
+        _proprietaire(request)
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        return await _creer_impl(corps, _ip(request))
+
+    @api.get("/loois-sql/requetes", tags=["Loois SQL à distance"])
+    async def historique(request: Request):
+        _proprietaire(request)
+        return await _historique_impl()
+
+    @api.get("/loois-sql/requetes/{requete_id}", tags=["Loois SQL à distance"])
+    async def detail(requete_id: str, request: Request):
+        _proprietaire(request)
+        return await _detail_impl(requete_id)
+
+    # ----------------------------------------------------------------- lot 446 : page d'administration SAWALI (navigateur, téléphone, application Android)
+    # Le compte administrateur SAWALI (connexion avec code à usage unique) remplace la clé « SQL à distance » : AUCUNE clé n'est gardée sur le téléphone.
+    # Toute MODIFICATION (INSERT / UPDATE / DELETE) exige en plus une confirmation renforcée explicite (« confirme_modification »).
+    # Déjà exigés par SAWALI à la connexion : compte actif, session contrôlée (limite d'appareils, inactivité).
+    if get_current_user is not None:      # (absent seulement dans certains tests : les routes de la page d'administration exigent un compte)
+        def _admin(user: dict) -> str:
+            if (user or {}).get("role") != "admin":
+                raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+            return str(user.get("email") or user.get("id") or "admin")[:120]
+
+        @api.get("/admin/loois-sql/clients", tags=["Loois SQL à distance"])
+        async def admin_clients(user: dict = Depends(get_current_user)):
+            _admin(user)
+            return await _clients_impl()
+
+        @api.post("/admin/loois-sql/requetes", tags=["Loois SQL à distance"], status_code=201)
+        async def admin_creer(request: Request, user: dict = Depends(get_current_user)):
+            auteur = _admin(user)
+            try:
+                corps = await request.json()
+            except Exception:  # noqa: BLE001
+                raise HTTPException(status_code=422, detail="corps JSON attendu")
+            _, nature, _ = verifier(str((corps or {}).get("sql") or ""))
+            if nature == "MODIF" and (corps or {}).get("confirme_modification") is not True:
+                raise HTTPException(status_code=422, detail="Confirmation renforcée requise : une modification de données doit être confirmée explicitement.")
+            logger.info("[loois-sql] page admin : dépôt par un administrateur (%s)", nature or "refusé")
+            return await _creer_impl(corps, _ip(request), auteur)
+
+        @api.get("/admin/loois-sql/requetes", tags=["Loois SQL à distance"])
+        async def admin_historique(user: dict = Depends(get_current_user)):
+            _admin(user)
+            return await _historique_impl()
+
+        @api.get("/admin/loois-sql/requetes/{requete_id}", tags=["Loois SQL à distance"])
+        async def admin_detail(requete_id: str, user: dict = Depends(get_current_user)):
+            _admin(user)
+            return await _detail_impl(requete_id)
 
     @api.post("/loois-sql/session", tags=["Loois SQL à distance"])
     async def session(request: Request):

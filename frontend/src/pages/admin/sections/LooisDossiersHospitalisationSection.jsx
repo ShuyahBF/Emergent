@@ -14,7 +14,7 @@ export default function LooisDossiersHospitalisationSection() {
         <li><Smartphone className="mr-1 inline h-4 w-4 text-sky-600" aria-hidden="true" />La page <b>Plateformes → Loois → Dossiers d'hospitalisation</b> s'ouvre dans le navigateur du téléphone : choisissez le client et la période, puis « Afficher ».</li>
         <li><Eye className="mr-1 inline h-4 w-4 text-violet-600" aria-hidden="true" />Colonnes : n° de dossier, libellé, date de dépôt, patient ; le bouton « Voir » ouvre le détail (montant, réglé, modifié par).</li>
         <li><ShieldCheck className="mr-1 inline h-4 w-4 text-emerald-600" aria-hidden="true" />Réservée aux <b>administrateurs</b> ; lecture seule ; les données de patients sont lues chez le client et <b>ne sont pas conservées</b> dans SAWALI.</li>
-        <li>Elle utilise le canal « SQL distant » (une machine du client doit être en ligne) : la liste se lit par fenêtres de 200 numéros, 40 au plus (environ 2 mois chez IPM), 2 minutes au plus. Au-delà, la page signale une lecture PARTIELLE.</li>
+        <li>Elle utilise le canal « SQL distant » (une machine du client doit être en ligne) : la liste se lit par tranches de 200 numéros, 40 au plus (environ 2 mois chez IPM), 2 minutes au plus. Au-delà, la page signale une lecture PARTIELLE.</li>
         <li>Un clic sur « Afficher » ne relance jamais une lecture en cours : le bouton se grise, la durée et l'avancement s'affichent, et « Arrêter » interrompt la lecture.</li>
       </ul>
       <Link to="/admin/loois-dossiers-hospitalisation" className="inline-flex items-center gap-2 rounded bg-sky-700 px-4 py-2 text-sm font-semibold text-white">

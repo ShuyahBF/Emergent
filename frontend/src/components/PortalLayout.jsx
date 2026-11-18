@@ -231,6 +231,7 @@ const adminLinks = [
   { to: "/admin/transactions-sms", label: "Transactions SMS", icon: MessageSquareWarning, adminOnly: true, groupe: "plateformes" },   // lot 389 : paiements lus dans les SMS d'un téléphone (administrateur)
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
+  { to: "/admin/loois-sql-distant", label: "Loois → SQL Distant", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 446 : requêtes HFSQL distantes depuis le téléphone
   // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)
   { to: "/admin/controle-distance", label: "Contrôle à distance", icon: MonitorSmartphone, adminOnly: true, groupe: "plateformes" },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },

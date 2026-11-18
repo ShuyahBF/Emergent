@@ -92,6 +92,7 @@ import AdminDemandesPlateformes from "@/pages/admin/AdminDemandesPlateformes";  
 import AdminTransactionsSms from "@/pages/admin/AdminTransactionsSms";   // Lot 389 : transactions SMS (administrateur)
 import AdminLieuxBalises from "@/pages/admin/AdminLieuxBalises";   // Lot 388 : lieux « Vous êtes ici » (administrateur + superviseur)
 import LieuBalise from "@/pages/public/LieuBalise";   // Lot 388 : page publique d'un lieu
+import LooisSqlDistant from "@/pages/admin/LooisSqlDistant";   // Lot 446 — Plateformes → Loois → SQL Distant (téléphone)
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
 import AutomationsVocalesPage from "@/pages/portal/AutomationsVocalesPage";   // lot 375 — Superviseur
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
@@ -548,6 +549,7 @@ export default function App() {
             <Route path="transactions-sms" element={<AdminTransactionsSms />} />   {/* lot 389 */}
             {/* Lot 68 — synchro des tables HFSQL des clients Loois vers MongoDB (administrateur) */}
             <Route path="loois-synchro" element={<LooisSynchro />} />
+            <Route path="loois-sql-distant" element={<LooisSqlDistant />} />   {/* lot 446 */}
             {/* Lot 70 — agenda d'appels de Liluvine (appels sortants planifiés, anniversaires) */}
             <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}

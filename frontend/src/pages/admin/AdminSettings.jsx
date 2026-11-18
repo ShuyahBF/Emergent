@@ -59,6 +59,7 @@ import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSe
 import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LibererEspaceSection from "@/pages/admin/sections/LibererEspaceSection";   // Lot 113 : bouton unique « 🧹 Libérer l'Espace »
+import LooisSqlDistantSection from "@/pages/admin/sections/LooisSqlDistantSection";   // Lot 446 : page SQL distant pour le téléphone
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
@@ -1665,6 +1666,11 @@ export default function AdminSettings() {
       {/* Lot 79.11 — mots de passe HFSQL saisis ici (chiffrés) et remis à Loois avec sa clé client */}
       <Filterable title="🔐 Loois — mots de passe HFSQL" anchorId="s-loois-secrets-hfsql" category="modules">
         <LooisSecretsHfsqlSection />
+      </Filterable>
+
+      {/* Lot 446 — page « SQL Distant » de l'administration, utilisable depuis le téléphone (compte administrateur, sans clé sur l'appareil) */}
+      <Filterable title="🧾 Loois — SQL distant (téléphone)" anchorId="s-loois-sql-distant" category="modules">
+        <LooisSqlDistantSection />
       </Filterable>
 
       {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}

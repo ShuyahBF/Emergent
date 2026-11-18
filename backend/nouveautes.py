@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "446", "date": "2026-11-18",
+        "titre": "📱 SQL distant : page pour le téléphone",
+        "description": "Nouvelle page Plateformes → Loois → SQL Distant, utilisable dans le navigateur du téléphone : votre compte SAWALI remplace la clé, une modification demande une confirmation renforcée.",
+        "rubrique": "🧾 Loois — SQL distant (téléphone)",
+    },
+    {
         "lot": "445", "date": "2026-11-18",
         "titre": "📒 Loois : journal du client distant",
         "description": "Loois garde un journal (date et heure, fenêtre, requête, erreurs, machine et adresse IP du client qui a répondu). SAWALI relaie maintenant l'adresse IP de la machine.",

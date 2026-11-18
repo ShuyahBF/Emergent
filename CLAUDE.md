@@ -239,3 +239,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Le pictogramme est **dans le champ** (à droite), avec une description d'accessibilité (« Afficher la saisie » / « Masquer la saisie ») et une zone tactile d'au moins 44 px.
 - **Un seul composant par plateforme**, utilisé partout (jamais un `<input type="password">` nu) : web = `ChampMotDePasse` / `MotDePasse` / `PasswordInput` (ou le champ de base de l'interface qui l'intègre quand `type="password"`) ; Android Compose = champ avec `trailingIcon` (`Visibility` / `VisibilityOff`) ; Android à vues = `FrameLayout` + œil ; WinForms = case ou bouton œil qui bascule `UseSystemPasswordChar`.
 - Un nouvel écran, un nouveau projet : le champ secret reçoit l'œil dès la première version. Exception : la saisie d'un code à usage unique (code reçu par e-mail ou SMS, code de l'application d'authentification), qui n'est pas un secret durable.
+
+## Tableaux de plus de 30 lignes : barre de défilement (règle 24, 18/11/2026 : « C'est une règle à considérer partout sur toutes les plateformes »)
+- Tout tableau qui présente PLUS DE 30 LIGNES défile dans son cadre (hauteur = 30 lignes + l'en-tête) au lieu d'allonger la page ; l'en-tête reste visible en haut pendant le défilement ;
+  à l'impression, toutes les lignes sortent. Exception possible : `<table data-sans-defilement>`.
+- SAWALI : module global `frontend/src/lib/defilementTableaux.js` (installé dans `index.js`, règles CSS dans `index.css`, test `defilementTableaux.test.js`) : rien à ajouter tableau par tableau.
+  Autres sites web : même module copié. Android Compose : liste de plus de 30 lignes dans une `LazyColumn` à hauteur bornée. WinForms : `DataGridView` à hauteur fixe (défilement natif).

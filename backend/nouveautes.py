@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "440", "date": "2026-11-18",
+        "titre": "📜 Tableaux longs : barre de défilement",
+        "description": "Tout tableau de plus de 30 lignes défile dans son cadre (en-tête toujours visible) : la page reste courte. À l'impression, toutes les lignes sortent.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "439", "date": "2026-11-18",
         "titre": "🧾 Loois : requête SQL à distance",
         "description": "Depuis Loois (Outils → Requête SQL distante), exécutez une requête sur la base HFSQL d'un client (ex. IPM) : une seule machine l'exécute et le retour dit laquelle. Clé à saisir : LOOIS_SQL_DISTANT_CLE (Render).",

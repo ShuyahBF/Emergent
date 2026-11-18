@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "439"
-LOT_LIBELLE = "Loois : requêtes SQL à distance sur la base HFSQL d'un client (une seule machine exécute, le retour dit laquelle) ; changement de base du service Windows."
+LOT = "440"
+LOT_LIBELLE = "Tableaux de plus de 30 lignes : barre de défilement dans le tableau (page moins longue), en-tête collant, impression complète."

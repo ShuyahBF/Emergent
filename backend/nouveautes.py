@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.4", "date": "2026-11-18",
+        "titre": "📱 Dossiers d'hospitalisation : tableau compact sur téléphone",
+        "description": "Sur téléphone, le tableau tient à l'écran : n°, date (jour et heure), patient avec le libellé en petit dessous, et un bouton œil pour le détail. La colonne « Libellé » reste affichée sur tablette et ordinateur.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.3", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : le bon lien vers le patient",
         "description": "Le patient d'un dossier est retrouvé par le numéro d'enregistrement (Numéro_Enreg) du dossier, comme dans la table Patient : les noms des patients s'affichent à la place du code.",

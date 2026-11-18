@@ -35,6 +35,8 @@ export default function LooisDossiersHospitalisation() {
   const [recherche, setRecherche] = useState("");
   const [dossiers, setDossiers] = useState([]);
   const [noms, setNoms] = useState({});
+  const [interroges, setInterroges] = useState(() => new Set());   // codes de patients dont le nom a été DEMANDÉ au client (trouvé ou non) : « nom non trouvé » seulement pour ceux-là
+  const [arretee, setArretee] = useState(false);                   // lecture des dossiers arrêtée par l'utilisateur (liste incomplète voulue)
   const [dernier, setDernier] = useState(0);
   const [enCours, setEnCours] = useState(false);
   const [secondes, setSecondes] = useState(0);
@@ -45,7 +47,9 @@ export default function LooisDossiersHospitalisation() {
   const [base, setBase] = useState("");
   const [detail, setDetail] = useState(null);
   const enCoursRef = useRef(false);            // garde : une seule lecture à la fois (posée AVANT de lancer, lue par tous les clics)
-  const annulerRef = useRef(false);            // demandé par « Arrêter » ou à la fermeture de la page
+  const annulerRef = useRef(false);            // arrêt TOTAL (2e appui sur « Arrêter » ou fermeture de la page)
+  const arretDossiersRef = useRef(false);      // 1er appui sur « Arrêter » : on arrête les dossiers mais on lit quand même les noms des patients des dossiers déjà lus
+  const phaseRef = useRef("dossiers");         // « dossiers » puis « noms »
   const debutRef = useRef(0);
 
   // Clients dont un service Loois a donné signe de vie
@@ -92,7 +96,8 @@ export default function LooisDossiersHospitalisation() {
     if (!client) { toast.error("Choisissez d'abord le client."); return; }
     // Une lecture est déjà en cours : on NE relance PAS une deuxième lecture (clics répétés), on le dit clairement
     if (enCoursRef.current) { toast.info(`Lecture déjà en cours… patientez (${BUDGET_MS / 60000} minutes au plus).`); return; }
-    enCoursRef.current = true; annulerRef.current = false;
+    enCoursRef.current = true; annulerRef.current = false; arretDossiersRef.current = false; phaseRef.current = "dossiers";
+    setArretee(false); setInterroges(new Set());
     debutRef.current = Date.now();
     setEnCours(true); setSecondes(0); setErreur(""); setPartielle(false); setDossiers([]); setNoms({}); setMachine(""); setBase("");
     setAvancement("Interrogation du serveur du client…");
@@ -114,6 +119,7 @@ export default function LooisDossiersHospitalisation() {
       // 2. Fenêtres de 200 numéros, du plus récent au plus ancien ; on s'arrête dès que la période est dépassée
       for (let n = 0; n < FENETRES_MAX && haut > 0; n++) {
         if (Date.now() - debutRef.current > BUDGET_MS) break;                                   // limite de temps : lecture partielle
+        if (arretDossiersRef.current) { setArretee(true); break; }                              // arrêt demandé : on garde ce qui est lu et on passe aux noms
         const { bas, haut: h } = fenetre(haut);
         setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus)…`);
         let r;
@@ -134,6 +140,8 @@ export default function LooisDossiersHospitalisation() {
         if (periodeDepassee(lus, debutIso) || haut <= 0) { termine = true; break; }
       }
       setPartielle(!termine);
+      phaseRef.current = "noms";
+      if (arretDossiersRef.current) toast.loading(`Lecture des dossiers arrêtée (${retenus.length} lus) : noms des patients en cours…`, { id: toastId });
       // 3. Noms des patients (un échec n'empêche pas d'afficher la liste : le code du patient reste visible)
       const codes = [...new Set(retenus.map((d) => d.codePatient).filter(Boolean))];
       const lots = paquets(codes, PAQUET_PATIENTS).slice(0, PAQUETS_MAX);
@@ -146,13 +154,14 @@ export default function LooisDossiersHospitalisation() {
           const r = await executer(clientLu, sql);
           nomsLus = { ...nomsLus, ...lireNoms(r.lignes, r.colonnes) };
           setNoms(nomsLus);
+          setInterroges((s) => new Set([...s, ...lots[i]]));                                    // ces codes ont été demandés : sans nom ci-dessous = vraiment introuvables
         }
       } catch (e) {
         if (e instanceof Annulation) throw e;
         toast.warning("Noms des patients indisponibles : les codes sont affichés à la place.");
       }
       const s = Math.floor((Date.now() - debutRef.current) / 1000);
-      toast.success(`${retenus.length} dossier(s) lus chez ${clientLu} en ${dureeMmSs(s)}${termine ? "." : " — lecture PARTIELLE (limite de temps ou de tranches atteinte) : réduisez la période."}`, { id: toastId });
+      toast.success(`${retenus.length} dossier(s) lus chez ${clientLu} en ${dureeMmSs(s)}${termine ? "." : arretDossiersRef.current ? " — lecture arrêtée : liste incomplète." : " — lecture PARTIELLE (limite de temps ou de tranches atteinte) : réduisez la période."}`, { id: toastId });
     } catch (e) {
       if (e instanceof Annulation) { toast.info("Lecture arrêtée.", { id: toastId }); }
       else {
@@ -214,7 +223,14 @@ export default function LooisDossiersHospitalisation() {
             {enCours ? "En cours…" : dossiers.length ? "Actualiser" : "Afficher"}
           </button>
           {enCours && (
-            <button type="button" onClick={() => { annulerRef.current = true; }} data-testid="arreter"
+            <button type="button" data-testid="arreter"
+                    onClick={() => {
+                      // 1er appui : on arrête les dossiers mais on lit les noms des dossiers déjà lus ; 2e appui (ou pendant les noms) : arrêt total
+                      if (phaseRef.current === "dossiers" && !arretDossiersRef.current) {
+                        arretDossiersRef.current = true;
+                        toast.info("Arrêt demandé : la tranche en cours se termine, puis les noms des patients sont lus. Appuyez encore pour tout arrêter.");
+                      } else annulerRef.current = true;
+                    }}
                     className="inline-flex items-center gap-2 rounded border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700">
               <XCircle className="h-4 w-4" aria-hidden="true" />Arrêter
             </button>
@@ -237,7 +253,9 @@ export default function LooisDossiersHospitalisation() {
       {partielle && !enCours && (
         <div className="flex items-start gap-2 rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800" role="status" data-testid="partielle">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} tranches ou de {BUDGET_MS / 60000} minutes). Choisissez une période plus courte.</span>
+          {arretee
+            ? <span><b>Lecture arrêtée</b> : la liste est incomplète ({dossiers.length} dossier(s) lus). Appuyez sur « Actualiser » pour la relire en entier.</span>
+            : <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} tranches ou de {BUDGET_MS / 60000} minutes). Choisissez une période plus courte.</span>}
         </div>
       )}
 
@@ -274,7 +292,7 @@ export default function LooisDossiersHospitalisation() {
                     <td className="p-2 text-violet-800">
                       {/* Téléphone : numéro du patient au-dessus de son nom (nom pas lu : « nom non trouvé »), libellé du dossier en petit dessous */}
                       <span className="block text-xs tabular-nums text-slate-500 md:hidden">{d.codePatient === null ? "—" : `n° ${d.codePatient}`}</span>
-                      <span className="block">{noms[d.codePatient] || (d.codePatient === null ? "—" : <i className="text-slate-400">nom non trouvé</i>)}</span>
+                      <span className="block">{noms[d.codePatient] || (d.codePatient === null ? "—" : <i className="text-slate-400">{interroges.has(d.codePatient) ? "nom non trouvé" : enCours ? "nom en cours de lecture…" : "nom non lu"}</i>)}</span>
                       <span className="block text-xs text-slate-500 md:hidden">{d.libelle || "—"}</span>
                     </td>
                     <td className="hidden p-2 md:table-cell">{d.libelle || "—"}</td>

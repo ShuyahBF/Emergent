@@ -143,3 +143,13 @@ def test_plateforme_prevenue_a_l_instant_signal_signe_sans_donnees(monkeypatch):
         async def post(self, *a, **k): raise httpx.ConnectError("hors ligne")
     monkeypatch.setattr(httpx, "AsyncClient", Panne)
     assert loop.run_until_complete(dp.prevenir_plateforme(db, "albarka")) is False                # injoignable : ignoré
+
+
+def test_statut_deja_repondu_commentaire_obligatoire_et_demande_close():
+    """Lot 434 — « Déjà répondu » : la demande est close (ni date prévue ni date de réalisation) ; le commentaire dit où la réponse existe déjà."""
+    j = date(2026, 11, 18)
+    with pytest.raises(ValueError):
+        dp.valider_traitement({"statut": "deja_repondu"}, j)                                      # commentaire obligatoire
+    r = dp.valider_traitement({"statut": "deja_repondu", "commentaire": "Voir DEM-ALBARKA-0003", "prevue_le": "2026-12-01", "realisee_le": "2026-11-18"}, j)
+    assert r["statut"] == "deja_repondu" and r["commentaire"] == "Voir DEM-ALBARKA-0003" and r["prevue_le"] is None and r["realisee_le"] is None
+    assert "deja_repondu" in dp.STATUTS and "deja_repondu" not in dp.OUVERTS                      # close : hors du planning des demandes ouvertes

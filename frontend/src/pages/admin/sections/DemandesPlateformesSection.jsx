@@ -10,9 +10,9 @@ import GanttEnchainement from "@/components/GanttEnchainement";       // lot 427
 
 import { Clock, OctagonAlert, Play, Save as Ico15Save, X as Ico15X } from "lucide-react";
 const jour = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "—");
-const COULEUR = { remontee: "text-amber-700", en_cours: "text-sky-700", point_mort: "text-slate-900", realisee: "text-emerald-700", refusee: "text-rose-700" };
+const COULEUR = { remontee: "text-amber-700", en_cours: "text-sky-700", point_mort: "text-slate-900", realisee: "text-emerald-700", refusee: "text-rose-700", deja_repondu: "text-violet-700" };
 // Lot 429 : statuts « En cours » et « Point mort » (jamais la couleur seule : pictogramme + libellé)
-const LIBELLE = { remontee: "En attente", en_cours: "En cours", point_mort: "Point mort", realisee: "Réalisée", refusee: "Refusée" };
+const LIBELLE = { remontee: "En attente", en_cours: "En cours", point_mort: "Point mort", realisee: "Réalisée", refusee: "Refusée", deja_repondu: "Déjà répondu" };
 const PICTO = { remontee: Clock, en_cours: Play, point_mort: OctagonAlert };
 // Durée estimée : liste finie → liste déroulante (règle 10)
 const UNITES = [["jour", "Jour(s)"], ["semaine", "Semaine(s)"], ["mois", "Mois"], ["annee", "Année(s)"]];
@@ -99,6 +99,7 @@ export default function DemandesPlateformesSection() {
             <option value="point_mort">Point mort (travail arrêté)</option>
             <option value="realisee">Réalisée</option>
             <option value="refusee">Refusée</option>
+            <option value="deja_repondu">Déjà répondu</option>
           </select>
           {["remontee", "en_cours", "point_mort"].includes(edition.statut) && (
             <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="edition-duree">
@@ -114,7 +115,7 @@ export default function DemandesPlateformesSection() {
           {edition.statut === "remontee" && !edition.duree_valeur && <label className="block text-xs">Prévue le <input type="date" value={edition.prevue_le} onChange={(e) => setEdition({ ...edition, prevue_le: e.target.value })} className="ml-1 rounded border border-slate-300 px-2 py-1" /> (sans durée estimée)</label>}
           {edition.statut === "realisee" && <label className="block text-xs">Réalisée le <input type="date" value={edition.realisee_le} onChange={(e) => setEdition({ ...edition, realisee_le: e.target.value })} className="ml-1 rounded border border-slate-300 px-2 py-1" /> (vide = aujourd'hui)</label>}
           <textarea value={edition.commentaire} onChange={(e) => setEdition({ ...edition, commentaire: e.target.value })} rows={2}
-            placeholder={edition.statut === "refusee" ? "Raison du refus (obligatoire)" : edition.statut === "point_mort" ? "Raison du point mort (obligatoire)" : "Commentaire pour la plateforme"} className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+            placeholder={edition.statut === "refusee" ? "Raison du refus (obligatoire)" : edition.statut === "deja_repondu" ? "Où la réponse a déjà été donnée (obligatoire)" : edition.statut === "point_mort" ? "Raison du point mort (obligatoire)" : "Commentaire pour la plateforme"} className="w-full rounded border border-slate-300 px-2 py-1 text-sm" />
           <div className="flex gap-2">
             <button type="button" onClick={enregistrer} className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
             <button type="button" onClick={() => setEdition(null)} className="rounded border border-slate-300 px-3 py-1.5 text-sm"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>

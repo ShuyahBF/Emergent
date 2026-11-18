@@ -13,7 +13,7 @@ export const SEUIL_SANS_REPONSE_JOURS = 14;      // demande sans date de SAWALI 
  */
 export function demandesOuvertes(demandes, maintenant = Date.now()) {
   return (demandes || [])
-    .filter((d) => d.statut !== "realisee" && d.statut !== "refusee")
+    .filter((d) => d.statut !== "realisee" && d.statut !== "refusee" && d.statut !== "deja_repondu")
     .map((d) => {
       const debutPlan = enMs(d.debut_prevu_le || (d.statut === "point_mort" ? d.debut_le : null));
       const finPlan = enMs(d.fin_prevue_le || d.prevue_le);

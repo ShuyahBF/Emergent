@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "434", "date": "2026-11-18",
+        "titre": "📮 Demandes des plateformes : statut « Déjà répondu »",
+        "description": "En traitant une demande d'une plateforme (ALBARKA…), SAWALI peut répondre « Déjà répondu » avec l'endroit où la réponse existe ; la demande est close et la plateforme est prévenue.",
+        "lien": "/admin/demandes-plateformes",
+    },
+    {
         "lot": "433", "date": "2026-11-17",
         "titre": "⚡ Demandes des plateformes : échange en temps réel",
         "description": "Dès que vous traitez une demande, la plateforme (ALBARKA…) est prévenue à l'instant et se met à jour ; et ses nouvelles demandes arrivent chez vous sans attendre.",

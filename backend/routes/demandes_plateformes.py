@@ -32,7 +32,7 @@ from routes.contrats_plateformes import signature_valide
 
 TYPES = ("correction", "nouveaute")
 # Lot 429 : « remontee » = En attente ; « en_cours » = SAWALI y travaille ; « point_mort » = travail arrêté (raison obligatoire) ; puis réalisée / refusée.
-STATUTS = ("remontee", "en_cours", "point_mort", "realisee", "refusee")
+STATUTS = ("remontee", "en_cours", "point_mort", "realisee", "refusee", "deja_repondu")   # lot 434 : « deja_repondu » = la question avait déjà reçu une réponse
 OUVERTS = ("remontee", "en_cours", "point_mort")          # statuts « non terminés »
 # Durée estimée : unité → nombre de jours (mois = 30 j, année = 365 j : estimation de planning, pas un calendrier)
 UNITES_JOURS = {"jour": 1, "semaine": 7, "mois": 30, "annee": 365}
@@ -209,7 +209,7 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
     """Champs à enregistrer quand l'administrateur traite une demande ; ValueError (message lisible) si incohérent."""
     statut = corps.get("statut")
     if statut not in STATUTS:
-        raise ValueError("Statut attendu : remontee, en_cours, point_mort, realisee ou refusee")
+        raise ValueError("Statut attendu : remontee, en_cours, point_mort, realisee, refusee ou deja_repondu")
     commentaire = str(corps.get("commentaire") or "").strip()[:MAX_TEXTE] or None
 
     def jour(cle: str) -> Optional[str]:
@@ -250,6 +250,10 @@ def valider_traitement(corps: Dict[str, Any], aujourdhui: date) -> Dict[str, Any
     elif statut == "refusee":
         if not commentaire:
             raise ValueError("Indiquez la raison du refus dans le commentaire")
+        realisee_le = prevue_le = None
+    elif statut == "deja_repondu":                           # lot 434 : demande close, la réponse existe déjà ; le commentaire dit OÙ (numéro d'une demande, écran, explication)
+        if not commentaire:
+            raise ValueError("Indiquez dans le commentaire où la réponse a déjà été donnée")
         realisee_le = prevue_le = None
     else:
         realisee_le = None

@@ -156,15 +156,22 @@ def resultat_borne(corps: Dict[str, Any]) -> Dict[str, Any]:
         duree = int(corps.get("duree_ms") or 0)
     except (TypeError, ValueError):
         affectees, duree = 0, 0
+    # Lot 443 — description des champs (clé primaire, automatique, calculé, type, table) : permet à Loois d'éditer une fiche sans toucher aux champs protégés
+    schema = []
+    for c in (corps.get("schema") or [])[:COLONNES_MAX]:
+        if isinstance(c, dict):
+            schema.append({"nom": str(c.get("nom") or "")[:100], "cle": bool(c.get("cle")), "auto": bool(c.get("auto")), "calcule": bool(c.get("calcule")),
+                           "type": str(c.get("type") or "")[:20], "table": str(c.get("table") or "")[:100]})
     return {"ok": bool(corps.get("ok")), "message": str(corps.get("message") or "")[:2000], "base": str(corps.get("base") or "")[:120],
-            "colonnes": colonnes, "lignes": lignes, "tronque": tronque, "lignes_affectees": affectees, "duree_ms": duree}
+            "colonnes": colonnes, "lignes": lignes, "tronque": tronque, "lignes_affectees": affectees, "duree_ms": duree, "schema": schema}
 
 
 def vue_requete(req: Dict[str, Any], avec_lignes: bool = True) -> Dict[str, Any]:
     """Représentation envoyée à Loois (jamais l'adresse IP ni l'identifiant de clé)."""
     sortie = {k: req.get(k) for k in ("id", "client", "sql", "etat", "machine", "cree_le", "prise_le", "fin_le", "ok", "message", "base",
-                                       "colonnes", "tronque", "lignes_affectees", "duree_ms")}
+                                       "colonnes", "tronque", "lignes_affectees", "duree_ms", "schema")}
     sortie["colonnes"] = sortie["colonnes"] or []
+    sortie["schema"] = sortie["schema"] or []
     sortie["lignes"] = (req.get("lignes") or []) if avec_lignes else []
     return sortie
 

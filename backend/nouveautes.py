@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.6", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : « Arrêter » garde les noms des patients",
+        "description": "Le premier appui sur « Arrêter » arrête la lecture des dossiers mais lit quand même les noms des patients des dossiers déjà lus ; un second appui arrête tout. « nom non trouvé » n'apparaît plus que si le nom a vraiment été demandé (sinon « nom non lu »).",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.5", "date": "2026-11-18",
         "titre": "📱 Dossiers d'hospitalisation : cellules groupées sur téléphone",
         "description": "Sur téléphone, le numéro du dossier porte sa date et son heure dessous, et le numéro du patient porte son nom dessous. Sur tablette et ordinateur, les colonnes restent séparées.",

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "450", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : lecture plus rapide chez CMC",
+        "description": "Les noms des 300 patients des dossiers les plus récents sont lus pendant la lecture ; les autres se lisent à la demande (bouton « Voir » d'un dossier) ou par « Lire les noms restants » en arrière-plan, sans bloquer la page.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.9", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : jointure désactivée",
         "description": "Le pilote HFSQL ne fait pas de jointure de tables : la page ne l'essaie plus. Les noms des patients sont lus en parallèle des dossiers, par paquets de 150, et s'affichent au fur et à mesure.",

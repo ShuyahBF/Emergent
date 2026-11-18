@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "436", "date": "2026-11-18",
+        "titre": "🟢 Téléphones source : puce « données à jour »",
+        "description": "Chaque téléphone affiche une puce verte (envoi il y a moins de 24 h), orange (moins de 3 jours), rouge (plus ancien) ou grise (jamais) avec « il y a 3 h » : on voit d'un coup d'œil s'il a actualisé ses données.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "435.1", "date": "2026-11-18",
         "titre": "🔎 Évaluer un terme : pourquoi « 0 occurrence » ?",
         "description": "Si SAWALI ne trouve rien alors qu'auRor trouve, l'écran explique : terme présent dans une autre catégorie ou une autre période, ou SMS pas encore envoyés par Concentration.",

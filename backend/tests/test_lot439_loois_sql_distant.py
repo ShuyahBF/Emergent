@@ -255,3 +255,13 @@ def test_schema_garde_l_indicateur_memo():
     """Un champ mémo n'est jamais transmis par le service ; SAWALI relaie seulement son indicateur."""
     r = sd.resultat_borne({"ok": True, "colonnes": ["Obs"], "lignes": [["▤ mémo (non transmis)"]], "schema": [{"nom": "Obs", "memo": True, "type": "String"}]})
     assert r["schema"][0]["memo"] is True
+
+
+def test_adresse_ip_de_la_machine_relayee_a_loois(env):
+    """Lot 445 : le journal du client distant de Loois affiche la machine ET son adresse IP (vue par SAWALI)."""
+    client, _ = env
+    rid = deposer(client, "SELECT * FROM Client").json()["id"]
+    client.get("/api/loois-sql/poste/prochaine", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"))
+    client.post("/api/loois-sql/poste/resultat", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"), json={"id": rid, "ok": True, "colonnes": ["Id"], "lignes": [["1"]]})
+    d = client.get(f"/api/loois-sql/requetes/{rid}", headers=OWNER).json()
+    assert d["machine"] == "PC-IPM-1" and d["machine_ip"]

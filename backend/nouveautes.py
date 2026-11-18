@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "445", "date": "2026-11-18",
+        "titre": "📒 Loois : journal du client distant",
+        "description": "Loois garde un journal (date et heure, fenêtre, requête, erreurs, machine et adresse IP du client qui a répondu). SAWALI relaie maintenant l'adresse IP de la machine.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "444", "date": "2026-11-18",
         "titre": "🌐 Loois : client distant de la session",
         "description": "Dans Loois, l'administrateur choisit un client : ses écrans lisent et enregistrent les données de CE client via SAWALI. Pendant la session, le service du client répond en 1 seconde au lieu de 5.",

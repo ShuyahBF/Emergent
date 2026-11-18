@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "444"
-LOT_LIBELLE = "Loois — client distant de la session : interrogation rapide des services (1 s) tant qu'une session est ouverte, résultats de lecture éphémères."
+LOT = "445"
+LOT_LIBELLE = "Loois — journal du client distant : adresse IP de la machine qui répond relayée à Loois."

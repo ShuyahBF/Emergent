@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "443", "date": "2026-11-18",
+        "titre": "🧾 Loois : modifier une fiche (SQL distant)",
+        "description": "Dans Loois → Requête SQL distante, en mode Fiche, modifiez les valeurs des champs (sauf clés primaires, champs automatiques ou calculés) : Loois prépare l'UPDATE, vous confirmez, une seule machine l'exécute.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "442", "date": "2026-11-18",
         "titre": "🧾 Règlements : plusieurs mois et motif",
         "description": "Dans Clients → Paiements → Type : un règlement peut couvrir plusieurs mois (même d'une année précédente) et porter un motif sur plusieurs lignes (références des factures concernées).",

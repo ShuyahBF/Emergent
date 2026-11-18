@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "442"
-LOT_LIBELLE = "Clients : un règlement peut couvrir plusieurs mois (même d'une année précédente) et porter un motif sur plusieurs lignes (références des factures)."
+LOT = "443"
+LOT_LIBELLE = "Loois — requête SQL distante : description des champs (clé primaire, automatique, calculé) relayée pour l'édition d'une fiche."

@@ -210,3 +210,16 @@ def test_clients_en_ligne():
     r = sd.clients_en_ligne(fiches, maintenant)
     assert [c["code"] for c in r] == ["CMC", "IPM"]
     assert r[1]["machines"] == ["PC1", "PC2"] and r[1]["en_ligne"] is True and r[0]["en_ligne"] is False
+
+
+def test_resultat_borne_garde_la_description_des_champs():
+    """Lot 443 : la description des champs (clé / automatique / calculé) est conservée, bornée et nettoyée."""
+    r = sd.resultat_borne({"ok": True, "colonnes": ["Id", "Nom"], "lignes": [["1", "A"]],
+                           "schema": [{"nom": "Id", "cle": True, "auto": True, "type": "Int32", "table": "Client"}, {"nom": "Nom", "type": "String"}, "pas un dict"]})
+    assert r["schema"][0] == {"nom": "Id", "cle": True, "auto": True, "calcule": False, "type": "Int32", "table": "Client"}
+    assert r["schema"][1]["cle"] is False and len(r["schema"]) == 2
+
+
+def test_vue_requete_expose_le_schema():
+    assert sd.vue_requete({"id": "x", "schema": [{"nom": "Id"}]})["schema"] == [{"nom": "Id"}]
+    assert sd.vue_requete({"id": "x"})["schema"] == []

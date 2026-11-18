@@ -10,14 +10,14 @@
 // Retour du propriétaire (18/11/2026) : un clic ne relance JAMAIS une lecture en cours, et l'attente se VOIT (durée, avancement, bouton renommé).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Banknote, CheckCircle2, Eye, Loader2, RefreshCw, Search, Server, Stethoscope, XCircle } from "lucide-react";
+import { AlertTriangle, Banknote, CheckCircle2, Eye, Loader2, RefreshCw, Search, Server, Stethoscope, Users, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  JOINTURE_ACTIVE, lireNoms, lireNomsJointure, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
+  BUDGET_MS, FENETRES_MAX, NOMS_AUTO, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
+  JOINTURE_ACTIVE, lireNoms, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -36,6 +36,9 @@ export default function LooisDossiersHospitalisation() {
   const [dossiers, setDossiers] = useState([]);
   const [noms, setNoms] = useState({});
   const [interroges, setInterroges] = useState(() => new Set());   // codes de patients dont le nom a été DEMANDÉ au client (trouvé ou non) : « nom non trouvé » seulement pour ceux-là
+  const [nomsEnCours, setNomsEnCours] = useState(false);          // les noms restants se lisent en arrière-plan (la page reste utilisable)
+  const [avancementNoms, setAvancementNoms] = useState("");
+  const [nomUnique, setNomUnique] = useState(null);                // code du patient dont le nom est lu à la demande (bouton « Voir »)
   const [arretee, setArretee] = useState(false);                   // lecture des dossiers arrêtée par l'utilisateur (liste incomplète voulue)
   const [dernier, setDernier] = useState(0);
   const [enCours, setEnCours] = useState(false);
@@ -50,6 +53,10 @@ export default function LooisDossiersHospitalisation() {
   const annulerRef = useRef(false);            // arrêt TOTAL (2e appui sur « Arrêter » ou fermeture de la page)
   const arretDossiersRef = useRef(false);      // 1er appui sur « Arrêter » : on arrête les dossiers mais on lit quand même les noms des patients des dossiers déjà lus
   const phaseRef = useRef("dossiers");         // « dossiers » puis « noms »
+  const genRef = useRef(0);                    // numéro de la lecture en cours : un travail de noms d'une lecture précédente s'arrête dès qu'une nouvelle lecture démarre
+  const clientListeRef = useRef("");           // client de la liste affichée (le choix du client peut changer après la lecture)
+  const nomsEnCoursRef = useRef(false);        // lecture des noms restants en arrière-plan
+  const nomsArretRef = useRef(false);          // demande d'arrêt de cette lecture des noms
   const debutRef = useRef(0);
 
   // Clients dont un service Loois a donné signe de vie
@@ -72,11 +79,11 @@ export default function LooisDossiersHospitalisation() {
   }, [enCours]);
 
   // Envoie UNE requête SELECT au client et attend son résultat (suivi toutes les 0,7 s) ; lève une erreur claire en cas de refus ou de silence
-  const executer = async (clientLu, sql) => {
+  const executer = async (clientLu, sql, gen) => {
     const depot = (await apiClient.post(`${BASE}/requetes`, { client: clientLu, sql, ephemere: true })).data;
     const attenteDebut = Date.now();
     for (;;) {
-      if (annulerRef.current) throw new Annulation();
+      if (annulerRef.current || (gen !== undefined && gen !== genRef.current)) throw new Annulation();     // arrêt total, ou une NOUVELLE lecture a démarré
       await pause(700);
       const r = (await apiClient.get(`${BASE}/requetes/${depot.id}`)).data;
       if (ETATS_FINAUX.includes(r.etat)) {
@@ -97,6 +104,9 @@ export default function LooisDossiersHospitalisation() {
     // Une lecture est déjà en cours : on NE relance PAS une deuxième lecture (clics répétés), on le dit clairement
     if (enCoursRef.current) { toast.info(`Lecture déjà en cours… patientez (${BUDGET_MS / 60000} minutes au plus).`); return; }
     enCoursRef.current = true; annulerRef.current = false; arretDossiersRef.current = false; phaseRef.current = "dossiers";
+    genRef.current += 1; nomsArretRef.current = true;                    // une lecture des noms restants en arrière-plan (lecture précédente) s'arrête
+    const gen = genRef.current;
+    clientListeRef.current = client;
     setArretee(false); setInterroges(new Set());
     debutRef.current = Date.now();
     setEnCours(true); setSecondes(0); setErreur(""); setPartielle(false); setDossiers([]); setNoms({}); setMachine(""); setBase("");
@@ -121,19 +131,19 @@ export default function LooisDossiersHospitalisation() {
     let arretTravail = false;            // vrai quand la lecture est terminée ou en erreur
     let nomsLus = {};
     const travailNoms = async () => {
-      let faits = 0;
-      while (!arretTravail && faits < PAQUETS_MAX) {
-        if (annulerRef.current) throw new Annulation();
+      let pris = 0;
+      while (!arretTravail && pris < NOMS_AUTO) {                      // seulement les NOMS_AUTO (300) plus récents : le reste se lit à la demande
+        if (annulerRef.current || gen !== genRef.current) throw new Annulation();
         const paquet = prendrePaquet(file, PAQUET_PATIENTS, dossiersFinis);
         if (paquet === null) { if (dossiersFinis) break; await pause(250); continue; }
+        pris += paquet.length;
         const sql = sqlPatients(paquet);
         if (!sql) continue;
         try {
-          const r = await executer(clientLu, sql);
+          const r = await executer(clientLu, sql, gen);
           nomsLus = { ...nomsLus, ...lireNoms(r.lignes, r.colonnes) };
           setNoms(nomsLus);
           setInterroges((s) => new Set([...s, ...paquet]));                                       // ces codes ont été demandés : sans nom = vraiment introuvables
-          faits++;
         } catch (e) {
           if (e instanceof Annulation) throw e;
           toast.warning("Noms des patients indisponibles : les codes sont affichés à la place.");  // la liste reste affichée, les codes aussi
@@ -144,7 +154,7 @@ export default function LooisDossiersHospitalisation() {
     let tacheNoms = Promise.resolve();
     try {
       // 1. Dernier numéro de dossier
-      const rMax = await executer(clientLu, sqlMax());
+      const rMax = await executer(clientLu, sqlMax(), gen);
       let haut = Number.parseInt(rMax.lignes?.[0]?.[0], 10);
       if (!Number.isInteger(haut) || haut <= 0) throw new Error("Dernier numéro de dossier illisible dans la réponse du client.");
       setDernier(haut);
@@ -160,7 +170,7 @@ export default function LooisDossiersHospitalisation() {
         if (modeJointure) {
           // Chaque base est complète et autonome (propriétaire, 18/11/2026) : dossiers et patients sont dans la même base, une jointure donne les deux en une requête
           try {
-            r = await executer(clientLu, sqlFenetreJointure(bas, h));
+            r = await executer(clientLu, sqlFenetreJointure(bas, h), gen);
             nomsJoints = lireNomsJointure(r.lignes, r.colonnes);
             if (nomsJoints === null) throw new Error("Résultat de la jointure sans colonnes Nom / Prénoms.");
           } catch (e) {
@@ -171,12 +181,12 @@ export default function LooisDossiersHospitalisation() {
         }
         if (!modeJointure) {
           try {
-            r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h));
+            r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h), gen);
           } catch (e) {
             if (e instanceof Annulation || toutesColonnes || n > 0) throw e;   // le repli ne sert qu'à la PREMIÈRE tranche
             toutesColonnes = true;
             toast.warning("Une colonne a été refusée : lecture avec toutes les colonnes.");
-            r = await executer(clientLu, sqlFenetreToutes(bas, h));
+            r = await executer(clientLu, sqlFenetreToutes(bas, h), gen);
           }
         }
         if (r.tronque && r.lignes.length < TAILLE_FENETRE) throw new Error("Résultat trop volumineux pour une réponse distante : réduisez la période.");
@@ -219,6 +229,57 @@ export default function LooisDossiersHospitalisation() {
       setEnCours(false);
       setAvancement("");
     }
+  };
+
+  // Patients de la liste dont le nom n'a pas (encore) été demandé : lus à la demande (retour du propriétaire, 18/11/2026 : les 300 plus récents d'abord, le reste à la demande)
+  const codesSansNom = useMemo(() => [...new Set(dossiers.map((d) => d.codePatient).filter((c) => c && !interroges.has(c)))], [dossiers, interroges]);
+
+  // « Lire les noms restants » : lecture en ARRIÈRE-PLAN (la page reste utilisable), par paquets de 150, arrêtable ; une nouvelle lecture des dossiers l'arrête
+  const lireNomsRestants = async () => {
+    if (enCoursRef.current || nomsEnCoursRef.current || codesSansNom.length === 0) return;
+    const gen = genRef.current;
+    const clientLu = clientListeRef.current;
+    const lots = paquets(codesSansNom, PAQUET_PATIENTS).slice(0, PAQUETS_MAX);
+    nomsEnCoursRef.current = true; nomsArretRef.current = false; setNomsEnCours(true);
+    try {
+      for (let i = 0; i < lots.length; i++) {
+        if (nomsArretRef.current) break;
+        const sql = sqlPatients(lots[i]);
+        if (!sql) continue;
+        setAvancementNoms(`Noms des patients : paquet ${i + 1} sur ${lots.length}…`);
+        const r = await executer(clientLu, sql, gen);
+        if (gen !== genRef.current) return;
+        setNoms((avant) => ({ ...avant, ...lireNoms(r.lignes, r.colonnes) }));
+        setInterroges((s) => new Set([...s, ...lots[i]]));
+      }
+    } catch (e) {
+      if (!(e instanceof Annulation)) toast.warning("Noms des patients indisponibles : les codes restent affichés.");
+    } finally {
+      nomsEnCoursRef.current = false; setNomsEnCours(false); setAvancementNoms("");
+    }
+  };
+
+  // Nom d'UN patient lu à la demande (ouverture du détail d'un dossier) ; ignoré si le nom est déjà lu ou si une lecture est en cours
+  const chargerNomUnique = async (code) => {
+    if (!code || noms[code] || interroges.has(code) || enCoursRef.current || nomsEnCoursRef.current) return;
+    const gen = genRef.current;
+    setNomUnique(code);
+    try {
+      const r = await executer(clientListeRef.current, sqlPatients([code]), gen);
+      if (gen !== genRef.current) return;
+      setNoms((avant) => ({ ...avant, ...lireNoms(r.lignes, r.colonnes) }));
+      setInterroges((s) => new Set([...s, code]));
+    } catch (e) {
+      if (!(e instanceof Annulation)) toast.warning("Nom du patient indisponible.");
+    } finally { setNomUnique((c) => (c === code ? null : c)); }
+  };
+
+  // Texte du nom d'un patient dans le tableau : le nom, « non trouvé » (demandé, absent), « en cours de lecture… » ou « à la demande (Voir) »
+  const texteNom = (d) => {
+    if (d.codePatient === null) return "—";
+    if (noms[d.codePatient]) return noms[d.codePatient];
+    if (interroges.has(d.codePatient)) return <i className="text-slate-400">nom non trouvé</i>;
+    return <i className="text-slate-400">{enCours || nomsEnCours ? "nom en cours de lecture…" : "nom à la demande (Voir)"}</i>;
   };
 
   // Recherche (numéro, libellé ou patient) dans les dossiers déjà lus
@@ -307,6 +368,27 @@ export default function LooisDossiersHospitalisation() {
       {/* Liste : toutes les colonnes sont triables ; clic sur une ligne = détail dans une fenêtre modale */}
       {dossiers.length > 0 && (
         <>
+          {/* Noms non lus : les 300 plus récents sont lus automatiquement, les autres à la demande (bouton « Voir ») ou ici, en arrière-plan sans bloquer la page */}
+          {codesSansNom.length > 0 && !enCours && (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900" data-testid="noms-restants">
+              <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{codesSansNom.length} nom(s) de patients non lus (les plus récents sont lus ; les autres se lisent à la demande : bouton « Voir »).</span>
+              {nomsEnCours ? (
+                <>
+                  <span className="font-semibold">{avancementNoms}</span>
+                  <button type="button" onClick={() => { nomsArretRef.current = true; }} data-testid="arreter-noms"
+                          className="inline-flex items-center gap-1 rounded border border-red-300 bg-white px-2 py-1 font-semibold text-red-700">
+                    <XCircle className="h-3.5 w-3.5" aria-hidden="true" />Arrêter les noms
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={lireNomsRestants} data-testid="lire-noms-restants"
+                        className="inline-flex items-center gap-1 rounded border border-violet-400 bg-white px-2 py-1 font-semibold text-violet-800">
+                  <Users className="h-3.5 w-3.5" aria-hidden="true" />Lire les noms restants
+                </button>
+              )}
+            </div>
+          )}
           <label className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 text-sm">
             <Search className="h-4 w-4 text-slate-500" aria-hidden="true" />
             <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher un n°, un libellé ou un patient" className="w-full p-2 outline-none" data-testid="recherche" />
@@ -337,13 +419,13 @@ export default function LooisDossiersHospitalisation() {
                     <td className="p-2 text-violet-800">
                       {/* Téléphone : numéro du patient au-dessus de son nom (nom pas lu : « nom non trouvé »), libellé du dossier en petit dessous */}
                       <span className="block text-xs tabular-nums text-slate-500 md:hidden">{d.codePatient === null ? "—" : `n° ${d.codePatient}`}</span>
-                      <span className="block">{noms[d.codePatient] || (d.codePatient === null ? "—" : <i className="text-slate-400">{interroges.has(d.codePatient) ? "nom non trouvé" : enCours ? "nom en cours de lecture…" : "nom non lu"}</i>)}</span>
+                      <span className="block">{texteNom(d)}</span>
                       <span className="block text-xs text-slate-500 md:hidden">{d.libelle || "—"}</span>
                     </td>
                     <td className="hidden p-2 md:table-cell">{d.libelle || "—"}</td>
                     <td className="p-2">
                       {/* Pictogramme seul sur téléphone (info-bulle et libellé d'accessibilité), avec la légende « Voir » dès la tablette (règle 15) */}
-                      <button type="button" onClick={() => setDetail(d)} title={`Voir le dossier ${d.numero}`} aria-label={`Voir le dossier ${d.numero}`}
+                      <button type="button" onClick={() => { setDetail(d); chargerNomUnique(d.codePatient); }} title={`Voir le dossier ${d.numero}`} aria-label={`Voir le dossier ${d.numero}`}
                               className="inline-flex items-center gap-1 rounded border border-sky-300 px-2 py-1 text-xs font-semibold text-sky-800">
                         <Eye className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden md:inline">Voir</span>
                       </button>
@@ -372,7 +454,7 @@ export default function LooisDossiersHospitalisation() {
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
               <dt className="font-semibold text-slate-600">Libellé</dt><dd>{detail.libelle || "—"}</dd>
               <dt className="font-semibold text-slate-600">Date de dépôt</dt><dd>{dateFr(detail.date)}{detail.heure ? ` ${detail.heure}` : ""}</dd>
-              <dt className="font-semibold text-slate-600">Patient</dt><dd className="text-violet-800">{libellePatient(detail, noms)}</dd>
+              <dt className="font-semibold text-slate-600">Patient</dt><dd className="text-violet-800">{detail.codePatient ? `n° ${detail.codePatient} — ` : ""}{nomUnique === detail.codePatient ? <i className="text-slate-400">nom en cours de lecture…</i> : texteNom(detail)}</dd>
               <dt className="font-semibold text-slate-600">Montant</dt>
               <dd className={`tabular-nums ${detail.regle ? "text-emerald-700" : "text-red-700"}`}>
                 <Banknote className="mr-1 inline h-4 w-4" aria-hidden="true" />{detail.montant === null ? "—" : detail.montant.toLocaleString("fr-FR")}

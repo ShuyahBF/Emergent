@@ -21,6 +21,11 @@ export const FENETRES_MAX = 80;
 export const BUDGET_MS = 180000;
 /** Codes patients par requête de noms (la requête reste bien sous la limite de 4 000 caractères). */
 export const PAQUET_PATIENTS = 150;
+/**
+ * Noms lus AUTOMATIQUEMENT : les 300 patients des dossiers les plus récents (2 paquets de 150), pendant la lecture des dossiers. Les autres noms se lisent À LA DEMANDE
+ * (bouton « Voir » d'un dossier, ou « Lire les noms restants ») : chez CMC, chaque dossier « Caisse : Divers » a son propre patient (~3 900 noms pour 7 jours, ~30 requêtes lentes).
+ */
+export const NOMS_AUTO = 300;
 /** Paquets de noms au plus par lecture (150 × 110 = 16 500 patients : autant que 80 tranches de 200 dossiers). */
 export const PAQUETS_MAX = 110;
 

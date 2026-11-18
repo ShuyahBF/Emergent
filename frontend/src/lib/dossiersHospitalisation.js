@@ -13,21 +13,25 @@ export const FICHIER = "DOSSIER EXAMEN";
 export const COLONNES = "[Dos_num], [Dos_lib], [Da_dépôt], [He_Dépôt], [Montant], [Client], [Modificateur], [Réglé]";
 /** Taille d'une fenêtre de numéros (un résultat distant contient 200 lignes au plus). */
 export const TAILLE_FENETRE = 200;
-/** Nombre maximal de fenêtres lues : 40 × 200 = 8 000 numéros (environ 2 mois chez IPM). Au-delà, la lecture est PARTIELLE et l'écran le dit. */
-export const FENETRES_MAX = 40;
-/** Durée maximale de la lecture des dossiers (millisecondes) : 2 minutes. */
-export const BUDGET_MS = 120000;
+/** Nombre maximal de tranches lues : 80 × 200 = 16 000 numéros (environ 3 mois chez IPM, ~145 dossiers par jour). Au-delà, la lecture est PARTIELLE et l'écran le dit. */
+export const FENETRES_MAX = 80;
+/** Durée maximale de la lecture des dossiers (millisecondes) : 3 minutes (une tranche prend ~2 s depuis le lot 449.1 : 90 jours ≈ 65 tranches ≈ 2 min 15 s). */
+export const BUDGET_MS = 180000;
 /** Codes patients par requête de noms (la requête reste bien sous la limite de 4 000 caractères). */
 export const PAQUET_PATIENTS = 150;
 /** Paquets de noms au plus par lecture (150 × 40 = 6 000 patients). */
 export const PAQUETS_MAX = 40;
 
 /** Périodes proposées (liste déroulante : l'ensemble des choix est fini). */
+// Retour du propriétaire (18/11/2026) : surtout les 7 derniers jours (choix par défaut), 30, 60 ou 90 jours seulement à de rares occasions.
 export const PERIODES = [
   { code: "7", jours: 7, libelle: "7 derniers jours" },
   { code: "30", jours: 30, libelle: "30 derniers jours" },
-  { code: "60", jours: 60, libelle: "60 derniers jours (maximum)" },
+  { code: "60", jours: 60, libelle: "60 derniers jours" },
+  { code: "90", jours: 90, libelle: "90 derniers jours (maximum)" },
 ];
+/** Période choisie au départ. */
+export const PERIODE_DEFAUT = "7";
 
 /** Requête du dernier numéro de dossier. */
 export const sqlMax = () => `SELECT MAX([Dos_num]) FROM [${FICHIER}]`;
@@ -147,9 +151,13 @@ export function lireNoms(lignes, colonnes) {
   return noms;
 }
 
-/** Texte du patient affiché : son nom, sinon « Patient n° code » (nom pas encore lu ou indisponible), sinon « — ». */
+/** Texte du patient affiché : son nom, sinon « Code n° X » (nom pas encore lu, introuvable ou indisponible), sinon « — ».
+ *  (La colonne « Client » du fichier est traitée comme le code du patient, comme dans Loois : hypothèse « à confirmer » ; on n'écrit donc jamais un nom qu'on n'a pas lu.) */
 export const libellePatient = (dossier, noms) =>
-  dossier.codePatient === null ? "—" : (noms && noms[dossier.codePatient]) || `Patient n° ${dossier.codePatient}`;
+  dossier.codePatient === null ? "—" : (noms && noms[dossier.codePatient]) || `Code n° ${dossier.codePatient}`;
+
+/** Dossiers du plus récent au plus ancien (numéro décroissant) : ordre d'affichage par défaut (retour du propriétaire, 18/11/2026). */
+export const plusRecentsDabord = (dossiers) => [...(dossiers || [])].sort((a, b) => b.numero - a.numero);
 
 /** Durée « m:ss » à partir de secondes. */
 export const dureeMmSs = (secondes) => `${Math.floor(secondes / 60)}:${String(secondes % 60).padStart(2, "0")}`;

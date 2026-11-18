@@ -16,8 +16,8 @@ import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  lireNoms, paquets, periodeDepassee, sqlFenetre, sqlMax, sqlPatients, TAILLE_FENETRE,
+  BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
+  lireNoms, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -31,7 +31,7 @@ class Annulation extends Error {}
 export default function LooisDossiersHospitalisation() {
   const [clients, setClients] = useState([]);
   const [client, setClient] = useState("");
-  const [periode, setPeriode] = useState("30");
+  const [periode, setPeriode] = useState(PERIODE_DEFAUT);        // 7 jours au départ (usage courant) ; 30, 60 ou 90 jours à de rares occasions
   const [recherche, setRecherche] = useState("");
   const [dossiers, setDossiers] = useState([]);
   const [noms, setNoms] = useState({});
@@ -91,7 +91,7 @@ export default function LooisDossiersHospitalisation() {
   const lire = async () => {
     if (!client) { toast.error("Choisissez d'abord le client."); return; }
     // Une lecture est déjà en cours : on NE relance PAS une deuxième lecture (clics répétés), on le dit clairement
-    if (enCoursRef.current) { toast.info("Lecture déjà en cours… patientez (2 minutes au plus)."); return; }
+    if (enCoursRef.current) { toast.info(`Lecture déjà en cours… patientez (${BUDGET_MS / 60000} minutes au plus).`); return; }
     enCoursRef.current = true; annulerRef.current = false;
     debutRef.current = Date.now();
     setEnCours(true); setSecondes(0); setErreur(""); setPartielle(false); setDossiers([]); setNoms({}); setMachine(""); setBase("");
@@ -120,7 +120,7 @@ export default function LooisDossiersHospitalisation() {
         const lus = r.lignes.map((l) => lireDossier(l, r.colonnes)).filter(Boolean);
         cumul = cumul.concat(lus);
         retenus = dansLaPeriode(cumul, debutIso, finIso);
-        setDossiers(retenus);                                                                   // on affiche d'abord ce qui est prêt (règle 7)
+        setDossiers(plusRecentsDabord(retenus));                                                // on affiche d'abord ce qui est prêt (règle 7), du plus récent au plus ancien
         haut = bas - 1;
         if (periodeDepassee(lus, debutIso) || haut <= 0) { termine = true; break; }
       }
@@ -228,7 +228,7 @@ export default function LooisDossiersHospitalisation() {
       {partielle && !enCours && (
         <div className="flex items-start gap-2 rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800" role="status" data-testid="partielle">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} tranches ou de 2 minutes). Choisissez une période plus courte.</span>
+          <span><b>Lecture PARTIELLE</b> : la liste est incomplète (limite de {FENETRES_MAX} tranches ou de {BUDGET_MS / 60000} minutes). Choisissez une période plus courte.</span>
         </div>
       )}
 

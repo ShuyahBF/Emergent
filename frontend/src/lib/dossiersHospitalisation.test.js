@@ -1,7 +1,7 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
-  FENETRES_MAX, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  dansLaPeriode, paquets, periodeDepassee, sqlFenetre, sqlMax, sqlPatients,
+  FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
+  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
 const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Client", "Modificateur", "Réglé"];
@@ -15,7 +15,7 @@ describe("requêtes validées sur IPM le 18/11/2026", () => {
     expect(fenetre(134668)).toEqual({ bas: 134469, haut: 134668 });
     expect(fenetre(50)).toEqual({ bas: 1, haut: 50 });
     expect(TAILLE_FENETRE).toBe(200);
-    expect(FENETRES_MAX).toBe(40);
+    expect(FENETRES_MAX).toBe(80);
   });
   test("requête des patients : seulement des entiers positifs, sans doublon (aucun texte libre dans le SQL)", () => {
     expect(sqlPatients([5, "7", 5, "x'; DROP", -2, 0, 3.5])).toBe("SELECT [Numéro_Enreg], [Nom], [Prénoms] FROM [Patient] WHERE [Numéro_Enreg] IN (5, 7)");
@@ -46,8 +46,17 @@ describe("lecture des cellules", () => {
     const noms = lireNoms([["321", "BADINI", "Awa"], ["x", "?", "?"]], ["Numéro_Enreg", "Nom", "Prénoms"]);
     expect(noms).toEqual({ 321: "BADINI Awa" });
     expect(libellePatient({ codePatient: 321 }, noms)).toBe("BADINI Awa");
-    expect(libellePatient({ codePatient: 999 }, noms)).toBe("Patient n° 999");
+    expect(libellePatient({ codePatient: 999 }, noms)).toBe("Code n° 999");
     expect(libellePatient({ codePatient: null }, noms)).toBe("—");
+  });
+});
+
+describe("affichage", () => {
+  test("du plus récent au plus ancien, 7 jours par défaut, jusqu'à 90 jours", () => {
+    expect(plusRecentsDabord([{ numero: 134481 }, { numero: 134680 }, { numero: 134500 }]).map((d) => d.numero)).toEqual([134680, 134500, 134481]);
+    expect(plusRecentsDabord(null)).toEqual([]);
+    expect(PERIODE_DEFAUT).toBe("7");
+    expect(PERIODES.map((p) => p.jours)).toEqual([7, 30, 60, 90]);
   });
 });
 

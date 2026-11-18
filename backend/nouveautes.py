@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.2", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : récents d'abord, 7 jours par défaut",
+        "description": "La liste web affiche les dossiers du plus récent au plus ancien ; la période par défaut est de 7 jours (30, 60 ou 90 jours disponibles) ; la lecture va jusqu'à 80 tranches et 3 minutes.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.1", "date": "2026-11-18",
         "titre": "⚡ SQL distant : lecture environ 2 fois plus rapide",
         "description": "Après chaque requête exécutée, la machine du client reprend l'interrogation toutes les secondes (au lieu de 5 s) tant qu'une page ou Loois est ouverte : la lecture des dossiers d'hospitalisation passe d'environ 6 s à 2 ou 3 s par tranche. Aucune mise à jour du service Windows nécessaire.",

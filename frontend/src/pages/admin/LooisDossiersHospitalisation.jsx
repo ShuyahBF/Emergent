@@ -10,13 +10,13 @@
 // Retour du propriétaire (18/11/2026) : un clic ne relance JAMAIS une lecture en cours, et l'attente se VOIT (durée, avancement, bouton renommé).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Banknote, CheckCircle2, Eye, Loader2, RefreshCw, Search, Server, Stethoscope, Users, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, Banknote, CheckCircle2, Eye, Loader2, RefreshCw, Search, Server, Stethoscope, Users, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  BUDGET_MS, FENETRES_MAX, NOMS_AUTO, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
+  BUDGET_MS, FENETRES_MAX, LIGNES_AFFICHEES, NOMS_AUTO, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
   JOINTURE_ACTIVE, lireNoms, lireNomsJointure, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreJointure, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
@@ -36,6 +36,7 @@ export default function LooisDossiersHospitalisation() {
   const [dossiers, setDossiers] = useState([]);
   const [noms, setNoms] = useState({});
   const [interroges, setInterroges] = useState(() => new Set());   // codes de patients dont le nom a été DEMANDÉ au client (trouvé ou non) : « nom non trouvé » seulement pour ceux-là
+  const [limite, setLimite] = useState(LIGNES_AFFICHEES);        // nombre de lignes dessinées (200, puis « Afficher 200 de plus »)
   const [nomsEnCours, setNomsEnCours] = useState(false);          // les noms restants se lisent en arrière-plan (la page reste utilisable)
   const [avancementNoms, setAvancementNoms] = useState("");
   const [nomUnique, setNomUnique] = useState(null);                // code du patient dont le nom est lu à la demande (bouton « Voir »)
@@ -107,6 +108,7 @@ export default function LooisDossiersHospitalisation() {
     genRef.current += 1; nomsArretRef.current = true;                    // une lecture des noms restants en arrière-plan (lecture précédente) s'arrête
     const gen = genRef.current;
     clientListeRef.current = client;
+    setLimite(LIGNES_AFFICHEES);
     setArretee(false); setInterroges(new Set());
     debutRef.current = Date.now();
     setEnCours(true); setSecondes(0); setErreur(""); setPartielle(false); setDossiers([]); setNoms({}); setMachine(""); setBase("");
@@ -295,6 +297,9 @@ export default function LooisDossiersHospitalisation() {
   });
 
   const periodeLibelle = PERIODES.find((p) => p.code === periode)?.libelle;
+  // Retour à la première page d'affichage quand la recherche ou le tri change (le tri et la recherche portent toujours sur TOUTE la liste)
+  useEffect(() => { setLimite(LIGNES_AFFICHEES); }, [recherche, tri]);
+  const affichees = triees.slice(0, limite);
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-3 sm:p-6" data-testid="dossiers-hospitalisation">
@@ -408,7 +413,7 @@ export default function LooisDossiersHospitalisation() {
                 </tr>
               </thead>
               <tbody>
-                {triees.map((d) => (
+                {affichees.map((d) => (
                   <tr key={d.numero} className="border-t border-slate-100">
                     <td className="p-2 text-right tabular-nums">
                       <span className="block font-semibold text-sky-800">{d.numero}</span>
@@ -435,6 +440,21 @@ export default function LooisDossiersHospitalisation() {
               </tbody>
             </table>
           </div>
+          {triees.length > limite && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600" data-testid="affichage-progressif">
+              <span>{limite} dossier(s) affichés sur {triees.length}</span>
+              <span className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setLimite((l) => l + LIGNES_AFFICHEES)} data-testid="afficher-plus"
+                        className="inline-flex items-center gap-1 rounded border border-sky-300 bg-white px-3 py-1.5 font-semibold text-sky-800">
+                  <ArrowDown className="h-4 w-4" aria-hidden="true" />Afficher {LIGNES_AFFICHEES} de plus
+                </button>
+                <button type="button" onClick={() => setLimite(triees.length)} data-testid="tout-afficher"
+                        className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700">
+                  <Eye className="h-4 w-4" aria-hidden="true" />Tout afficher
+                </button>
+              </span>
+            </div>
+          )}
         </>
       )}
       {!enCours && dossiers.length === 0 && !erreur && (

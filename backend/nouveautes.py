@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "450.1", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : plus fluide sur téléphone",
+        "description": "Le tableau affiche 200 dossiers à la fois (« Afficher 200 de plus », « Tout afficher ») au lieu de ~4 000 d'un coup, et les requêtes SQL distantes n'affichent plus « Opération effectuée avec succès » à chaque requête ni ne sont tracées (elles contenaient des numéros de patients).",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "450", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : lecture plus rapide chez CMC",
         "description": "Les noms des 300 patients des dossiers les plus récents sont lus pendant la lecture ; les autres se lisent à la demande (bouton « Voir » d'un dossier) ou par « Lire les noms restants » en arrière-plan, sans bloquer la page.",

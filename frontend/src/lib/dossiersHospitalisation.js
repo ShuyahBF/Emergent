@@ -21,8 +21,8 @@ export const FENETRES_MAX = 80;
 export const BUDGET_MS = 180000;
 /** Codes patients par requête de noms (la requête reste bien sous la limite de 4 000 caractères). */
 export const PAQUET_PATIENTS = 150;
-/** Paquets de noms au plus par lecture (150 × 40 = 6 000 patients). */
-export const PAQUETS_MAX = 40;
+/** Paquets de noms au plus par lecture (150 × 110 = 16 500 patients : autant que 80 tranches de 200 dossiers). */
+export const PAQUETS_MAX = 110;
 
 /** Périodes proposées (liste déroulante : l'ensemble des choix est fini). */
 // Retour du propriétaire (18/11/2026) : surtout les 7 derniers jours (choix par défaut), 30, 60 ou 90 jours seulement à de rares occasions.
@@ -54,6 +54,17 @@ export function sqlPatients(codes) {
   const propres = [...new Set((codes || []).map((c) => Number(c)).filter((n) => Number.isInteger(n) && n > 0))];
   if (propres.length === 0) return null;
   return `SELECT [Numéro_Enreg], [Nom], [Prénoms] FROM [Patient] WHERE [Numéro_Enreg] IN (${propres.join(", ")})`;
+}
+
+/**
+ * Lecture EN PARALLÈLE des noms (retour du propriétaire, 18/11/2026) : la lecture des dossiers dépose les codes de patients dans une FILE ; un second travail les prend par paquets
+ * pendant que les dossiers continuent d'être lus. Renvoie le prochain paquet à interroger (et le RETIRE de la file) : `taille` codes dès que la file en contient assez
+ * (jamais de petits paquets : le nombre de requêtes reste le même), ou ce qui reste (moins de `taille`) seulement quand les dossiers sont tous lus (`fini`). Sinon null : rien à faire pour l'instant.
+ */
+export function prendrePaquet(file, taille, fini) {
+  if (file.length >= taille) return file.splice(0, taille);
+  if (fini && file.length > 0) return file.splice(0, file.length);
+  return null;
 }
 
 /** Coupe une liste en paquets de `taille` éléments. */

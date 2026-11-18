@@ -1,7 +1,7 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
   FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
+  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
 const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé"];
@@ -54,6 +54,18 @@ describe("lecture des cellules", () => {
     expect(libellePatient({ codePatient: 321 }, noms)).toBe("BADINI Awa");
     expect(libellePatient({ codePatient: 999 }, noms)).toBe("Code n° 999");
     expect(libellePatient({ codePatient: null }, noms)).toBe("—");
+  });
+});
+
+describe("lecture des noms en parallèle", () => {
+  test("un paquet complet dès que la file est assez pleine, le reste seulement quand les dossiers sont finis", () => {
+    const file = [1, 2, 3, 4, 5];
+    expect(prendrePaquet(file, 3, false)).toEqual([1, 2, 3]);            // file assez pleine : paquet de 3
+    expect(file).toEqual([4, 5]);                                         // les codes pris sont retirés de la file
+    expect(prendrePaquet(file, 3, false)).toBeNull();                     // pas assez de codes et dossiers pas finis : on attend (pas de petit paquet)
+    expect(prendrePaquet(file, 3, true)).toEqual([4, 5]);                 // dossiers finis : on vide ce qui reste
+    expect(file).toEqual([]);
+    expect(prendrePaquet(file, 3, true)).toBeNull();                      // plus rien
   });
 });
 

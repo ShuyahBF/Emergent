@@ -17,7 +17,7 @@ import ThTri from "@/components/ThTri";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   BUDGET_MS, FENETRES_MAX, PAQUET_PATIENTS, PAQUETS_MAX, PERIODES, PERIODE_DEFAUT, dansLaPeriode, dateFr, dureeMmSs, fenetre, jourIso, libellePatient, lireDossier,
-  lireNoms, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
+  lireNoms, periodeDepassee, plusRecentsDabord, prendrePaquet, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients, TAILLE_FENETRE,
 } from "@/lib/dossiersHospitalisation";
 
 const BASE = "/admin/loois-sql";
@@ -110,18 +110,50 @@ export default function LooisDossiersHospitalisation() {
     let termine = false;
     let retenus = [];
     let toutesColonnes = false;          // repli : lecture avec toutes les colonnes si le nom exact d'une colonne est refusé
+    // ---- Noms des patients EN PARALLÈLE des dossiers (retour du propriétaire, 18/11/2026) : la lecture des dossiers dépose les codes de patients dans une FILE
+    // (les plus récents d'abord) ; ce travail les prend par paquets de 150 pendant que les dossiers continuent d'être lus, et affiche chaque nom dès qu'il arrive.
+    // Chez un client à UNE seule machine les requêtes passent l'une après l'autre (le temps total est le même) mais les noms apparaissent tout de suite ;
+    // avec plusieurs machines les deux lectures avancent vraiment en même temps.
+    const file = [];                     // codes de patients à interroger
+    const mis = new Set();               // codes déjà mis en file (jamais deux fois)
+    let dossiersFinis = false;           // vrai quand plus aucun dossier ne sera lu : le travail vide alors la file et s'arrête
+    let arretTravail = false;            // vrai quand la lecture est terminée ou en erreur
+    let nomsLus = {};
+    const travailNoms = async () => {
+      let faits = 0;
+      while (!arretTravail && faits < PAQUETS_MAX) {
+        if (annulerRef.current) throw new Annulation();
+        const paquet = prendrePaquet(file, PAQUET_PATIENTS, dossiersFinis);
+        if (paquet === null) { if (dossiersFinis) break; await pause(250); continue; }
+        const sql = sqlPatients(paquet);
+        if (!sql) continue;
+        try {
+          const r = await executer(clientLu, sql);
+          nomsLus = { ...nomsLus, ...lireNoms(r.lignes, r.colonnes) };
+          setNoms(nomsLus);
+          setInterroges((s) => new Set([...s, ...paquet]));                                       // ces codes ont été demandés : sans nom = vraiment introuvables
+          faits++;
+        } catch (e) {
+          if (e instanceof Annulation) throw e;
+          toast.warning("Noms des patients indisponibles : les codes sont affichés à la place.");  // la liste reste affichée, les codes aussi
+          break;
+        }
+      }
+    };
+    let tacheNoms = Promise.resolve();
     try {
       // 1. Dernier numéro de dossier
       const rMax = await executer(clientLu, sqlMax());
       let haut = Number.parseInt(rMax.lignes?.[0]?.[0], 10);
       if (!Number.isInteger(haut) || haut <= 0) throw new Error("Dernier numéro de dossier illisible dans la réponse du client.");
       setDernier(haut);
+      tacheNoms = travailNoms().catch((e) => ({ erreur: e }));          // démarre EN PARALLÈLE : il attend que la file se remplisse
       // 2. Fenêtres de 200 numéros, du plus récent au plus ancien ; on s'arrête dès que la période est dépassée
       for (let n = 0; n < FENETRES_MAX && haut > 0; n++) {
         if (Date.now() - debutRef.current > BUDGET_MS) break;                                   // limite de temps : lecture partielle
         if (arretDossiersRef.current) { setArretee(true); break; }                              // arrêt demandé : on garde ce qui est lu et on passe aux noms
         const { bas, haut: h } = fenetre(haut);
-        setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus)…`);
+        setAvancement(`Dossiers n° ${bas} à ${h} (tranche ${n + 1} sur ${FENETRES_MAX} au plus) · noms de patients lus : ${Object.keys(nomsLus).length}…`);
         let r;
         try {
           r = await executer(clientLu, toutesColonnes ? sqlFenetreToutes(bas, h) : sqlFenetre(bas, h));
@@ -136,30 +168,20 @@ export default function LooisDossiersHospitalisation() {
         cumul = cumul.concat(lus);
         retenus = dansLaPeriode(cumul, debutIso, finIso);
         setDossiers(plusRecentsDabord(retenus));                                                // on affiche d'abord ce qui est prêt (règle 7), du plus récent au plus ancien
+        for (const d of dansLaPeriode(lus, debutIso, finIso)) {                                  // les patients de cette tranche rejoignent la file des noms
+          if (d.codePatient && !mis.has(d.codePatient)) { mis.add(d.codePatient); file.push(d.codePatient); }
+        }
         haut = bas - 1;
         if (periodeDepassee(lus, debutIso) || haut <= 0) { termine = true; break; }
       }
       setPartielle(!termine);
       phaseRef.current = "noms";
       if (arretDossiersRef.current) toast.loading(`Lecture des dossiers arrêtée (${retenus.length} lus) : noms des patients en cours…`, { id: toastId });
-      // 3. Noms des patients (un échec n'empêche pas d'afficher la liste : le code du patient reste visible)
-      const codes = [...new Set(retenus.map((d) => d.codePatient).filter(Boolean))];
-      const lots = paquets(codes, PAQUET_PATIENTS).slice(0, PAQUETS_MAX);
-      let nomsLus = {};
-      try {
-        for (let i = 0; i < lots.length; i++) {
-          const sql = sqlPatients(lots[i]);
-          if (!sql) continue;
-          setAvancement(`Noms des patients : paquet ${i + 1} sur ${lots.length}…`);
-          const r = await executer(clientLu, sql);
-          nomsLus = { ...nomsLus, ...lireNoms(r.lignes, r.colonnes) };
-          setNoms(nomsLus);
-          setInterroges((s) => new Set([...s, ...lots[i]]));                                    // ces codes ont été demandés : sans nom ci-dessous = vraiment introuvables
-        }
-      } catch (e) {
-        if (e instanceof Annulation) throw e;
-        toast.warning("Noms des patients indisponibles : les codes sont affichés à la place.");
-      }
+      // 3. Fin des noms : les dossiers sont tous lus, le travail des noms vide ce qui reste dans la file (un échec n'empêche pas d'afficher la liste : le code reste visible)
+      dossiersFinis = true;
+      setAvancement(`Noms des patients : fin de la lecture (${file.length} code(s) restants)…`);
+      const suite = await tacheNoms;
+      if (suite?.erreur) throw suite.erreur;
       const s = Math.floor((Date.now() - debutRef.current) / 1000);
       toast.success(`${retenus.length} dossier(s) lus chez ${clientLu} en ${dureeMmSs(s)}${termine ? "." : arretDossiersRef.current ? " — lecture arrêtée : liste incomplète." : " — lecture PARTIELLE (limite de temps ou de tranches atteinte) : réduisez la période."}`, { id: toastId });
     } catch (e) {
@@ -170,6 +192,7 @@ export default function LooisDossiersHospitalisation() {
         toast.error(msg, { id: toastId });
       }
     } finally {
+      arretTravail = true;                         // le travail des noms s'arrête (erreur, arrêt ou fin)
       enCoursRef.current = false;
       setEnCours(false);
       setAvancement("");

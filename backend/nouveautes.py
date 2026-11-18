@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.7", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : noms lus en parallèle",
+        "description": "Les noms des patients sont maintenant lus pendant que les dossiers sont lus : ils apparaissent au fur et à mesure (les plus récents d'abord) au lieu d'attendre la fin des dossiers.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.6", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : « Arrêter » garde les noms des patients",
         "description": "Le premier appui sur « Arrêter » arrête la lecture des dossiers mais lit quand même les noms des patients des dossiers déjà lus ; un second appui arrête tout. « nom non trouvé » n'apparaît plus que si le nom a vraiment été demandé (sinon « nom non lu »).",

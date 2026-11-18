@@ -36,6 +36,9 @@ from fastapi import Request, Response  # au niveau du module : les annotations d
 logger = logging.getLogger("sawali.loois_sql_distant")
 
 ID_DOC = "sql_distant"
+ID_INTERDITES = "sql_distant_interdites"   # lot 447 : machines INTERDITES par client (même collection, autre document : aucune nouvelle collection)
+MACHINES_INTERDITES_MAX = 100              # par client
+NOM_MACHINE_MAX = 80
 MAX_REQUETES = 100                 # historique gardé dans le document (pas de nouvelle collection)
 LONGUEUR_MAX = 4000
 LIGNES_MAX = 200
@@ -110,6 +113,30 @@ def code_client(valeur: Any) -> str:
     """Code du client (ex. « ipm » → « IPM ») ; chaîne vide si invalide."""
     v = str(valeur or "").strip()
     return v.upper() if RE_CODE.match(v) else ""
+
+
+def nom_machine(valeur: Any) -> str:
+    """Nom de machine nettoyé (espaces retirés, 80 caractères au plus, aucun caractère de contrôle) ; chaîne vide si inutilisable."""
+    t = re.sub(r"[\x00-\x1f\x7f]", "", str(valeur or "")).strip()
+    return t[:NOM_MACHINE_MAX]
+
+
+def normaliser_machines(valeurs: Any) -> List[str]:
+    """Liste de noms de machines propre : sans vide ni doublon (la casse est ignorée, la première graphie est gardée), 100 au plus."""
+    vus: set = set()
+    res: List[str] = []
+    for v in valeurs if isinstance(valeurs, list) else []:
+        n = nom_machine(v)
+        if n and n.casefold() not in vus:
+            vus.add(n.casefold())
+            res.append(n)
+    return res[:MACHINES_INTERDITES_MAX]
+
+
+def machine_interdite(machine: Any, interdites: Any) -> bool:
+    """Vrai si ce nom de machine figure dans la liste des machines interdites du client (casse et espaces ignorés)."""
+    m = nom_machine(machine).casefold()
+    return bool(m) and any(nom_machine(x).casefold() == m for x in (interdites if isinstance(interdites, list) else []))
 
 
 def _maintenant() -> datetime:
@@ -242,6 +269,23 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
     async def _lire() -> Dict[str, Any]:
         return await db.loois_reglages.find_one({"id": ID_DOC}, {"_id": 0}) or {"id": ID_DOC, "requetes": []}
 
+    async def _interdites_doc() -> Dict[str, List[str]]:
+        """Machines interdites de TOUS les clients : {code client : [noms]}."""
+        doc = await db.loois_reglages.find_one({"id": ID_INTERDITES}, {"_id": 0}) or {}
+        return {c: normaliser_machines(m) for c, m in (doc.get("clients") or {}).items()}
+
+    async def _interdites_definir(client_code: Any, machines: Any, auteur: str) -> Dict[str, Any]:
+        """Remplace la liste des machines interdites d'UN client (liste vide = plus aucune interdiction). `auteur` = compte ou « Loois » (clé)."""
+        client = code_client(client_code)
+        if not client:
+            raise HTTPException(status_code=422, detail="Client invalide (lettres, chiffres, « _ » ou « - », 20 au plus).")
+        if not isinstance(machines, list):
+            raise HTTPException(status_code=422, detail="Liste « machines » attendue.")
+        propre = normaliser_machines(machines)
+        await db.loois_reglages.update_one({"id": ID_INTERDITES}, {"$set": {f"clients.{client}": propre, "modifie_le": _maintenant().isoformat(), "modifie_par": auteur}}, upsert=True)
+        logger.info("[loois-sql] machines interdites du client %s : %d machine(s)", client, len(propre))
+        return {"client": client, "machines": propre}
+
     async def _vieillir_tout(doc: Dict[str, Any]) -> None:
         """Applique les délais à toutes les requêtes en cours (écriture seulement si quelque chose change)."""
         maintenant = _maintenant()
@@ -259,7 +303,16 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         fiches = [f async for f in db.presences_logiciels.find(
             {"application": {"$regex": "^LooisSyncService", "$options": "i"}, "vu_le": {"$gte": seuil}},
             {"_id": 0, "site": 1, "machine": 1, "vu_le": 1})]
-        return {"clients": clients_en_ligne(fiches, _maintenant())}
+        liste = clients_en_ligne(fiches, _maintenant())
+        interdites = await _interdites_doc()
+        vus = {c["code"] for c in liste}
+        for c in liste:
+            c["interdites"] = interdites.get(c["code"], [])                 # lot 447 : machines interdites de ce client
+        # Un client qui a une liste d'interdictions mais dont aucune machine n'a été vue récemment reste visible (on doit pouvoir la modifier)
+        for code, noms in sorted(interdites.items()):
+            if code not in vus and noms:
+                liste.append({"code": code, "machines": [], "en_ligne": False, "interdites": noms})
+        return {"clients": liste}
 
     async def _creer_impl(corps, ip: str, auteur: str = ""):
         """Dépose une requête : elle attend qu'UNE machine du client la prenne. `auteur` = compte SAWALI (page web / Android), vide pour Loois (clé)."""
@@ -329,6 +382,21 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         _proprietaire(request)
         return await _detail_impl(requete_id)
 
+    @api.get("/loois-sql/machines-interdites", tags=["Loois SQL à distance"])
+    async def interdites_lire(request: Request):
+        """Lot 447 : machines interdites de chaque client (clé « SQL à distance » : Loois sous Windows)."""
+        _proprietaire(request)
+        return {"clients": await _interdites_doc()}
+
+    @api.put("/loois-sql/machines-interdites/{client}", tags=["Loois SQL à distance"])
+    async def interdites_definir(client: str, request: Request):
+        _proprietaire(request)
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        return await _interdites_definir(client, (corps or {}).get("machines"), "Loois")
+
     # ----------------------------------------------------------------- lot 446 : page d'administration SAWALI (navigateur, téléphone, application Android)
     # Le compte administrateur SAWALI (connexion avec code à usage unique) remplace la clé « SQL à distance » : AUCUNE clé n'est gardée sur le téléphone.
     # Toute MODIFICATION (INSERT / UPDATE / DELETE) exige en plus une confirmation renforcée explicite (« confirme_modification »).
@@ -356,6 +424,20 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
                 raise HTTPException(status_code=422, detail="Confirmation renforcée requise : une modification de données doit être confirmée explicitement.")
             logger.info("[loois-sql] page admin : dépôt par un administrateur (%s)", nature or "refusé")
             return await _creer_impl(corps, _ip(request), auteur)
+
+        @api.get("/admin/loois-sql/machines-interdites", tags=["Loois SQL à distance"])
+        async def admin_interdites_lire(user: dict = Depends(get_current_user)):
+            _admin(user)
+            return {"clients": await _interdites_doc()}
+
+        @api.put("/admin/loois-sql/machines-interdites/{client}", tags=["Loois SQL à distance"])
+        async def admin_interdites_definir(client: str, request: Request, user: dict = Depends(get_current_user)):
+            auteur = _admin(user)
+            try:
+                corps = await request.json()
+            except Exception:  # noqa: BLE001
+                raise HTTPException(status_code=422, detail="corps JSON attendu")
+            return await _interdites_definir(client, (corps or {}).get("machines"), auteur)
 
         @api.get("/admin/loois-sql/requetes", tags=["Loois SQL à distance"])
         async def admin_historique(user: dict = Depends(get_current_user)):
@@ -390,6 +472,9 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
     async def prochaine(request: Request):
         """Une machine réclame une requête pour son client : la première qui la réclame la reçoit (mise à jour conditionnelle atomique)."""
         poste = await _poste(request)
+        # Lot 447 : une machine INTERDITE pour ce client ne reçoit jamais de requête (elle voit « rien à faire ») ; la requête reste pour les autres machines
+        if machine_interdite(poste["machine"], (await _interdites_doc()).get(poste["base"], [])):
+            return Response(status_code=204)
         doc = await _lire()
         await _vieillir_tout(doc)
         for r in doc.get("requetes", []):
@@ -415,6 +500,9 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
     async def resultat(request: Request):
         """La machine qui a pris la requête renvoie le résultat ; une autre machine, ou une requête déjà terminée, est refusée."""
         poste = await _poste(request)
+        # Lot 447 : machine interdite après avoir pris la requête : son résultat est refusé (la requête finit « sans réponse », jamais rejouée)
+        if machine_interdite(poste["machine"], (await _interdites_doc()).get(poste["base"], [])):
+            raise HTTPException(status_code=403, detail="Machine interdite pour ce client.")
         try:
             corps = await request.json()
         except Exception:  # noqa: BLE001

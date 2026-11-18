@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.5", "date": "2026-11-18",
+        "titre": "📱 Dossiers d'hospitalisation : cellules groupées sur téléphone",
+        "description": "Sur téléphone, le numéro du dossier porte sa date et son heure dessous, et le numéro du patient porte son nom dessous. Sur tablette et ordinateur, les colonnes restent séparées.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.4", "date": "2026-11-18",
         "titre": "📱 Dossiers d'hospitalisation : tableau compact sur téléphone",
         "description": "Sur téléphone, le tableau tient à l'écran : n°, date (jour et heure), patient avec le libellé en petit dessous, et un bouton œil pour le détail. La colonne « Libellé » reste affichée sur tablette et ordinateur.",

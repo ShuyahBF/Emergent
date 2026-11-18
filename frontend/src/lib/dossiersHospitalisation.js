@@ -10,7 +10,9 @@
 /** Nom du fichier HFSQL (avec une ESPACE : toujours entre crochets dans le SQL). */
 export const FICHIER = "DOSSIER EXAMEN";
 /** Colonnes lues (mêmes que Loois). */
-export const COLONNES = "[Dos_num], [Dos_lib], [Da_dépôt], [He_Dépôt], [Montant], [Client], [Modificateur], [Réglé]";
+// Lien dossier → patient (précisé par le propriétaire le 18/11/2026) : la colonne [Numéro_Enreg] du dossier correspond à [Numéro_Enreg] de la table [Patient]
+// (SELECT * FROM PATIENT WHERE PATIENT.NUMERO_ENREG = [DOSSIER EXAMEN].NUMERO_ENREG). La colonne [Client] n'est PAS le code du patient.
+export const COLONNES = "[Dos_num], [Dos_lib], [Da_dépôt], [He_Dépôt], [Montant], [Numéro_Enreg], [Modificateur], [Réglé]";
 /** Taille d'une fenêtre de numéros (un résultat distant contient 200 lignes au plus). */
 export const TAILLE_FENETRE = 200;
 /** Nombre maximal de tranches lues : 80 × 200 = 16 000 numéros (environ 3 mois chez IPM, ~145 dossiers par jour). Au-delà, la lecture est PARTIELLE et l'écran le dit. */
@@ -42,6 +44,10 @@ export const fenetre = (haut) => ({ bas: Math.max(1, haut - TAILLE_FENETRE + 1),
 /** Requête d'une fenêtre de numéros. */
 export const sqlFenetre = (bas, haut) =>
   `SELECT ${COLONNES} FROM [${FICHIER}] WHERE [Dos_num] >= ${Math.trunc(bas)} AND [Dos_num] <= ${Math.trunc(haut)} LIMIT ${TAILLE_FENETRE}`;
+
+/** Repli : toutes les colonnes (si le nom exact d'une colonne est refusé par HFSQL). Les colonnes sont ensuite retrouvées par leur nom, accents et casse ignorés. */
+export const sqlFenetreToutes = (bas, haut) =>
+  `SELECT * FROM [${FICHIER}] WHERE [Dos_num] >= ${Math.trunc(bas)} AND [Dos_num] <= ${Math.trunc(haut)} LIMIT ${TAILLE_FENETRE}`;
 
 /** Requête des noms de patients pour une liste de codes (seuls les entiers positifs sont gardés : jamais de texte libre dans le SQL). */
 export function sqlPatients(codes) {
@@ -100,7 +106,7 @@ export function lireDossier(ligne, colonnes) {
   if (!Number.isInteger(numero)) return null;
   const date = dateIso(cel("Da_dépôt"));
   const heure = heureCourte(cel("He_Dépôt")) || heureCourte(cel("Da_dépôt"));
-  const codePatient = Number.parseInt(cel("Client"), 10);
+  const codePatient = Number.parseInt(cel("Numéro_Enreg"), 10);          // code du patient = Numéro_Enreg du dossier
   return {
     numero,
     libelle: String(cel("Dos_lib") || "").trim(),
@@ -152,7 +158,7 @@ export function lireNoms(lignes, colonnes) {
 }
 
 /** Texte du patient affiché : son nom, sinon « Code n° X » (nom pas encore lu, introuvable ou indisponible), sinon « — ».
- *  (La colonne « Client » du fichier est traitée comme le code du patient, comme dans Loois : hypothèse « à confirmer » ; on n'écrit donc jamais un nom qu'on n'a pas lu.) */
+ *  (Le lien dossier → patient est la colonne « Numéro_Enreg » ; on n'écrit jamais un nom qu'on n'a pas lu.) */
 export const libellePatient = (dossier, noms) =>
   dossier.codePatient === null ? "—" : (noms && noms[dossier.codePatient]) || `Code n° ${dossier.codePatient}`;
 

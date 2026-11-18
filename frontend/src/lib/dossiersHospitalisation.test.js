@@ -1,12 +1,18 @@
 // Tests de la logique pure de la page « Loois → Dossiers d'hospitalisation » (lot 448).
 import {
   FENETRES_MAX, PERIODES, PERIODE_DEFAUT, TAILLE_FENETRE, dateFr, dateIso, fenetre, indexColonne, jourIso, libellePatient, lireDossier, lireNoms,
-  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlMax, sqlPatients,
+  dansLaPeriode, paquets, periodeDepassee, plusRecentsDabord, sqlFenetre, sqlFenetreToutes, sqlMax, sqlPatients,
 } from "./dossiersHospitalisation";
 
-const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Client", "Modificateur", "Réglé"];
+const COLS = ["Dos_num", "Dos_lib", "Da_dépôt", "He_Dépôt", "Montant", "Numéro_Enreg", "Modificateur", "Réglé"];
 
 describe("requêtes validées sur IPM le 18/11/2026", () => {
+  test("le lien dossier → patient est Numéro_Enreg, jamais Client", () => {
+    expect(sqlFenetre(1, 200)).toContain("[Numéro_Enreg]");
+    expect(sqlFenetre(1, 200)).not.toContain("[Client]");
+    expect(sqlFenetreToutes(105001, 105200)).toBe("SELECT * FROM [DOSSIER EXAMEN] WHERE [Dos_num] >= 105001 AND [Dos_num] <= 105200 LIMIT 200");   // repli
+    expect(indexColonne(["DOS_NUM", "NUMERO_ENREG"], "Numéro_Enreg")).toBe(1);                                                                      // nom sans accent retrouvé
+  });
   test("le nom du fichier avec espace est entre crochets", () => {
     expect(sqlMax()).toBe("SELECT MAX([Dos_num]) FROM [DOSSIER EXAMEN]");
     expect(sqlFenetre(105001, 105200)).toContain("FROM [DOSSIER EXAMEN] WHERE [Dos_num] >= 105001 AND [Dos_num] <= 105200 LIMIT 200");

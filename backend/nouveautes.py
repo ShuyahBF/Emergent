@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "442", "date": "2026-11-18",
+        "titre": "🧾 Règlements : plusieurs mois et motif",
+        "description": "Dans Clients → Paiements → Type : un règlement peut couvrir plusieurs mois (même d'une année précédente) et porter un motif sur plusieurs lignes (références des factures concernées).",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "441", "date": "2026-11-18",
         "titre": "🧾 Clients : corriger le type d'un règlement",
         "description": "Dans Clients → Paiements, modifiez un règlement : facture contractuelle, de prestations ou d'achats, avec sa période (année + mois). Seul le contractuel compte dans la couverture du contrat.",

@@ -319,27 +319,35 @@ TYPES_REGLEMENT = ("contractuelle", "prestations", "achats")
 
 class TypeReglementCorps(BaseModel):
     type_reglement: str                      # contractuelle · prestations · achats
-    annee: Optional[int] = None              # période concernée (si applicable)
-    mois: Optional[int] = None
+    periodes: Optional[List[str]] = None     # mois réglés, « AAAA-MM » (un paiement peut en couvrir plusieurs, même d'une année précédente)
+    motif: Optional[str] = None              # explication libre, sur plusieurs lignes (références des factures concernées…)
 
 
 @api.patch("/admin/clients/{client_id}/payments/{payment_id}/type", tags=["Admin"])
 async def admin_corriger_type_reglement(client_id: str, payment_id: str, payload: TypeReglementCorps, admin_user: dict = Depends(get_current_admin)):
-    """Lot 441 — corrige le TYPE d'un règlement déjà enregistré (facture contractuelle / de prestations / d'achats) et, si applicable, sa période (année + mois).
+    """Lot 441/442 — corrige le TYPE d'un règlement déjà enregistré (facture contractuelle / de prestations / d'achats), les MOIS qu'il règle (un ou plusieurs,
+    éventuellement d'une année précédente) et son MOTIF (texte libre : références des factures concernées…).
     Seul un règlement « contractuelle » compte dans la couverture du contrat : la couverture est donc recalculée. Le montant, la date et la référence ne changent pas."""
+    import re
     t = (payload.type_reglement or "").strip().lower()
     if t not in TYPES_REGLEMENT:
         raise HTTPException(status_code=400, detail="Type de règlement inconnu (contractuelle, prestations ou achats)")
-    if (payload.annee is None) != (payload.mois is None):
-        raise HTTPException(status_code=400, detail="Indiquez l'année ET le mois, ou aucun des deux")
-    if payload.mois is not None and not (1 <= payload.mois <= 12 and 2000 <= (payload.annee or 0) <= 2100):
-        raise HTTPException(status_code=400, detail="Période invalide (année 2000-2100, mois 1-12)")
+    periodes = sorted(set((x or "").strip() for x in (payload.periodes or []) if (x or "").strip()))
+    if len(periodes) > 36:
+        raise HTTPException(status_code=400, detail="36 mois au plus par règlement")
+    for x in periodes:
+        m = re.fullmatch(r"(\d{4})-(\d{2})", x)
+        if not m or not (2000 <= int(m.group(1)) <= 2100) or not (1 <= int(m.group(2)) <= 12):
+            raise HTTPException(status_code=400, detail=f"Période invalide « {x} » (format AAAA-MM)")
+    motif = (payload.motif or "").strip()
+    if len(motif) > 2000:
+        raise HTTPException(status_code=400, detail="Motif trop long (2000 caractères au plus)")
     anc = await db.tenant_payments.find_one({"id": payment_id, "tenant_id": client_id}, {"_id": 0})
     if not anc:
         raise HTTPException(status_code=404, detail="Paiement introuvable")
-    maj = {"type_reglement": t, "periode_annee": payload.annee, "periode_mois": payload.mois,
+    maj = {"type_reglement": t, "periodes_reglees": periodes, "motif": motif or None,
            "type_reglement_corrige_par": admin_user.get("email"), "type_reglement_corrige_le": _now()}
-    await db.tenant_payments.update_one({"id": payment_id, "tenant_id": client_id}, {"$set": maj})
+    await db.tenant_payments.update_one({"id": payment_id, "tenant_id": client_id}, {"$set": maj, "$unset": {"periode_annee": "", "periode_mois": ""}})
     couvert = await _recalculer_couverture(client_id)
     return {"ok": True, "paiement": {**anc, **maj}, "couvert_jusqu_au": couvert}
 

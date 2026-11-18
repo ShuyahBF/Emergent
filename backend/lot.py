@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "448.2"
-LOT_LIBELLE = "SQL distant : client « en ligne » d'après les machines qui répondent ; bandeau « nouvelle version » : Actualiser sans cache."
+LOT = "449"
+LOT_LIBELLE = "SQL distant : machines favorites par client ; menu « Loois SQL distant » (requêtes et dossiers d'hospitalisation)."

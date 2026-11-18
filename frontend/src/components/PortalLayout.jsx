@@ -231,8 +231,8 @@ const adminLinks = [
   { to: "/admin/transactions-sms", label: "Transactions SMS", icon: MessageSquareWarning, adminOnly: true, groupe: "plateformes" },   // lot 389 : paiements lus dans les SMS d'un téléphone (administrateur)
   // Lot 68 — Plateformes → Loois → Synchro : tables HFSQL remontées par Loois dans MongoDB
   { to: "/admin/loois-synchro", label: "Loois → Synchro", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 79.10
-  { to: "/admin/loois-sql-distant", label: "Loois → SQL Distant", icon: Database, adminOnly: true, groupe: "plateformes" },   // lot 446 : requêtes HFSQL distantes depuis le téléphone
-  { to: "/admin/loois-dossiers-hospitalisation", label: "Loois → Dossiers d'hospitalisation", icon: Stethoscope, adminOnly: true, groupe: "plateformes" },   // lot 448 : liste lue chez le client (administrateur)
+  { to: "/admin/loois-sql-distant", label: "Requêtes SQL distantes", icon: Database, adminOnly: true, groupe: "loois_sql" },   // lot 446 : requêtes HFSQL distantes depuis le téléphone
+  { to: "/admin/loois-dossiers-hospitalisation", label: "Dossiers d'hospitalisation", icon: Stethoscope, adminOnly: true, groupe: "loois_sql" },   // lot 448 : liste lue chez le client (administrateur)
   // Lot 135.1 — contrôle à distance des postes Loois (même contenu que la rubrique des Paramètres)
   { to: "/admin/controle-distance", label: "Contrôle à distance", icon: MonitorSmartphone, adminOnly: true, groupe: "plateformes" },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
@@ -272,6 +272,8 @@ function PortalLayoutInner({ admin = false }) {
   // Lot 79.10 — groupe « Plateformes » (temps réel, Loois → Synchro) dépliable comme « Liluvine »
   const [plateformesOuvert, setPlateformesOuvert] = useState(false);   // lot 393 : repliés au lancement de la plateforme (le groupe s'ouvre seul si la page affichée en fait partie)
   // Lot 80 — groupe « Équipements » (parc, maintenance, découverte du réseau, postes) dépliable
+  // Lot 449 — groupe « Loois SQL distant » (requêtes distantes et leurs écrans : SQL Distant, Dossiers d'hospitalisation…) dépliable
+  const [looisSqlOuvert, setLooisSqlOuvert] = useState(false);
   const [equipementsOuvert, setEquipementsOuvert] = useState(false);   // lot 393 : repliés au lancement de la plateforme (le groupe s'ouvre seul si la page affichée en fait partie)
   // Lot 79.10 — bas de la barre latérale compact : panneau déplié (null, "atlas" ou "reglages")
   const [panneauBas, setPanneauBas] = useState(null);
@@ -731,6 +733,7 @@ function PortalLayoutInner({ admin = false }) {
   const GROUPES = {
     liluvine: { libelle: "Liluvine", icone: Bot, ouvert: liluvineOuvert, cle: "sawali.menu.liluvine", changer: setLiluvineOuvert },
     plateformes: { libelle: "Plateformes", icone: Globe2, ouvert: plateformesOuvert, cle: "sawali.menu.plateformes", changer: setPlateformesOuvert },
+    loois_sql: { libelle: "Loois SQL distant", icone: Database, ouvert: looisSqlOuvert, cle: "sawali.menu.loois_sql", changer: setLooisSqlOuvert },   // lot 449
     equipements: { libelle: "Équipements", icone: Cpu, ouvert: equipementsOuvert, cle: "sawali.menu.equipements", changer: setEquipementsOuvert },   // lot 80
   };
   const basculerGroupe = (g) => GROUPES[g].changer((avant) => {

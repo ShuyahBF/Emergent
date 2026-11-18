@@ -1,4 +1,4 @@
-// LooisDossiersHospitalisation.jsx — Lot 448 : page web « Plateformes → Loois → Dossiers d'hospitalisation » (administrateur, téléphone compris).
+// LooisDossiersHospitalisation.jsx — Lot 448 : page web « Loois SQL distant → Dossiers d'hospitalisation » (administrateur, téléphone compris).
 //
 // Même liste que l'écran Loois « Gestion des dossiers d'hospitalisation », lue CHEZ LE CLIENT par le canal « SQL Distant » (lot 446) :
 // SAWALI dépose une requête, UNE machine du client (service Windows Loois) l'exécute sur HFSQL et renvoie le résultat. LECTURE SEULE (SELECT).

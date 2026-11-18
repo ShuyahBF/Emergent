@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449", "date": "2026-11-18",
+        "titre": "⭐ SQL distant : machines favorites et menu « Loois SQL distant »",
+        "description": "Pour chaque client, désignez des machines favorites (étoile, avec priorité) : une favorite en ligne passe en premier pendant 4 secondes, puis la requête passe à la prochaine machine disponible. Les pages des requêtes distantes sont regroupées dans le menu « Loois SQL distant ».",
+        "rubrique": "🧾 Loois — SQL distant (téléphone)",
+    },
+    {
         "lot": "448.2", "date": "2026-11-18",
         "titre": "🟢 SQL distant : « en ligne » = la machine répond",
         "description": "Un client est « en ligne » dès qu'une de ses machines interroge SAWALI (moins de 90 s), même si son signal de présence est en retard. Le bouton « Actualiser » du bandeau « nouvelle version » contourne maintenant le cache : il ne réapparaît plus en boucle.",

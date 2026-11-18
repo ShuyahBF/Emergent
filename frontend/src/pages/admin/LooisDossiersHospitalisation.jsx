@@ -253,10 +253,11 @@ export default function LooisDossiersHospitalisation() {
             <table className="min-w-full text-sm" data-testid="liste-dossiers">
               <thead className="bg-sky-50 text-sky-900">
                 <tr>
-                  {/* Téléphone : « N° », « Date » et « Patient » (avec le libellé en petit dessous) tiennent à l'écran ; la colonne « Libellé » n'apparaît qu'à partir de la tablette */}
-                  <ThTri cle="numero" tri={tri} onTri={basculer} droite>N°</ThTri>
-                  <ThTri cle="date" tri={tri} onTri={basculer} className="text-left">Date</ThTri>
-                  <ThTri cle="patient" tri={tri} onTri={basculer} className="text-left">Patient</ThTri>
+                  {/* Téléphone (demande du propriétaire, 18/11/2026) : DEUX cellules seulement — « N° dossier » avec la date et l'heure dessous, « N° patient » avec le nom
+                      dessous (libellé en petit) ; les colonnes « Date » et « Libellé » séparées n'apparaissent qu'à partir de la tablette */}
+                  <ThTri cle="numero" tri={tri} onTri={basculer} droite>N°<span className="md:hidden"> · Date</span></ThTri>
+                  <ThTri cle="date" tri={tri} onTri={basculer} className="hidden text-left md:table-cell">Date</ThTri>
+                  <ThTri cle="patient" tri={tri} onTri={basculer} className="text-left"><span className="md:hidden">N° · </span>Patient</ThTri>
                   <ThTri cle="libelle" tri={tri} onTri={basculer} className="hidden text-left md:table-cell">Libellé</ThTri>
                   <th className="p-2 text-left font-semibold"><span className="sr-only md:not-sr-only">Détail</span></th>
                 </tr>
@@ -264,13 +265,16 @@ export default function LooisDossiersHospitalisation() {
               <tbody>
                 {triees.map((d) => (
                   <tr key={d.numero} className="border-t border-slate-100">
-                    <td className="p-2 text-right font-semibold tabular-nums text-sky-800">{d.numero}</td>
-                    <td className="p-2 text-slate-700">
-                      <span className="block">{dateFr(d.date)}</span>
-                      {d.heure && <span className="block text-xs text-slate-500">{d.heure}</span>}
+                    <td className="p-2 text-right tabular-nums">
+                      <span className="block font-semibold text-sky-800">{d.numero}</span>
+                      {/* Téléphone : date et heure sous le numéro du dossier */}
+                      <span className="block text-xs text-slate-500 md:hidden">{dateFr(d.date)}{d.heure ? ` ${d.heure}` : ""}</span>
                     </td>
+                    <td className="hidden whitespace-nowrap p-2 text-slate-700 md:table-cell">{dateFr(d.date)}{d.heure ? ` ${d.heure}` : ""}</td>
                     <td className="p-2 text-violet-800">
-                      {libellePatient(d, noms)}
+                      {/* Téléphone : numéro du patient au-dessus de son nom (nom pas lu : « nom non trouvé »), libellé du dossier en petit dessous */}
+                      <span className="block text-xs tabular-nums text-slate-500 md:hidden">{d.codePatient === null ? "—" : `n° ${d.codePatient}`}</span>
+                      <span className="block">{noms[d.codePatient] || (d.codePatient === null ? "—" : <i className="text-slate-400">nom non trouvé</i>)}</span>
                       <span className="block text-xs text-slate-500 md:hidden">{d.libelle || "—"}</span>
                     </td>
                     <td className="hidden p-2 md:table-cell">{d.libelle || "—"}</td>

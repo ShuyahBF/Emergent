@@ -431,3 +431,14 @@ def test_evaluer_un_terme_mois_par_mois():
     assert {o["operateur"] for o in r["par_operateur"]} == {"Orange Money", "Moov Money"}
     vide = ts.evaluer_terme("zzz", [])
     assert vide["occurrences"] == 0 and vide["par_mois"] == [] and vide["premiere"] is None
+
+
+def test_diagnostic_terme_zero_occurrence():
+    """Lot 435.1 — « 0 occurrence » : on dit si le terme existe dans une autre catégorie, une autre période, et combien de SMS SAWALI a reçus."""
+    mk = lambda k, ms_, corps, adresse="Orange Money": {"k": k, "source": "s1", "adresse": adresse, "ms": ms_, "genre": "DEPENSE", "montant": 1000, "tiers": "", "solde": None, "reference": k, "corps": corps}
+    brut = [mk("a", ms(2025, 5, 2), "Paiement SONABEL facture"),                     # bonne transaction, mais l'année précédente
+            mk("b", ms(2026, 5, 2), "Alerte SONABEL", "70112233")]                   # expéditeur = numéro de téléphone → catégorie « message »
+    tous = [ts.enrichir(p, []) for p in brut]
+    d = ts.diagnostic_terme(tous, "sonabel", ms(2026, 1, 1), ms(2027, 1, 1))
+    assert d["autres_periodes"] == 1 and d["sms_recus"] == 2 and d["dernier_sms_ms"] == ms(2026, 5, 2)
+    assert d["autres_categories"] == {"message": 1}

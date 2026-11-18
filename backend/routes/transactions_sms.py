@@ -31,7 +31,7 @@ import re
 import secrets
 import unicodedata
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -425,6 +425,16 @@ def statistiques(items: List[Dict[str, Any]], par_mois: bool = False, genre_clas
             "top_tiers": top_tiers,
             "top_montants": [{"ms": p["ms"], "tiers": p.get("tiers"), "operateur": p["operateur"], "montant": p["montant"]} for p in sorted(choisis, key=lambda p: p["montant"], reverse=True)[:10]],
             "parts": parts, "total_classement": total_genre}
+
+
+def diagnostic_terme(tous: List[Dict[str, Any]], terme: str, du_ms: Optional[int], au_ms: Optional[int], operateur: str = "", source: str = "") -> Dict[str, Any]:
+    """Lot 435.1 — pourquoi « 0 occurrence » ? Compte le même terme AILLEURS : dans les autres catégories de SMS (promo, alerte, message) sur la même période, et dans les transactions des
+    autres périodes ; donne aussi le nombre total de SMS reçus de Concentration et la date du dernier. Fonction pure (reçoit tous les SMS enrichis), testée."""
+    meme_periode = filtrer(tous, du_ms, au_ms, operateur, "", terme, source, "", "toutes")
+    autres = Counter(p.get("categorie", "transaction") for p in meme_periode if p.get("categorie", "transaction") != "transaction")
+    ailleurs = filtrer(tous, None, None, operateur, "", terme, source, "", "")
+    hors = [p for p in ailleurs if (du_ms is not None and p["ms"] < du_ms) or (au_ms is not None and p["ms"] >= au_ms)]
+    return {"autres_categories": dict(autres), "autres_periodes": len(hors), "sms_recus": len(tous), "dernier_sms_ms": max((p["ms"] for p in tous), default=None)}
 
 
 def evaluer_terme(terme: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -829,9 +839,15 @@ def setup_transactions_sms_routes(*, db, api, get_current_user, maintenant=lambd
         if len(terme) < 2:
             raise HTTPException(status_code=422, detail="Tapez au moins 2 caractères")
         items = await _filtrees(du, au, operateur, "", terme, source, "", "")
+        diag = None
+        if not items:
+            # Aucun résultat : on cherche pourquoi (autre catégorie, autre période, SMS jamais envoyés à SAWALI) — calcul en mémoire, une seule lecture
+            du_ms, au_ms = _bornes(du, au)
+            cfg = await _lire_config()
+            diag = diagnostic_terme(await _toutes(None, None, cfg["liens"], cfg["corrections"]), terme, du_ms, au_ms, operateur, source)
         if not evaluer:
-            return {"terme": terme, "occurrences": len(items)}
-        return evaluer_terme(terme, items)
+            return {"terme": terme, "occurrences": len(items), "diagnostic": diag}
+        return {**evaluer_terme(terme, items), "diagnostic": diag}
 
     @api.get("/admin/transactions-sms/export.csv", tags=["Transactions SMS — écran"])
     async def exporter(du: str = "", au: str = "", operateur: str = "", genre: str = "", q: str = "", source: str = "", plateforme: str = "", categorie: str = "",

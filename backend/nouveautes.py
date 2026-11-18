@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "435.1", "date": "2026-11-18",
+        "titre": "🔎 Évaluer un terme : pourquoi « 0 occurrence » ?",
+        "description": "Si SAWALI ne trouve rien alors qu'auRor trouve, l'écran explique : terme présent dans une autre catégorie ou une autre période, ou SMS pas encore envoyés par Concentration.",
+        "lien": "/admin/transactions-sms",
+    },
+    {
         "lot": "435", "date": "2026-11-18",
         "titre": "🔎 Transactions SMS : évaluer un terme",
         "description": "Tapez un terme (SONABEL, Pharmacie…) : nombre d'occurrences, dépenses et recettes mois par mois, moyenne, plus gros paiement, opérateurs, export CSV et impression — comme dans auRor.",

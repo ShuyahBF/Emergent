@@ -21,6 +21,30 @@ const TAILLE = 50;
 const CATEGORIES = [["transaction", "Transaction"], ["promo", "Promo"], ["alerte", "Alerte"], ["message", "Message"]];
 const LIBELLE_CATEGORIE = Object.fromEntries(CATEGORIES);
 
+/** « il y a 5 min », « il y a 3 h », « il y a 2 jours »… (date relative d'un envoi). */
+function ilYa(iso) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  if (min < 1440) return `il y a ${Math.floor(min / 60)} h`;
+  const j = Math.floor(min / 1440);
+  return j < 60 ? `il y a ${j} jour${j > 1 ? "s" : ""}` : `il y a ${Math.floor(j / 30)} mois`;
+}
+
+/** Puce de fraîcheur d'un téléphone : verte = a envoyé ses SMS il y a moins de 24 h, orange = moins de 3 jours, rouge = plus ancien, grise = jamais. Le texte dit toujours l'état (pas la couleur seule). */
+function PuceEnvoi({ iso }) {
+  const [, setTic] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTic((n) => n + 1), 60000); return () => clearInterval(t); }, []);   // le « il y a… » se rafraîchit seul
+  const h = iso ? (Date.now() - new Date(iso).getTime()) / 3600000 : null;
+  const [couleur, etat] = h === null ? ["bg-slate-400", "jamais envoyé"] : h < 24 ? ["bg-emerald-500", "données à jour"] : h < 72 ? ["bg-amber-500", "à actualiser"] : ["bg-red-500", "pas actualisé"];
+  return (
+    <span className="inline-flex items-center gap-1.5" data-testid="puce-envoi" title={iso ? `Dernier envoi : ${new Date(iso).toLocaleString("fr-FR")}` : "Aucun envoi reçu"}>
+      <span className={`inline-block h-3 w-3 rounded-full ${couleur}`} aria-hidden="true" />
+      <span className="text-xs text-slate-600">{iso ? `${etat} · ${ilYa(iso)}` : etat}</span>
+    </span>
+  );
+}
+
 const iso = (d) => d.toISOString().slice(0, 10);
 const decale = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d; };
 
@@ -388,7 +412,7 @@ export default function AdminTransactionsSms() {
             <tbody>{triSources.lignes.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{editTel?.id === s.id
                 ? <input className="w-full rounded border border-slate-300 px-2 py-1 text-sm" value={editTel.nom} autoFocus onChange={(e) => setEditTel({ ...editTel, nom: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter" && editTel.nom.trim().length >= 2) enregistrerTel(); if (e.key === "Escape") setEditTel(null); }} data-testid="edit-tel-nom" />
                 : s.nom}</td><td className="p-2 font-mono text-xs">{s.id}</td>
-              <td className="p-2">{s.dernier_envoi ? new Date(s.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais"}</td><td className="p-2 text-right tabular-nums">{s.recues || 0}</td>
+              <td className="p-2"><div>{s.dernier_envoi ? new Date(s.dernier_envoi).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais"}</div><PuceEnvoi iso={s.dernier_envoi} /></td><td className="p-2 text-right tabular-nums">{s.recues || 0}</td>
               <td className="p-2 text-right whitespace-nowrap">{editTel?.id === s.id
                 ? (<><button type="button" className="mr-3 underline" disabled={editTel.nom.trim().length < 2} onClick={enregistrerTel} data-testid="edit-tel-ok"><Save className="mr-1 inline h-4 w-4" />Enregistrer</button><button type="button" className="underline" onClick={() => setEditTel(null)}><X className="mr-1 inline h-4 w-4" />Annuler</button></>)
                 : (<><button type="button" className="mr-3 underline" onClick={() => setEditTel({ id: s.id, nom: s.nom })} title="Modifier l'intitulé du téléphone" data-testid={`modifier-tel-${s.id}`}><Pencil className="mr-1 inline h-4 w-4" />Modifier</button><button type="button" className="underline" onClick={() => retirerTel(s)}><Trash2 className="mr-1 inline h-4 w-4" />Retirer</button></>)}</td></tr>))}</tbody></table>

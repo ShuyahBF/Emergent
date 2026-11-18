@@ -440,5 +440,5 @@ def test_diagnostic_terme_zero_occurrence():
             mk("b", ms(2026, 5, 2), "Alerte SONABEL", "70112233")]                   # expéditeur = numéro de téléphone → catégorie « message »
     tous = [ts.enrichir(p, []) for p in brut]
     d = ts.diagnostic_terme(tous, "sonabel", ms(2026, 1, 1), ms(2027, 1, 1))
-    assert d["autres_periodes"] == 1 and d["sms_recus"] == 2 and d["dernier_sms_ms"] == ms(2026, 5, 2)
+    assert d["autres_periodes"] == 1 and d["sms_recus"] == 2 and d["dernier_sms_ms"] == ms(2026, 5, 2) and d["premier_sms_ms"] == ms(2025, 5, 2)
     assert d["autres_categories"] == {"message": 1}

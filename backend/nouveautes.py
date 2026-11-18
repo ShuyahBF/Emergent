@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "447", "date": "2026-11-18",
+        "titre": "🚫 SQL distant : machines interdites par client",
+        "description": "Pour chaque client, interdisez des noms de machines : une machine interdite ne reçoit jamais de requête distante, les autres continuent de répondre. Réglage dans SQL Distant et dans Loois.",
+        "rubrique": "🧾 Loois — SQL distant (téléphone)",
+    },
+    {
         "lot": "446", "date": "2026-11-18",
         "titre": "📱 SQL distant : page pour le téléphone",
         "description": "Nouvelle page Plateformes → Loois → SQL Distant, utilisable dans le navigateur du téléphone : votre compte SAWALI remplace la clé, une modification demande une confirmation renforcée.",

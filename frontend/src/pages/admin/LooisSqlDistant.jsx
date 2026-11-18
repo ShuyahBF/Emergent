@@ -13,7 +13,7 @@
 // Routes : /api/admin/loois-sql/{clients, requetes, requetes/{id}} (backend/routes/loois_sql_distant.py).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Clock, History, Play, RefreshCw, Server, ShieldCheck, X, XCircle } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, Clock, History, Play, Plus, RefreshCw, Save, Server, ShieldCheck, X, XCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
@@ -80,6 +80,80 @@ function TableauResultat({ colonnes, lignes }) {
   );
 }
 
+// Même règle de comparaison que le serveur : casse et espaces ignorés
+const meme = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+
+// Fenêtre « Machines du client » (lot 447) : l'administrateur INTERDIT des noms de machines pour un client ; une machine interdite ne reçoit jamais de requête
+// (les autres machines du client, si). Enregistrement par un bouton explicite, actif seulement quand la liste a changé (règle 15).
+function FenetreMachines({ client, onFermer, onEnregistre }) {
+  const [interdites, setInterdites] = useState(client.interdites || []);
+  const [nouveau, setNouveau] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  const modifie = JSON.stringify([...interdites].sort()) !== JSON.stringify([...(client.interdites || [])].sort());
+  // Machines vues par le service du client + machines interdites (même absentes : on doit pouvoir lever une interdiction)
+  const toutes = useMemo(() => {
+    const liste = [...client.machines];
+    interdites.forEach((m) => { if (!liste.some((x) => meme(x, m))) liste.push(m); });
+    return liste.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }));
+  }, [client.machines, interdites]);
+  const estInterdite = (m) => interdites.some((x) => meme(x, m));
+  const basculer = (m) => setInterdites((l) => (estInterdite(m) ? l.filter((x) => !meme(x, m)) : [...l, m]));
+  const ajouter = () => {
+    const n = nouveau.trim();
+    if (!n) return;
+    if (!estInterdite(n)) setInterdites((l) => [...l, n]);
+    setNouveau("");
+  };
+  const enregistrer = async () => {
+    setEnCours(true);
+    const t = toast.loading("Enregistrement des machines interdites en cours…");
+    try {
+      const r = (await apiClient.put(`${BASE}/machines-interdites/${encodeURIComponent(client.code)}`, { machines: interdites })).data;
+      toast.success(r.machines.length ? `Enregistré : ${r.machines.length} machine(s) interdite(s) pour ${client.code}.` : `Enregistré : plus aucune machine interdite pour ${client.code}.`, { id: t });
+      onEnregistre();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Enregistrement impossible.", { id: t });
+    } finally { setEnCours(false); }
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onFermer()}>
+      <DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto" data-testid="fenetre-machines">
+        <DialogHeader>
+          <DialogTitle>Machines du client {client.code}</DialogTitle>
+          <DialogDescription>Une machine <b>interdite</b> ne reçoit jamais de requête distante de ce client : les autres machines continuent de répondre.</DialogDescription>
+        </DialogHeader>
+        <ul className="divide-y divide-slate-100 rounded border border-slate-200">
+          {toutes.map((m) => (
+            <li key={m} className="flex items-center justify-between gap-2 p-2">
+              <span className="flex items-center gap-2 text-sm">
+                {estInterdite(m) ? <Ban className="h-4 w-4 text-red-600" aria-hidden="true" /> : <Server className="h-4 w-4 text-emerald-600" aria-hidden="true" />}
+                <b className={estInterdite(m) ? "text-red-700 line-through" : "text-slate-800"}>{m}</b>
+                <span className="text-xs text-slate-500">{estInterdite(m) ? "interdite" : "autorisée"}{client.machines.some((x) => meme(x, m)) ? "" : " · non vue récemment"}</span>
+              </span>
+              <button type="button" onClick={() => basculer(m)} data-testid={`bascule-${m}`}
+                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium ${estInterdite(m) ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-red-400 bg-red-50 text-red-800"}`}>
+                {estInterdite(m) ? <><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Autoriser</> : <><Ban className="h-3.5 w-3.5" aria-hidden="true" />Interdire</>}
+              </button>
+            </li>
+          ))}
+          {!toutes.length && <li className="p-3 text-center text-sm text-slate-500">Aucune machine vue pour ce client. Saisissez un nom ci-dessous pour l'interdire à l'avance.</li>}
+        </ul>
+        <div className="flex gap-2">
+          <input value={nouveau} onChange={(e) => setNouveau(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ajouter()} placeholder="Nom d'une machine à interdire"
+                 maxLength={80} autoComplete="off" className="block w-full rounded border border-slate-300 p-2 text-base" data-testid="saisie-machine" />
+          <button type="button" onClick={ajouter} className="inline-flex shrink-0 items-center gap-1 rounded border border-red-400 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"><Plus className="h-4 w-4" aria-hidden="true" />Interdire</button>
+        </div>
+        {modifie && <p className="text-sm text-orange-700"><AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />Modifié, non enregistré.</p>}
+        <div className="boutons-distincts flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onFermer} className="inline-flex items-center gap-1 rounded border border-slate-400 px-3 py-2 text-sm"><X className="h-4 w-4" aria-hidden="true" />Fermer</button>
+          <button type="button" onClick={enregistrer} disabled={!modifie || enCours} data-testid="enregistrer-machines"
+                  className="inline-flex items-center gap-1 rounded bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Save className="h-4 w-4" aria-hidden="true" />Enregistrer</button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Résultat complet d'une requête (utilisé sous le formulaire et dans la fenêtre de détail de l'historique)
 function VueResultat({ r }) {
   if (!r) return null;
@@ -109,6 +183,7 @@ export default function LooisSqlDistant() {
   const [confirmation, setConfirmation] = useState(false);  // fenêtre de confirmation renforcée
   const [motSaisi, setMotSaisi] = useState("");
   const [enCours, setEnCours] = useState(false);
+  const [machinesOuvert, setMachinesOuvert] = useState(false);   // fenêtre « Machines du client » (interdictions)
   const minuteur = useRef(null);
 
   // Lecture des clients et de l'historique (bouton « Actualiser » : toast « en cours » puis résultat, règle 17)
@@ -206,9 +281,15 @@ export default function LooisSqlDistant() {
           Client
           <select value={client} onChange={(e) => setClient(e.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2 text-base" data-testid="choix-client">
             <option value="">— Choisir le client —</option>
-            {clients.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.en_ligne ? "en ligne" : "hors ligne"} · {c.machines.length} machine(s)</option>)}
+            {clients.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.en_ligne ? "en ligne" : "hors ligne"} · {c.machines.length} machine(s){(c.interdites || []).length ? ` · ${c.interdites.length} interdite(s)` : ""}</option>)}
           </select>
         </label>
+        {clientChoisi && (
+          <button type="button" onClick={() => setMachinesOuvert(true)} data-testid="bouton-machines"
+                  className="inline-flex items-center gap-2 rounded border border-violet-400 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800">
+            <Server className="h-4 w-4" aria-hidden="true" />Machines du client{(clientChoisi.interdites || []).length ? ` (${clientChoisi.interdites.length} interdite(s))` : ""}
+          </button>
+        )}
         {clientChoisi && !clientChoisi.en_ligne && (
           <p className="text-sm text-orange-700"><AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />Aucune machine de ce client n'a donné signe de vie depuis 12 minutes : la requête risque d'expirer sans être exécutée.</p>
         )}
@@ -265,6 +346,11 @@ export default function LooisSqlDistant() {
           </table>
         </div>
       </section>
+
+      {/* Machines interdites du client choisi (lot 447) */}
+      {machinesOuvert && clientChoisi && (
+        <FenetreMachines client={clientChoisi} onFermer={() => setMachinesOuvert(false)} onEnregistre={() => { setMachinesOuvert(false); charger(); }} />
+      )}
 
       {/* Fenêtre de détail d'une requête (règle 20) */}
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>

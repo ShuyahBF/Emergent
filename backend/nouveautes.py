@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "437", "date": "2026-11-18",
+        "titre": "🔄 Bandeau « nouvelle version » plus réactif",
+        "description": "Le bandeau apparaît dans la minute qui suit un déploiement, dès que vous revenez sur la fenêtre, sans avoir à réduire puis restaurer le navigateur.",
+        "lien": "/admin/settings",
+    },
+    {
         "lot": "436", "date": "2026-11-18",
         "titre": "🟢 Téléphones source : puce « données à jour »",
         "description": "Chaque téléphone affiche une puce verte (envoi il y a moins de 24 h), orange (moins de 3 jours), rouge (plus ancien) ou grise (jamais) avec « il y a 3 h » : on voit d'un coup d'œil s'il a actualisé ses données.",

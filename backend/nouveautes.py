@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.9", "date": "2026-11-18",
+        "titre": "🏥 Dossiers d'hospitalisation : jointure désactivée",
+        "description": "Le pilote HFSQL ne fait pas de jointure de tables : la page ne l'essaie plus. Les noms des patients sont lus en parallèle des dossiers, par paquets de 150, et s'affichent au fur et à mesure.",
+        "rubrique": "🏥 Loois — Dossiers d'hospitalisation (web)",
+    },
+    {
         "lot": "449.8", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : dossiers et noms en une requête",
         "description": "Chaque base étant complète et autonome, la page lit les dossiers ET les noms des patients en une seule requête par tranche (jointure sur Numéro_Enreg) : environ deux fois moins de requêtes. Si la base refuse la jointure, la lecture en parallèle du lot 449.7 prend le relais.",

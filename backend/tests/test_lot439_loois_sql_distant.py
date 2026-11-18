@@ -216,7 +216,7 @@ def test_resultat_borne_garde_la_description_des_champs():
     """Lot 443 : la description des champs (clé / automatique / calculé) est conservée, bornée et nettoyée."""
     r = sd.resultat_borne({"ok": True, "colonnes": ["Id", "Nom"], "lignes": [["1", "A"]],
                            "schema": [{"nom": "Id", "cle": True, "auto": True, "type": "Int32", "table": "Client"}, {"nom": "Nom", "type": "String"}, "pas un dict"]})
-    assert r["schema"][0] == {"nom": "Id", "cle": True, "auto": True, "calcule": False, "type": "Int32", "table": "Client"}
+    assert r["schema"][0] == {"nom": "Id", "cle": True, "auto": True, "calcule": False, "memo": False, "type": "Int32", "table": "Client"}
     assert r["schema"][1]["cle"] is False and len(r["schema"]) == 2
 
 
@@ -249,3 +249,9 @@ def test_resultat_ephemere_rendu_une_fois(env):
     assert premiere["lignes"] == [["1"], ["2"]] and premiere["schema"][0]["cle"] is True
     seconde = client.get(f"/api/loois-sql/requetes/{rid}", headers=OWNER).json()
     assert seconde["lignes"] == [] and seconde["etat"] == "terminee"                       # lignes effacées après la première lecture
+
+
+def test_schema_garde_l_indicateur_memo():
+    """Un champ mémo n'est jamais transmis par le service ; SAWALI relaie seulement son indicateur."""
+    r = sd.resultat_borne({"ok": True, "colonnes": ["Obs"], "lignes": [["▤ mémo (non transmis)"]], "schema": [{"nom": "Obs", "memo": True, "type": "String"}]})
+    assert r["schema"][0]["memo"] is True

@@ -161,7 +161,7 @@ def resultat_borne(corps: Dict[str, Any]) -> Dict[str, Any]:
     schema = []
     for c in (corps.get("schema") or [])[:COLONNES_MAX]:
         if isinstance(c, dict):
-            schema.append({"nom": str(c.get("nom") or "")[:100], "cle": bool(c.get("cle")), "auto": bool(c.get("auto")), "calcule": bool(c.get("calcule")),
+            schema.append({"nom": str(c.get("nom") or "")[:100], "cle": bool(c.get("cle")), "auto": bool(c.get("auto")), "calcule": bool(c.get("calcule")), "memo": bool(c.get("memo")),
                            "type": str(c.get("type") or "")[:20], "table": str(c.get("table") or "")[:100]})
     return {"ok": bool(corps.get("ok")), "message": str(corps.get("message") or "")[:2000], "base": str(corps.get("base") or "")[:120],
             "colonnes": colonnes, "lignes": lignes, "tronque": tronque, "lignes_affectees": affectees, "duree_ms": duree, "schema": schema}

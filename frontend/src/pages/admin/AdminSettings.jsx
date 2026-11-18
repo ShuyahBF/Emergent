@@ -60,6 +60,7 @@ import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection"
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
 import LibererEspaceSection from "@/pages/admin/sections/LibererEspaceSection";   // Lot 113 : bouton unique « 🧹 Libérer l'Espace »
 import LooisSqlDistantSection from "@/pages/admin/sections/LooisSqlDistantSection";   // Lot 446 : page SQL distant pour le téléphone
+import LooisDossiersHospitalisationSection from "@/pages/admin/sections/LooisDossiersHospitalisationSection";   // Lot 448 : page web des dossiers d'hospitalisation
 import LooisSecretsHfsqlSection from "@/pages/admin/sections/LooisSecretsHfsqlSection";   // Lot 79.11 : mots de passe HFSQL de Loois
 import LiluvinePartageSection from "@/pages/admin/sections/LiluvinePartageSection";   // Lot 73
 import { ReglagesAgenda } from "@/pages/admin/LiluvineAgenda";   // Lot 71.3 : réglages de l'agenda intégrés ici
@@ -1671,6 +1672,11 @@ export default function AdminSettings() {
       {/* Lot 446 — page « SQL Distant » de l'administration, utilisable depuis le téléphone (compte administrateur, sans clé sur l'appareil) */}
       <Filterable title="🧾 Loois — SQL distant (téléphone)" anchorId="s-loois-sql-distant" category="modules">
         <LooisSqlDistantSection />
+      </Filterable>
+
+      {/* Lot 448 — page web « Dossiers d'hospitalisation » : même liste que Loois, lue chez le client (administrateur) */}
+      <Filterable title="🏥 Loois — Dossiers d'hospitalisation (web)" anchorId="s-loois-dossiers-hospitalisation" category="modules">
+        <LooisDossiersHospitalisationSection />
       </Filterable>
 
       {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}

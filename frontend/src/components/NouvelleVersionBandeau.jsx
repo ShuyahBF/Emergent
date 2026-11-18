@@ -13,6 +13,21 @@ import { Clock as Ico15Clock, RefreshCw as Ico15RefreshCw } from "lucide-react";
 // (la page d'accueil y est gardée jusqu'à 5 minutes) : le bandeau n'attend plus qu'on réduise puis restaure le navigateur.
 const INTERVALLE_MS = 60 * 1000;
 
+// Lot 448.2 : « Actualiser » doit RAMENER la nouvelle version. Un simple rechargement peut être servi par le CDN de Render avec l'ANCIENNE page
+// (gardée jusqu'à 5 minutes) : le bandeau réapparaissait alors à chaque rechargement. On recharge donc la même adresse avec un paramètre unique
+// (« maj ») : le CDN la voit comme une adresse nouvelle et va chercher la page à jour. Le paramètre est retiré de la barre d'adresse au chargement.
+export function adresseSansCache(href, instant = Date.now()) {
+  const u = new URL(href);
+  u.searchParams.set("maj", String(instant));
+  return u.toString();
+}
+export function adresseSansParametreMaj(href) {
+  const u = new URL(href);
+  u.searchParams.delete("maj");
+  return u.toString();
+}
+const actualiserSansCache = () => window.location.replace(adresseSansCache(window.location.href));
+
 export default function NouvelleVersionBandeau() {
   const [dispo, setDispo] = useState(false);
   const [masque, setMasque] = useState(false);
@@ -21,6 +36,9 @@ export default function NouvelleVersionBandeau() {
 
   useEffect(() => {
     let vivant = true;
+    try {   // adresse propre : on retire le paramètre « maj » ajouté par « Actualiser » (sans recharger la page)
+      if (new URL(window.location.href).searchParams.has("maj")) window.history.replaceState(window.history.state, "", adresseSansParametreMaj(window.location.href));
+    } catch (e) { /* navigateur sans history : sans importance */ }
     chargee.current = empreinteChargee(document);
     if (!chargee.current) return undefined;   // développement : rien à surveiller
 
@@ -57,7 +75,7 @@ export default function NouvelleVersionBandeau() {
       <span>Une nouvelle version de SAWALI est disponible.</span>
       <button
         type="button"
-        onClick={() => window.location.reload()}
+        onClick={actualiserSansCache}
         className="rounded-lg bg-sky-500 hover:bg-sky-400 px-3 py-1 font-semibold"
         data-testid="bandeau-nouvelle-version-actualiser"
       >

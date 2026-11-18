@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "448.2", "date": "2026-11-18",
+        "titre": "🟢 SQL distant : « en ligne » = la machine répond",
+        "description": "Un client est « en ligne » dès qu'une de ses machines interroge SAWALI (moins de 90 s), même si son signal de présence est en retard. Le bouton « Actualiser » du bandeau « nouvelle version » contourne maintenant le cache : il ne réapparaît plus en boucle.",
+        "rubrique": "🧾 Loois — SQL distant (téléphone)",
+    },
+    {
         "lot": "448.1", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : « tranches » de 200 numéros",
         "description": "Dans la page web des dossiers d'hospitalisation, l'avancement indique maintenant « tranche 6 sur 40 » (une tranche = 200 numéros de dossiers lus en une requête) au lieu de « fenêtre ».",

@@ -4,8 +4,11 @@ import "@/index.css";
 import App from "@/App";
 // Lot 130 (règle 9) — Ctrl + Espace / double-clic : reprendre le texte par défaut d'un champ pour le modifier
 import { installerValeurParDefaut } from "@/lib/valeurParDefaut";
+import { installerDefilementTableaux } from "@/lib/defilementTableaux";
 
 installerValeurParDefaut();
+// Règle du 18/11/2026 — tableau de plus de 30 lignes : barre de défilement (page moins longue), en-tête collant
+installerDefilementTableaux();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

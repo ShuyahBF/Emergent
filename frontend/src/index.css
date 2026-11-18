@@ -308,3 +308,19 @@ table thead td {
   color: #1e3a8a !important;              /* bleu 900 */
   border-bottom: 2px solid #93c5fd !important;  /* filet bleu 300 */
 }
+
+/* ===================================================================
+   Règle « tableaux de plus de 30 lignes » (18/11/2026) : le conteneur défile (module lib/defilementTableaux.js) ; l'en-tête reste visible en haut.
+   À l'impression, toutes les lignes sont imprimées.
+   =================================================================== */
+[data-defilement="oui"] thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+@media print {
+  [data-defilement="oui"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

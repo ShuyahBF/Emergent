@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "449.1", "date": "2026-11-18",
+        "titre": "⚡ SQL distant : lecture environ 2 fois plus rapide",
+        "description": "Après chaque requête exécutée, la machine du client reprend l'interrogation toutes les secondes (au lieu de 5 s) tant qu'une page ou Loois est ouverte : la lecture des dossiers d'hospitalisation passe d'environ 6 s à 2 ou 3 s par tranche. Aucune mise à jour du service Windows nécessaire.",
+        "rubrique": "🧾 Loois — SQL distant (téléphone)",
+    },
+    {
         "lot": "449", "date": "2026-11-18",
         "titre": "⭐ SQL distant : machines favorites et menu « Loois SQL distant »",
         "description": "Pour chaque client, désignez des machines favorites (étoile, avec priorité) : une favorite en ligne passe en premier pendant 4 secondes, puis la requête passe à la prochaine machine disponible. Les pages des requêtes distantes sont regroupées dans le menu « Loois SQL distant ».",

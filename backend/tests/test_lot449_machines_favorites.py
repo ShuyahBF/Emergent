@@ -127,3 +127,12 @@ def test_liste_des_clients_porte_les_favorites(env):
     favorites(client, ["SERVEUR"])
     clients = client.get("/api/loois-sql/clients", headers=OWNER).json()["clients"]
     assert clients[0]["code"] == "IPM" and clients[0]["favorites"] == ["SERVEUR"]
+
+
+# ----------------------------------------------------------------- lot 449.1 : en-tête « rapide » aussi sur la réponse 200
+def test_reponse_avec_requete_porte_l_en_tete_rapide_quand_une_session_est_ouverte(env):
+    client, _db = env
+    deposer(client)                                            # déposer une requête vaut signal de session
+    r = client.get("/api/loois-sql/poste/prochaine", headers=poste("SERVEUR"))
+    assert r.status_code == 200 and r.json()["sql"].startswith("SELECT")
+    assert r.headers.get("X-Sql-Rapide") == "1"                # le service garde l'intervalle d'1 s après avoir exécuté (avant : retombait à 5 s)

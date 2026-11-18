@@ -170,7 +170,7 @@ def resultat_borne(corps: Dict[str, Any]) -> Dict[str, Any]:
 def vue_requete(req: Dict[str, Any], avec_lignes: bool = True) -> Dict[str, Any]:
     """Représentation envoyée à Loois (jamais l'adresse IP ni l'identifiant de clé)."""
     sortie = {k: req.get(k) for k in ("id", "client", "sql", "etat", "machine", "cree_le", "prise_le", "fin_le", "ok", "message", "base",
-                                       "colonnes", "tronque", "lignes_affectees", "duree_ms", "schema")}
+                                       "colonnes", "tronque", "lignes_affectees", "duree_ms", "schema", "machine_ip")}
     sortie["colonnes"] = sortie["colonnes"] or []
     sortie["schema"] = sortie["schema"] or []
     sortie["lignes"] = (req.get("lignes") or []) if avec_lignes else []
@@ -370,7 +370,8 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         rid = str((corps or {}).get("id") or "")
         champs = resultat_borne(corps or {})
-        maj = {"etat": "terminee" if champs["ok"] else "echec", "fin_le": _maintenant().isoformat(), **champs}
+        # Lot 445 : adresse IP vue par SAWALI pour la machine qui répond (journal du client distant de Loois)
+        maj = {"etat": "terminee" if champs["ok"] else "echec", "fin_le": _maintenant().isoformat(), "machine_ip": _ip(request), **champs}
         res = await db.loois_reglages.update_one(
             {"id": ID_DOC, "requetes": {"$elemMatch": {"id": rid, "etat": "prise", "machine": poste["machine"], "client": poste["base"]}}},
             {"$set": {f"requetes.$.{k}": v for k, v in maj.items()}})

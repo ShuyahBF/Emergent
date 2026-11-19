@@ -272,3 +272,8 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
   d'attention, reste à faire. Jamais de secret (clé, mot de passe, chaîne de connexion) dans l'e-mail.
 - Charger l'outil Gmail avec ToolSearch AVANT de dire qu'il manque ; s'il est vraiment indisponible, le dire dans le chat et ne pas clore la livraison.
 
+
+## Pastilles de notifications dans le menu (RÈGLE PERMANENTE du propriétaire, 19/11/2026 : « pour toutes les plateformes disposant d'une sidebar »)
+- Chaque lien de menu (sidebar, barre de navigation) qui reçoit des notifications affiche une BULLE avec le NOMBRE d'éléments non encore lus / traités : Centre de Messagerie, Réservations, Alertes, Stock, Demandes… Le nombre est écrit (jamais la couleur seule), plafonné à « 99+ », avec une étiquette d'accessibilité.
+- Une seule route légère de compteurs par plateforme (filtrée par droits), relue périodiquement (30 s) et après chaque action qui change un compteur ; calculs lourds gardés quelques dizaines de secondes (règle 7). Tout NOUVEAU lien qui reçoit des notifications ajoute sa clé et sa pastille.
+- Modèle : Dialyse, `GET /notifications/compteurs` (`backend/app/notifications.py`) et `frontend/src/composants/MiseEnPage.jsx`.

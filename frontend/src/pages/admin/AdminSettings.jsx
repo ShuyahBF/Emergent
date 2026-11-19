@@ -1679,6 +1679,20 @@ export default function AdminSettings() {
         <LooisDossiersHospitalisationSection />
       </Filterable>
 
+      {/* Lot 451 — recherche plein texte du tableau de bord (rubrique d'information et accès à l'écran) */}
+      <Filterable title="🔎 Recherche dans les rapports, suivis, notes et tâches" anchorId="s-recherche-documents" category="modules">
+        <div className="space-y-2 text-sm text-slate-700">
+          <p>Sur le <b>tableau de bord du portail</b>, le champ « Rechercher dans mes rapports, suivis, notes et tâches » trouve un mot ou une expression,
+            sans tenir compte des majuscules ni des accents, dans le titre, le contenu, la liste des tâches, les étiquettes et le numéro.</p>
+          <p>Chaque utilisateur ne trouve que les documents qu'il a <b>le droit de voir</b> (les siens, ceux qui lui sont destinés, ceux partagés dans sa société) :
+            ce sont exactement les droits des listes Rapports, Suivis, Notes et Tâches. Un clic sur un résultat ouvre le document en <b>lecture seule</b>.
+            Les rapports et les suivis ne sont cherchés que si leurs boutons sont affichés sur le portail. 50 résultats au plus par type, les plus récents d'abord.</p>
+          <Link to="/portal" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
+            <Search className="h-3.5 w-3.5" /> Ouvrir le tableau de bord
+          </Link>
+        </div>
+      </Filterable>
+
       {/* Lot 88 — sondages « Evaluation Loois » du support : phrase de remerciement de Liluvine, état, fenêtre d'évaluation */}
       <Filterable title="📋 Évaluations Loois (sondages du support)" anchorId="s-evaluations-loois" category="modules">
         <EvaluationsLooisSection />

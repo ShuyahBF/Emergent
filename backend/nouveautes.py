@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "451", "date": "2026-11-19",
+        "titre": "🔎 Tableau de bord : recherche dans les rapports, suivis, notes et tâches",
+        "description": "Un champ de recherche sur le tableau de bord du portail trouve un mot ou une expression (sans majuscules ni accents) dans les rapports, suivis, notes et tâches que l'on a le droit de voir : type, date et heure, extrait, auteur ; un clic ouvre le document en lecture seule.",
+        "rubrique": "🔎 Recherche dans les rapports, suivis, notes et tâches",
+    },
+    {
         "lot": "450.1", "date": "2026-11-18",
         "titre": "🏥 Dossiers d'hospitalisation : plus fluide sur téléphone",
         "description": "Le tableau affiche 200 dossiers à la fois (« Afficher 200 de plus », « Tout afficher ») au lieu de ~4 000 d'un coup, et les requêtes SQL distantes n'affichent plus « Opération effectuée avec succès » à chaque requête ni ne sont tracées (elles contenaient des numéros de patients).",

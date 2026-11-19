@@ -8,6 +8,7 @@ import JournalAppelsCarte from "@/components/JournalAppelsCarte";   // Lot 64
 import BrochuresWidget from "@/components/BrochuresWidget";
 import WeatherWidget from "@/components/WeatherWidget";
 import R2StorageGauge from "@/components/R2StorageGauge";
+import RechercheDocuments from "@/components/RechercheDocuments";   // Lot 451 — recherche plein texte (rapports, suivis, notes, tâches)
 
 import { Sparkles as Ico15Sparkles, X as Ico15X } from "lucide-react";
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
@@ -115,6 +116,9 @@ export default function ClientDashboard() {
 
       {/* Iter43-fix20 — Widget météo détaillé dans le dashboard portail */}
       <WeatherWidget variant="detailed" placement="portal" />
+
+      {/* Lot 451 — recherche plein texte dans les rapports, suivis, notes et tâches (mêmes types que les quatre cartes ci-dessous) */}
+      <RechercheDocuments typesVisibles={[...(features.show_reports_button ? ["reports"] : []), ...(features.show_suivis_button ? ["suivis"] : []), "notes", "tasks"]} />
 
       {/* Iter38r-fix8b — Notes & Tâches s'affichent toujours, Rapports/Suivis selon feature flag */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="dashboard-notes-section">

@@ -23,15 +23,10 @@ def _user_notes_collection(kind: str):
     return mapping[kind]
 
 
-@api.get("/me/notes/{kind}", tags=["Portail Client"])
-async def me_list_notes(
-    kind: str,
-    author: Optional[str] = None,
-    q: Optional[str] = None,
-    scope: Optional[str] = None,  # mine | shared | all (default: all I can see)
-    user: dict = Depends(get_current_user),
-):
-    coll = _user_notes_collection(kind)
+async def _base_visibilite_notes(user: dict) -> Dict[str, Any]:
+    """Filtre MongoDB « ce que CET utilisateur a le droit de voir » parmi les rapports, suivis, notes et tâches.
+    Source UNIQUE des droits de lecture : utilisée par la liste (/me/notes/{kind}) ET par la recherche plein texte du tableau de bord (lot 451),
+    pour que la recherche ne montre jamais un document que la liste ne montrerait pas."""
     # Iter38r-fix9f — Visibility model:
     #  - owner_id == user.id           → always visible (full edit)
     #  - target_user_ids contains me   → visible read-only
@@ -80,6 +75,19 @@ async def me_list_notes(
         if cross_clause:
             clauses.append(cross_clause)
         base = {"$or": clauses}
+    return base
+
+
+@api.get("/me/notes/{kind}", tags=["Portail Client"])
+async def me_list_notes(
+    kind: str,
+    author: Optional[str] = None,
+    q: Optional[str] = None,
+    scope: Optional[str] = None,  # mine | shared | all (default: all I can see)
+    user: dict = Depends(get_current_user),
+):
+    coll = _user_notes_collection(kind)
+    base = await _base_visibilite_notes(user)
     query: Dict[str, Any] = dict(base)
     # Optional scope filter (mine|shared|all) — applies on top of the visibility ACL
     if scope == "mine":
@@ -115,6 +123,73 @@ async def me_list_notes(
     if restricted:
         items = [it for it in items if it.get("owner_id") == user["id"]]
     return await _attach_my_rating(items, kind, user["id"])
+
+
+# ====================================================================
+# Lot 451 — RECHERCHE PLEIN TEXTE dans les rapports, suivis, notes et tâches (tableau de bord)
+# ====================================================================
+async def _restreint_aux_siens(kind: str, user: dict) -> bool:
+    """Vrai si la société a activé la restriction de contenu pour ce type (rapports ou suivis) : l'utilisateur ne voit alors que SES documents."""
+    if kind not in ("reports", "suivis"):
+        return False
+    restrictions = await _resolve_content_restrictions(user)
+    return bool(restrictions.get("anon_rapports" if kind == "reports" else "anon_suivis"))
+
+
+@api.get("/me/recherche-documents", tags=["Portail Client"])
+async def me_recherche_documents(q: str = "", types: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Cherche `q` (sans casse ni accents) dans les rapports, suivis, notes et tâches que l'utilisateur a le droit de voir.
+    Rend une ligne par document : type, date et heure, extrait autour de la première occurrence, auteur. LECTURE SEULE.
+    Les quatre lectures partent EN PARALLÈLE (règle 7) ; 50 documents au plus par type, les plus récents d'abord."""
+    import recherche_documents as rd
+    texte = rd.nettoyer_requete(q)
+    if not texte:
+        raise HTTPException(status_code=400, detail=f"Saisissez au moins {rd.LONGUEUR_MIN} caractères à chercher.")
+    demandes = [t for t in (types or ",".join(rd.TYPES)).split(",") if t in rd.TYPES]
+    if not demandes:
+        raise HTTPException(status_code=400, detail="Aucun type de document à chercher.")
+    base = await _base_visibilite_notes(user)
+    motif = rd.compiler(texte)
+    filtre_texte = rd.filtre_mongo(texte)
+
+    async def chercher(kind: str) -> tuple[list[dict], bool]:
+        # Droits de lecture ET texte cherché ; les images (lourdes) ne sont pas lues
+        clauses = [base, filtre_texte] if base else [filtre_texte]
+        if await _restreint_aux_siens(kind, user):
+            clauses.append({"owner_id": user["id"]})
+        docs = await _user_notes_collection(kind).find({"$and": clauses}, {"_id": 0, "images": 0, "ip": 0, "user_agent": 0}) \
+            .sort("created_at", -1).to_list(rd.MAX_PAR_TYPE + 1)
+        lignes = []
+        for d in docs[:rd.MAX_PAR_TYPE]:
+            analyse = rd.analyser_document(d, motif)      # vérification sur le texte LISIBLE (un mot présent seulement dans une balise est écarté)
+            if analyse:
+                lignes.append(rd.resume_resultat(kind, d, analyse))
+        return lignes, len(docs) > rd.MAX_PAR_TYPE
+
+    retours = await asyncio.gather(*(chercher(k) for k in demandes))
+    resultats = [l for lignes, _ in retours for l in lignes]
+    resultats.sort(key=lambda l: str(l.get("cree_le") or ""), reverse=True)
+    return {
+        "q": texte, "total": len(resultats), "resultats": resultats,
+        "par_type": {k: len(lignes) for k, (lignes, _) in zip(demandes, retours)},
+        # Liste coupée : il y avait plus de 50 documents d'un type ; le dire à l'écran plutôt que de laisser croire que tout est là
+        "tronque": [rd.TYPES[k] for k, (_, coupe) in zip(demandes, retours) if coupe],
+    }
+
+
+@api.get("/me/recherche-documents/{kind}/{doc_id}", tags=["Portail Client"])
+async def me_recherche_document_lire(kind: str, doc_id: str, user: dict = Depends(get_current_user)):
+    """Contenu complet d'un résultat de recherche, pour la fenêtre de LECTURE SEULE. Mêmes droits que la liste : un identifiant deviné ne donne rien."""
+    import recherche_documents as rd
+    coll = _user_notes_collection(kind)
+    base = await _base_visibilite_notes(user)
+    clauses = [base, {"id": doc_id}] if base else [{"id": doc_id}]
+    if await _restreint_aux_siens(kind, user):
+        clauses.append({"owner_id": user["id"]})
+    doc = await coll.find_one({"$and": clauses}, {"_id": 0, "ip": 0, "user_agent": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable ou non accessible.")
+    return rd.document_lecture(kind, doc)
 
 
 @api.get("/me/notes/{kind}/authors", tags=["Portail Client"])

@@ -272,3 +272,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
   d'attention, reste à faire. Jamais de secret (clé, mot de passe, chaîne de connexion) dans l'e-mail.
 - Charger l'outil Gmail avec ToolSearch AVANT de dire qu'il manque ; s'il est vraiment indisponible, le dire dans le chat et ne pas clore la livraison.
 
+
+## Signature et publication des APK : clé permanente seulement, publication directe dans ShuyahStore (règle du propriétaire, 19/11/2026)
+- **Plus JAMAIS la clé de test** (option `-PsignerAvecCleLocale=true`, clé « Android Debug ») pour un APK livré au propriétaire, **sauf demande EXPRESSE** de sa part dans la conversation. Cette règle remplace toute consigne plus ancienne qui l'autorisait.
+- Tout APK est signé avec la clé PERMANENTE de ShuyahStore (variables `ANDROID_KEYSTORE_FILE` / `_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`). Avant de livrer, vérifier avec `apksigner verify --print-certs` que le certificat est celui de ShuyahStore (« CN=ShuyahStore »), jamais « Android Debug ».
+- **Fichier de clé absent** (chemin de `ANDROID_KEYSTORE_FILE` introuvable : c'est le cas dans une session neuve) : ne construire AUCUN APK de remplacement. Le dire au propriétaire et lui demander de joindre `cle-shuyahstore-shuyahstore.p12` à la conversation (pièce jointe, jamais collé dans le texte) ; le recopier à l'emplacement attendu, sans l'afficher ni le commiter.
+- **Publication DIRECTE dans ShuyahStore à CHAQUE livraison** (`POST https://shuyahstore-api.onrender.com/api/dev/depot`, jeton injecté par le secret réseau « Jeton de dépôt ShuyahStore »), en plus de l'envoi de l'APK dans le chat. Dire dans le compte rendu si la version a été publiée directement ou mise en validation.

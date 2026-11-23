@@ -157,6 +157,7 @@ const NEW_LOTS = {
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
+  "🔗 Clients — client lié canonique": "451.2",   // lot 451.2 : plus de « Client canonique introuvable » quand le lien n'a pas changé
   "🎫 Tickets d'intervention — motif": "451.1",   // lot 451.1 : recherche du client lié et curseur qui ne saute plus (lot 144 : motif modifiable depuis la fiche)
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
@@ -233,6 +234,7 @@ const NEW_SECTIONS = {
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
+  "🔗 Clients — client lié canonique": "2026-11-23",   // lot 451.2
   "🎫 Tickets d'intervention — motif": "2026-11-23",   // lot 451.1
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
@@ -357,6 +359,7 @@ const NEW_DESCRIPTIONS = {
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
+  "🔗 Clients — client lié canonique": "Un client lié accepté à la création n'est plus re-vérifié à l'enregistrement de la fiche tant que le lien ne change pas (lot 451.2).",
   "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144). Nouvelle intervention et nouveau ticket : le « Client lié » se recherche sur tout ou partie du code, du nom ou de la société ; le curseur ne saute plus à la fin en modifiant le motif ou le complément d'information (lot 451.1).",
   "🟥 Pseudo contrat VALIDE": "Case sur la fiche client : contrat traité comme VALIDE pendant 5 jours (puce, ligne Liluvine VIP, états Loois non anonymisés), même si des paiements n'ont pas été mis à jour ; clients concernés marqués en rouge dans la liste (lot 159).",
   "👥 Contacts des plateformes": "SAWALI lit chaque nuit les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis (lot 161).",
@@ -1708,6 +1711,18 @@ export default function AdminSettings() {
             et le curseur reste à sa place quand on corrige le titre, la description, le technicien, le rapporteur, le motif ou le complément d'information (ils restent saisis en majuscules).</p>
           <Link to="/portal/tickets" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
             <Ticket className="h-3.5 w-3.5" /> Ouvrir les tickets
+          </Link>
+        </div>
+      </Filterable>
+
+      {/* Lot 451.2 — client lié canonique : règle d'enregistrement (rubrique d'information et accès à l'écran) */}
+      <Filterable title="🔗 Clients — client lié canonique" anchorId="s-client-lie-canonique" category="modules">
+        <div className="space-y-2 text-sm text-slate-700">
+          <p>Dans la fiche d'un client, le <b>Client lié canonique</b> (société mère) est accepté à la création (« cette société existe déjà »). À l'enregistrement de la fiche,
+            un lien <b>inchangé</b> n'est plus re-vérifié : le message « Client canonique introuvable » n'apparaît que si le compte choisi n'existe vraiment plus.
+            Le client lié déjà enregistré reste toujours visible dans la liste, quel que soit son rôle.</p>
+          <Link to="/admin/clients" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
+            <ExternalLink className="h-3.5 w-3.5" /> Ouvrir les clients
           </Link>
         </div>
       </Filterable>

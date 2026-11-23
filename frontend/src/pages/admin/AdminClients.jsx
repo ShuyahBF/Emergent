@@ -849,8 +849,9 @@ export default function AdminClients() {
                 >
                   <option value="">— Aucun (tenant indépendant) —</option>
                   {items
-                    /* Lot 25 — Les deux orthographes du rôle modérateur sont proposées. */
-                    .filter((u) => u.id !== editing.id && ["admin", "superviseur", "moderateur", "moderator", "client"].includes(u.role))
+                    /* Lot 25 — Les deux orthographes du rôle modérateur sont proposées. Lot 451.2 — le client lié DÉJÀ enregistré reste toujours dans la liste,
+                       quel que soit son rôle (sinon la liste l'affichait « Aucun » alors qu'il était lié). */
+                    .filter((u) => u.id !== editing.id && (["admin", "superviseur", "moderateur", "moderator", "client"].includes(u.role) || u.id === form.link_to_client_id))
                     .map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.full_name}{u.company ? ` — ${u.company}` : ""} ({u.role})

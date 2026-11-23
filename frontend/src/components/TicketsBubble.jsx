@@ -12,6 +12,8 @@ import { Ticket as TicketIcon, X, Send } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { saisieMajuscules } from "@/lib/saisieMajuscules";
+import ChampClientRecherche from "@/components/ChampClientRecherche";
 
 import { X as Ico15X } from "lucide-react";
 export default function TicketsBubble() {
@@ -187,30 +189,25 @@ export default function TicketsBubble() {
               <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
             </header>
             <form onSubmit={submit} className="flex-1 overflow-y-auto p-5 space-y-3">
-              <label className="block">
+              {/* Client lié : recherche sur tout ou partie du code, du nom ou de la société (23/11/2026) */}
+              <div className="block">
                 <span className="text-xs font-medium text-slate-600">Client lié *</span>
-                <select required value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value, contact_name: "" })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="tickets-bubble-client">
-                  <option value="">-- Choisir --</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.client_code ? `[${c.client_code}] ` : ""}{c.full_name || c.company || c.name || "(sans nom)"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <ChampClientRecherche clients={clients} valeur={form.client_id} testId="tickets-bubble-client"
+                  onChoisir={(id) => setForm({ ...form, client_id: id, contact_name: "" })} />
+              </div>
 
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">Motif *</span>
                 {reasons.length > 0 ? (
                   <>
-                    <select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="tickets-bubble-reason-select">
+                    <select value={form.reason} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, reason: v }))} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="tickets-bubble-reason-select">
                       <option value="">-- Choisir un motif ou saisir librement --</option>
                       {reasons.map((r) => <option key={r.id || r.label} value={r.label}>{r.label}</option>)}
                     </select>
-                    <input type="text" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} placeholder="… OU MOTIF LIBRE" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
+                    <input type="text" value={form.reason} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, reason: v }))} placeholder="… OU MOTIF LIBRE" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
                   </>
                 ) : (
-                  <input type="text" required value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
+                  <input type="text" required value={form.reason} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, reason: v }))} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
                 )}
               </label>
 
@@ -223,7 +220,7 @@ export default function TicketsBubble() {
                   required
                   list="tickets-bubble-rapporteur-list"
                   value={form.contact_name}
-                  onChange={(e) => setForm({ ...form, contact_name: e.target.value.toUpperCase() })}
+                  onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, contact_name: v }))}
                   placeholder={form.client_id && linkedContacts.length > 0 ? "SÉLECTIONNER OU SAISIR LIBREMENT" : "NOM DU RAPPORTEUR"}
                   className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2"
                   data-testid="tickets-bubble-contact-name"
@@ -273,13 +270,13 @@ export default function TicketsBubble() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-slate-600">Logiciel utilisé</span>
-                  <input type="text" value={form.software} onChange={(e) => setForm({ ...form, software: e.target.value.toUpperCase() })} placeholder="TÉLÉPHONE / WA / SAWALI…" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-software" />
+                  <input type="text" value={form.software} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, software: v }))} placeholder="TÉLÉPHONE / WA / SAWALI…" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-software" />
                 </label>
               </div>
 
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">Complément d'information</span>
-                <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 resize-y" data-testid="tickets-bubble-notes" />
+                <textarea rows={3} value={form.notes} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, notes: v }))} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 resize-y" data-testid="tickets-bubble-notes" />
               </label>
 
               <label className="flex items-center gap-2 text-xs text-slate-600">

@@ -157,7 +157,7 @@ const NEW_LOTS = {
   "📊 Synthèse du support": "92",   // lot 92 : demandes non répondues, totaux, demandes transmises à Claude (admin + superviseur)
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
-  "🎫 Tickets d'intervention — motif": "144",   // lot 144 : motif modifiable depuis la fiche du ticket
+  "🎫 Tickets d'intervention — motif": "451.1",   // lot 451.1 : recherche du client lié et curseur qui ne saute plus (lot 144 : motif modifiable depuis la fiche)
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
   "💳 Services à renouveler — coûts": "170",   // lot 170 : montant par service, formule, plateforme et cluster ; rappels d'échéance
@@ -233,7 +233,7 @@ const NEW_SECTIONS = {
   "📊 Synthèse du support": "2026-10-09",   // lot 92
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
-  "🎫 Tickets d'intervention — motif": "2026-10-14",   // lot 144
+  "🎫 Tickets d'intervention — motif": "2026-11-23",   // lot 451.1
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
   "💳 Services à renouveler — coûts": "2026-10-15",   // lot 170
@@ -357,7 +357,7 @@ const NEW_DESCRIPTIONS = {
   "📊 Synthèse du support": "Demandes au support non répondues (attente), totaux de la période par espace et demandes transmises à Claude ; aussi au menu « Synthèse du support » pour le superviseur (lot 92).",
   "🧠 Avis Claude sur les demandes": "Demandes d'ajout ou de correction de fonctionnalité : Claude évalue la faisabilité en lisant le code, Liluvine répond au client, vous décidez des demandes approuvées ; emojis dans le chat (lot 91).",
   "🛟 Support des plateformes web": "Pictogramme d'assistance dans les plateformes web ; « sTer - Support »… dans le chat, requêtes numérotées, demandes en attente visibles pendant une conversation (lot 90) ; fenêtre avec emojis, photo, trombone et note vocale transcrite (lot 93) ; Liluvine répond d'elle-même avec les règles du support (lot 99).",
-  "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144).",
+  "🎫 Tickets d'intervention — motif": "Le motif d'un ticket ouvert se corrige depuis sa fiche (bouton « Modifier », 200 caractères au plus) ; le motif d'origine et l'auteur de la modification sont conservés (lot 144). Nouvelle intervention et nouveau ticket : le « Client lié » se recherche sur tout ou partie du code, du nom ou de la société ; le curseur ne saute plus à la fin en modifiant le motif ou le complément d'information (lot 451.1).",
   "🟥 Pseudo contrat VALIDE": "Case sur la fiche client : contrat traité comme VALIDE pendant 5 jours (puce, ligne Liluvine VIP, états Loois non anonymisés), même si des paiements n'ont pas été mis à jour ; clients concernés marqués en rouge dans la liste (lot 159).",
   "👥 Contacts des plateformes": "SAWALI lit chaque nuit les contacts des plateformes activées (ZandGo, e-Kol, adLyn…) et les range dans un groupe « Plateforme X » de l'annuaire, pour des messages WhatsApp de masse ou des carrousels ; le consentement de chaque personne reste requis (lot 161).",
   "💳 Services à renouveler — coûts": "Les services à renouveler (MongoDB Atlas, Render, Cloudflare R2, domaines…) avec le montant à la date de lecture, par service et formule, par plateforme et par cluster ; Atlas lu automatiquement, R2 estimé, rappels WhatsApp avant chaque échéance.",
@@ -1704,6 +1704,8 @@ export default function AdminSettings() {
         <div className="space-y-2 text-sm text-slate-700">
           <p>Sur la fiche d'un ticket <b>ouvert</b>, le bouton <b>✏️ Modifier</b> à côté du « Motif complet » permet de corriger le texte (200 caractères au plus).
             Le motif d'origine est conservé ; la fiche indique « Motif modifié par … le … ». Un ticket clôturé ou dans la corbeille ne se modifie plus.</p>
+          <p>Dans <b>Nouvelle intervention</b>, <b>Modifier intervention</b> et la bulle <b>Nouveau ticket d'intervention</b> (lot 451.1) : le champ <b>Client lié</b> se recherche sur <b>tout ou partie</b> du code, du nom ou de la société (sans tenir compte des majuscules ni des accents),
+            et le curseur reste à sa place quand on corrige le titre, la description, le technicien, le rapporteur, le motif ou le complément d'information (ils restent saisis en majuscules).</p>
           <Link to="/portal/tickets" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
             <Ticket className="h-3.5 w-3.5" /> Ouvrir les tickets
           </Link>

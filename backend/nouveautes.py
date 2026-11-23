@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "451.1", "date": "2026-11-23",
+        "titre": "🎫 Nouvelle intervention et nouveau ticket : recherche du client lié, curseur qui ne saute plus",
+        "description": "Dans « Nouvelle intervention » (et « Modifier intervention », et le nouveau ticket), le « Client lié » se recherche sur tout ou partie du code, du nom ou de la société ; en corrigeant le titre, la description ou le motif, le curseur reste à sa place au lieu de revenir à la fin.",
+        "rubrique": "🎫 Tickets d'intervention — motif",
+    },
+    {
         "lot": "451", "date": "2026-11-19",
         "titre": "🔎 Tableau de bord : recherche dans les rapports, suivis, notes et tâches",
         "description": "Un champ de recherche sur le tableau de bord du portail trouve un mot ou une expression (sans majuscules ni accents) dans les rapports, suivis, notes et tâches que l'on a le droit de voir : type, date et heure, extrait, auteur ; un clic ouvre le document en lecture seule.",

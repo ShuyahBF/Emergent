@@ -3,6 +3,8 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer, Pencil, ReceiptText, Download, Unlock, Lock, AlertTriangle, ChevronDown, ChevronUp, CalendarClock, CheckCircle2, Banknote } from "lucide-react";
 import { toast } from "sonner";
+import { saisieMajuscules } from "@/lib/saisieMajuscules";
+import ChampClientRecherche from "@/components/ChampClientRecherche";
 
 import { RefreshCw as Ico15RefreshCw, X as Ico15X } from "lucide-react";
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
@@ -580,17 +582,9 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
           <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
             <Building2 className="h-3 w-3 text-sawali-blue" /> Client lié *
           </label>
-          <select
-            value={form.client_id}
-            onChange={(e) => setForm({ ...form, client_id: e.target.value, reporter_name: "", reporter_contact_id: null })}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            data-testid="intervention-field-client"
-          >
-            <option value="">— Sélectionnez un client —</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>{c.company || c.full_name}{c.client_code ? ` · ${c.client_code}` : ""}</option>
-            ))}
-          </select>
+          <ChampClientRecherche clients={clients} valeur={form.client_id} testId="intervention-field-client"
+            libelle={(c) => `${c.company || c.full_name || c.name || "(sans nom)"}${c.client_code ? ` · ${c.client_code}` : ""}`}
+            onChoisir={(id) => setForm({ ...form, client_id: id, reporter_name: "", reporter_contact_id: null })} />
         </div>
 
         <ReporterField
@@ -604,11 +598,11 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
 
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value.toUpperCase() })} placeholder="MISE À JOUR DU LOGICIEL COMPTABLE" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-title" />
+          <input value={form.title} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, title: v }))} placeholder="MISE À JOUR DU LOGICIEL COMPTABLE" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-title" />
         </div>
         <div>
           <label className="block text-xs font-semibold mb-1">Description</label>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value.toUpperCase() })} rows={3} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-description" />
+          <textarea value={form.description} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, description: v }))} rows={3} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-description" />
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -623,7 +617,7 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
           </div>
           <div>
             <label className="block text-xs font-semibold mb-1">Technicien</label>
-            <input value={form.technician} onChange={(e) => setForm({ ...form, technician: e.target.value.toUpperCase() })} placeholder="NOM DU TECHNICIEN" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-technician" />
+            <input value={form.technician} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, technician: v }))} placeholder="NOM DU TECHNICIEN" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-technician" />
           </div>
           <DurationField value={form.duration_hours} onChange={(v) => setForm((f) => ({ ...f, duration_hours: v }))}
                          debut={form.date_heure_debut} fin={form.date_heure_fin}
@@ -873,7 +867,7 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
       <div className="relative">
         <input
           value={query}
-          onChange={(e) => typeInput(e.target.value)}
+          onChange={(e) => saisieMajuscules(e, typeInput)}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           disabled={!companyLabel}
@@ -1078,15 +1072,9 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
           <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
             <Building2 className="h-3 w-3 text-sawali-blue" /> Client lié *
           </label>
-          <select value={form.client_id}
-                  onChange={(e) => setForm({ ...form, client_id: e.target.value, reporter_name: "", reporter_contact_id: null })}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  data-testid="intervention-edit-field-client">
-            <option value="">— Sélectionnez un client —</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>{c.company || c.full_name}{c.client_code ? ` · ${c.client_code}` : ""}</option>
-            ))}
-          </select>
+          <ChampClientRecherche clients={clients} valeur={form.client_id} testId="intervention-edit-field-client"
+            libelle={(c) => `${c.company || c.full_name || c.name || "(sans nom)"}${c.client_code ? ` · ${c.client_code}` : ""}`}
+            onChoisir={(id) => setForm({ ...form, client_id: id, reporter_name: "", reporter_contact_id: null })} />
           <p className="text-[10px] text-slate-500 mt-1">Le tenant détermine le taux horaire appliqué lors de la facturation.</p>
         </div>
 
@@ -1102,7 +1090,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>
           <input value={form.title}
-                 onChange={(e) => setForm({ ...form, title: e.target.value.toUpperCase() })}
+                 onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, title: v }))}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                  data-testid="intervention-edit-field-title" />
         </div>
@@ -1110,7 +1098,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
         <div>
           <label className="block text-xs font-semibold mb-1">Description</label>
           <textarea value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value.toUpperCase() })}
+                    onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, description: v }))}
                     rows={3}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     data-testid="intervention-edit-field-description" />
@@ -1136,7 +1124,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
           <div>
             <label className="block text-xs font-semibold mb-1">Technicien</label>
             <input value={form.technician}
-                   onChange={(e) => setForm({ ...form, technician: e.target.value.toUpperCase() })}
+                   onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, technician: v }))}
                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                    data-testid="intervention-edit-field-technician" />
           </div>

@@ -8,6 +8,7 @@
 // Le code pays par défaut (ISO-2) est utilisé pour rattacher les nouveaux
 // AMM créés (POST/import CSV) à un pays. Chaque pays a sa propre autorité
 // pharmaceutique → chaque AMM est lié à un pays.
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -145,7 +146,7 @@ export default function IncidentsAndCountrySection() {
         <div className="flex flex-wrap items-end gap-2">
           <label className="block text-xs">
             <span className="block text-slate-600 mb-1">Code pays (2 lettres)</span>
-            <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
+            <input value={country} onChange={(e) => saisieMajuscules(e, (v) => setCountry(v.slice(0, 2)))}
                    placeholder="BF" maxLength={2}
                    className="w-24 text-center text-lg font-mono px-3 py-2 rounded ring-1 ring-slate-300"
                    data-testid="amm-default-country-input" />

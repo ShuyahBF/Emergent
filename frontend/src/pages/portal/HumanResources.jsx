@@ -8,6 +8,7 @@
  *
  * Accès : admin / superviseur / tracked_role == "Comptable".
  */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -203,7 +204,7 @@ function EmployeeForm({ employee, eligibleUsers, onSave, onCancel }) {
               <label className="text-xs font-medium text-slate-600 mb-1 block">Devise</label>
               <input
                 value={form.currency}
-                onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+                onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, currency: v }))}
                 data-testid="hr-employee-currency"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 maxLength={8}

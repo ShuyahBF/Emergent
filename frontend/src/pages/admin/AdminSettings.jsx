@@ -1,3 +1,4 @@
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import WaLignesPanel from "../../components/WaLignesPanel";   // Lot 59
 import { apiClient } from "@/lib/api";
@@ -158,7 +159,7 @@ const NEW_LOTS = {
   "🧠 Avis Claude sur les demandes": "91",   // lot 91 : Liluvine transmet les demandes de fonctionnalités à Claude, le propriétaire décide
   "🛟 Support des plateformes web": "99",   // lot 90 : pictogramme d'assistance ; lot 93 : emojis, photo, trombone, note vocale ; lot 99 : réponse automatique de Liluvine
   "🔗 Clients — client lié canonique": "451.2",   // lot 451.2 : plus de « Client canonique introuvable » quand le lien n'a pas changé
-  "🎫 Tickets d'intervention — motif": "451.1",   // lot 451.1 : recherche du client lié et curseur qui ne saute plus (lot 144 : motif modifiable depuis la fiche)
+  "🎫 Tickets d'intervention — motif": "451.3",   // lot 451.1 : recherche du client lié et curseur qui ne saute plus (lot 144 : motif modifiable depuis la fiche)
   "🟥 Pseudo contrat VALIDE": "159",   // lot 159 : case « Pseudo contrat VALIDE » (5 jours) sur la fiche client
   "👥 Contacts des plateformes": "161",   // lot 161 : SAWALI récupère les contacts des plateformes dans un groupe « Plateforme X »
   "💳 Services à renouveler — coûts": "170",   // lot 170 : montant par service, formule, plateforme et cluster ; rappels d'échéance
@@ -235,7 +236,7 @@ const NEW_SECTIONS = {
   "🧠 Avis Claude sur les demandes": "2026-10-09",   // lot 91
   "🛟 Support des plateformes web": "2026-10-10",   // lot 90, lot 93, lot 99
   "🔗 Clients — client lié canonique": "2026-11-23",   // lot 451.2
-  "🎫 Tickets d'intervention — motif": "2026-11-23",   // lot 451.1
+  "🎫 Tickets d'intervention — motif": "2026-11-23",   // lot 451.3
   "🟥 Pseudo contrat VALIDE": "2026-10-14",   // lot 159
   "👥 Contacts des plateformes": "2026-10-14",   // lot 161
   "💳 Services à renouveler — coûts": "2026-10-15",   // lot 170
@@ -1708,7 +1709,7 @@ export default function AdminSettings() {
           <p>Sur la fiche d'un ticket <b>ouvert</b>, le bouton <b>✏️ Modifier</b> à côté du « Motif complet » permet de corriger le texte (200 caractères au plus).
             Le motif d'origine est conservé ; la fiche indique « Motif modifié par … le … ». Un ticket clôturé ou dans la corbeille ne se modifie plus.</p>
           <p>Dans <b>Nouvelle intervention</b>, <b>Modifier intervention</b> et la bulle <b>Nouveau ticket d'intervention</b> (lot 451.1) : le champ <b>Client lié</b> se recherche sur <b>tout ou partie</b> du code, du nom ou de la société (sans tenir compte des majuscules ni des accents),
-            et le curseur reste à sa place quand on corrige le titre, la description, le technicien, le rapporteur, le motif ou le complément d'information (ils restent saisis en majuscules).</p>
+            et le curseur reste à sa place quand on corrige le titre, la description, le technicien, le rapporteur, le motif ou le complément d'information (ils restent saisis en majuscules). Lot 451.3 : même correction pour TOUS les autres champs en majuscules de la plateforme (devises, codes, pays, étiquettes, nom d'officine, initiales…).</p>
           <Link to="/portal/tickets" className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700">
             <Ticket className="h-3.5 w-3.5" /> Ouvrir les tickets
           </Link>
@@ -5112,7 +5113,7 @@ const CountryPrefixSection = () => {
         {editing && (
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3" data-testid="admin-country-add-form">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+              <input value={form.code} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, code: v }))}
                 placeholder="Code ISO (ex: GH)" maxLength={4}
                 data-testid="admin-country-add-code"
                 className="px-2 py-1.5 border border-slate-200 rounded text-sm" />

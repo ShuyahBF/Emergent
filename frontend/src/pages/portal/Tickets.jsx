@@ -1,3 +1,4 @@
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -929,7 +930,7 @@ function MotifTemplatesModal({ templates, onClose, onChange }) {
             <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-600">Nouveau modèle</p>
             <input
               value={label}
-              onChange={(e) => setLabel(e.target.value.toUpperCase())}
+              onChange={(e) => saisieMajuscules(e, (v) => setLabel(v))}
               placeholder="ÉTIQUETTE COURTE (60 CHARS MAX)"
               maxLength={60}
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -937,7 +938,7 @@ function MotifTemplatesModal({ templates, onClose, onChange }) {
             />
             <textarea
               value={motif}
-              onChange={(e) => setMotif(e.target.value.toUpperCase())}
+              onChange={(e) => saisieMajuscules(e, (v) => setMotif(v))}
               placeholder="TEXTE DU MOTIF INJECTÉ (200 CHARS MAX)"
               rows={2}
               maxLength={200}

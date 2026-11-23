@@ -9,6 +9,7 @@
 // Une ligne qui sert plusieurs plateformes est répartie à PARTS ÉGALES entre elles dans la vue « par plateforme ».
 // Les clés d'API (Atlas, Cloudflare) se saisissent sur Render, jamais ici.
 // =====================================================================
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -185,7 +186,7 @@ export default function ServicesRenouvelerSection() {
                 <input className={champ} placeholder="Service (ex. Render — ZandGo)" maxLength={120} value={s.nom} onChange={(e) => changer(i, "nom", e.target.value)} />
                 <input className={champ} placeholder="Formule (ex. Starter, Flex)" maxLength={80} value={s.formule} onChange={(e) => changer(i, "formule", e.target.value)} />
                 <div className="flex gap-1"><input className={`${champ} w-full`} placeholder="Montant" inputMode="decimal" value={s.montant} onChange={(e) => changer(i, "montant", e.target.value)} />
-                  <input className={`${champ} w-16`} placeholder="Devise" maxLength={6} value={s.devise} onChange={(e) => changer(i, "devise", e.target.value.toUpperCase())} /></div>
+                  <input className={`${champ} w-16`} placeholder="Devise" maxLength={6} value={s.devise} onChange={(e) => saisieMajuscules(e, (v) => changer(i, "devise", v))} /></div>
                 <select className={champ} value={s.periodicite} onChange={(e) => changer(i, "periodicite", e.target.value)} aria-label="Périodicité">{PERIODES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>
                 <input className={champ} type="date" value={s.prochaine_echeance || ""} onChange={(e) => changer(i, "prochaine_echeance", e.target.value)} aria-label="Prochaine échéance" />
                 <select className={champ} value={s.source} onChange={(e) => changer(i, "source", e.target.value)} aria-label="Origine du montant">{SOURCES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>

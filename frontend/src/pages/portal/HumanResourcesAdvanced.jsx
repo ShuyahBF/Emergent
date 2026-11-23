@@ -2,6 +2,7 @@
  * Iter38b — GRH advanced tabs: Absences, Taxes, Avances, Paie, Réglages,
  * + mini-graph "Présence cette semaine" sticked on top of Personnel tab.
  */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -458,7 +459,7 @@ export function AdvancesTab({ employees }) {
           <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value || 0) })}
             data-testid="hr-advances-form-amount" placeholder="Montant"
             className="px-2 py-1.5 border border-slate-200 rounded text-sm" />
-          <input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+          <input value={form.currency} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, currency: v }))}
             data-testid="hr-advances-form-currency" placeholder="XOF"
             className="px-2 py-1.5 border border-slate-200 rounded text-sm" />
           <input value={form.motive} onChange={(e) => setForm({ ...form, motive: e.target.value })}

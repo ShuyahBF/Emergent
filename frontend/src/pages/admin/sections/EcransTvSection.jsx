@@ -2,6 +2,7 @@
  * Lot 289 — Paramètres → « 📺 Écrans TV » : appairer une Smart TV (code affiché par la télé), choisir le client et les
  * contenus, voir quand chaque écran a été vu pour la dernière fois, le modifier ou le révoquer.
  */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import PasswordInput from "@/components/PasswordInput";
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient, API } from "@/lib/api";
@@ -232,7 +233,7 @@ export default function EcransTvSection() {
         <p className="text-sm font-medium text-slate-700">Appairer un nouvel écran</p>
         <div className="grid sm:grid-cols-3 gap-2">
           <label className="text-xs text-slate-600">Code affiché par la télé
-            <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={8} placeholder="K7MQ4X"
+            <input value={code} onChange={(e) => saisieMajuscules(e, (v) => setCode(v))} maxLength={8} placeholder="K7MQ4X"
                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono tracking-widest" data-testid="tv-code-saisi" />
           </label>
           <label className="text-xs text-slate-600">Nom de l'écran
@@ -416,7 +417,7 @@ export default function EcransTvSection() {
           leurs noms et téléphones en clair ne se voient que dans SAWALI (menu Planning), sur votre téléphone ou votre PC, connecté en administrateur. Aucun mot de passe n'est saisi sur la télé.
         </p>
         <div className="flex flex-wrap items-center gap-2 boutons-distincts">
-          <input value={codeApprobation} onChange={(e) => setCodeApprobation(e.target.value.toUpperCase())} maxLength={8} placeholder="Code de la télé"
+          <input value={codeApprobation} onChange={(e) => saisieMajuscules(e, (v) => setCodeApprobation(v))} maxLength={8} placeholder="Code de la télé"
                  className="w-40 px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-mono tracking-widest" data-testid="tv-approuver-code" />
           <button type="button" onClick={approuverTele} disabled={approbation || !codeApprobation} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm disabled:opacity-50" data-testid="tv-approuver-bouton">
             {approbation ? "Approbation…" : "Approuver la télé"}

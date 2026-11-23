@@ -3,6 +3,7 @@
 // Toggle global + visibilité (public/portail) + ville par défaut.
 // Données via Open-Meteo (gratuit, sans clé API).
 // =====================================================================
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useCallback, useEffect, useState } from "react";
 import { Save, CloudSun, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -168,7 +169,7 @@ const WeatherWidgetSection = () => {
               type="text"
               maxLength={2}
               value={form.weather_widget_default_country}
-              onChange={(e) => setForm((f) => ({ ...f, weather_widget_default_country: e.target.value.toUpperCase() }))}
+              onChange={(e) => saisieMajuscules(e, (v) => setForm((f) => ({ ...f, weather_widget_default_country: v })))}
               placeholder="BF"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
               data-testid="weather-default-country"

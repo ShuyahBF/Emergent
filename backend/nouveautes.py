@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "451.3", "date": "2026-11-23",
+        "titre": "⌨️ Curseur qui ne saute plus dans tous les champs en majuscules",
+        "description": "Les 20 autres champs saisis en majuscules (devises, codes coupon et téléphone, pays, motifs et étiquettes de tickets, nom d'officine, initiales…) gardent le curseur en place quand on corrige au milieu du texte.",
+        "rubrique": "🎫 Tickets d'intervention — motif",
+    },
+    {
         "lot": "451.2", "date": "2026-11-23",
         "titre": "🔗 Fiche client : plus de « Client canonique introuvable » à l'enregistrement",
         "description": "Un client lié accepté à la création n'est plus re-vérifié quand on enregistre la fiche sans changer le lien (le rôle du client canonique ne bloque plus) ; le client lié déjà enregistré reste visible dans la liste.",

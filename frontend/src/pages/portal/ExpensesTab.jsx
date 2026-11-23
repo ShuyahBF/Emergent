@@ -11,6 +11,7 @@
  * The justification deadline is admin-configurable in Admin Settings
  * (settings.expense_justification_deadline_hours, 0 = no limit).
  */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -94,7 +95,7 @@ function ExpenseForm({ onSave, onCancel }) {
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">Devise</label>
-              <input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })}
+              <input value={form.currency} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, currency: v }))}
                 data-testid="expense-form-currency"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
             </div>

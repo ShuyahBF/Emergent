@@ -8,6 +8,7 @@
 // La plateforme lit elle-même cet état (requête signée) pour afficher le bandeau orange ou rouge à son DG.
 // Lot 82 : bandeau seulement de J−5 (orange) à J+5 (rouge), plus rien ensuite ; cases « Services suspendus
 // automatiquement » (WA, e-mails, comptes rendus…) : bloqués chez la plateforme dès que le contrat est échu.
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
@@ -132,7 +133,7 @@ function FormulaireContrat({ contrat, clients, onEnregistre, onAnnuler }) {
         <label className="text-xs"><span className="font-semibold">Montant du contrat</span>
           <input type="number" min="0" value={f.montant} onChange={(e) => setF({ ...f, montant: e.target.value })} className={champ} placeholder="vide = total des lignes" /></label>
         <label className="text-xs"><span className="font-semibold">Devise</span>
-          <input value={f.devise} onChange={(e) => setF({ ...f, devise: e.target.value.toUpperCase() })} className={champ} /></label>
+          <input value={f.devise} onChange={(e) => saisieMajuscules(e, (v) => setF({ ...f, devise: v }))} className={champ} /></label>
         <label className="text-xs"><span className="font-semibold">Orange : jours avant</span>
           <input type="number" min="0" max="90" value={f.alerte_avant_jours} onChange={(e) => setF({ ...f, alerte_avant_jours: e.target.value })} className={champ} /></label>
         <label className="text-xs"><span className="font-semibold">Rouge : jours après</span>

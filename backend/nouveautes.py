@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "451.2", "date": "2026-11-23",
+        "titre": "🔗 Fiche client : plus de « Client canonique introuvable » à l'enregistrement",
+        "description": "Un client lié accepté à la création n'est plus re-vérifié quand on enregistre la fiche sans changer le lien (le rôle du client canonique ne bloque plus) ; le client lié déjà enregistré reste visible dans la liste.",
+        "rubrique": "🔗 Clients — client lié canonique",
+    },
+    {
         "lot": "451.1", "date": "2026-11-23",
         "titre": "🎫 Nouvelle intervention et nouveau ticket : recherche du client lié, curseur qui ne saute plus",
         "description": "Dans « Nouvelle intervention » (et « Modifier intervention », et le nouveau ticket), le « Client lié » se recherche sur tout ou partie du code, du nom ou de la société ; en corrigeant le titre, la description ou le motif, le curseur reste à sa place au lieu de revenir à la fin.",

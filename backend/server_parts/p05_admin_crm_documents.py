@@ -562,15 +562,16 @@ async def admin_update_client(
         if raw_link:
             if raw_link == client_id:
                 raise HTTPException(status_code=400, detail="Un compte ne peut pas être lié à lui-même")
-            canon = await db.users.find_one(
-                # Lot 25 — Les deux orthographes du rôle modérateur sont acceptées.
-                {"id": raw_link, "role": {"$in": ["admin", "superviseur", "moderateur", "moderator", "client"]}},
-                {"_id": 0, "id": 1},
-            )
-            if not canon:
-                raise HTTPException(status_code=404, detail="Client canonique introuvable")
-            update["parent_client_id"] = canon["id"]
-            update["client_id"] = canon["id"]
+            # Lot 451.2 — Un lien INCHANGÉ n'est pas re-vérifié (il avait été accepté à la création) ; un lien NOUVEAU doit viser un compte existant,
+            # quel que soit son rôle (comme à la création : sinon « Client canonique introuvable » à l'enregistrement d'une fiche récente).
+            from liens_clients import lien_a_valider
+            actuel = await db.users.find_one({"id": client_id}, {"_id": 0, "parent_client_id": 1})
+            if lien_a_valider(raw_link, (actuel or {}).get("parent_client_id")):
+                canon = await db.users.find_one({"id": raw_link}, {"_id": 0, "id": 1})
+                if not canon:
+                    raise HTTPException(status_code=404, detail="Client canonique introuvable : le compte choisi n'existe plus (supprimé ?). Choisissez un autre client lié.")
+                update["parent_client_id"] = canon["id"]
+                update["client_id"] = canon["id"]
         else:
             # Empty string → unlink (back to standalone tenant)
             update["parent_client_id"] = None

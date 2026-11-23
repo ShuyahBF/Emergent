@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "451"
-LOT_LIBELLE = "Tableau de bord : recherche plein texte dans les rapports, suivis, notes et tâches (lecture seule)."
+LOT = "451.1"
+LOT_LIBELLE = "Nouvelle intervention et nouveau ticket : recherche du client lié sur tout ou partie d'une valeur, curseur qui ne saute plus en majuscules."

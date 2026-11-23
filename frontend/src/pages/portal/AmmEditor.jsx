@@ -1,6 +1,7 @@
 // Iter41 Phase 2 (2026-02) — AMM Editor pour les utilisateurs avec rôle régulateur
 // (ou admin / superviseur). Permet de saisir et tenir à jour les numéros d'AMM
 // (Autorisation de Mise sur le Marché) qui complètent les fiches VIDAL.
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -97,7 +98,7 @@ function AmmEditor({ initial, onClose, onSaved }) {
           </label>
           <label className="block text-xs">
             <span className="block text-slate-600 mb-1">Code pays (ISO-2)</span>
-            <input value={form.country_code || ""} onChange={(e) => upd("country_code", e.target.value.toUpperCase().slice(0, 2))}
+            <input value={form.country_code || ""} onChange={(e) => saisieMajuscules(e, (v) => upd("country_code", v.slice(0, 2)))}
                    placeholder="ex: BF, CI, FR, SN" maxLength={2}
                    className="w-full text-sm px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono" data-testid="amm-form-country" />
             <p className="text-[10px] text-slate-400 mt-0.5">Pays de l&apos;autorité ayant délivré l&apos;AMM. Pré-rempli depuis Admin Settings.</p>

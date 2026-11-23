@@ -5,6 +5,7 @@
  *      → grouped by category, with "Demander un devis" CTA
  *   2. Brochures & fiches (from db.catalog, the original admin-managed PDFs)
  */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -332,7 +333,7 @@ function BuyModal({ product, onClose }) {
           <div className="flex gap-2">
             <label className="flex-1 block text-xs text-slate-300">
               Code promo
-              <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} placeholder="SOLDES2026" className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase" data-testid="buy-modal-coupon" />
+              <input type="text" value={couponCode} onChange={(e) => saisieMajuscules(e, (v) => setCouponCode(v))} placeholder="SOLDES2026" className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase" data-testid="buy-modal-coupon" />
             </label>
             <button type="button" onClick={validateCoupon} className="self-end h-[34px] px-3 rounded-lg bg-sawali-blue-light/20 ring-1 ring-sawali-blue-light/30 text-sawali-blue-light text-xs hover:bg-sawali-blue-light/30" data-testid="buy-modal-coupon-validate">
               <Tag className="h-3 w-3 inline mr-1" /> Vérifier

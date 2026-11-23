@@ -1,3 +1,4 @@
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import PasswordInput from "@/components/PasswordInput";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -1306,7 +1307,7 @@ const WaConsumptionModal = ({ client, onClose, onCostUpdated }) => {
                     <label className="block text-[11px] uppercase tracking-wider text-emerald-700 mb-1">Devise</label>
                     <input
                       value={currency}
-                      onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                      onChange={(e) => saisieMajuscules(e, (v) => setCurrency(v))}
                       className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm uppercase"
                       data-testid="wa-currency-input"
                     />

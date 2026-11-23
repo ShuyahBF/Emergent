@@ -9,6 +9,7 @@
 // en scannant le QR imprimé sur l'ordonnance A5. Le patient y est ANONYMISÉ
 // (jamais son nom ni son numéro). Le nom et la ville de l'officine sont mémorisés
 // sur l'appareil (lib/memoirePharmacie.js) pour ne pas les ressaisir.
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Pill, ShieldAlert, ShieldCheck } from "lucide-react";
@@ -155,7 +156,7 @@ export default function OfficineOrdonnance() {
                   </div>
                 )}
                 <label className="block text-xs font-semibold text-black mb-1">* Nom de l'officine</label>
-                <input value={nomOfficine} onChange={(e) => setNomOfficine(e.target.value.toUpperCase())}
+                <input value={nomOfficine} onChange={(e) => saisieMajuscules(e, (v) => setNomOfficine(v))}
                   className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm font-semibold text-[#1e3a8a] uppercase mb-2" />
                 <label className="block text-xs font-semibold text-black mb-1">Ville</label>
                 <input value={ville} onChange={(e) => setVille(e.target.value)}

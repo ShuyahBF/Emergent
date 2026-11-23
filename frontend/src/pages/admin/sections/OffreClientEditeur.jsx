@@ -13,6 +13,7 @@
 //     tant qu'on ne clique pas sur « Enregistrer ») ;
 //   - « Copier cette liste vers d'autres clients » : applique tout de suite (confirmation demandée) la liste ENREGISTRÉE.
 // =====================================================================
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -144,7 +145,7 @@ export default function OffreClientEditeur({ clientId }) {
               <label className="flex items-center gap-1 font-semibold" title="Montant de cette souscription pour ce client">Montant
                 <input type="number" min={0} step="any" className="w-28 rounded border border-slate-300 px-2 py-1 text-right" value={l.montant || ""} placeholder="0"
                   onChange={(e) => changer(i, "montant", Math.max(0, Number(e.target.value) || 0))} data-testid={`offre-montant-${i}`} />
-                <input className="w-16 rounded border border-slate-300 px-2 py-1 uppercase" maxLength={6} value={l.devise || "FCFA"} onChange={(e) => changer(i, "devise", e.target.value.toUpperCase())} aria-label="Devise" />
+                <input className="w-16 rounded border border-slate-300 px-2 py-1 uppercase" maxLength={6} value={l.devise || "FCFA"} onChange={(e) => saisieMajuscules(e, (v) => changer(i, "devise", v))} aria-label="Devise" />
               </label>
               <label className="flex items-center gap-1">Début de période
                 <input type="date" className="rounded border border-slate-300 px-2 py-1" value={l.date_debut || ""} onChange={(e) => changer(i, "date_debut", e.target.value)} />

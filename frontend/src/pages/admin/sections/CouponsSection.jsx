@@ -2,6 +2,7 @@
 // Iter38r-fix9o (P1) — Coupons CRUD admin section.
 // Manages Stripe checkout discount coupons used by the public catalogue.
 // =====================================================================
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useCallback, useEffect, useState } from "react";
 import { Tag, Plus, Trash2, Check, X, Calendar, Percent, Banknote, RotateCw } from "lucide-react";
 import { toast } from "sonner";
@@ -116,7 +117,7 @@ const CouponsSection = () => {
           <input
             type="text"
             value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+            onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, code: v }))}
             placeholder="ETE2026"
             className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-2 py-1.5 font-mono uppercase"
             required

@@ -294,3 +294,6 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Cause : la CRÉATION d'un client accepte n'importe quel compte comme client canonique (suggestion « cette société existe déjà »), mais la MISE À JOUR re-vérifiait le lien à chaque enregistrement avec une liste de rôles plus étroite : si le client canonique avait un autre rôle, la fiche ne s'enregistrait plus, même sans toucher au lien.
 - Règle (`backend/liens_clients.py`, `lien_a_valider`, tests `tests/test_liens_clients.py`) : un lien INCHANGÉ n'est jamais re-vérifié ; un lien CHANGÉ doit viser un compte existant (tout rôle, comme à la création) ; le client lié déjà enregistré reste toujours dans la liste déroulante de la fiche (`AdminClients.jsx`).
   Le message ne reste que pour un compte réellement supprimé, et le dit clairement.
+
+- Lot 451.3 (23/11/2026) : les 20 autres champs en majuscules de l'application (devises, codes coupon, codes téléphone TV, pays, motifs et étiquettes de tickets, nom d'officine, initiales de suivi de RDV…) utilisent aussi `saisieMajuscules` : plus aucun `e.target.value.toUpperCase()` dans un `onChange`.
+  Tout NOUVEAU champ saisi en majuscules utilise `saisieMajuscules` dès sa création.

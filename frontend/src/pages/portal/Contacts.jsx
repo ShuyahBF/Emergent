@@ -1,3 +1,4 @@
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import PastilleLigneWa from "../../components/PastilleLigneWa";   // Lot 59.1
 import PuceContrat from "../../components/PuceContrat";             // Lot 120 : puce carrée de l'état du contrat
@@ -2956,7 +2957,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   </label>
                   <textarea
                     value={ticketMotif}
-                    onChange={(e) => setTicketMotif(e.target.value.toUpperCase())}
+                    onChange={(e) => saisieMajuscules(e, (v) => setTicketMotif(v))}
                     rows={3}
                     maxLength={200}
                     placeholder="BRÈVE DESCRIPTION DE L'INTERVENTION DEMANDÉE (MAX 200 CARACTÈRES)"

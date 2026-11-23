@@ -7,6 +7,7 @@
   (/tv-ecran.html?admin=1 : planning par médecin avec photo, Suivi Support), en clair et sans limite de durée. Son téléphone joue le rôle
   d'une télé de contrôle. « /suivi-rdv?patient=1 » force la page patient (pour la tester).
 */
+import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne saute plus en majuscules (lot 451.3)
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Stethoscope } from "lucide-react";
 import { apiClient, jetonCourant } from "@/lib/api";
@@ -110,7 +111,7 @@ export default function SuiviRdv() {
             </label>
             <label className="block text-sm font-medium text-slate-700">2 lettres de vos initiales
               <span className="block text-xs font-normal text-slate-500">1re lettre du nom + 1re lettre du prénom (ex. OUEDRAOGO Alphonse → OA)</span>
-              <input required maxLength={2} value={ini} onChange={(e) => setIni(e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase())} placeholder="OA" autoCapitalize="characters"
+              <input required maxLength={2} value={ini} onChange={(e) => saisieMajuscules(e, (v) => setIni(v.replace(/[^A-Z]/g, "")))} placeholder="OA" autoCapitalize="characters"
                      className="mt-1 w-24 rounded-lg border border-slate-300 px-3 py-2.5 text-center text-lg tracking-widest" data-testid="suivi-ini" />
             </label>
             <button type="submit" disabled={envoi} className="w-full rounded-lg bg-sky-600 py-2.5 text-white font-medium disabled:opacity-60" data-testid="suivi-valider">

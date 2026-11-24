@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import consignes_liluvine as cl
+import consignes_masse as cm
 from routes.liluvine_partage import est_admin, verifier_element
 
 
@@ -29,6 +30,17 @@ class ValidationConsigne(BaseModel):
     fin: str = ""
     creneau_debut: str = ""                    # blocage : heure du jour de début (« 12:00 »)
     creneau_fin: str = ""
+
+
+class ApercuMasse(BaseModel):
+    message: str = Field(min_length=5, max_length=1000)
+    rdv_du: str = ""                           # AAAA-MM-JJ
+    rdv_au: str = ""
+
+
+class ConfirmationMasse(BaseModel):
+    apercu_id: str = Field(min_length=4, max_length=40)
+    empreinte: str = Field(min_length=8, max_length=64)       # celle de l'aperçu que la personne a VU
 
 
 class ListeAcces(BaseModel):
@@ -81,6 +93,41 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
         if not await cl.arreter(db, identifiant, _par(user)):
             raise HTTPException(status_code=404, detail="Consigne introuvable ou déjà arrêtée")
         return {"ok": True}
+
+    # ---- Lot 456 : envois en masse — APERÇU (rien ne part) puis CONFIRMATION (liée à l'aperçu vu) puis envoi en arrière-plan
+    @api.post("/admin/liluvine-consignes/masse/apercu", tags=["Liluvine — consignes"])
+    async def masse_apercu(payload: ApercuMasse, user: dict = Depends(get_current_user)):
+        await _autoriser(user)
+        try:
+            ap = await cm.apercu(db, payload.message, payload.rdv_du, payload.rdv_au, _par(user))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"id": ap["id"], "empreinte": ap["empreinte"], "message": ap["message"], "du": ap["du"], "au": ap["au"], "total": len(ap["destinataires"]),
+                "exclus": ap["exclus"], "expire_le": ap["expire_le"],
+                "destinataires": [{"nom": d["nom"], "telephone": cm.masquer(d["telephone"]), "quand": d["quand"]} for d in ap["destinataires"]]}
+
+    @api.post("/admin/liluvine-consignes/masse/confirmer", tags=["Liluvine — consignes"])
+    async def masse_confirmer(payload: ConfirmationMasse, user: dict = Depends(get_current_user)):
+        await _autoriser(user)
+
+        async def envoyeur(tel: str, texte: str) -> dict:
+            import server as srv
+            return await srv._wa_send_text(f"+{tel}", texte)
+
+        async def fenetre(tel: str) -> bool:
+            from routes.offre_client_rappels import fenetre_ouverte      # même règle de la fenêtre de 24 h que les rappels
+            return await fenetre_ouverte(tel)
+
+        try:
+            lot = await cm.confirmer(db, payload.apercu_id, payload.empreinte, _par(user), envoyeur, fenetre)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, "lot": lot}
+
+    @api.get("/admin/liluvine-consignes/masse/envois", tags=["Liluvine — consignes"])
+    async def masse_envois(user: dict = Depends(get_current_user)):
+        await _autoriser(user)
+        return {"envois": await cm.lots(db)}
 
     @api.get("/admin/liluvine-consignes-acces", tags=["Liluvine — consignes"])
     async def acces(user: dict = Depends(get_current_user)):

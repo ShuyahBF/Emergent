@@ -7,7 +7,7 @@
 // Backend : GET/POST /api/admin/liluvine-consignes, POST …/interpreter, POST …/{id}/arreter.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, RefreshCw, Sparkles, StopCircle, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, RefreshCw, Sparkles, StopCircle, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -32,6 +32,7 @@ function etatDe(c) {
 export default function LiluvineConsignes() {
   const [donnees, setDonnees] = useState(null);          // null = chargement
   const [texte, setTexte] = useState("");
+  const [apercu, setApercu] = useState(null);              // lot 456 : aperçu d'un envoi en masse (qui, combien, quel texte), en attente de confirmation
   const [proposition, setProposition] = useState(null);  // ce que SAWALI a compris, en attente de validation
   const [enCours, setEnCours] = useState(false);
   const [tri, setTri] = useState({ cle: "debut", sens: -1 });
@@ -50,6 +51,23 @@ export default function LiluvineConsignes() {
       setProposition(r.data);
       toast.success(r.data.ia ? "Voici ce que Liluvine a compris." : "Proposition prête (sans IA : votre phrase est reprise telle quelle).");
     } catch (e) { toast.error(e?.response?.data?.detail || "Compréhension impossible"); }
+    finally { setEnCours(false); }
+  };
+  // Lot 456 — envoi en masse : 1) APERÇU (rien ne part)  2) CONFIRMATION de l'aperçu vu  3) envoi en arrière-plan
+  const preparerEnvoi = async () => {
+    setEnCours(true); toast("Préparation de l'aperçu en cours…");
+    try {
+      const r = await apiClient.post("/admin/liluvine-consignes/masse/apercu", { message: proposition.message || proposition.instruction, rdv_du: proposition.rdv_du, rdv_au: proposition.rdv_au });
+      setApercu(r.data); toast.success(`Aperçu prêt : ${r.data.total} destinataire(s). Rien n'est encore envoyé.`);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Aperçu impossible"); }
+    finally { setEnCours(false); }
+  };
+  const confirmerEnvoi = async () => {
+    setEnCours(true); toast("Lancement de l'envoi en cours…");
+    try {
+      const r = await apiClient.post("/admin/liluvine-consignes/masse/confirmer", { apercu_id: apercu.id, empreinte: apercu.empreinte });
+      toast.success(`Envoi lancé pour ${r.data.lot.total} destinataire(s) : il se poursuit en arrière-plan.`); setApercu(null); setProposition(null); setTexte("");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Envoi impossible"); }
     finally { setEnCours(false); }
   };
   const valider = async () => {
@@ -82,7 +100,7 @@ export default function LiluvineConsignes() {
 
   if (!donnees) return <p className="p-4 text-sm text-slate-500">Chargement…</p>;
   if (donnees.erreur) return <p className="p-4 text-sm text-red-700">{donnees.erreur}</p>;
-  const nonAppliquee = proposition && !proposition.appliquee;
+  const nonAppliquee = proposition && !proposition.appliquee && !proposition.envoi_masse;
   return (
     <div className="space-y-4 p-4" data-testid="liluvine-consignes">
       <div>
@@ -145,10 +163,38 @@ export default function LiluvineConsignes() {
                 <label className="text-sm font-semibold">à<input type="time" value={proposition.creneau_fin || ""} onChange={(e) => setProposition({ ...proposition, creneau_fin: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
               </div>
             )}
+            {proposition.envoi_masse && (
+              <div className="space-y-2 rounded-lg bg-sky-50 p-2" data-testid="consigne-masse">
+                <p className="text-sm text-sky-900">📣 Envoi à un groupe : rien ne part avant que vous ayez vu la liste des destinataires et confirmé.</p>
+                <label className="block text-sm font-semibold">Message à envoyer
+                  <textarea value={proposition.message || ""} onChange={(e) => setProposition({ ...proposition, message: e.target.value })} rows={3} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-sm font-semibold">RDV du<input type="date" value={proposition.rdv_du || ""} onChange={(e) => setProposition({ ...proposition, rdv_du: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+                  <label className="text-sm font-semibold">au<input type="date" value={proposition.rdv_au || ""} onChange={(e) => setProposition({ ...proposition, rdv_au: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+                </div>
+                <button type="button" onClick={preparerEnvoi} disabled={enCours} data-testid="consigne-apercu-masse"
+                  className="inline-flex items-center gap-1 rounded-full bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Users className="w-4 h-4" /> Voir les destinataires</button>
+              </div>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => setProposition(null)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-4 py-2 text-sm"><X className="w-4 h-4" /> Annuler</button>
-              <button type="button" onClick={valider} disabled={enCours || nonAppliquee || !proposition.instruction.trim()} data-testid="consigne-valider"
+              <button type="button" onClick={valider} disabled={enCours || nonAppliquee || proposition.envoi_masse || !proposition.instruction.trim()} data-testid="consigne-valider"
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check className="w-4 h-4" /> Valider et activer</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {apercu && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3" role="dialog" aria-modal="true">
+          <div className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3" data-testid="masse-apercu">
+            <h2 className="text-lg font-bold">📣 Confirmer l'envoi à {apercu.total} personne(s)</h2>
+            <p className="rounded-lg bg-slate-50 p-2 text-sm whitespace-pre-wrap">{apercu.message}</p>
+            <p className="text-xs text-slate-600">Rendez-vous du {apercu.du} au {apercu.au}. Exclus : {apercu.exclus.sans_numero} sans numéro, {apercu.exclus.bloques} bloqués (liste noire), {apercu.exclus.annules} annulés, {apercu.exclus.doublons} doublon(s). WhatsApp n'accepte le texte libre que si la personne a écrit depuis moins de 24 h : les autres seront listées « non envoyé ».</p>
+            <table className="w-full text-sm"><thead><tr className="text-left text-xs text-slate-500"><th>Nom</th><th>Numéro</th><th>RDV</th></tr></thead>
+              <tbody>{apercu.destinataires.map((d, i) => <tr key={i} className="border-t"><td>{d.nom}</td><td className="tabular-nums">{d.telephone}</td><td className="tabular-nums">{d.quand}</td></tr>)}</tbody></table>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => setApercu(null)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold"><X className="w-4 h-4" /> Annuler</button>
+              <button type="button" onClick={confirmerEnvoi} disabled={enCours} data-testid="masse-confirmer" className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check className="w-4 h-4" /> Confirmer et envoyer</button>
             </div>
           </div>
         </div>

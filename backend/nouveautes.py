@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "456", "date": "2026-11-24",
+        "titre": "📣 Consignes : envoi d'un message à tout un groupe, toujours confirmé",
+        "description": "Une consigne du type « informe tous les RDV de demain d'un décalage d'1 h » montre d'abord la liste des destinataires (nombre, noms, numéros masqués, texte) ; rien ne part avant votre confirmation. Les contacts bloqués sont exclus.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "455", "date": "2026-11-24",
         "titre": "⏳ Consignes : blocage de créneaux d'intervention",
         "description": "Une consigne du type « jusqu'à lundi, aucune intervention entre 12h et 13h » est maintenant appliquée : le serveur refuse toute demande d'intervention dans le créneau (site et WhatsApp) avec un message clair.",

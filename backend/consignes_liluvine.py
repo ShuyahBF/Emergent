@@ -97,6 +97,10 @@ def valider_proposition(brut: Any, texte: str, instant: Optional[datetime] = Non
     if nature == "blocage":                                                         # créneau de la journée où les demandes ne sont pas acceptées
         cd, cf = lire_heure(b.get("creneau_debut")), lire_heure(b.get("creneau_fin"))
         sortie["creneau_debut"], sortie["creneau_fin"] = (cd, cf) if cd and cf and cd < cf else ("", "")
+    if nature == "masse":                                                           # envoi en masse : jamais « activé », seulement APERÇU puis confirmation (consignes_masse.py)
+        sortie["rdv_du"] = str(b.get("rdv_du") or "")[:10]
+        sortie["rdv_au"] = str(b.get("rdv_au") or b.get("rdv_du") or "")[:10]
+        sortie["message"] = re.sub(r"\s+", " ", str(b.get("message") or "")).strip()[:1000]
     return sortie
 
 
@@ -228,7 +232,8 @@ async def pour_prompt(db, scope_uid: str = "") -> str:
 CONSIGNE_SYSTEME = (
     "Tu aides un responsable à donner des consignes à son assistante IA Liluvine. Tu REÇOIS une phrase et tu la TRANSCRIS en JSON, sans rien inventer. "
     "Réponds UNIQUEMENT par un objet JSON : {\"nature\": \"reponse\"|\"blocage\"|\"masse\", \"resume\": \"une phrase\", \"instruction\": \"consigne écrite à l'impératif pour Liluvine\", "
-    "\"debut\": \"AAAA-MM-JJTHH:MM\", \"fin\": \"AAAA-MM-JJTHH:MM\", \"creneau_debut\": \"HH:MM\", \"creneau_fin\": \"HH:MM\"}. "
+    "\"debut\": \"AAAA-MM-JJTHH:MM\", \"fin\": \"AAAA-MM-JJTHH:MM\", \"creneau_debut\": \"HH:MM\", \"creneau_fin\": \"HH:MM\", \"rdv_du\": \"AAAA-MM-JJ\", \"rdv_au\": \"AAAA-MM-JJ\", \"message\": \"texte à envoyer\"}. "
+    "Pour nature = masse : rdv_du / rdv_au = les jours des rendez-vous concernés (« demain » = la date de demain), message = le texte EXACT à envoyer aux clients (poli, court, en français, sans inventer d'heure absente de la phrase) ; sinon laisse-les vides. "
     "Pour nature = blocage, creneau_debut / creneau_fin = l'heure de la journée où les demandes ne sont pas acceptées (ex. « entre 12h et 13h » = 12:00 et 13:00) ; sinon laisse-les vides. "
     "nature = reponse (ce que Liluvine dit pendant la période), blocage (créneaux où l'on n'accepte pas de demande) ou masse (envoyer un message à un groupe). "
     "Les heures sont en UTC (= heure du Burkina Faso). « Ce matin » = de maintenant à 12:00 ; « jusqu'à lundi » = jusqu'à lundi 23:59 ; sans période : jusqu'à la fin de la journée. "
@@ -255,7 +260,7 @@ async def interpreter(texte: str, instant: Optional[datetime] = None) -> Dict[st
     except Exception:  # noqa: BLE001
         brut, ia = None, False
     p = valider_proposition(brut, texte, instant)
-    return {**p, "ia": ia, "appliquee": p["nature"] in NATURES_APPLIQUEES}
+    return {**p, "ia": ia, "appliquee": p["nature"] in NATURES_APPLIQUEES, "envoi_masse": p["nature"] == "masse"}
 
 
 # ---------------------------------------------------------------- accès par numéro WhatsApp (réglé par l'administrateur)

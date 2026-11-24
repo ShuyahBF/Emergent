@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";   // lot 73 : flèche du groupe « Liluvine » dépliable
 import { Radar, Server, Cpu } from "lucide-react";   // lot 80 : menu « Équipements »
-import { MessageSquareWarning } from "lucide-react";   // lot 86 : requêtes des clients
+import { MessageSquareWarning, MessageSquareText } from "lucide-react";   // lot 86 : requêtes des clients ; lot 454 : consignes à Liluvine
 import { LifeBuoy, MapPin as IconeLieu } from "lucide-react";   // lot 92 : synthèse du support ; lot 388 : lieux (balises)
 import { MonitorSmartphone } from "lucide-react";   // lot 135.1 : Plateformes → Contrôle à distance
 import { useAuth } from "@/contexts/AuthContext";
@@ -70,6 +70,8 @@ const clientLinks = [
   { to: "/portal/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, adminOrSup: true, groupe: "liluvine", partage: "agenda" },
   // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
   { to: "/portal/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, adminOrSup: true, groupe: "liluvine", partage: "bloques" },
+  // Lot 454 — consignes à Liluvine (« ce matin, pour tout appel au sujet de RDV… ») : sous-menu Liluvine, superviseur compris
+  { to: "/portal/liluvine-consignes", label: "Consignes", icon: MessageSquareText, adminOrSup: true, groupe: "liluvine", partage: "consignes" },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
   // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
   { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
@@ -165,6 +167,7 @@ const adminLinks = [
   { to: "/admin/liluvine-agenda", label: "Agenda d'appels", icon: PhoneCall, groupe: "liluvine", partage: "agenda" },
   // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
   { to: "/admin/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, groupe: "liluvine", partage: "bloques" },
+  { to: "/admin/liluvine-consignes", label: "Consignes", icon: MessageSquareText, groupe: "liluvine", partage: "consignes" },   // lot 454
   // Lot 73 — Liluvine PRO (assistant) accessible aussi depuis le menu Liluvine de l'administration
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, groupe: "liluvine", partage: "pro" },
   { to: "/admin/automations", label: "Automations", icon: Zap },

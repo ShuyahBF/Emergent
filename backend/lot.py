@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "453.3"
-LOT_LIBELLE = "Liste noire WhatsApp : un contact bloqué disparaît de la liste du Centre de Messagerie jusqu'à son déblocage."
+LOT = "454"
+LOT_LIBELLE = "Consignes à Liluvine : instructions du moment données comme à une secrétaire (menu Liluvine → Consignes), numéros WhatsApp autorisés dans les Paramètres."

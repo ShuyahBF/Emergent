@@ -148,7 +148,11 @@ async def _resolve_base_system_prompt(db, scope_uid: str) -> str:
         {"id": scope_uid},
         {"_id": 0, "liluvine_pro_system_prompt": 1, "full_name": 1, "company": 1},
     ) or {}
-    return (tenant_doc.get("liluvine_pro_system_prompt") or "").strip() or SYSTEM_MESSAGE
+    base = (tenant_doc.get("liluvine_pro_system_prompt") or "").strip() or SYSTEM_MESSAGE
+    # Lot 454 — consignes du moment données par le responsable (« ce matin, pour tout appel au sujet de RDV… ») : ajoutées à TOUTES les surfaces
+    # qui passent par ici (réponses WhatsApp, appels, agenda, chat). Ne lève jamais d'exception.
+    from consignes_liluvine import pour_prompt
+    return base + await pour_prompt(db, scope_uid)
 
 
 async def _resolve_system_prompt(db, scope_uid: str) -> str:

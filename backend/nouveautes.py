@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "454", "date": "2026-11-24",
+        "titre": "💬 Consignes à Liluvine : donnez vos instructions comme à une secrétaire",
+        "description": "Menu Liluvine → Consignes (superviseur compris) : une phrase, Liluvine la comprend, vous validez, elle l'applique pendant la période. Les numéros WhatsApp autorisés se règlent ici.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "453.3", "date": "2026-11-24",
         "titre": "⛔ Contact bloqué : il disparaît de la liste du Centre de Messagerie",
         "description": "Dès qu'un contact est bloqué, il n'apparaît plus dans la liste des conversations du Centre de Messagerie jusqu'à son déblocage dans les Paramètres.",

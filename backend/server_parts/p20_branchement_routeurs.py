@@ -218,6 +218,8 @@ _setup_liste_noire_cmd(db=db, api=api, get_current_user=get_current_user)
 # Lot 453 — liste noire WhatsApp (toutes lignes) : blocage depuis le Centre de Messagerie, liste visible dans les Paramètres seulement
 from routes.liste_noire_wa import setup_liste_noire_wa_routes as _setup_liste_noire_wa  # noqa: E402
 _setup_liste_noire_wa(db=db, api=api, get_current_user=get_current_user)
+from routes.consignes_liluvine import setup_consignes_liluvine_routes as _setup_consignes_liluvine  # noqa: E402  (lot 454)
+_setup_consignes_liluvine(db=db, api=api, get_current_user=get_current_user)
 # Lot 64.2 — diagnostic de la barrière anti-rafale WhatsApp pour un numéro
 from routes.barriere_wa import setup_barriere_wa_routes as _setup_barriere_wa  # noqa: E402
 _setup_barriere_wa(db=db, api=api, get_current_user=get_current_user,

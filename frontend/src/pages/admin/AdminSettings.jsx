@@ -9,6 +9,7 @@ import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCirc
 import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import ListeNoireWaAdminSection from "@/pages/admin/sections/ListeNoireWaAdminSection";   // Lot 453
+import ConsignesLiluvineAccesSection from "@/pages/admin/sections/ConsignesLiluvineAccesSection";   // Lot 454
 import GoogleConnexionAdminSection from "@/pages/admin/sections/GoogleConnexionAdminSection";   // Lot 452
 import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
 import AgentBioAdminSection from "@/pages/admin/sections/AgentBioAdminSection";   // Lot 370
@@ -1571,6 +1572,13 @@ export default function AdminSettings() {
       <Filterable title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)" anchorId="s-paiement-formulaires" category="comms">
         <Cadre title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)">
           <PaiementFormulairesSection />
+        </Cadre>
+      </Filterable>
+
+      {/* Lot 454 — numéros WhatsApp autorisés à donner des consignes à Liluvine (par client / tenant) */}
+      <Filterable title="💬 Consignes à Liluvine — numéros WhatsApp autorisés" anchorId="s-consignes-liluvine" category="comms">
+        <Cadre title="💬 Consignes à Liluvine — numéros WhatsApp autorisés">
+          <ConsignesLiluvineAccesSection />
         </Cadre>
       </Filterable>
 

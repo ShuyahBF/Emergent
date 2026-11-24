@@ -139,6 +139,12 @@ export default function LiluvineConsignes() {
               <label className="text-sm font-semibold">Début<input type="datetime-local" value={proposition.debut} onChange={(e) => setProposition({ ...proposition, debut: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
               <label className="text-sm font-semibold">Fin<input type="datetime-local" value={proposition.fin} onChange={(e) => setProposition({ ...proposition, fin: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
             </div>
+            {proposition.nature === "blocage" && (
+              <div className="grid grid-cols-2 gap-2" data-testid="consigne-creneau">
+                <label className="text-sm font-semibold">Créneau bloqué : de<input type="time" value={proposition.creneau_debut || ""} onChange={(e) => setProposition({ ...proposition, creneau_debut: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+                <label className="text-sm font-semibold">à<input type="time" value={proposition.creneau_fin || ""} onChange={(e) => setProposition({ ...proposition, creneau_fin: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+              </div>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => setProposition(null)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-4 py-2 text-sm"><X className="w-4 h-4" /> Annuler</button>
               <button type="button" onClick={valider} disabled={enCours || nonAppliquee || !proposition.instruction.trim()} data-testid="consigne-valider"

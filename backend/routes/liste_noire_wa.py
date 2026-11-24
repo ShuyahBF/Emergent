@@ -1,5 +1,5 @@
 # routes/liste_noire_wa.py — routes de la LISTE NOIRE WhatsApp (lot 453). Règles et stockage : voir backend/liste_noire_wa.py.
-#   POST   /me/wa/liste-noire           bloquer un contact (administrateur, depuis le Centre de Messagerie)
+#   POST   /me/wa/liste-noire           bloquer un contact (administrateur ou superviseur, depuis le Centre de Messagerie)
 #   GET    /me/wa/liste-noire/etat      ce numéro est-il bloqué ? (réponse : un booléen seulement ; la liste n'est jamais exposée ici)
 #   GET    /admin/wa/liste-noire        la liste complète (administrateur, Paramètres uniquement)
 #   DELETE /admin/wa/liste-noire/{cle}  débloquer (administrateur, Paramètres uniquement)
@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 
 import liste_noire_wa
 
-ROLES_ADMIN = ("admin", "super_admin")
+ROLES_ADMIN = ("admin", "super_admin")                      # liste complète et déblocage : Paramètres (administrateur)
+ROLES_BLOCAGE = ("admin", "super_admin", "superviseur")     # blocage depuis le Centre de Messagerie : administrateur ET superviseur
+TRACKED_BLOCAGE = ("Administrateur", "Superviseur")         # utilisateurs suivis de ces rôles
 
 
 # Modèle au NIVEAU DU MODULE : FastAPI ne retrouve pas les modèles déclarés dans une fonction (annotations différées)
@@ -28,10 +30,15 @@ def setup_liste_noire_wa_routes(*, db, api, get_current_user) -> None:
         if user.get("role") not in ROLES_ADMIN:
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
 
+    def _peut_bloquer(user: dict) -> None:
+        """Le Centre de Messagerie est utilisé par le superviseur : lui aussi bloque (mais ne voit ni ne débloque la liste, réservée aux Paramètres)."""
+        if user.get("role") not in ROLES_BLOCAGE and user.get("tracked_role") not in TRACKED_BLOCAGE:
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur et au superviseur")
+
     @api.post("/me/wa/liste-noire", tags=["Liste noire WhatsApp"])
     async def bloquer(payload: BlocageContact, user: dict = Depends(get_current_user)):
         """Bloque un contact sur TOUTES les lignes : plus aucun message sortant, plus de réponse d'agent IA, messages reçus retenus."""
-        _admin(user)
+        _peut_bloquer(user)
         try:
             entree = await liste_noire_wa.bloquer(db, payload.telephone, nom=payload.nom or "", contact_id=payload.contact_id,
                                                   motif=payload.motif or "", par=user.get("full_name") or user.get("email") or "")
@@ -42,7 +49,7 @@ def setup_liste_noire_wa_routes(*, db, api, get_current_user) -> None:
     @api.get("/me/wa/liste-noire/etat", tags=["Liste noire WhatsApp"])
     async def etat(telephone: str, user: dict = Depends(get_current_user)):
         """Un seul booléen : la liste elle-même n'est visible que dans les Paramètres."""
-        _admin(user)
+        _peut_bloquer(user)
         return {"bloque": await liste_noire_wa.est_bloque(db, telephone)}
 
     @api.get("/admin/wa/liste-noire", tags=["Liste noire WhatsApp"])

@@ -1269,6 +1269,8 @@ async def prompt_de_l_evenement(db, s: Dict[str, Any], ev: Dict[str, Any], ouver
         from routes.liluvine_pro import DEFAULT_WA_PROSPECT_SYSTEM_PROMPT, _resolve_base_system_prompt
         if ev.get("type") == "prospection":
             base = (s.get("liluvine_wa_prospect_system_prompt") or "").strip() or DEFAULT_WA_PROSPECT_SYSTEM_PROMPT
+            from consignes_liluvine import pour_prompt as _consignes_du_moment      # lot 454 : consignes du moment aussi pour la prospection
+            base += await _consignes_du_moment(db, ev.get("client_id") or "")
         else:
             base = await _resolve_base_system_prompt(db, ev.get("client_id") or "")
     except Exception:  # noqa: BLE001 — prompt de base minimal

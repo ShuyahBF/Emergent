@@ -574,6 +574,8 @@ async def prompt_de_l_appel(db, s: Dict[str, Any], appel: Dict[str, Any]) -> str
     prospect = await _is_prospect_sender(db, contact) or bool((ligne or {}).get("prospects"))
     if prospect:
         base = (s.get("liluvine_wa_prospect_system_prompt") or "").strip() or DEFAULT_WA_PROSPECT_SYSTEM_PROMPT
+        from consignes_liluvine import pour_prompt as _consignes_du_moment      # lot 454 : consignes du moment aussi pour les prospects
+        base += await _consignes_du_moment(db, appel.get("client_id") or "")
     else:
         base = await _resolve_base_system_prompt(db, appel.get("client_id") or "")
     connaissances = ""

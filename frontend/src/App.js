@@ -98,6 +98,7 @@ import LooisDossiersHospitalisation from "@/pages/admin/LooisDossiersHospitalisa
 import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
 import AutomationsVocalesPage from "@/pages/portal/AutomationsVocalesPage";   // lot 375 — Superviseur
 import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
+import LiluvineConsignes from "@/pages/admin/LiluvineConsignes";   // Lot 454 — consignes à Liluvine (menu Liluvine)
 import MessagesBloquesWa from "@/pages/admin/MessagesBloquesWa";   // Lot 79.6 — messages retenus par la barrière WA
 import VidalApiLogs from "@/pages/admin/VidalApiLogs";
 import AdminContacts from "@/pages/admin/AdminContacts";
@@ -413,6 +414,7 @@ export default function App() {
             <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}
             <Route path="liluvine-messages-bloques" element={<MessagesBloquesWa />} />
+            <Route path="liluvine-consignes" element={<LiluvineConsignes />} />   {/* lot 454 */}
             <Route path="contacts" element={<Contacts />} />
             <Route path="contact-groups" element={<ContactGroups />} />
             <Route path="error-registry" element={<ErrorRegistry />} />
@@ -558,6 +560,7 @@ export default function App() {
             <Route path="liluvine-agenda" element={<LiluvineAgenda />} />
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}
             <Route path="liluvine-messages-bloques" element={<MessagesBloquesWa />} />
+            <Route path="liluvine-consignes" element={<LiluvineConsignes />} />   {/* lot 454 */}
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites).

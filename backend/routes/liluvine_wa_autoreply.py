@@ -1293,6 +1293,9 @@ async def autoreply_to_inbound(
         # Lot 188 — numéro inconnu rattaché au client par défaut : prompt « client à jour » s'il est rempli
         if client_defaut_utilise:
             base_prompt = prompt_selon_contrat(settings_doc, "valide") or base_prompt
+        # Lot 454 — consignes du moment (le prompt prospect ne passe pas par `_resolve_base_system_prompt`)
+        from consignes_liluvine import pour_prompt as _consignes_du_moment
+        base_prompt += await _consignes_du_moment(db, scope_uid)
     else:
         base_prompt = await _resolve_base_system_prompt(db, scope_uid)
         # Lot 183 — prompt propre aux clients à jour / en retard (vide = prompt du compte, comme avant)

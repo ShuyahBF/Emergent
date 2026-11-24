@@ -19,6 +19,7 @@ ELEMENTS = {
     "pro": "Liluvine PRO (assistant IA)",
     "historique": "Liluvine PRO — Historique",
     "bloques": "Messages WhatsApp bloqués (barrière anti-rafale)",   # lot 79.6
+    "consignes": "Consignes à Liluvine (instructions du moment)",    # lot 454
 }
 
 

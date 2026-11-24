@@ -1,6 +1,6 @@
 // BoutonBloquerWa.jsx — Lot 453 : « ⛔ Bloquer » un contact (liste noire WhatsApp, TOUTES lignes) depuis l'en-tête de sa conversation.
 // Un contact bloqué ne reçoit plus aucun message de SAWALI (donc aucun « distribué » ni « lu »), aucun agent IA ne lui répond et ses messages sont retenus.
-// Réservé à l'administrateur. La LISTE des contacts bloqués n'est visible que dans Paramètres → « ⛔ Liste noire WhatsApp » (où l'on débloque aussi) :
+// Réservé à l'administrateur et au superviseur. La LISTE des contacts bloqués n'est visible que dans Paramètres → « ⛔ Liste noire WhatsApp » (où l'on débloque aussi) :
 // ici on ne sait que si CE contact est bloqué.
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 // verifierEtat=false (liste des contacts) : pas de lecture par ligne — le bouton reste « Bloquer » (idempotent) et passe à « Bloqué » après le blocage.
 export default function BoutonBloquerWa({ contact, compact = false, verifierEtat = true }) {
   const { user } = useAuth();
-  const admin = user?.role === "admin" || user?.role === "super_admin";
+  // Administrateur ET superviseur (le Centre de Messagerie est celui du superviseur) ; la liste et le déblocage restent dans les Paramètres (administrateur)
+  const admin = ["admin", "super_admin", "superviseur"].includes(user?.role) || ["Administrateur", "Superviseur"].includes(user?.tracked_role);
   const numero = contact?.whatsapp || contact?.phone || "";
   const [bloque, setBloque] = useState(false);
   const [ouvert, setOuvert] = useState(false);

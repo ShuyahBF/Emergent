@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "453.1", "date": "2026-11-24",
+        "titre": "⛔ Liste noire WhatsApp : le superviseur peut bloquer un contact",
+        "description": "Le bouton « Bloquer » du Centre de Messagerie est ouvert au superviseur (qui utilise ce centre) en plus de l'administrateur ; la liste et le déblocage restent dans les Paramètres.",
+        "rubrique": "⛔ Liste noire WhatsApp (contacts bloqués)",
+    },
+    {
         "lot": "453", "date": "2026-11-24",
         "titre": "⛔ Liste noire WhatsApp : contacts bloqués sur toutes les lignes",
         "description": "Un contact bloqué (bouton « Bloquer » dans la liste du Centre de Messagerie, sans ouvrir la conversation) ne reçoit plus aucun message ni accusé distribué / lu, aucune réponse d'agent IA et n'est plus relayé ; liste visible ici seulement. Notifications WhatsApp des tickets et interventions désactivables par contact ou responsable.",

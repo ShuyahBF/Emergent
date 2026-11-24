@@ -365,6 +365,10 @@ async def decision_relais(db, s: Dict[str, Any], *, chiffres: str, mtype: str, t
     if len(chiffres) < 8:
         return False, "numéro de l'expéditeur invalide"
     fin = chiffres[-8:]
+    # Lot 453 — liste noire WhatsApp : les messages d'un contact bloqué ne sont plus relayés au propriétaire (ni appel)
+    import liste_noire_wa as _liste_noire_wa
+    if await _liste_noire_wa.est_bloque(db, chiffres):
+        return False, "contact bloqué (liste noire)"
     if fin in {n[-8:] for n in cfg["numeros"]}:
         return False, "message du propriétaire lui-même"
     if mtype not in TYPES_ALERTE:

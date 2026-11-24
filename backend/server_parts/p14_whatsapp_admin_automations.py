@@ -534,6 +534,10 @@ async def _emit_event(event: str, target: dict) -> None:
     label = label or phone or "—"
 
     for au in automations:
+        # Lot 453 — le destinataire « de l'événement » est le client (le responsable de l'entreprise) : désactivable par intervention.
+        # Une automatisation à numéro fixe (relais admin) n'est pas concernée.
+        if (au.get("target") or "event_target") != "fixed" and target.get("notifier_responsable") is False:
+            continue
         # Choose recipient
         if (au.get("target") or "event_target") == "fixed":
             to_phone = (au.get("target_phone") or "").strip()

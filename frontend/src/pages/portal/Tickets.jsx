@@ -479,6 +479,37 @@ export default function Tickets() {
 
 // Lot 54 — Session WhatsApp du ticket : contacts du client couverts, échéance de la session
 // (rappels T-10 / T-5 puis fermeture automatique), validité ; durée modifiable par ticket.
+// Lot 453 — notifications WhatsApp d'un ticket : au contact concerné et/ou à son responsable (décisionnaire de l'entreprise liée).
+// Enregistrement explicite (bouton actif seulement si quelque chose a changé) : rien n'est modifié en silence.
+function NotifWaTicket({ t, isClosed, reload }) {
+  const [contact, setContact] = useState(t.notifier_contact !== false);
+  const [responsable, setResponsable] = useState(t.notifier_responsable !== false);
+  const [occupe, setOccupe] = useState(false);
+  if (isClosed) return null;
+  const modifie = contact !== (t.notifier_contact !== false) || responsable !== (t.notifier_responsable !== false);
+  const enregistrer = async () => {
+    setOccupe(true);
+    try {
+      await apiClient.patch(`/me/tickets/${t.id}`, { notifier_contact: contact, notifier_responsable: responsable });
+      toast.success("Notifications WhatsApp du ticket enregistrées");
+      await reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setOccupe(false); }
+  };
+  return (
+    <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-3 py-2 text-xs space-y-1" data-testid={`ticket-notif-wa-${t.id}`}>
+      <p className="font-semibold text-slate-700">Notifications WhatsApp de ce ticket</p>
+      <label className="flex items-center gap-2"><input type="checkbox" checked={contact} onChange={(e) => setContact(e.target.checked)} />Notifier le contact concerné</label>
+      <label className="flex items-center gap-2"><input type="checkbox" checked={responsable} onChange={(e) => setResponsable(e.target.checked)} />Notifier son responsable (décisionnaire de l'entreprise liée)</label>
+      <div className="flex items-center gap-2">
+        <button type="button" disabled={!modifie || occupe} onClick={enregistrer} className="rounded-lg bg-slate-700 px-2 py-1 text-white disabled:opacity-40">Enregistrer</button>
+        {modifie && <span className="font-semibold text-amber-700">modifié, non enregistré</span>}
+      </div>
+    </div>
+  );
+}
+
 function SessionWaTicket({ t, isClosed, reload }) {
   const { user } = useAuth();
   const eleve = ["admin", "superviseur", "moderateur", "moderator"].includes(user?.role || "")
@@ -678,6 +709,7 @@ function TicketRow({ t, reload, targets }) {
       {expanded && (
         <div className="border-t border-slate-200 p-4 space-y-3 bg-slate-50/50" data-testid={`ticket-detail-${t.id}`}>
           <SessionWaTicket t={t} isClosed={isClosed} reload={reload} />
+          <NotifWaTicket t={t} isClosed={isClosed} reload={reload} />
           <div className="grid sm:grid-cols-2 gap-3 text-xs">
             <Field label="Ouvert par" value={t.opened_by_label} />
             <Field label="Ouvert le" value={fmtDateTime(t.opened_at)} />

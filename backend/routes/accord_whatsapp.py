@@ -223,6 +223,10 @@ async def envoyer_demandes(db, personnes: List[dict], creds: Dict[str, Any], ver
     try:
         for p in personnes:
             tel = re.sub(r"\D", "", p.get("telephone") or "")
+            # Lot 453 — liste noire WhatsApp : aucune demande n'est envoyée à un contact bloqué
+            import liste_noire_wa as _liste_noire_wa
+            if await _liste_noire_wa.est_bloque(db, tel):
+                continue
             if not await fenetre_ouverte(db, tel, numero):
                 fermees.append(p.get("nom") or tel)
                 continue

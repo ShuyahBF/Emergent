@@ -381,6 +381,10 @@ async def traiter_message_entrant(db, *, de: str, type_message: str, texte: Opti
     chiffres = _chiffres(de)
     if not chiffres:
         return {"traite": False}
+    # Lot 453 — liste noire WhatsApp : un contact bloqué n'est plus relayé aux plateformes (et Liluvine ne lui répond pas)
+    import liste_noire_wa as _liste_noire_wa
+    if await _liste_noire_wa.est_bloque(db, chiffres):
+        return {"traite": True, "liste_noire": True}
     # Lot 248 — LIGNE DÉDIÉE : le message a été reçu sur la ligne WhatsApp propre à une plateforme (ex. ALBARKA). Cette
     # ligne est la sienne : TOUT ce qui y arrive lui appartient (réponse libre comme réponse citée) ; plus besoin de « Répondre ».
     emetteur_ligne = await _emetteur_de_la_ligne_recue(db)

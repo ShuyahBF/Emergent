@@ -451,6 +451,19 @@ async def _dernier_entrant(chiffres: str) -> Optional[dict]:
         {"_id": 0, "received_at": 1, "created_at": 1, "client_id": 1}, sort=[("created_at", -1)])
 
 
+def notification_autorisee(ticket: dict, contact_id: Optional[str], fiche: dict) -> bool:
+    """Lot 453 — ce contact peut-il recevoir les notifications WhatsApp du ticket ?
+    Le contact concerné (principal) dépend de `notifier_contact` ; un autre contact « décisionnaire » (le responsable) de `notifier_responsable` ;
+    tout autre contact rattaché suit `notifier_contact`. Absent = oui (comportement habituel)."""
+    contact_ok = ticket.get("notifier_contact") is not False
+    responsable_ok = ticket.get("notifier_responsable") is not False
+    if contact_id and contact_id == ticket.get("contact_id"):
+        return contact_ok
+    if (fiche or {}).get("is_decision_maker"):
+        return responsable_ok
+    return contact_ok
+
+
 async def destinataires(ticket: dict, quand: datetime) -> List[Dict[str, Any]]:
     """Contacts du ticket avec un numéro WhatsApp et l'état de leur fenêtre de 24 h."""
     ids = [c for c in [ticket.get("contact_id"), *(ticket.get("contact_ids") or [])] if c]
@@ -460,9 +473,12 @@ async def destinataires(ticket: dict, quand: datetime) -> List[Dict[str, Any]]:
         f = (await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
              or await db.contacts.find_one({"id": cid}, {"_id": 0}) or {})
         fiches[cid] = f
+    # Lot 453 — notifications désactivables par ticket : le contact concerné (notifier_contact) et son responsable,
+    # c'est-à-dire un contact « décisionnaire » rattaché au ticket (notifier_responsable)
+    fiches = {cid: f for cid, f in fiches.items() if notification_autorisee(ticket, cid, f)}
     candidats = [(cid, f.get("whatsapp") or f.get("phone") or (ticket.get("contact_phone") if cid == ticket.get("contact_id") else None))
                  for cid, f in fiches.items()]
-    if not candidats and ticket.get("contact_phone"):
+    if not candidats and ticket.get("contact_phone") and ticket.get("notifier_contact") is not False:
         candidats = [(None, ticket["contact_phone"])]
     for cid, tel in candidats:
         chiffres = _chiffres(tel)

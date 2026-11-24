@@ -841,6 +841,9 @@ async def admin_create_intervention(
     try:
         asyncio.create_task(_emit_event("intervention.created", {
             "client_id": payload.client_id,
+            # Lot 453 — notifications désactivables par intervention (contact concerné / responsable de l'entreprise)
+            "notifier_contact": payload.notifier_contact,
+            "notifier_responsable": payload.notifier_responsable,
             "extra_ctx": {
                 "intervention_number": doc.get("intervention_number") or "",
                 "intervention_subject": doc.get("subject") or doc.get("title") or "",

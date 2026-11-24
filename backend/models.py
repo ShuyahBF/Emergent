@@ -416,6 +416,9 @@ class InterventionCreate(BaseModel):
     # libre, éventuellement proposé à la création dans le registre).
     reporter_contact_id: Optional[str] = None
     reporter_name: Optional[str] = None
+    # Lot 453 — notifications WhatsApp : None = oui (comportement habituel) ; False = aucune notification à cette personne pour cet élément
+    notifier_contact: Optional[bool] = None        # le contact concerné (rapporteur / contact du ticket)
+    notifier_responsable: Optional[bool] = None    # son responsable : le contact « décisionnaire » de l'entreprise à laquelle il est lié
 
     @field_validator("title", "description", "technician", "reporter_name", mode="before")
     @classmethod
@@ -442,6 +445,9 @@ class InterventionUpdate(BaseModel):
     editable_by_tenant: Optional[bool] = None
     reporter_contact_id: Optional[str] = None
     reporter_name: Optional[str] = None
+    # Lot 453 — notifications WhatsApp : None = oui (comportement habituel) ; False = aucune notification à cette personne pour cet élément
+    notifier_contact: Optional[bool] = None        # le contact concerné (rapporteur / contact du ticket)
+    notifier_responsable: Optional[bool] = None    # son responsable : le contact « décisionnaire » de l'entreprise à laquelle il est lié
 
     @field_validator("title", "description", "technician", "reporter_name", mode="before")
     @classmethod
@@ -1523,6 +1529,9 @@ class TicketOpenPayload(BaseModel):
     # Iter38p — When True, force-close any open ticket blocking creation for
     # this contact (orphan or stuck). Marked as `outcome="force_released"`.
     force_release: Optional[bool] = False
+    # Lot 453 — notifications WhatsApp : None = oui (comportement habituel) ; False = aucune notification à cette personne pour cet élément
+    notifier_contact: Optional[bool] = None        # le contact concerné (rapporteur / contact du ticket)
+    notifier_responsable: Optional[bool] = None    # son responsable : le contact « décisionnaire » de l'entreprise à laquelle il est lié
 
     @field_validator("motif", mode="before")
     @classmethod
@@ -1537,6 +1546,9 @@ class TicketUpdatePayload(BaseModel):
     # 0-4 (2026-02) — Admin / supervisor can re-attach a ticket to a
     # different client (tenant). Must be a real user from the same group.
     client_id: Optional[str] = None
+    # Lot 453 — notifications WhatsApp : None = oui (comportement habituel) ; False = aucune notification à cette personne pour cet élément
+    notifier_contact: Optional[bool] = None        # le contact concerné (rapporteur / contact du ticket)
+    notifier_responsable: Optional[bool] = None    # son responsable : le contact « décisionnaire » de l'entreprise à laquelle il est lié
 
     @field_validator("motif", mode="before")
     @classmethod

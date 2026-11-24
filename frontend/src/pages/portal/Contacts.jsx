@@ -29,6 +29,8 @@ import CrossTenantSearch from "@/components/CrossTenantSearch";
 import { ContactGroupChips } from "@/components/ContactGroupChips";
 import { useAppelsWa, fusionnerAppels, BulleAppelWa } from "@/components/AppelsDansConversation";   // Lot 64.3
 import ToggleAlerteProprietaire from "@/components/ToggleAlerteProprietaire";   // Lot 67
+import OptionsNotifWa from "@/components/OptionsNotifWa";                      // Lot 453 : notifications WhatsApp désactivables
+import BoutonBloquerWa from "@/components/BoutonBloquerWa";                     // Lot 453 : liste noire WhatsApp (administrateur)
 import TransfertMessagesWa from "@/components/TransfertMessagesWa";               // Lot 71 : transfert de messages
 import { fusionnerNotes, BulleNoteSysteme } from "@/components/NoteSystemeConversation";   // Lot 262 : messages système (visibles côté utilisateur seulement)
 import { majFiche } from "@/lib/majContact";                                         // lot 263 : mise à jour d'une seule fiche
@@ -980,6 +982,8 @@ const ContactRow = ({ c, onReload, onPatch, onEdit, onWa, onSms, onSchedule, onH
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap">
         <div className="inline-flex gap-1 items-center">
+          {/* Lot 453 — bloquer ce contact (liste noire WhatsApp) SANS ouvrir sa conversation */}
+          <BoutonBloquerWa contact={c} compact verifierEtat={false} />
           {/* Lot 23 — marquer / démarquer comme prospect (auto-réponse Liluvine dédiée) */}
           <button
             onClick={toggleProspect}
@@ -2299,6 +2303,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketClientId, setTicketClientId] = useState("");
   const [ticketMotif, setTicketMotif] = useState("");
+  const [ticketNotif, setTicketNotif] = useState({ notifier_contact: true, notifier_responsable: true });   // lot 453
   const [ticketClients, setTicketClients] = useState([]);
   const [ticketTemplates, setTicketTemplates] = useState([]);
   const [ticketSubmitting, setTicketSubmitting] = useState(false);
@@ -2414,6 +2419,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     // Reset + open modal, then load clients + templates in parallel
     setTicketClientId("");
     setTicketMotif("");
+    setTicketNotif({ notifier_contact: true, notifier_responsable: true });
     setTicketModalOpen(true);
     try {
       const [rc, rt] = await Promise.all([
@@ -2437,6 +2443,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       const r = await apiClient.post(`/me/contacts/${contact.id}/ticket`, {
         motif: trimmed,
         client_id: ticketClientId,
+        notifier_contact: ticketNotif.notifier_contact !== false,          // lot 453
+        notifier_responsable: ticketNotif.notifier_responsable !== false,
         ...(forceRelease ? { force_release: true } : {}),
       });
       if (r.data?.ok) {
@@ -2545,6 +2553,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             )}
             {/* Lot 67 — alerte du propriétaire à chaque message de ce client (activée par défaut), en pictogramme cloche */}
             <ToggleAlerteProprietaire contact={contact} compact />
+            {/* Lot 453 — liste noire WhatsApp : bloquer ce contact sur toutes les lignes (administrateur) */}
+            <BoutonBloquerWa contact={contact} compact />
             {/* Lot 60 — journal des appels de ce contact (durées) */}
             {(contact.whatsapp || contact.phone) && (
               <button
@@ -2967,6 +2977,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   />
                   <p className="text-[10px] text-slate-400 mt-1 text-right">{ticketMotif.length}/200</p>
                 </div>
+                <OptionsNotifWa contact={ticketNotif.notifier_contact} responsable={ticketNotif.notifier_responsable} onChange={setTicketNotif} />
               </div>
 
               <div className="flex items-center justify-end gap-2 mt-4">

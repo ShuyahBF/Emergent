@@ -27,6 +27,8 @@ class ValidationConsigne(BaseModel):
     instruction: str = Field(default="", max_length=cl.MAX_TEXTE)
     debut: str = ""
     fin: str = ""
+    creneau_debut: str = ""                    # blocage : heure du jour de début (« 12:00 »)
+    creneau_fin: str = ""
 
 
 class ListeAcces(BaseModel):

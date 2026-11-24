@@ -462,6 +462,14 @@ async def handle_ticket_command(
                 "Votre demande est suivie dans ce ticket."
             ),
         }
+    # Lot 455 — consigne de BLOCAGE de créneau : pas de ticket pendant le créneau, Liluvine répond avec le message de la consigne
+    try:
+        from consignes_liluvine import charger as _charger_consignes, creneau_bloque as _creneau_bloque, message_blocage as _message_blocage
+        _c = _creneau_bloque(await _charger_consignes(db), scope_uid=tenant_id)
+    except Exception:  # noqa: BLE001
+        _c = None
+    if _c:
+        return {"ok": False, "command": "ticket", "blocked": True, "user_reply": "⏸️ " + _message_blocage(_c)}
     # Auto-number : TKT-YYYY-NNN per tenant per year
     try:
         from ._counters import next_seq

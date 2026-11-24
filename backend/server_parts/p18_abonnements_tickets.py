@@ -516,6 +516,9 @@ async def me_open_ticket(
 ):
     """Open a new support ticket from the WhatsApp chat window. Blocks if
     the contact already has a non-closed ticket (open|in_progress|suspended)."""
+    # Lot 455 — consigne de BLOCAGE de créneau donnée à Liluvine (« aucune demande d'intervention entre 12h et 13h ») : refus 409 pendant le créneau
+    from consignes_liluvine import verifier_demande as _verifier_creneau
+    await _verifier_creneau(db, user)
     motif = (payload.motif or "").strip()
     if not motif:
         raise HTTPException(status_code=400, detail="Le motif est obligatoire.")
@@ -774,6 +777,8 @@ async def me_create_ticket_quick(
       - Persists `software`, `incident_at` and `attach_wa_sms_history` flag
         directly on the ticket doc (free-form fields).
     """
+    from consignes_liluvine import verifier_demande as _verifier_creneau      # Lot 455 — blocage de créneau (consigne à Liluvine)
+    await _verifier_creneau(db, user)
     reason = (payload.reason or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail="Le motif est obligatoire.")

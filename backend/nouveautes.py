@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "455", "date": "2026-11-24",
+        "titre": "⏳ Consignes : blocage de créneaux d'intervention",
+        "description": "Une consigne du type « jusqu'à lundi, aucune intervention entre 12h et 13h » est maintenant appliquée : le serveur refuse toute demande d'intervention dans le créneau (site et WhatsApp) avec un message clair.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "454", "date": "2026-11-24",
         "titre": "💬 Consignes à Liluvine : donnez vos instructions comme à une secrétaire",
         "description": "Menu Liluvine → Consignes (superviseur compris) : une phrase, Liluvine la comprend, vous validez, elle l'applique pendant la période. Les numéros WhatsApp autorisés se règlent ici.",

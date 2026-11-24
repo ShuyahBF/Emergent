@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "456.1", "date": "2026-11-24",
+        "titre": "📣 Envois en masse : modèle Meta « Bien reçu » et suivi des envois",
+        "description": "Le texte du modèle à soumettre à Meta (avec le bouton « Bien reçu ») est affiché ici ; une fois approuvé, saisissez son nom : les contacts hors fenêtre de 24 h le reçoivent. Le suivi des envois (texte libre, modèle, non envoyés, échecs) est dans l'écran Consignes.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "456", "date": "2026-11-24",
         "titre": "📣 Consignes : envoi d'un message à tout un groupe, toujours confirmé",
         "description": "Une consigne du type « informe tous les RDV de demain d'un décalage d'1 h » montre d'abord la liste des destinataires (nombre, noms, numéros masqués, texte) ; rien ne part avant votre confirmation. Les contacts bloqués sont exclus.",

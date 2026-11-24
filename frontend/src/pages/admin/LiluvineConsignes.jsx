@@ -53,6 +53,15 @@ export default function LiluvineConsignes() {
     } catch (e) { toast.error(e?.response?.data?.detail || "Compréhension impossible"); }
     finally { setEnCours(false); }
   };
+  // Lot 456.1 — suivi des envois en masse (derniers envois, résultats, détail des échecs)
+  const [envois, setEnvois] = useState(null);
+  const [detailEnvoi, setDetailEnvoi] = useState(null);
+  const chargerEnvois = useCallback(async (annonce = false) => {
+    if (annonce) toast("Actualisation des envois en cours…");
+    try { const r = await apiClient.get("/admin/liluvine-consignes/masse/envois"); setEnvois(r.data.envois); if (annonce) toast.success(`${r.data.envois.length} envoi(s) relu(s).`); }
+    catch (e) { setEnvois([]); if (annonce) toast.error("Lecture des envois impossible"); }
+  }, []);
+  useEffect(() => { chargerEnvois(false); }, [chargerEnvois]);
   // Lot 456 — envoi en masse : 1) APERÇU (rien ne part)  2) CONFIRMATION de l'aperçu vu  3) envoi en arrière-plan
   const preparerEnvoi = async () => {
     setEnCours(true); toast("Préparation de l'aperçu en cours…");
@@ -66,7 +75,7 @@ export default function LiluvineConsignes() {
     setEnCours(true); toast("Lancement de l'envoi en cours…");
     try {
       const r = await apiClient.post("/admin/liluvine-consignes/masse/confirmer", { apercu_id: apercu.id, empreinte: apercu.empreinte });
-      toast.success(`Envoi lancé pour ${r.data.lot.total} destinataire(s) : il se poursuit en arrière-plan.`); setApercu(null); setProposition(null); setTexte("");
+      toast.success(`Envoi lancé pour ${r.data.lot.total} destinataire(s) : il se poursuit en arrière-plan.`); setApercu(null); setProposition(null); setTexte(""); chargerEnvois(false);
     } catch (e) { toast.error(e?.response?.data?.detail || "Envoi impossible"); }
     finally { setEnCours(false); }
   };
@@ -143,6 +152,28 @@ export default function LiluvineConsignes() {
       </div>
 
       {/* Fenêtre « Ce que Liluvine a compris » : dimensions de la règle 11, défilement dans la fenêtre */}
+      <section className="rounded-xl border border-slate-200 bg-white p-3" data-testid="envois-masse">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-bold">📣 Envois en masse</h2>
+          <button type="button" onClick={() => chargerEnvois(true)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><RefreshCw className="w-4 h-4" /> Actualiser</button>
+        </div>
+        {!envois ? <p className="text-sm text-slate-500 mt-2">Lecture en cours…</p> : envois.length === 0 ? <p className="text-sm text-slate-500 mt-2">Aucun envoi en masse pour le moment.</p> : (
+          <div className="mt-2 overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-slate-500"><th className="px-2 py-1">Date</th><th className="px-2 py-1">Message</th><th className="px-2 py-1 text-right">Prévus</th><th className="px-2 py-1 text-right">Texte libre</th><th className="px-2 py-1 text-right">Modèle</th><th className="px-2 py-1 text-right">Non envoyés</th><th className="px-2 py-1 text-right">Échecs</th><th className="px-2 py-1">État</th><th className="px-2 py-1"></th></tr></thead>
+            <tbody>{envois.map((e) => (
+              <tr key={e.id} className="border-t" data-testid="envoi-masse">
+                <td className="px-2 py-1 whitespace-nowrap">{(e.confirme_le || "").slice(0, 16).replace("T", " ")}</td>
+                <td className="px-2 py-1 max-w-xs truncate" title={e.message}>{e.message}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{e.total}</td>
+                <td className="px-2 py-1 text-right tabular-nums text-emerald-700">{e.envoyes}</td>
+                <td className="px-2 py-1 text-right tabular-nums text-sky-700">{e.par_modele || 0}</td>
+                <td className="px-2 py-1 text-right tabular-nums text-amber-700">{e.hors_fenetre}</td>
+                <td className="px-2 py-1 text-right tabular-nums text-red-700">{e.echecs}</td>
+                <td className="px-2 py-1">{e.termine ? "✅ terminé" : "⏳ en cours"}</td>
+                <td className="px-2 py-1">{(e.details || []).length > 0 && <button type="button" onClick={() => setDetailEnvoi(e)} className="text-xs underline">Détail</button>}</td>
+              </tr>))}</tbody></table></div>
+        )}
+      </section>
       {proposition && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" role="dialog" aria-modal="true" aria-label="Ce que Liluvine a compris">
           <div className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3" data-testid="consigne-proposition">
@@ -196,6 +227,16 @@ export default function LiluvineConsignes() {
               <button type="button" onClick={() => setApercu(null)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold"><X className="w-4 h-4" /> Annuler</button>
               <button type="button" onClick={confirmerEnvoi} disabled={enCours} data-testid="masse-confirmer" className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check className="w-4 h-4" /> Confirmer et envoyer</button>
             </div>
+          </div>
+        </div>
+      )}
+      {detailEnvoi && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3" role="dialog" aria-modal="true">
+          <div className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3" data-testid="envoi-detail">
+            <h2 className="text-lg font-bold">Détail de l'envoi</h2>
+            <p className="rounded-lg bg-slate-50 p-2 text-sm whitespace-pre-wrap">{detailEnvoi.message}</p>
+            <table className="w-full text-sm"><tbody>{detailEnvoi.details.map((d, i) => <tr key={i} className="border-t"><td className="py-1 tabular-nums">{d.tel}</td><td className="py-1">{d.etat}</td></tr>)}</tbody></table>
+            <div className="flex justify-end"><button type="button" onClick={() => setDetailEnvoi(null)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold"><X className="w-4 h-4" /> Fermer</button></div>
           </div>
         </div>
       )}

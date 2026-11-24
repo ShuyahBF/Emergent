@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "453.2", "date": "2026-11-24",
+        "titre": "⛔ Liste noire WhatsApp : le superviseur peut aussi débloquer",
+        "description": "Le superviseur, qui bloque déjà depuis le Centre de Messagerie, voit aussi la liste noire dans les Paramètres et peut débloquer un contact.",
+        "rubrique": "⛔ Liste noire WhatsApp (contacts bloqués)",
+    },
+    {
         "lot": "453.1", "date": "2026-11-24",
         "titre": "⛔ Liste noire WhatsApp : le superviseur peut bloquer un contact",
         "description": "Le bouton « Bloquer » du Centre de Messagerie est ouvert au superviseur (qui utilise ce centre) en plus de l'administrateur ; la liste et le déblocage restent dans les Paramètres.",

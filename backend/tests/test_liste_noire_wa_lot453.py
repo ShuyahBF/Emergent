@@ -172,7 +172,7 @@ def test_un_contact_bloque_n_est_plus_relaye(db, monkeypatch):
     assert r == {"traite": True, "liste_noire": True}
 
 
-def test_le_superviseur_peut_bloquer_mais_ni_lister_ni_debloquer(db):
+def test_le_superviseur_peut_bloquer_lister_et_debloquer(db):
     app, dep, simple = _app(db)
     c = TestClient(app)
 
@@ -184,8 +184,8 @@ def test_le_superviseur_peut_bloquer_mais_ni_lister_ni_debloquer(db):
     dep["fn"] = superviseur
     assert c.post("/api/me/wa/liste-noire", json={"telephone": "+226 70 12 34 56", "nom": "AWA"}).status_code == 200
     assert c.get("/api/me/wa/liste-noire/etat", params={"telephone": "70123456"}).json() == {"bloque": True}
-    assert c.get("/api/admin/wa/liste-noire").status_code == 403                 # la liste reste réservée aux Paramètres
-    assert c.delete("/api/admin/wa/liste-noire/70123456").status_code == 403
+    assert c.get("/api/admin/wa/liste-noire").json()["total"] == 1               # la liste (Paramètres) lui est ouverte
+    assert c.delete("/api/admin/wa/liste-noire/70123456").status_code == 200     # et il peut débloquer
     dep["fn"] = suivi
     assert c.post("/api/me/wa/liste-noire", json={"telephone": "+22670999999"}).status_code == 200
     dep["fn"] = simple                                                           # un client ordinaire reste refusé

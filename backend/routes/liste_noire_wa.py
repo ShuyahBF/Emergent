@@ -1,8 +1,8 @@
 # routes/liste_noire_wa.py — routes de la LISTE NOIRE WhatsApp (lot 453). Règles et stockage : voir backend/liste_noire_wa.py.
 #   POST   /me/wa/liste-noire           bloquer un contact (administrateur ou superviseur, depuis le Centre de Messagerie)
 #   GET    /me/wa/liste-noire/etat      ce numéro est-il bloqué ? (réponse : un booléen seulement ; la liste n'est jamais exposée ici)
-#   GET    /admin/wa/liste-noire        la liste complète (administrateur, Paramètres uniquement)
-#   DELETE /admin/wa/liste-noire/{cle}  débloquer (administrateur, Paramètres uniquement)
+#   GET    /admin/wa/liste-noire        la liste complète (administrateur et superviseur, Paramètres uniquement)
+#   DELETE /admin/wa/liste-noire/{cle}  débloquer (administrateur et superviseur, Paramètres uniquement)
 from __future__ import annotations
 
 from typing import Optional
@@ -12,8 +12,7 @@ from pydantic import BaseModel, Field
 
 import liste_noire_wa
 
-ROLES_ADMIN = ("admin", "super_admin")                      # liste complète et déblocage : Paramètres (administrateur)
-ROLES_BLOCAGE = ("admin", "super_admin", "superviseur")     # blocage depuis le Centre de Messagerie : administrateur ET superviseur
+ROLES_BLOCAGE = ("admin", "super_admin", "superviseur")     # blocage, liste et déblocage : administrateur ET superviseur
 TRACKED_BLOCAGE = ("Administrateur", "Superviseur")         # utilisateurs suivis de ces rôles
 
 
@@ -26,12 +25,8 @@ class BlocageContact(BaseModel):
 
 
 def setup_liste_noire_wa_routes(*, db, api, get_current_user) -> None:
-    def _admin(user: dict) -> None:
-        if user.get("role") not in ROLES_ADMIN:
-            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
-
     def _peut_bloquer(user: dict) -> None:
-        """Le Centre de Messagerie est utilisé par le superviseur : lui aussi bloque (mais ne voit ni ne débloque la liste, réservée aux Paramètres)."""
+        """Administrateur ET superviseur (le Centre de Messagerie est celui du superviseur) : bloquent, voient la liste (Paramètres) et débloquent."""
         if user.get("role") not in ROLES_BLOCAGE and user.get("tracked_role") not in TRACKED_BLOCAGE:
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur et au superviseur")
 
@@ -54,13 +49,13 @@ def setup_liste_noire_wa_routes(*, db, api, get_current_user) -> None:
 
     @api.get("/admin/wa/liste-noire", tags=["Liste noire WhatsApp"])
     async def liste(user: dict = Depends(get_current_user)):
-        _admin(user)
+        _peut_bloquer(user)
         entrees = await liste_noire_wa.lister(db)
         return {"total": len(entrees), "maximum": liste_noire_wa.MAX_ENTREES, "entrees": entrees}
 
     @api.delete("/admin/wa/liste-noire/{cle}", tags=["Liste noire WhatsApp"])
     async def debloquer(cle: str, user: dict = Depends(get_current_user)):
-        _admin(user)
+        _peut_bloquer(user)
         if not await liste_noire_wa.debloquer(db, cle):
             raise HTTPException(status_code=404, detail="Ce numéro n'est pas dans la liste noire")
         return {"ok": True}

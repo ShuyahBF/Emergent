@@ -16,6 +16,7 @@ import { saisieMajuscules } from "@/lib/saisieMajuscules";
 import ChampClientRecherche from "@/components/ChampClientRecherche";
 
 import { X as Ico15X } from "lucide-react";
+import OptionsNotifWa from "@/components/OptionsNotifWa";   // Lot 453 : notifications WhatsApp désactivables
 export default function TicketsBubble() {
   const { user } = useAuth() || {};
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export default function TicketsBubble() {
   const [reasons, setReasons] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [attachHistory, setAttachHistory] = useState(false);
+  const [notif, setNotif] = useState({ notifier_contact: true, notifier_responsable: true });   // lot 453
   const [form, setForm] = useState({
     client_id: "",
     reason: "",
@@ -125,6 +127,8 @@ export default function TicketsBubble() {
         software: form.software || undefined,
         notes: form.notes || undefined,
         attach_wa_sms_history: attachHistory,
+        notifier_contact: notif.notifier_contact !== false,          // lot 453
+        notifier_responsable: notif.notifier_responsable !== false,
       };
       const r = await apiClient.post("/me/tickets", payload);
       // Lot 54 — un ticket ouvert couvre tous les contacts du client : la demande y est rattachée
@@ -278,6 +282,8 @@ export default function TicketsBubble() {
                 <span className="text-xs font-medium text-slate-600">Complément d'information</span>
                 <textarea rows={3} value={form.notes} onChange={(e) => saisieMajuscules(e, (v) => setForm({ ...form, notes: v }))} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 resize-y" data-testid="tickets-bubble-notes" />
               </label>
+
+              <OptionsNotifWa contact={notif.notifier_contact} responsable={notif.notifier_responsable} onChange={setNotif} />
 
               <label className="flex items-center gap-2 text-xs text-slate-600">
                 <input type="checkbox" checked={attachHistory} onChange={(e) => setAttachHistory(e.target.checked)} data-testid="tickets-bubble-attach-history" />

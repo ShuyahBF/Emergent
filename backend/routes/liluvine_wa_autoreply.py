@@ -2107,6 +2107,11 @@ async def _wa_send_location(
     wa_graph_version = s.get("wa_graph_version") or "v22.0"
     if not access_token or not phone_number_id:
         return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)"}
+    # Lot 453 — liste noire WhatsApp : aucune réponse (agent IA ou automatique) ne part vers un contact bloqué
+    import liste_noire_wa as _liste_noire_wa
+    from db import db as _db_global
+    if await _liste_noire_wa.est_bloque(db_ref if db_ref is not None else _db_global, to_e164):
+        return _liste_noire_wa.reponse_bloquee()
     to_clean = "".join(ch for ch in (to_e164 or "") if ch.isdigit())
     if len(to_clean) < 6:
         return {"ok": False, "error": f"Numéro invalide « {to_e164} »"}
@@ -2175,6 +2180,11 @@ async def _wa_send_image(
     wa_graph_version = s.get("wa_graph_version") or "v22.0"
     if not access_token or not phone_number_id:
         return {"ok": False, "error": "WhatsApp non configuré"}
+    # Lot 453 — liste noire WhatsApp : aucune réponse (agent IA ou automatique) ne part vers un contact bloqué
+    import liste_noire_wa as _liste_noire_wa
+    from db import db as _db_global
+    if await _liste_noire_wa.est_bloque(db_ref if db_ref is not None else _db_global, to_e164):
+        return _liste_noire_wa.reponse_bloquee()
     to_clean = "".join(ch for ch in (to_e164 or "") if ch.isdigit())
     if len(to_clean) < 6:
         return {"ok": False, "error": f"Numéro invalide « {to_e164} »"}

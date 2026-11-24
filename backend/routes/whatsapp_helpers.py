@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+import liste_noire_wa as _liste_noire_wa   # lot 453 : liste noire WhatsApp
+
 # Lot 224 — numéro (Phone Number ID) réellement utilisé par le dernier envoi de la tâche en cours : sert au suivi par ligne
 # (routes/wa_usage_lignes.py). (source, phone_number_id) ; source « global » = ligne de SAWALI, « tenant » = compte d'un client.
 _dernier_numero: contextvars.ContextVar = contextvars.ContextVar("wa_dernier_numero", default=None)
@@ -555,6 +557,9 @@ def attach_whatsapp_helpers(
         2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
         Smart Comm WA credentials instead of the global ones.
         """
+        # Lot 453 — liste noire WhatsApp : rien ne part vers un contact bloqué (donc aucun accusé « distribué » ni « lu »)
+        if await _liste_noire_wa.est_bloque(db, to_e164):
+            return _liste_noire_wa.reponse_bloquee()
         creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
@@ -655,6 +660,9 @@ def attach_whatsapp_helpers(
         2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
         Smart Comm WA credentials instead of the global ones.
         """
+        # Lot 453 — liste noire WhatsApp : rien ne part vers un contact bloqué (donc aucun accusé « distribué » ni « lu »)
+        if await _liste_noire_wa.est_bloque(db, to_e164):
+            return _liste_noire_wa.reponse_bloquee()
         creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
@@ -795,6 +803,9 @@ def attach_whatsapp_helpers(
         WhatsApp caps: body text 1024 chars, button id 256 chars, button
         title 20 chars — all silently truncated here rather than rejected.
         """
+        # Lot 453 — liste noire WhatsApp : rien ne part vers un contact bloqué (donc aucun accusé « distribué » ni « lu »)
+        if await _liste_noire_wa.est_bloque(db, to_e164):
+            return _liste_noire_wa.reponse_bloquee()
         creds = await _resolve_wa_credentials(tenant_id, to_e164)
         access_token = creds["access_token"]
         phone_number_id = creds["phone_number_id"]
@@ -855,6 +866,9 @@ def attach_whatsapp_helpers(
         reply_to_message_id: Optional[str] = None,
     ) -> dict:
         """Send a free-form WhatsApp media message (image/document/audio/video)."""
+        # Lot 453 — liste noire WhatsApp : rien ne part vers un contact bloqué (donc aucun accusé « distribué » ni « lu »)
+        if await _liste_noire_wa.est_bloque(db, to_e164):
+            return _liste_noire_wa.reponse_bloquee()
         s = await db.settings.find_one({"_id": "global"}) or {}
         access_token = s.get("wa_access_token")
         phone_number_id = s.get("wa_phone_number_id")

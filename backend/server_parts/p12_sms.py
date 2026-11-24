@@ -2288,6 +2288,19 @@ async def whatsapp_webhook_incoming(request: Request):
                                     doc["body"] = transcript if not media_caption else f"{media_caption}\n— {transcript}"
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("WA voice transcribe failed: %s", exc)
+                    # Lot 453 — liste noire WhatsApp : message ENREGISTRÉ (traçabilité) mais retenu : pas de non-lu,
+                    # pas de notification, AUCUNE réponse d'agent IA ni de Liluvine (même mécanique que la barrière).
+                    try:
+                        import liste_noire_wa as _liste_noire_wa
+                        if await _liste_noire_wa.est_bloque(db, digits_only):
+                            doc["liste_noire"] = True
+                            doc["read_by_us_at"] = _now()
+                            await db.whatsapp_messages.insert_one(doc)
+                            inserted_messages += 1
+                            logger.info("[liste_noire_wa] …%s : message retenu (contact bloqué)", digits_only[-4:])
+                            continue
+                    except Exception:  # noqa: BLE001 — la liste noire ne casse jamais la réception
+                        logger.warning("[liste_noire_wa] contrôle impossible", exc_info=True)
                     # Lot 63 — barrière anti-rafale : trop de messages sans réponse de SAWALI →
                     # au seuil, réponse automatique (texte + image) ; au-delà, message retenu.
                     decision_barriere = "normal"
@@ -2948,6 +2961,13 @@ async def whatsapp_webhook_incoming(request: Request):
                         {"$or": [{"message_id": mid}, {"wa_message_id": mid}]},
                         {"$set": update},
                     )
+                    # Lot 453 — liste noire : les accusés « distribué / lu » d'un contact bloqué ne sont plus relayés aux plateformes
+                    try:
+                        import liste_noire_wa as _liste_noire_wa
+                        if await _liste_noire_wa.est_bloque(db, st.get("recipient_id")):
+                            continue
+                    except Exception:  # noqa: BLE001
+                        pass
                     # Lot 57.5 — statut d'un message de la Transmission WA Universelle -> plateforme
                     try:
                         from routes.liluvine_relais import mettre_a_jour_statut as _liluvine_statut

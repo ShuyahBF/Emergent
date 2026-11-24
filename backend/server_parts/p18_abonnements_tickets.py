@@ -652,6 +652,9 @@ async def me_open_ticket(
         "updated_at": now_iso,
         # Lot 54 — contacts couverts, session WhatsApp minutée, validité (clients non contractuels)
         "contact_ids": [cid],
+        # Lot 453 — notifications WhatsApp du ticket : au contact concerné / à son responsable (décisionnaire de l'entreprise liée)
+        "notifier_contact": payload.notifier_contact is not False,
+        "notifier_responsable": payload.notifier_responsable is not False,
         **_tickets_clients.champs_creation(await _tickets_clients.lire_client(client_id), now_iso),
     }
     await db.support_tickets.insert_one(ticket.copy())
@@ -678,7 +681,7 @@ async def me_open_ticket(
     notify = bool(s.get("notify_on_ticket_open", True))
     tpl_name = (s.get("wa_template_ticket_open") or "").strip()
     notification = {"sent": False, "error": None}
-    if notify and tpl_name and ticket["contact_phone"]:
+    if notify and tpl_name and ticket["contact_phone"] and ticket.get("notifier_contact", True):   # lot 453 : désactivable par ticket
         comps = _ticket_components(number, motif=motif)
         try:
             wr = await _wa_send_template(
@@ -742,6 +745,9 @@ class QuickTicketPayload(BaseModel):
     # Iter43 — Partage tenant
     shared_with_tenant: Optional[bool] = None
     editable_by_tenant: Optional[bool] = None
+    # Lot 453 — notifications WhatsApp : None = oui ; False = aucune notification à cette personne pour ce ticket
+    notifier_contact: Optional[bool] = None
+    notifier_responsable: Optional[bool] = None
 
     # Convention SAWALI (bulle flottante "Nouveau ticket") : mêmes champs texte
     # que le ticket créé depuis Contacts.jsx, toujours en MAJUSCULES.
@@ -870,6 +876,9 @@ async def me_create_ticket_quick(
         "updated_at": now_iso,
         # Lot 54 — contacts couverts, session WhatsApp minutée, validité (clients non contractuels)
         "contact_ids": [c for c in [(contact or {}).get("id")] if c],
+        # Lot 453 — notifications WhatsApp du ticket : au contact concerné / à son responsable (décisionnaire de l'entreprise liée)
+        "notifier_contact": payload.notifier_contact is not False,
+        "notifier_responsable": payload.notifier_responsable is not False,
         **_tickets_clients.champs_creation(await _tickets_clients.lire_client(client_id), now_iso),
     }
     await db.support_tickets.insert_one(ticket.copy())
@@ -894,7 +903,7 @@ async def me_create_ticket_quick(
     notify = bool(s.get("notify_on_ticket_open", True))
     tpl_name = (s.get("wa_template_ticket_open") or "").strip()
     notification = {"sent": False, "error": None}
-    if notify and tpl_name and ticket["contact_phone"]:
+    if notify and tpl_name and ticket["contact_phone"] and ticket.get("notifier_contact", True):   # lot 453 : désactivable par ticket
         comps = _ticket_components(number, motif=reason)
         try:
             wr = await _wa_send_template(
@@ -1056,6 +1065,11 @@ async def me_update_ticket(
                 update["motif_initial"] = ticket.get("motif") or ""
     if payload.notes is not None:
         update["notes"] = (payload.notes or "").strip()[:2000] or None
+    # Lot 453 — activer / désactiver les notifications WhatsApp du contact concerné et de son responsable
+    if payload.notifier_contact is not None:
+        update["notifier_contact"] = bool(payload.notifier_contact)
+    if payload.notifier_responsable is not None:
+        update["notifier_responsable"] = bool(payload.notifier_responsable)
     # 0-4 (2026-02) — Reassign ticket to a different client/tenant.
     # Restricted to elevated roles (admin/superviseur/moderateur).
     if payload.client_id is not None:

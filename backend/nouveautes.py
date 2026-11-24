@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "453", "date": "2026-11-24",
+        "titre": "⛔ Liste noire WhatsApp : contacts bloqués sur toutes les lignes",
+        "description": "Un contact bloqué (bouton « Bloquer » dans la liste du Centre de Messagerie, sans ouvrir la conversation) ne reçoit plus aucun message ni accusé distribué / lu, aucune réponse d'agent IA et n'est plus relayé ; liste visible ici seulement. Notifications WhatsApp des tickets et interventions désactivables par contact ou responsable.",
+        "rubrique": "⛔ Liste noire WhatsApp (contacts bloqués)",
+    },
+    {
         "lot": "452", "date": "2026-11-24",
         "titre": "🔗 Connexion par compte Google",
         "description": "Bouton « Se connecter avec Google » pour les comptes liés depuis « Mon compte » (le code de vérification reste demandé) ; client Google = celui de Google Agenda ; adresse de retour à déclarer et comptes liés dans les Paramètres.",

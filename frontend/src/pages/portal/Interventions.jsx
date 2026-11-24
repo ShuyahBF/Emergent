@@ -1,3 +1,4 @@
+import OptionsNotifWa from "@/components/OptionsNotifWa";   // Lot 453 : notifications WhatsApp désactivables
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -535,6 +536,8 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
     voice_note_transcript: "",
     reporter_name: "",
     reporter_contact_id: null,
+    notifier_contact: true,          // lot 453
+    notifier_responsable: true,
   });
   const [saving, setSaving] = useState(false);
 
@@ -560,6 +563,8 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
         voice_note_transcript: form.voice_note_transcript || null,
         reporter_name: form.reporter_name.trim(),
         reporter_contact_id: form.reporter_contact_id || null,
+        notifier_contact: form.notifier_contact !== false,          // lot 453
+        notifier_responsable: form.notifier_responsable !== false,
       };
       await apiClient.post("/me/interventions", payload);
       toast.success("Intervention créée");
@@ -595,6 +600,7 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
           onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
           onContactCreated={onContactCreated}
         />
+        <OptionsNotifWa contact={form.notifier_contact} responsable={form.notifier_responsable} onChange={(v) => setForm({ ...form, ...v })} />
 
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>
@@ -1018,6 +1024,8 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
     date_heure_fin: versDatetimeLocal(intervention.date_heure_fin),
     reporter_name: intervention.reporter_name || "",
     reporter_contact_id: intervention.reporter_contact_id || null,
+    notifier_contact: intervention.notifier_contact !== false,          // lot 453
+    notifier_responsable: intervention.notifier_responsable !== false,
   });
   const [saving, setSaving] = useState(false);
 
@@ -1039,6 +1047,8 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
           : Number(form.duration_hours),
         reporter_name: form.reporter_name.trim(),
         reporter_contact_id: form.reporter_contact_id || null,
+        notifier_contact: form.notifier_contact !== false,          // lot 453
+        notifier_responsable: form.notifier_responsable !== false,
         // Lot 286 : plage Début → Fin ("" = effacée, car la mise à jour ignore les valeurs nulles)
         date_heure_debut: form.date_heure_debut || "",
         date_heure_fin: form.date_heure_fin || "",
@@ -1086,6 +1096,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
           onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
           onContactCreated={onContactCreated}
         />
+        <OptionsNotifWa contact={form.notifier_contact} responsable={form.notifier_responsable} onChange={(v) => setForm({ ...form, ...v })} />
 
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>

@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 // verifierEtat=false (liste des contacts) : pas de lecture par ligne — le bouton reste « Bloquer » (idempotent) et passe à « Bloqué » après le blocage.
-export default function BoutonBloquerWa({ contact, compact = false, verifierEtat = true }) {
+export default function BoutonBloquerWa({ contact, compact = false, verifierEtat = true, onBloque = null }) {
   const { user } = useAuth();
   // Administrateur ET superviseur (le Centre de Messagerie est celui du superviseur) ; la liste et le déblocage restent dans les Paramètres (administrateur)
   const admin = ["admin", "super_admin", "superviseur"].includes(user?.role) || ["Administrateur", "Superviseur"].includes(user?.tracked_role);
@@ -37,6 +37,7 @@ export default function BoutonBloquerWa({ contact, compact = false, verifierEtat
     try {
       await apiClient.post("/me/wa/liste-noire", { telephone: numero, nom: contact?.name || "", contact_id: contact?.id || null, motif });
       setBloque(true); setOuvert(false); setMotif("");
+      if (onBloque) onBloque();           // la liste des contacts est relue : un contact bloqué n'y apparaît plus jusqu'à son déblocage
       toast.success("Contact bloqué sur toutes les lignes. Il se débloque dans Paramètres → Liste noire WhatsApp.");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Blocage impossible");

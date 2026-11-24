@@ -190,3 +190,14 @@ def test_le_superviseur_peut_bloquer_lister_et_debloquer(db):
     assert c.post("/api/me/wa/liste-noire", json={"telephone": "+22670999999"}).status_code == 200
     dep["fn"] = simple                                                           # un client ordinaire reste refusé
     assert c.post("/api/me/wa/liste-noire", json={"telephone": "+22670888888"}).status_code == 403
+
+
+def test_un_contact_bloque_disparait_de_la_liste_jusqu_au_deblocage(db):
+    contacts = [{"id": "a", "name": "AWA", "whatsapp": "+22670123456", "phone": ""},
+                {"id": "b", "name": "BOUBA", "whatsapp": "", "phone": "70 99 99 99"},
+                {"id": "c", "name": "CARINE", "whatsapp": "+22670555555", "phone": "70 12 34 56"}]    # téléphone = celui d'Awa
+    assert len(run(ln.sans_bloques(db, contacts))) == 3                      # liste vide : rien n'est retiré
+    run(ln.bloquer(db, "+22670123456"))
+    assert [c["id"] for c in run(ln.sans_bloques(db, contacts))] == ["b"]    # a (WhatsApp) et c (téléphone) correspondent
+    run(ln.debloquer(db, "70123456"))
+    assert len(run(ln.sans_bloques(db, contacts))) == 3                      # débloqué : il réapparaît

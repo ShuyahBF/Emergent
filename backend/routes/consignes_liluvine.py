@@ -115,18 +115,7 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
     async def masse_confirmer(payload: ConfirmationMasse, user: dict = Depends(get_current_user)):
         await _autoriser(user)
 
-        async def envoyeur(tel: str, texte: str) -> dict:
-            import server as srv
-            return await srv._wa_send_text(f"+{tel}", texte)
-
-        async def fenetre(tel: str) -> bool:
-            from routes.offre_client_rappels import fenetre_ouverte      # même règle de la fenêtre de 24 h que les rappels
-            return await fenetre_ouverte(tel)
-
-        async def modeleur(tel: str, nom: str, langue: str, valeurs: list) -> dict:
-            import server as srv
-            comp = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in valeurs]}]
-            return await srv._wa_send_template(f"+{tel}", nom, langue, comp)
+        envoyeur, fenetre, modeleur = cm.envoyeurs_serveur()
 
         try:
             lot = await cm.confirmer(db, payload.apercu_id, payload.empreinte, _par(user), envoyeur, fenetre, modeleur=modeleur)

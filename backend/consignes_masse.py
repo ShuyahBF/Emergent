@@ -85,13 +85,14 @@ async def _fiche(db) -> Dict[str, Any]:
     f = await db["settings"].find_one({"_id": ID_FICHE}) or {}
     f.setdefault("apercus", [])
     f.setdefault("lots", [])
+    f.setdefault("modele", {"nom": "", "langue": "fr"})
     return f
 
 
 async def _ecrire(db, fiche: Dict[str, Any]) -> None:
     fiche["apercus"] = fiche["apercus"][-10:]
     fiche["lots"] = fiche["lots"][-MAX_LOTS_GARDES:]
-    await db["settings"].update_one({"_id": ID_FICHE}, {"$set": {"apercus": fiche["apercus"], "lots": fiche["lots"]}}, upsert=True)
+    await db["settings"].update_one({"_id": ID_FICHE}, {"$set": {"apercus": fiche["apercus"], "lots": fiche["lots"], "modele": fiche["modele"]}}, upsert=True)
 
 
 async def apercu(db, message: str, du: Any, au: Any, par: str, instant: Optional[datetime] = None) -> Dict[str, Any]:
@@ -122,7 +123,7 @@ def masquer(tel: str) -> str:
     return tel[:3] + "*" * max(0, len(tel) - 5) + tel[-2:] if len(tel) > 5 else tel
 
 
-async def confirmer(db, identifiant: str, empreinte_vue: str, par: str, envoyeur, fenetre, instant: Optional[datetime] = None) -> Dict[str, Any]:
+async def confirmer(db, identifiant: str, empreinte_vue: str, par: str, envoyeur, fenetre, instant: Optional[datetime] = None, modeleur=None) -> Dict[str, Any]:
     """ÉTAPE 2 : la personne a vu l'aperçu et confirme. Vérifie (aperçu connu, non expiré, non déjà utilisé, empreinte identique), crée le lot puis lance l'envoi EN ARRIÈRE-PLAN.
     `envoyeur(tel, texte) -> dict{ok,error}` et `fenetre(tel) -> bool` sont injectés (tests sans réseau)."""
     instant = instant or datetime.now(timezone.utc)
@@ -138,22 +139,31 @@ async def confirmer(db, identifiant: str, empreinte_vue: str, par: str, envoyeur
         raise ValueError("L'aperçu a changé : relisez-le avant de confirmer")
     ap["utilise"] = True
     lot = {"id": ap["id"], "message": ap["message"], "du": ap["du"], "au": ap["au"], "par": par, "confirme_le": instant.isoformat(), "total": len(ap["destinataires"]),
-           "envoyes": 0, "hors_fenetre": 0, "echecs": 0, "termine": False, "details": []}
+           "envoyes": 0, "par_modele": 0, "hors_fenetre": 0, "echecs": 0, "termine": False, "details": []}
     f["lots"].append(lot)
     await _ecrire(db, f)
-    asyncio.get_event_loop().create_task(_envoyer_tout(db, ap, envoyeur, fenetre))      # règle 7 : jamais dans la requête
+    modele = f.get("modele") or {}
+    asyncio.get_event_loop().create_task(_envoyer_tout(db, ap, envoyeur, fenetre, modeleur if modele.get("nom") else None, modele))      # règle 7 : jamais dans la requête
     return {k: v for k, v in lot.items() if k != "details"}
 
 
-async def _envoyer_tout(db, ap: Dict[str, Any], envoyeur, fenetre) -> None:
+async def _envoyer_tout(db, ap: Dict[str, Any], envoyeur, fenetre, modeleur=None, modele: Optional[Dict[str, str]] = None) -> None:
     """Envoi message après message ; une panne sur un numéro n'arrête pas les autres. Résultat gardé dans le lot."""
-    compte = {"envoyes": 0, "hors_fenetre": 0, "echecs": 0}
+    compte = {"envoyes": 0, "par_modele": 0, "hors_fenetre": 0, "echecs": 0}
     details: List[Dict[str, str]] = []
     for d in ap["destinataires"]:
         try:
             if not await fenetre(d["telephone"]):
-                compte["hors_fenetre"] += 1
-                details.append({"tel": masquer(d["telephone"]), "etat": "non envoyé : hors fenêtre de 24 h (modèle Meta nécessaire)"})
+                if modeleur is None:                                  # pas de modèle réglé : jamais d'envoi forcé
+                    compte["hors_fenetre"] += 1
+                    details.append({"tel": masquer(d["telephone"]), "etat": "non envoyé : hors fenêtre de 24 h (aucun modèle Meta réglé)"})
+                    continue
+                r = await modeleur(d["telephone"], modele["nom"], modele.get("langue") or "fr", variables_modele(d["nom"], ap["message"]))
+                if r.get("ok"):
+                    compte["par_modele"] += 1
+                else:
+                    compte["echecs"] += 1
+                    details.append({"tel": masquer(d["telephone"]), "etat": "modèle : " + str(r.get("error") or "échec")[:110]})
                 continue
             r = await envoyeur(d["telephone"], ap["message"])
             if r.get("ok"):
@@ -172,6 +182,38 @@ async def _envoyer_tout(db, ap: Dict[str, Any], envoyeur, fenetre) -> None:
             lot["details"] = details[:50]
             lot["termine"] = True
     await _ecrire(db, f)
+
+
+# ---------------------------------------------------------------- modèle Meta pour les envois HORS fenêtre de 24 h
+MODELE_NOM = "information_rdv"
+MODELE_CORPS = "Bonjour {{1}}, une information concernant votre rendez-vous : {{2}} Merci de confirmer la bonne réception en appuyant sur le bouton ci-dessous."
+MODELE_BOUTON = "Bien reçu"
+
+
+def variables_modele(nom: str, message: str) -> List[str]:
+    """Valeurs {{1}} (nom) et {{2}} (message) du modèle : Meta refuse les retours à la ligne et les espaces répétés dans une variable."""
+    n = " ".join(str(nom or "").split())[:60] or "cher client"
+    m = " ".join(str(message or "").split())[:900]
+    return [n, m]
+
+
+async def lire_modele(db) -> Dict[str, str]:
+    return dict((await _fiche(db))["modele"])
+
+
+async def regler_modele(db, nom: Any, langue: Any) -> Dict[str, str]:
+    """Nom du modèle approuvé par Meta (minuscules, chiffres, _) et sa langue ; vide = pas de modèle (les contacts hors fenêtre restent « non envoyé »)."""
+    import re
+    n = str(nom or "").strip().lower()
+    l = str(langue or "fr").strip() or "fr"
+    if n and not re.fullmatch(r"[a-z0-9_]{1,512}", n):
+        raise ValueError("Nom du modèle : lettres minuscules, chiffres et _ seulement")
+    if not re.fullmatch(r"[a-z]{2}(_[A-Za-z]{2})?", l):
+        raise ValueError("Langue du modèle : « fr » par exemple")
+    f = await _fiche(db)
+    f["modele"] = {"nom": n, "langue": l}
+    await _ecrire(db, f)
+    return f["modele"]
 
 
 async def lots(db) -> List[Dict[str, Any]]:

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "456"
-LOT_LIBELLE = "Consignes à Liluvine : envois en masse confirmés (aperçu des destinataires, confirmation, envoi en arrière-plan)."
+LOT = "456.1"
+LOT_LIBELLE = "Envois en masse : modèle Meta « Bien reçu » pour les contacts hors fenêtre de 24 h et suivi des envois dans l'écran Consignes."

@@ -77,3 +77,36 @@ def test_apercu_expire(db):
     ap = run(cm.apercu(db, "Votre RDV est décalé d'une heure.", "2026-11-25", "2026-11-25", "admin"))
     with pytest.raises(ValueError):
         run(cm.confirmer(db, ap["id"], ap["empreinte"], "admin", None, None, instant=datetime.now(timezone.utc) + timedelta(minutes=30)))
+
+
+def test_hors_fenetre_avec_modele_envoie_le_modele(db):
+    run(cm.regler_modele(db, "information_rdv", "fr"))
+    ap = run(cm.apercu(db, "Votre RDV est décalé d'une heure.", "2026-11-25", "2026-11-25", "admin"))
+    modeles = []
+
+    async def envoyeur(tel, texte):
+        return {"ok": True}
+
+    async def fenetre(tel):
+        return False
+
+    async def modeleur(tel, nom, langue, valeurs):
+        modeles.append((tel, nom, valeurs))
+        return {"ok": True}
+
+    async def scenario():
+        await cm.confirmer(db, ap["id"], ap["empreinte"], "admin", envoyeur, fenetre, modeleur=modeleur)
+        await asyncio.sleep(1.2)
+
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(scenario())
+    assert [m[1] for m in modeles] == ["information_rdv", "information_rdv"]
+    assert modeles[0][2] == ["A", "Votre RDV est décalé d'une heure."]
+    final = loop.run_until_complete(cm.lots(db))[0]
+    assert final["par_modele"] == 2 and final["hors_fenetre"] == 0
+
+
+def test_nom_de_modele_controle(db):
+    with pytest.raises(ValueError):
+        run(cm.regler_modele(db, "Nom Avec Espaces", "fr"))
+    assert cm.variables_modele("", "a\n  b") == ["cher client", "a b"]

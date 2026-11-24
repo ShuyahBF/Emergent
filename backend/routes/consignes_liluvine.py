@@ -43,6 +43,11 @@ class ConfirmationMasse(BaseModel):
     empreinte: str = Field(min_length=8, max_length=64)       # celle de l'aperçu que la personne a VU
 
 
+class ModeleMasse(BaseModel):
+    nom: str = Field(default="", max_length=120)
+    langue: str = Field(default="fr", max_length=10)
+
+
 class ListeAcces(BaseModel):
     acces: List[Any] = Field(default_factory=list)
 
@@ -118,11 +123,32 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
             from routes.offre_client_rappels import fenetre_ouverte      # même règle de la fenêtre de 24 h que les rappels
             return await fenetre_ouverte(tel)
 
+        async def modeleur(tel: str, nom: str, langue: str, valeurs: list) -> dict:
+            import server as srv
+            comp = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in valeurs]}]
+            return await srv._wa_send_template(f"+{tel}", nom, langue, comp)
+
         try:
-            lot = await cm.confirmer(db, payload.apercu_id, payload.empreinte, _par(user), envoyeur, fenetre)
+            lot = await cm.confirmer(db, payload.apercu_id, payload.empreinte, _par(user), envoyeur, fenetre, modeleur=modeleur)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return {"ok": True, "lot": lot}
+
+    @api.get("/admin/liluvine-consignes/masse/modele", tags=["Liluvine — consignes"])
+    async def masse_modele(user: dict = Depends(get_current_user)):
+        """Modèle Meta réglé + le texte à SOUMETTRE à Meta (nom, catégorie, corps, bouton « Bien reçu »)."""
+        await _autoriser(user)
+        return {"modele": await cm.lire_modele(db), "a_soumettre": {"nom": cm.MODELE_NOM, "categorie": "UTILITY", "langue": "fr", "corps": cm.MODELE_CORPS, "bouton": cm.MODELE_BOUTON,
+                "exemples": ["Awa", "Votre rendez-vous de demain est décalé d'une heure."]}}
+
+    @api.put("/admin/liluvine-consignes/masse/modele", tags=["Liluvine — consignes"])
+    async def masse_regler_modele(payload: ModeleMasse, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            return {"ok": True, "modele": await cm.regler_modele(db, payload.nom, payload.langue)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     @api.get("/admin/liluvine-consignes/masse/envois", tags=["Liluvine — consignes"])
     async def masse_envois(user: dict = Depends(get_current_user)):

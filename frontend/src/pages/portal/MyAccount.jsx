@@ -10,6 +10,7 @@ import TenantKycSection from "@/pages/portal/sections/TenantKycSection";
 import SmartCommunicationsTenantSection from "@/pages/portal/sections/SmartCommunicationsTenantSection";
 // Lot 50 — sessions actives (limite d'appareils) et date de la dernière sauvegarde
 import SessionsActivesSection from "@/pages/portal/sections/SessionsActivesSection";
+import GoogleSection from "@/pages/portal/sections/GoogleSection";   // connexion par Google
 import PasskeysSection from "@/pages/portal/sections/PasskeysSection";   // lot 369 : connexion par empreinte
 import DerniereSauvegarde from "@/components/DerniereSauvegarde";
 
@@ -382,6 +383,7 @@ export default function MyAccount() {
 
           {/* Lot 50 — appareils connectés au compte et dernière sauvegarde générale */}
           <PasskeysSection />
+          <GoogleSection />
           <SessionsActivesSection />
           <DerniereSauvegarde variante="carte" />
 

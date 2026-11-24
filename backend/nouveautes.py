@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "452", "date": "2026-11-24",
+        "titre": "🔗 Connexion par compte Google",
+        "description": "Bouton « Se connecter avec Google » pour les comptes liés depuis « Mon compte » (le code de vérification reste demandé) ; client Google = celui de Google Agenda ; adresse de retour à déclarer et comptes liés dans les Paramètres.",
+        "rubrique": "🔗 Connexion par compte Google",
+    },
+    {
         "lot": "451.3", "date": "2026-11-23",
         "titre": "⌨️ Curseur qui ne saute plus dans tous les champs en majuscules",
         "description": "Les 20 autres champs saisis en majuscules (devises, codes coupon et téléphone, pays, motifs et étiquettes de tickets, nom d'officine, initiales…) gardent le curseur en place quand on corrige au milieu du texte.",

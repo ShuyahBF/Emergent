@@ -65,6 +65,7 @@ import StatusPage from "@/pages/public/Status";
 
 // Auth
 import Login from "@/pages/auth/Login";
+import ConnexionGoogle from "@/pages/auth/ConnexionGoogle";   // retour de Google
 
 // Portal
 import ClientDashboard from "@/pages/portal/Dashboard";
@@ -375,6 +376,7 @@ export default function App() {
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />
+          <Route path="/connexion-google" element={<ConnexionGoogle />} />
 
           {/* Iter42 — Self-Service Portal pour Officines (entité indépendante,
               JWT séparé, ne passe PAS par /portal ni /admin) */}

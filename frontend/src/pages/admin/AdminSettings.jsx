@@ -8,6 +8,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
+import GoogleConnexionAdminSection from "@/pages/admin/sections/GoogleConnexionAdminSection";   // Lot 452
 import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
 import AgentBioAdminSection from "@/pages/admin/sections/AgentBioAdminSection";   // Lot 370
 import { toast } from "sonner";
@@ -144,6 +145,7 @@ const NEW_LOTS = {
   "👪 Ma famille (Personnel de maison)": "379",   // lot 379 : comptes famille, liens vérifiés, messagerie chiffrée
   "🔔 Rappels vocaux Alexa (annonces programmées)": "375",   // lot 374 ; lot 375 : déplacé dans la page Automations (état ici)
   "🖐️ Agent biométrique Loois (postes partagés)": "370",   // lot 370 : agent biométrique Loois pour les postes partagés
+  "🔗 Connexion par compte Google": "452",   // lot 452 : connexion par compte Google (liaison, code de vérification conservé)
   "🔐 Connexion par empreinte digitale (passkeys)": "369",   // lot 369 : passkeys WebAuthn, activées par l'administrateur
   "📲 Application Android d'administration": "243",   // lot 243 : administration installable comme application Android (PWABuilder), bouton d'installation
   "🎓 Portail e-Kol (élèves et parents)": "134",   // lot 134 : export signé des tables e-Kol vers le portail élèves et parents
@@ -221,6 +223,7 @@ const NEW_SECTIONS = {
   "👪 Ma famille (Personnel de maison)": "2026-11-13",   // lot 379
   "🔔 Rappels vocaux Alexa (annonces programmées)": "2026-11-12",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "2026-11-04",   // lot 370
+  "🔗 Connexion par compte Google": "2026-11-24",   // lot 452
   "🔐 Connexion par empreinte digitale (passkeys)": "2026-11-04",   // lot 369
   "📲 Application Android d'administration": "2026-10-18",   // lot 243
   "🎓 Portail e-Kol (élèves et parents)": "2026-10-12",   // lot 134
@@ -342,6 +345,7 @@ const NEW_DESCRIPTIONS = {
   "👪 Ma famille (Personnel de maison)": "Application Personnel de maison : « Ma famille » relie les téléphones d'une famille (liens vérifiés par numéro de sécurité) avec une messagerie chiffrée de bout en bout ; état des comptes, liens et messages (lot 379).",
   "🔔 Rappels vocaux Alexa (annonces programmées)": "Alexa annonce une phrase à une date, avant un rendez-vous ou à l'arrivée d'un message ; programmation et tests dans la page Automations (lot 375).",   // lot 374
   "🖐️ Agent biométrique Loois (postes partagés)": "Connexion d'un doigt sur un poste partagé : l'agent du poste reconnaît la personne parmi celles enrôlées dans Loois et remet à SAWALI une attestation signée ; agents, comptes liés, activation (lot 370).",
+  "🔗 Connexion par compte Google": "Se connecter avec son compte Google (comptes déjà liés depuis « Mon compte ») ; le code de vérification reste demandé ; client Google = celui de Google Agenda ; adresse de retour à déclarer et comptes liés ici (lot 452).",   // lot 452
   "🔐 Connexion par empreinte digitale (passkeys)": "Connexion d'un doigt (lecteur d'empreintes avec Windows Hello, téléphone, clé de sécurité) : l'empreinte reste sur l'appareil, SAWALI ne reçoit qu'une signature ; activation, domaine, comptes et révocation (lot 369).",
   "📲 Application Android d'administration": "L'administration s'installe comme une application (icône « SAWALI Admin ») et se transforme en APK avec PWABuilder ; bouton d'installation et état ici (lot 243).",
   "🎓 Portail e-Kol (élèves et parents)": "Le portail e-Kol lit les tables e-Kol synchronisées par Loois (liaison signée) ; état de la clé et des tables par école (lot 134).",
@@ -1564,6 +1568,11 @@ export default function AdminSettings() {
         <Cadre title="💳 Paiement des formulaires et sondages — moyens actifs (PawaPay, Orange, Moov, Telecel, PI-SPI)">
           <PaiementFormulairesSection />
         </Cadre>
+      </Filterable>
+
+      {/* Lot 452 — connexion par compte Google : état du client, adresse de retour à déclarer chez Google, comptes liés */}
+      <Filterable title="🔗 Connexion par compte Google" anchorId="s-google-connexion" category="auth">
+        <GoogleConnexionAdminSection />
       </Filterable>
 
       {/* Lot 369 — connexion par empreinte digitale (passkeys / WebAuthn) : activation, domaine, comptes, révocation */}

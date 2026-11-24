@@ -297,3 +297,10 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 
 - Lot 451.3 (23/11/2026) : les 20 autres champs en majuscules de l'application (devises, codes coupon, codes téléphone TV, pays, motifs et étiquettes de tickets, nom d'officine, initiales de suivi de RDV…) utilisent aussi `saisieMajuscules` : plus aucun `e.target.value.toUpperCase()` dans un `onChange`.
   Tout NOUVEAU champ saisi en majuscules utilise `saisieMajuscules` dès sa création.
+
+## Connexion par compte Google (lot 452, propriétaire 24/11/2026)
+- Flux OpenID Connect « à code » serveur → Google → serveur (`backend/google_auth.py` logique pure, `backend/routes/google_connexion.py`, test `backend/tests/test_google_connexion.py`, aucun accès réseau) ; routes `/api/auth/google/{config,demarrer,lier-url,retour,echange,etat,delier}` et `/api/admin/google-connexion` (admin).
+- SÉCURITÉ : aucun compte n'est créé ni rapproché par e-mail ; seul un compte DÉJÀ LIÉ (« Mon compte » → Compte Google, connecté) ouvre une session par Google ; une identité Google = un seul compte (index `google.sub`). Google remplace le mot de passe, PAS le code de vérification : `/auth/google/echange` rend la réponse de `/auth/login` (`_emettre_otp`, extrait de `routes/auth.py`) puis `/auth/verify-otp` ouvre la session ; `_controles_connexion` (statut du compte, maintenance, cycle de vie, IP bloquée) s'applique.
+- Client Google : le MÊME que Google Agenda (`google_client_id` / `google_client_secret` des Paramètres, ou GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) ; il reste à déclarer chez Google l'adresse de retour `https://<api>/api/auth/google/retour` (affichée et copiable dans Paramètres → « 🔗 Connexion par compte Google », avec le nombre de comptes liés). GOOGLE_RETOUR_SITE / GOOGLE_REDIRECT_URI : réglages facultatifs.
+- Site : `lib/googleConnexion.js`, `pages/auth/ConnexionGoogle.jsx` (route `/connexion-google`, renvoie à `/login` à l'étape « code »), `pages/portal/sections/GoogleSection.jsx`, `pages/admin/sections/GoogleConnexionAdminSection.jsx`.
+- Modèles Pydantic des routes : au NIVEAU DU MODULE (FastAPI ne retrouve pas ceux déclarés dans une fonction : 422).

@@ -118,20 +118,9 @@ def attach_auth_routes(
         if ip:
             await connexions_ip.refuser_si_bloquee(user, request, methode)
 
-    @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
-    async def auth_login(payload: LoginRequest, request: Request):
-        user = await db.users.find_one({"email": payload.email.lower()})
-        # Lot 26 : bcrypt (~0,25 s) calculé dans un thread, sans figer le serveur
-        # Lot 51 : une fiche archivée n'a plus de mot de passe (`password_hash` vide ou absent)
-        if not user or not await asyncio.to_thread(verify_password, payload.password, user.get("password_hash") or ""):
-            # Lot 55 — tentative refusée notée pour un compte existant (jamais pour un e-mail inconnu)
-            await connexions_ip.noter(user, request, connexions_ip.MOT_DE_PASSE, connexions_ip.REFUSEE,
-                                      "Mot de passe incorrect")
-            raise HTTPException(status_code=401, detail="Identifiants invalides")
-        await _controles_connexion(user, request, connexions_ip.MOT_DE_PASSE)
-        captcha = await verify_recaptcha(payload.captcha_token, request=request)
-        if not captcha["success"]:
-            raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
+    async def _emettre_otp(user: dict) -> LoginResponse:
+        """Crée le code de vérification (10 minutes), l'envoie par e-mail (ou l'affiche pour un compte interne) et rend la réponse de /auth/login.
+        Commun au mot de passe et à la connexion par Google."""
         code = generate_otp()
         session = generate_session_token()
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
@@ -165,6 +154,22 @@ def attach_auth_routes(
                 else "Service e-mail indisponible : code OTP affiché ci-dessous (à usage unique)."
             )
         return LoginResponse(needs_otp=True, session_token=session, message=msg, dev_otp=dev_otp)
+
+    @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
+    async def auth_login(payload: LoginRequest, request: Request):
+        user = await db.users.find_one({"email": payload.email.lower()})
+        # Lot 26 : bcrypt (~0,25 s) calculé dans un thread, sans figer le serveur
+        # Lot 51 : une fiche archivée n'a plus de mot de passe (`password_hash` vide ou absent)
+        if not user or not await asyncio.to_thread(verify_password, payload.password, user.get("password_hash") or ""):
+            # Lot 55 — tentative refusée notée pour un compte existant (jamais pour un e-mail inconnu)
+            await connexions_ip.noter(user, request, connexions_ip.MOT_DE_PASSE, connexions_ip.REFUSEE,
+                                      "Mot de passe incorrect")
+            raise HTTPException(status_code=401, detail="Identifiants invalides")
+        await _controles_connexion(user, request, connexions_ip.MOT_DE_PASSE)
+        captcha = await verify_recaptcha(payload.captcha_token, request=request)
+        if not captcha["success"]:
+            raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
+        return await _emettre_otp(user)
 
     @api.post("/auth/verify-otp", response_model=AuthTokenResponse, tags=["Authentification"])
     async def auth_verify_otp(payload: OtpVerifyRequest, request: Request):
@@ -263,6 +268,12 @@ def attach_auth_routes(
             "enabled": bool(s.get("recaptcha_enabled") and s.get("recaptcha_site_key")),
             "site_key": s.get("recaptcha_site_key") or None,
         }
+
+    # Connexion par compte Google : mêmes contrôles et même code de vérification que le mot de passe
+    from routes.google_connexion import attach_google_routes  # noqa: E402
+
+    attach_google_routes(api, db=db, helpers={"get_current_user": get_current_user, "verify_password": verify_password,
+                                               "emettre_otp": _emettre_otp, "controles_connexion": _controles_connexion})
 
 
 __all__ = ["attach_auth_routes"]

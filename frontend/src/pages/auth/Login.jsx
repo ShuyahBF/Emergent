@@ -1,11 +1,12 @@
 import { ArrowLeft as Ico15ArrowLeft, Pencil as Ico15Pencil, X as Ico15X } from "lucide-react";
 import React, { useEffect, useState, useRef } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone, Fingerprint } from "lucide-react";
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
 import { apiClient, lireMotifDeconnexion } from "@/lib/api";
 import { connexionParPasskey, messageErreurPasskey, passkeysActivees, passkeysSupportees } from "@/lib/passkeys";   // lot 369
 import { agentBioActive, connexionParAgent, messageErreurAgent } from "@/lib/agentBio";   // lot 370
+import { googleDisponible, urlConnexionGoogle } from "@/lib/googleConnexion";   // connexion par Google
 import { AvisMaintenance } from "@/components/MaintenancePlateforme";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -34,6 +35,14 @@ export default function Login() {
   const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
   // Lot 369 — connexion par empreinte digitale (passkeys) : bouton affiché seulement si l'administrateur l'a activée et si le navigateur la gère
+  // Connexion par Google : bouton affiché si le serveur est configuré ; au retour de Google, le code de vérification est demandé (état « otp » transmis par /connexion-google)
+  const location = useLocation();
+  const [googleDispo, setGoogleDispo] = useState(false);
+  useEffect(() => { googleDisponible().then(setGoogleDispo); }, []);
+  useEffect(() => {
+    const o = location.state?.otp;
+    if (o?.session_token) { setSession(o.session_token); setDevOtp(o.dev_otp || null); setLoginMsg(o.message || null); setStep("otp"); }
+  }, [location.state]);
   const [empreinteDispo, setEmpreinteDispo] = useState(false);
   useEffect(() => {
     if (passkeysSupportees()) passkeysActivees().then(setEmpreinteDispo);
@@ -324,6 +333,14 @@ export default function Login() {
                     Se connecter
                   </button>
                 </form>
+                {googleDispo && (
+                  <button type="button" disabled={loading} onClick={() => { window.location.href = urlConnexionGoogle(); }}
+                    className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 px-4 py-2.5 text-sm font-medium transition disabled:opacity-60"
+                    data-testid="login-google-button">
+                    <svg viewBox="0 0 48 48" className="h-4 w-4" aria-hidden="true"><path fill="#4285F4" d="M45 24.5c0-1.6-.1-2.7-.4-3.9H24v7.3h12c-.2 1.8-1.5 4.5-4.4 6.3l-.1.5 6.4 5 .4.1C43 35.9 45 30.7 45 24.5z"/><path fill="#34A853" d="M24 46c5.9 0 10.8-1.9 14.4-5.3l-6.9-5.4c-1.8 1.3-4.3 2.2-7.5 2.2-5.7 0-10.6-3.8-12.3-9.1l-.3 0-6.6 5.1-.1.2C8.6 41.6 15.7 46 24 46z"/><path fill="#FBBC05" d="M11.7 28.4c-.4-1.3-.7-2.7-.7-4.4s.3-3.1.7-4.4l-.1-.3-6.7-5.2-.2.1C3.3 17 2.5 20.4 2.5 24s.8 7 2.2 9.8l7-5.4z"/><path fill="#EA4335" d="M24 10.5c4.1 0 6.8 1.8 8.4 3.2l6.1-6C34.8 4.4 29.9 2 24 2 15.7 2 8.6 6.4 5 13.3l7.7 6c1.8-5.3 6.7-8.8 11.3-8.8z"/></svg>
+                    Se connecter avec Google
+                  </button>
+                )}
                 {/* Lot 369 — Alternative : empreinte digitale (passkey), sans mot de passe ni code */}
                 {empreinteDispo && (
                   <button

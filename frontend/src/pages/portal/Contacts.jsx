@@ -292,6 +292,13 @@ function ContactsListe() {
     } catch { /* noop */ }
   };
 
+  // Lot 453.3 — un contact bloqué (depuis l'en-tête d'une conversation) disparaît de la liste tout de suite
+  useEffect(() => {
+    const relire = () => load(true);
+    window.addEventListener("sawali:contacts-reload", relire);
+    return () => window.removeEventListener("sawali:contacts-reload", relire);
+  }, []);                                                                         // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     load();
     loadUnread();
@@ -983,7 +990,7 @@ const ContactRow = ({ c, onReload, onPatch, onEdit, onWa, onSms, onSchedule, onH
       <td className="px-2 py-2 text-right whitespace-nowrap">
         <div className="inline-flex gap-1 items-center">
           {/* Lot 453 — bloquer ce contact (liste noire WhatsApp) SANS ouvrir sa conversation */}
-          <BoutonBloquerWa contact={c} compact verifierEtat={false} />
+          <BoutonBloquerWa contact={c} compact verifierEtat={false} onBloque={onReload} />
           {/* Lot 23 — marquer / démarquer comme prospect (auto-réponse Liluvine dédiée) */}
           <button
             onClick={toggleProspect}
@@ -2554,7 +2561,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             {/* Lot 67 — alerte du propriétaire à chaque message de ce client (activée par défaut), en pictogramme cloche */}
             <ToggleAlerteProprietaire contact={contact} compact />
             {/* Lot 453 — liste noire WhatsApp : bloquer ce contact sur toutes les lignes (administrateur) */}
-            <BoutonBloquerWa contact={contact} compact />
+            <BoutonBloquerWa contact={contact} compact onBloque={() => window.dispatchEvent(new Event("sawali:contacts-reload"))} />
             {/* Lot 60 — journal des appels de ce contact (durées) */}
             {(contact.whatsapp || contact.phone) && (
               <button

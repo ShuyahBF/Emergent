@@ -62,6 +62,18 @@ async def est_bloque(db, numero: Any) -> bool:
         return False
 
 
+async def sans_bloques(db, contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Retire d'une liste de contacts (fiches du Centre de Messagerie) ceux dont le numéro WhatsApp ou téléphone est en liste noire :
+    un contact bloqué disparaît de la liste des conversations jusqu'à son déblocage. Ne lève jamais d'exception (liste intacte si la lecture échoue)."""
+    try:
+        cles = await cles_bloquees(db)
+    except Exception:  # noqa: BLE001
+        return contacts
+    if not cles:
+        return contacts
+    return [c for c in contacts if not ({cle_numero(c.get("whatsapp")), cle_numero(c.get("phone"))} & cles)]
+
+
 async def lister(db) -> List[Dict[str, Any]]:
     return sorted(await _charger(db), key=lambda e: e.get("bloque_le") or "", reverse=True)
 

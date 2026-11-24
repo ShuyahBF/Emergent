@@ -216,6 +216,24 @@ async def regler_modele(db, nom: Any, langue: Any) -> Dict[str, str]:
     return f["modele"]
 
 
+def envoyeurs_serveur():
+    """Les 3 fonctions réelles d'envoi (texte libre, test de fenêtre de 24 h, modèle Meta) : utilisées par l'écran ET par les consignes données par WhatsApp."""
+    async def envoyeur(tel: str, texte: str) -> dict:
+        import server as srv
+        return await srv._wa_send_text(f"+{tel}", texte)
+
+    async def fenetre(tel: str) -> bool:
+        from routes.offre_client_rappels import fenetre_ouverte      # même règle de la fenêtre de 24 h que les rappels
+        return await fenetre_ouverte(tel)
+
+    async def modeleur(tel: str, nom: str, langue: str, valeurs: list) -> dict:
+        import server as srv
+        comp = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in valeurs]}]
+        return await srv._wa_send_template(f"+{tel}", nom, langue, comp)
+
+    return envoyeur, fenetre, modeleur
+
+
 async def lots(db) -> List[Dict[str, Any]]:
     """Derniers envois (le plus récent d'abord)."""
     return list(reversed((await _fiche(db))["lots"]))

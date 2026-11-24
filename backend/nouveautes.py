@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "457", "date": "2026-11-24",
+        "titre": "💬 Consignes à Liluvine par WhatsApp",
+        "description": "Un numéro autorisé ici peut écrire « consigne : … » à Liluvine : elle répond par ce qu'elle a compris et n'active qu'après un « OUI ». Un envoi en masse demande deux « OUI » (liste puis envoi). Un numéro lié à un client ne peut pas faire d'envoi en masse.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "456.1", "date": "2026-11-24",
         "titre": "📣 Envois en masse : modèle Meta « Bien reçu » et suivi des envois",
         "description": "Le texte du modèle à soumettre à Meta (avec le bouton « Bien reçu ») est affiché ici ; une fois approuvé, saisissez son nom : les contacts hors fenêtre de 24 h le reçoivent. Le suivi des envois (texte libre, modèle, non envoyés, échecs) est dans l'écran Consignes.",

@@ -528,6 +528,18 @@ async def autoreply_to_inbound(
             logger.warning("[wa_autoreply] copie dans le fil échouée (%s)", command, exc_info=True)
         return res
 
+    # Lot 457 — consignes à Liluvine données PAR WHATSAPP : seul un numéro autorisé par l'administrateur, et seulement avec « consigne… » ou en réponse OUI / NON à une
+    # proposition récente ; rien n'est activé ni envoyé sans confirmation. Toute autre phrase suit le traitement habituel.
+    if (inbound_doc.get("message_type") or "text") == "text":
+        try:
+            import consignes_whatsapp
+            rep_consigne = await consignes_whatsapp.traiter(db, phone_digits, text)
+            if rep_consigne:
+                await _send_mirrored(from_num, rep_consigne, "consigne_whatsapp")
+                return {"ok": True, "reason": "consigne_whatsapp", "autoreply": True}
+        except Exception as exc:  # noqa: BLE001 — une panne ici ne doit jamais bloquer la réponse habituelle
+            logger.warning("[wa_autoreply] consignes par WhatsApp échouées : %s", exc)
+
     # Lot 287 — un patient qui répond à un rappel de RDV (demande de report…) reçoit le message réglé pour la
     # clinique (code_clinique) de SON rendez-vous ; sans réglage ou sans rappel récent, le traitement habituel continue.
     if not text.startswith(("!", "/")):

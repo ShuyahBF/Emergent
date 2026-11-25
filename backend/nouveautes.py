@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "458", "date": "2026-11-25",
+        "titre": "📡 Commande HFSQL distante via Liluvine",
+        "description": "Un numéro autorisé écrit « hfsql docx=CMC SELECT … » à Liluvine : une machine du client exécute la commande et la réponse (zone, base, commande, résultat du moteur HFSQL) revient sur WhatsApp. Une modification demande « OUI ». Numéros, zones permises et journal se règlent ici.",
+        "rubrique": "📡 Commande HFSQL distante via Liluvine",
+    },
+    {
         "lot": "457", "date": "2026-11-24",
         "titre": "💬 Consignes à Liluvine par WhatsApp",
         "description": "Un numéro autorisé ici peut écrire « consigne : … » à Liluvine : elle répond par ce qu'elle a compris et n'active qu'après un « OUI ». Un envoi en masse demande deux « OUI » (liste puis envoi). Un numéro lié à un client ne peut pas faire d'envoi en masse.",

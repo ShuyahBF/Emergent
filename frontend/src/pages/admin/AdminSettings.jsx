@@ -10,6 +10,7 @@ import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import ListeNoireWaAdminSection from "@/pages/admin/sections/ListeNoireWaAdminSection";   // Lot 453
 import ConsignesLiluvineAccesSection from "@/pages/admin/sections/ConsignesLiluvineAccesSection";   // Lot 454
+import CommandeHfsqlLiluvineSection from "@/pages/admin/sections/CommandeHfsqlLiluvineSection";   // Lot 458
 import GoogleConnexionAdminSection from "@/pages/admin/sections/GoogleConnexionAdminSection";   // Lot 452
 import PasskeysAdminSection from "@/pages/admin/sections/PasskeysAdminSection";   // Lot 369
 import AgentBioAdminSection from "@/pages/admin/sections/AgentBioAdminSection";   // Lot 370
@@ -1579,6 +1580,13 @@ export default function AdminSettings() {
       <Filterable title="💬 Consignes à Liluvine — numéros WhatsApp autorisés" anchorId="s-consignes-liluvine" category="comms">
         <Cadre title="💬 Consignes à Liluvine — numéros WhatsApp autorisés">
           <ConsignesLiluvineAccesSection />
+        </Cadre>
+      </Filterable>
+
+      {/* Lot 458 — Commande HFSQL distante via Liluvine : numéros autorisés (administrateur seul) et journal */}
+      <Filterable title="📡 Commande HFSQL distante via Liluvine" anchorId="s-commande-hfsql-liluvine" category="comms">
+        <Cadre title="📡 Commande HFSQL distante via Liluvine">
+          <CommandeHfsqlLiluvineSection />
         </Cadre>
       </Filterable>
 

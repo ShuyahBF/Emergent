@@ -36,6 +36,10 @@ from fastapi import Request, Response  # au niveau du module : les annotations d
 
 logger = logging.getLogger("sawali.loois_sql_distant")
 
+# Lot 458 : fonctions INTERNES (dépôt, détail, clients en ligne) rendues disponibles aux autres modules du serveur (Commande HFSQL distante via Liluvine) : sans elles,
+# Liluvine devrait passer par la clé « SQL à distance » ; ici elle utilise la même file, les mêmes contrôles (`verifier`) et les mêmes machines.
+INTERNE: Dict[str, Any] = {}
+
 ID_DOC = "sql_distant"
 ID_INTERDITES = "sql_distant_interdites"   # lot 447 : machines INTERDITES par client (même collection, autre document : aucune nouvelle collection)
 MACHINES_INTERDITES_MAX = 100              # par client
@@ -447,6 +451,8 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
         if r.get("ephemere") and r.get("etat") in ("terminee", "echec") and r.get("lignes"):
             await db.loois_reglages.update_one({"id": ID_DOC, "requetes.id": requete_id}, {"$set": {"requetes.$.lignes": []}})
         return vue
+
+    INTERNE.update(creer=_creer_impl, detail=_detail_impl, clients=_clients_impl)      # lot 458 : utilisés par `commande_hfsql_wa`
 
     # ----------------------------------------------------------------- routes avec la clé « SQL à distance » (Loois sous Windows)
     @api.get("/loois-sql/clients", tags=["Loois SQL à distance"])

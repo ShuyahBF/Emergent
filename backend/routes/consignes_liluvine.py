@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import consignes_liluvine as cl
+import commande_hfsql_wa as chw
 import consignes_masse as cm
 from routes.liluvine_partage import est_admin, verifier_element
 
@@ -143,6 +144,19 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
     async def masse_envois(user: dict = Depends(get_current_user)):
         await _autoriser(user)
         return {"envois": await cm.lots(db)}
+
+    # ---- Lot 458 : Commande HFSQL distante via Liluvine — numéros autorisés (ADMINISTRATEUR SEUL : touche des données réelles) et journal
+    @api.get("/admin/liluvine-hfsql-acces", tags=["Liluvine — consignes"])
+    async def hfsql_acces(user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        return {"acces": await chw.lister_acces(db), "maximum": chw.MAX_ACCES, "journal": (await chw.journal(db))[:50]}
+
+    @api.put("/admin/liluvine-hfsql-acces", tags=["Liluvine — consignes"])
+    async def hfsql_regler_acces(payload: ListeAcces, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        return {"ok": True, "acces": await chw.enregistrer_acces(db, payload.acces)}
 
     @api.get("/admin/liluvine-consignes-acces", tags=["Liluvine — consignes"])
     async def acces(user: dict = Depends(get_current_user)):

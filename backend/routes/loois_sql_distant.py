@@ -469,6 +469,35 @@ def setup_loois_sql_distant_routes(*, db, api, get_current_user=None, identifier
             raise HTTPException(status_code=422, detail="corps JSON attendu")
         return await _creer_impl(corps, _ip(request))
 
+    # ---- Lot 459 : raccourcis de commandes avec paramètres {nom} (créés depuis l'historique de Loois, lancés par WhatsApp via Liluvine)
+    @api.get("/loois-sql/raccourcis", tags=["Loois SQL à distance"])
+    async def raccourcis_lire(request: Request):
+        _proprietaire(request)
+        import raccourcis_hfsql as rh
+        return {"raccourcis": await rh.lister(db), "maximum": rh.MAX_RACCOURCIS}
+
+    @api.post("/loois-sql/raccourcis", tags=["Loois SQL à distance"], status_code=201)
+    async def raccourcis_creer(request: Request):
+        _proprietaire(request)
+        import raccourcis_hfsql as rh
+        try:
+            corps = await request.json()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail="corps JSON attendu")
+        try:
+            fiche = await rh.creer(db, (corps or {}).get("nom"), (corps or {}).get("sql"), (corps or {}).get("zone") or "", bool((corps or {}).get("confirmer")), "Loois")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"raccourci": fiche}
+
+    @api.delete("/loois-sql/raccourcis/{identifiant}", tags=["Loois SQL à distance"])
+    async def raccourcis_supprimer(identifiant: str, request: Request):
+        _proprietaire(request)
+        import raccourcis_hfsql as rh
+        if not await rh.supprimer(db, identifiant):
+            raise HTTPException(status_code=404, detail="Raccourci introuvable.")
+        return {"ok": True}
+
     @api.get("/loois-sql/requetes", tags=["Loois SQL à distance"])
     async def historique(request: Request):
         _proprietaire(request)

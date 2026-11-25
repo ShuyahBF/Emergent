@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "459", "date": "2026-11-25",
+        "titre": "⭐ Raccourcis de commandes HFSQL avec paramètres",
+        "description": "Une commande SQL distante réussie devient un raccourci : les valeurs qui changent s'écrivent {NomParametre}. Par WhatsApp, « hfsql 1 » lance le raccourci, Liluvine demande chaque valeur dans l'ordre, exécute et renvoie le résultat (20 raccourcis au plus).",
+        "rubrique": "📡 Commande HFSQL distante via Liluvine",
+    },
+    {
         "lot": "458", "date": "2026-11-25",
         "titre": "📡 Commande HFSQL distante via Liluvine",
         "description": "Un numéro autorisé écrit « hfsql docx=CMC SELECT … » à Liluvine : une machine du client exécute la commande et la réponse (zone, base, commande, résultat du moteur HFSQL) revient sur WhatsApp. Une modification demande « OUI ». Numéros, zones permises et journal se règlent ici.",

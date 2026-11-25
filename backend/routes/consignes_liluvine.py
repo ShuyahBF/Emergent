@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 import consignes_liluvine as cl
 import commande_hfsql_wa as chw
+import raccourcis_hfsql as rh
 import consignes_masse as cm
 from routes.liluvine_partage import est_admin, verifier_element
 
@@ -47,6 +48,13 @@ class ConfirmationMasse(BaseModel):
 class ModeleMasse(BaseModel):
     nom: str = Field(default="", max_length=120)
     langue: str = Field(default="fr", max_length=10)
+
+
+class RaccourciHfsql(BaseModel):
+    nom: str = Field(default="", max_length=80)
+    sql: str = Field(default="", max_length=4100)
+    zone: str = Field(default="", max_length=40)
+    confirmer: bool = False
 
 
 class ListeAcces(BaseModel):
@@ -157,6 +165,39 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
         if not est_admin(user):
             raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
         return {"ok": True, "acces": await chw.enregistrer_acces(db, payload.acces)}
+
+    # ---- Lot 459 : raccourcis de commandes HFSQL avec paramètres {nom} (administrateur SEUL)
+    @api.get("/admin/liluvine-hfsql-raccourcis", tags=["Liluvine — consignes"])
+    async def hfsql_raccourcis(user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        return {"raccourcis": await rh.lister(db), "maximum": rh.MAX_RACCOURCIS}
+
+    @api.post("/admin/liluvine-hfsql-raccourcis", tags=["Liluvine — consignes"], status_code=201)
+    async def hfsql_raccourci_creer(payload: RaccourciHfsql, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            return {"raccourci": await rh.creer(db, payload.nom, payload.sql, payload.zone, payload.confirmer, _par(user))}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @api.put("/admin/liluvine-hfsql-raccourcis/{identifiant}", tags=["Liluvine — consignes"])
+    async def hfsql_raccourci_modifier(identifiant: str, payload: RaccourciHfsql, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            return {"raccourci": await rh.modifier(db, identifiant, payload.nom, payload.sql, payload.zone, payload.confirmer)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @api.delete("/admin/liluvine-hfsql-raccourcis/{identifiant}", tags=["Liluvine — consignes"])
+    async def hfsql_raccourci_supprimer(identifiant: str, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        if not await rh.supprimer(db, identifiant):
+            raise HTTPException(status_code=404, detail="Raccourci introuvable.")
+        return {"ok": True}
 
     @api.get("/admin/liluvine-consignes-acces", tags=["Liluvine — consignes"])
     async def acces(user: dict = Depends(get_current_user)):

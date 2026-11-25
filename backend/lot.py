@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "457"
-LOT_LIBELLE = "Consignes à Liluvine données par WhatsApp depuis un numéro autorisé (confirmation OUI, envoi en masse en deux temps)."
+LOT = "458"
+LOT_LIBELLE = "Commande HFSQL distante via Liluvine : une commande SQL envoyée sur WhatsApp par un numéro autorisé est exécutée par une machine du client, le résultat revient sur WhatsApp."

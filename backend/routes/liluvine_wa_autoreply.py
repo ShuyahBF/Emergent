@@ -528,6 +528,18 @@ async def autoreply_to_inbound(
             logger.warning("[wa_autoreply] copie dans le fil échouée (%s)", command, exc_info=True)
         return res
 
+    # Lot 458 — COMMANDE HFSQL DISTANTE VIA LILUVINE : « hfsql docx=CMC <requête> » d'un numéro autorisé par l'administrateur ; le résultat est renvoyé sur WhatsApp
+    # (zone, base, commande rappelée, réponse du moteur HFSQL). Une modification demande « OUI ». Toute autre phrase suit le traitement habituel.
+    if (inbound_doc.get("message_type") or "text") == "text":
+        try:
+            import commande_hfsql_wa
+            rep_hfsql = await commande_hfsql_wa.traiter(db, phone_digits, text, envoyer=lambda t: _send_mirrored(from_num, t, "hfsql_resultat"))
+            if rep_hfsql:
+                await _send_mirrored(from_num, rep_hfsql, "hfsql_commande")
+                return {"ok": True, "reason": "commande_hfsql", "autoreply": True}
+        except Exception as exc:  # noqa: BLE001 — une panne ici ne doit jamais bloquer la réponse habituelle
+            logger.warning("[wa_autoreply] commande HFSQL par WhatsApp échouée : %s", exc)
+
     # Lot 457 — consignes à Liluvine données PAR WHATSAPP : seul un numéro autorisé par l'administrateur, et seulement avec « consigne… » ou en réponse OUI / NON à une
     # proposition récente ; rien n'est activé ni envoyé sans confirmation. Toute autre phrase suit le traitement habituel.
     if (inbound_doc.get("message_type") or "text") == "text":

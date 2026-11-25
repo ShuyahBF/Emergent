@@ -265,3 +265,19 @@ def test_adresse_ip_de_la_machine_relayee_a_loois(env):
     client.post("/api/loois-sql/poste/resultat", headers=poste("LK-ipm-1", "PC-IPM-1", "IPM"), json={"id": rid, "ok": True, "colonnes": ["Id"], "lignes": [["1"]]})
     d = client.get(f"/api/loois-sql/requetes/{rid}", headers=OWNER).json()
     assert d["machine"] == "PC-IPM-1" and d["machine_ip"]
+
+
+# ------------------------------------------------------------------ lot 459 : raccourcis de commandes avec paramètres {nom}
+def test_raccourcis_crees_depuis_loois_avec_la_cle(env):
+    client, _db = env
+    modele = "UPDATE VenteClinique SET Mag = {vStatut} WHERE Référence = {RefNum}"
+    assert client.get("/api/loois-sql/raccourcis").status_code == 401                                   # sans la clé : refusé
+    r = client.post("/api/loois-sql/raccourcis", headers=OWNER, json={"nom": "Statut d'un reçu", "sql": modele, "zone": "docx=CMC"})
+    assert r.status_code == 201 and r.json()["raccourci"]["parametres"] == ["vStatut", "RefNum"]
+    assert client.post("/api/loois-sql/raccourcis", headers=OWNER, json={"nom": "Statut d'un reçu", "sql": modele}).status_code == 422      # nom déjà pris
+    assert client.post("/api/loois-sql/raccourcis", headers=OWNER, json={"nom": "Dangereux", "sql": "DELETE FROM Patient"}).status_code == 422
+    liste = client.get("/api/loois-sql/raccourcis", headers=OWNER).json()
+    assert len(liste["raccourcis"]) == 1 and liste["maximum"] >= 10
+    ident = liste["raccourcis"][0]["id"]
+    assert client.delete(f"/api/loois-sql/raccourcis/{ident}", headers=OWNER).status_code == 200
+    assert client.delete(f"/api/loois-sql/raccourcis/{ident}", headers=OWNER).status_code == 404

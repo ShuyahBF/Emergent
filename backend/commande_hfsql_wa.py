@@ -37,7 +37,11 @@ ATTENTE_RESULTAT_S = 25 * 60           # on attend le résultat au plus 25 minut
 PAS_SONDAGE_S = 3
 TEXTE_MAX = 3000
 LIGNES_AFFICHEES = 15
-DECLENCHEUR = re.compile(r"^\s*!?\s*hfsql\b[\s:,-]*(.+)$", re.I | re.S)
+DECLENCHEUR = re.compile(r"^\s*!?\s*hfsql\b[\s:,-]*(.*)$", re.I | re.S)
+ZONE_FIN = re.compile(r"^(.*?)\s+((?:docx|doc|ekol)\s*=\s*[A-Za-z0-9_-]{1,20})\s*$", re.I | re.S)
+MOTS_SQL = ("SELECT", "INSERT", "UPDATE", "DELETE")
+MOTS_DANGER = ("DROP", "ALTER", "CREATE", "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE", "RENAME", "MERGE")
+VALIDITE_PARAMETRES_MIN = 10
 ZONE = re.compile(r"^\s*((?:docx|doc|ekol)\s*=\s*[A-Za-z0-9_-]{1,20}|/?(?:docx|doc)=[A-Za-z0-9_-]{1,20}|[A-Za-z0-9_-]{1,20})\s+(.+)$", re.I | re.S)
 OUI = {"oui", "o", "ok", "d'accord", "daccord", "valider", "confirme", "confirmer", "executer", "execute", "yes"}
 NON = {"non", "n", "annuler", "annule", "stop", "no"}
@@ -59,18 +63,31 @@ def _mot(texte: str) -> str:
     return re.sub(r"[\s.!]+$", "", t)
 
 
-def extraire(texte: str) -> Optional[Dict[str, str]]:
-    """{zone, client, sql} si le message est une commande « hfsql <zone> <requête> », sinon None.
+def analyser(texte: str) -> Optional[Dict[str, Any]]:
+    """Comprend un message « hfsql … » : {type: "menu"} (« hfsql » seul : liste des raccourcis), {type: "commande", zone, client, sql} (« hfsql docx=CMC UPDATE … »)
+    ou {type: "raccourci", ref, zone?} (« hfsql 2 » ou « hfsql statut reçu docx=PHL »). None si ce n'est pas pour nous.
     La zone est « docx=CMC », « doc=CMC », « ekol=IPM » ou le code seul « CMC » : le CODE DU CLIENT (celui de la base) est la partie après « = »."""
     m = DECLENCHEUR.match(str(texte or ""))
     if not m:
         return None
-    z = ZONE.match(m.group(1))
-    if not z:
-        return None
-    zone = re.sub(r"\s+", "", z.group(1)).lstrip("/")
-    client = zone.split("=")[-1].upper()
-    return {"zone": zone, "client": client, "sql": z.group(2).strip()}
+    reste = m.group(1).strip()
+    if not reste:
+        return {"type": "menu"}
+    z = ZONE.match(reste)
+    # Une zone EN TÊTE (« docx=CMC … ») ou un mot SQL / interdit juste après un code (« cmc DROP … ») = une commande tapée à la main (les contrôles « Prudent » la refusent si besoin) ;
+    # sinon c'est la référence d'un raccourci (numéro ou nom, zone éventuelle à la FIN).
+    if z and ("=" in z.group(1) or z.group(2).split(None, 1)[0].upper() in MOTS_SQL + MOTS_DANGER):
+        zone = re.sub(r"\s+", "", z.group(1)).lstrip("/")
+        return {"type": "commande", "zone": zone, "client": zone.split("=")[-1].upper(), "sql": z.group(2).strip()}
+    zf = ZONE_FIN.match(reste)
+    ref, zone = (zf.group(1).strip(), re.sub(r"\s+", "", zf.group(2))) if zf else (reste, "")
+    return {"type": "raccourci", "ref": ref, "zone": zone}
+
+
+def extraire(texte: str) -> Optional[Dict[str, str]]:
+    """{zone, client, sql} si le message est une commande « hfsql <zone> <SELECT|INSERT|UPDATE|DELETE …> », sinon None (compatibilité)."""
+    a = analyser(texte)
+    return {k: a[k] for k in ("zone", "client", "sql")} if a and a["type"] == "commande" else None
 
 
 def nettoyer_acces(liste: Any) -> List[Dict[str, Any]]:
@@ -201,21 +218,111 @@ async def _deposer(db, acces: Dict[str, Any], zone: str, client: str, sql: str, 
     return f"📡 Commande déposée pour la zone {zone}{'' if en_ligne else ' (client sans machine en ligne : en attente)'}. Je vous réponds dès que la machine a exécuté."
 
 
+def _liste_pour_whatsapp(raccourcis: List[Dict[str, Any]]) -> str:
+    """Menu des raccourcis : numéro, nom, zone, paramètres demandés."""
+    if not raccourcis:
+        return ("📡 Commande HFSQL distante.\nAucun raccourci n'est encore enregistré.\n"
+                "Envoyez une commande complète : « hfsql docx=CMC SELECT … ». Les raccourcis se créent depuis Loois (Requête SQL distante → Dernières requêtes → ⭐ Créer un raccourci).")
+    lignes = ["📡 Raccourcis HFSQL — envoyez « hfsql <numéro> » (ou « hfsql <nom> ») :"]
+    for n, r in enumerate(raccourcis, 1):
+        params = ", ".join(r.get("parametres") or []) or "aucun paramètre"
+        lignes.append(f"{n}. {r['nom']} — {r.get('zone') or 'zone à préciser'} — {params}")
+    lignes.append("Pour une autre zone : « hfsql 2 docx=PHL ». « annuler » arrête un raccourci en cours.")
+    return "\n".join(lignes)
+
+
+async def _executer_commande(db, acces: Dict[str, Any], zone: str, client: str, sql: str, envoyer, instant, surveiller: bool, confirmer: bool = False) -> str:
+    """Contrôles communs (zone permise, « Prudent », limite horaire) puis : SELECT immédiat ; modification = OUI d'abord si `confirmer` (ou commande tapée à la main), sinon dépôt direct."""
+    from routes.loois_sql_distant import verifier
+    cle = acces["cle"]
+    if not zone_permise(acces, client):
+        await _journaliser(db, {"numero": acces["numero"], "nom": acces.get("nom"), "zone": zone, "nature": "?", "sql": sql[:300], "issue": "refusée : zone non permise"})
+        return f"⛔ Ce numéro n'est pas autorisé pour la zone {client}."
+    ok, nature, raison = verifier(sql)
+    if not ok:
+        await _journaliser(db, {"numero": acces["numero"], "nom": acces.get("nom"), "zone": zone, "nature": "?", "sql": sql[:300], "issue": f"refusée : {raison}"[:200]})
+        return f"⚠️ Commande refusée : {raison}"
+    recent = [e for e in await journal(db) if e.get("numero") == acces["numero"] and e.get("issue") == "déposée" and datetime.fromisoformat(e["quand"]) > instant - timedelta(hours=1)]
+    if len(recent) >= PAR_HEURE:
+        return f"⛔ Limite atteinte : {PAR_HEURE} commandes par heure pour ce numéro."
+    if nature == "SELECT" or not confirmer:
+        return await _deposer(db, acces, zone, client, sql, nature, envoyer, surveiller)
+    await _poser(db, cle, {"zone": zone, "client": client, "sql": sql, "expire_le": (instant + timedelta(minutes=VALIDITE_CONFIRMATION_MIN)).isoformat()})
+    return (f"✋ MODIFICATION de données — rien n'est encore exécuté.\nZone : {zone}\nCommande : {sql}\n"
+            f"Répondez OUI pour EXÉCUTER, NON pour annuler (valable {VALIDITE_CONFIRMATION_MIN} minutes).")
+
+
+async def _demander_suivant(db, acces, etat: Dict[str, Any], envoyer, instant, surveiller: bool) -> str:
+    """Demande le paramètre suivant, ou — toutes les valeurs reçues — résout la commande et l'exécute."""
+    import raccourcis_hfsql as rh
+    cle = acces["cle"]
+    attendus = etat["attendus"]
+    if len(etat["valeurs"]) < len(attendus):
+        nom = attendus[len(etat["valeurs"])]
+        await _poser_parametres(db, cle, etat)
+        return f"▶️ {etat['nom']} — valeur de « {nom} » ? ({len(etat['valeurs']) + 1}/{len(attendus)})"
+    await _poser_parametres(db, cle, None)
+    try:
+        sql = rh.resoudre(etat["sql"], dict(zip(attendus, etat["valeurs"])))
+    except ValueError as exc:                                   # valeur refusée : on la redemande (jamais d'exécution partielle)
+        etat["valeurs"] = etat["valeurs"][:-1]
+        await _poser_parametres(db, cle, etat)
+        return f"⚠️ {exc} Renvoyez la valeur de « {attendus[len(etat['valeurs'])]} » (ou « annuler »)."
+    return await _executer_commande(db, acces, etat["zone"], etat["client"], sql, envoyer, instant, surveiller, confirmer=bool(etat.get("confirmer")))
+
+
+async def _poser_parametres(db, cle: str, valeur: Optional[Dict[str, Any]]) -> None:
+    f = (await db["settings"].find_one({"_id": ID_ATTENTE}) or {}).get("parametres") or {}
+    if valeur is None:
+        f.pop(cle, None)
+    else:
+        f[cle] = valeur
+    await db["settings"].update_one({"_id": ID_ATTENTE}, {"$set": {"parametres": f}}, upsert=True)
+
+
+async def _etat_parametres(db, cle: str, instant) -> Optional[Dict[str, Any]]:
+    e = ((await db["settings"].find_one({"_id": ID_ATTENTE}) or {}).get("parametres") or {}).get(cle)
+    if e and datetime.fromisoformat(e["expire_le"]) < instant:
+        await _poser_parametres(db, cle, None)
+        return None
+    return e
+
+
 async def traiter(db, numero: Any, texte: str, envoyer: Callable[[str], Awaitable[Any]], instant: Optional[datetime] = None, surveiller: bool = True) -> Optional[str]:
-    """Point d'entrée : rend le texte À RÉPONDRE tout de suite si le message est pour nous (numéro autorisé ET « hfsql… » ou OUI/NON à une commande en attente), sinon None.
+    """Point d'entrée : rend le texte À RÉPONDRE tout de suite si le message est pour nous, sinon None (traitement habituel de Liluvine).
+    Pour nous : numéro autorisé ET (« hfsql… », ou OUI / NON à une modification proposée, ou valeur d'un raccourci en cours).
     `envoyer(texte)` sert à envoyer le RÉSULTAT plus tard ; injectable pour les tests."""
+    import raccourcis_hfsql as rh
     acces = await numero_autorise(db, numero)
     if not acces:
         return None
     instant = instant or datetime.now(timezone.utc)
     cle = acces["cle"]
+    msg = analyser(texte)
+
+    # --- un raccourci attend la valeur d'un paramètre : tout message (sauf une nouvelle commande « hfsql ») est cette valeur
+    etat = await _etat_parametres(db, cle, instant)
+    if etat and msg is None:
+        if _mot(texte) in ("annuler", "annule", "stop", "non"):
+            await _poser_parametres(db, cle, None)
+            return "D'accord, le raccourci est annulé : rien n'a été exécuté."
+        attendu = etat["attendus"][len(etat["valeurs"])]
+        try:
+            valeur = rh.valider_valeur(attendu, texte)
+        except ValueError as exc:                               # refusée tout de suite : on la redemande
+            return f"⚠️ {exc} Renvoyez la valeur de « {attendu} » (ou « annuler »)."
+        etat["valeurs"] = list(etat["valeurs"]) + [valeur]
+        etat["expire_le"] = (instant + timedelta(minutes=VALIDITE_PARAMETRES_MIN)).isoformat()
+        return await _demander_suivant(db, acces, etat, envoyer, instant, surveiller)
+    if etat and msg is not None:
+        await _poser_parametres(db, cle, None)                 # une nouvelle commande « hfsql » remplace le raccourci en cours
+
+    # --- réponse OUI / NON à une modification proposée
     attente = (await _attente(db)).get(cle)
     if attente and datetime.fromisoformat(attente["expire_le"]) < instant:
         await _poser(db, cle, None)
         attente = None
-    cmd = extraire(texte)
-
-    if attente and cmd is None:                                              # réponse OUI / NON à une modification proposée
+    if attente and msg is None:
         m = _mot(texte)
         rep = True if m in OUI else (False if m in NON else None)
         if rep is None:
@@ -224,23 +331,26 @@ async def traiter(db, numero: Any, texte: str, envoyer: Callable[[str], Awaitabl
         if not rep:
             return "D'accord, la commande est annulée : rien n'a été exécuté."
         return await _deposer(db, acces, attente["zone"], attente["client"], attente["sql"], "MODIF", envoyer, surveiller)
-
-    if cmd is None:
+    if msg is None:
         return None
-    from routes.loois_sql_distant import verifier
-    if not zone_permise(acces, cmd["client"]):
-        await _journaliser(db, {"numero": acces["numero"], "nom": acces.get("nom"), "zone": cmd["zone"], "nature": "?", "sql": cmd["sql"][:300], "issue": "refusée : zone non permise"})
-        return f"⛔ Ce numéro n'est pas autorisé pour la zone {cmd['client']}."
-    ok, nature, raison = verifier(cmd["sql"])
-    if not ok:
-        await _journaliser(db, {"numero": acces["numero"], "nom": acces.get("nom"), "zone": cmd["zone"], "nature": "?", "sql": cmd["sql"][:300], "issue": f"refusée : {raison}"[:200]})
-        return f"⚠️ Commande refusée : {raison}"
-    # limite horaire par numéro (comptée dans le journal)
-    recent = [e for e in await journal(db) if e.get("numero") == acces["numero"] and e.get("issue") == "déposée" and datetime.fromisoformat(e["quand"]) > instant - timedelta(hours=1)]
-    if len(recent) >= PAR_HEURE:
-        return f"⛔ Limite atteinte : {PAR_HEURE} commandes par heure pour ce numéro."
-    if nature == "SELECT":
-        return await _deposer(db, acces, cmd["zone"], cmd["client"], cmd["sql"], nature, envoyer, surveiller)
-    await _poser(db, cle, {"zone": cmd["zone"], "client": cmd["client"], "sql": cmd["sql"], "expire_le": (instant + timedelta(minutes=VALIDITE_CONFIRMATION_MIN)).isoformat()})
-    return (f"✋ MODIFICATION de données — rien n'est encore exécuté.\nZone : {cmd['zone']}\nCommande : {cmd['sql']}\n"
-            f"Répondez OUI pour EXÉCUTER, NON pour annuler (valable {VALIDITE_CONFIRMATION_MIN} minutes).")
+
+    # --- « hfsql » seul : la liste des raccourcis
+    if msg["type"] == "menu":
+        return _liste_pour_whatsapp(await rh.lister(db))
+
+    # --- « hfsql 2 » / « hfsql statut reçu » : démarre un raccourci
+    if msg["type"] == "raccourci":
+        liste = await rh.lister(db)
+        r = rh.trouver(liste, msg["ref"])
+        if not r:
+            return f"⚠️ Je ne trouve pas le raccourci « {msg['ref']} ».\n" + _liste_pour_whatsapp(liste)
+        zone = msg["zone"] or r.get("zone") or ""
+        if not zone:
+            return f"⚠️ Le raccourci « {r['nom']} » n'a pas de zone : ajoutez-la (« hfsql {liste.index(r) + 1} docx=CMC »)."
+        client = zone.split("=")[-1].upper()
+        etat = {"id": r["id"], "nom": r["nom"], "sql": r["sql"], "zone": zone, "client": client, "attendus": rh.parametres(r["sql"]), "valeurs": [],
+                "confirmer": bool(r.get("confirmer")), "expire_le": (instant + timedelta(minutes=VALIDITE_PARAMETRES_MIN)).isoformat()}
+        return await _demander_suivant(db, acces, etat, envoyer, instant, surveiller)
+
+    # --- commande tapée en entier : « hfsql docx=CMC UPDATE … » (une modification demande toujours OUI)
+    return await _executer_commande(db, acces, msg["zone"], msg["client"], msg["sql"], envoyer, instant, surveiller, confirmer=True)

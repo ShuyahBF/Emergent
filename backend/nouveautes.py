@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "471", "date": "2026-11-26",
+        "titre": "🔑 Sonde réseau : envoi par clé, sans dépendre de votre session",
+        "description": "La page laissée ouverte toute la nuit continue d'envoyer ses mesures même quand votre session expire : saisissez la clé de la sonde (variable SONDE_RESEAU_CLE de Render). Si l'envoi échoue, les mesures sont gardées et un bandeau rouge le dit.",
+        "rubrique": "📶 Sonde réseau — débit et stabilité de la connexion",
+    },
+    {
         "lot": "470.1", "date": "2026-11-26",
         "titre": "🛠️ Sonde réseau et export des appels lents : serveur corrigé",
         "description": "Une erreur d'écriture empêchait le serveur de démarrer avec le lot 470 : elle est corrigée, la Sonde réseau et l'export complet des appels lents fonctionnent maintenant côté serveur.",

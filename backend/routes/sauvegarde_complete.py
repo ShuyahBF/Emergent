@@ -201,8 +201,18 @@ def toleree(nom: str) -> bool:
 async def etat_base() -> Dict[str, Any]:
     """Nombre de comptes, collections non vides tolérées et bloquantes."""
     comptes, bloquantes, tolerees = 0, [], []
-    for nom in await _collections():
-        n = await db[nom].count_documents({})
+    noms = await _collections()
+    # Règle 7 : une lecture PAR collection, mais lancées par groupes de 8 EN MÊME TEMPS au lieu d'une après l'autre
+    # (mesuré en production le 26/11/2026 : 5 s en moyenne). Une erreur de lecture n'est PAS masquée : cette fonction
+    # protège l'import « base vide », elle ne doit jamais prendre une base pleine pour une base vide.
+    feu = asyncio.Semaphore(8)
+
+    async def _compter(nom: str) -> int:
+        async with feu:
+            return await db[nom].count_documents({})
+
+    effectifs = await asyncio.gather(*[_compter(nom) for nom in noms])
+    for nom, n in zip(noms, effectifs):
         if not n:
             continue
         if nom == "users":

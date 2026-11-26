@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 MAX_CONTACTS = 100            # contacts cochés au plus
 MAX_MESSAGES = 5000           # messages rendus au plus (les plus récents) ; au-delà, « tronqué »
-MAX_TEXTE_PDF = 3000          # caractères d'un message dans le PDF
+MAX_LIGNES_PDF = 12
+MAX_TEXTE_PDF = 1000          # caractères d'un message dans le PDF
 ENTETE_CSV = ["Date et heure", "Client", "Contact", "Téléphone", "Sens", "Type", "Statut", "Message"]
 SENS = {"inbound": "Reçu", "outbound": "Envoyé"}
 
@@ -123,9 +124,16 @@ def construire_csv(lignes: List[Dict[str, Any]]) -> bytes:
 
 
 # -------------------------------------------------------------------------------------------------------------------------- PDF
-def texte_pdf(texte: Any) -> str:
+def texte_pdf(texte: Any, court: bool = False) -> str:
     """Texte sûr pour reportlab (police Helvetica = caractères Windows-1252) : accents conservés ; émojis et autres signes non imprimables remplacés par « · » ; balises échappées."""
-    brut = str(texte if texte is not None else "")[:MAX_TEXTE_PDF]
+    brut = str(texte if texte is not None else "")
+    # Une ligne de tableau ne peut pas être coupée entre deux pages : un message trop long (ou très haut, plein de retours à la ligne) la rendrait
+    # plus haute que la page (LayoutError, « génération PDF impossible »). On limite donc les caractères ET les lignes, avec une marque visible.
+    max_car, max_lig = (200, 3) if court else (MAX_TEXTE_PDF, MAX_LIGNES_PDF)
+    coupe = len(brut) > max_car or brut.count("\n") >= max_lig
+    brut = "\n".join(brut[:max_car].split("\n")[:max_lig])
+    if coupe:
+        brut += " … [message tronqué : texte complet dans l'export CSV]"
     propre = "".join(c if (c in "\n\t" or (ord(c) >= 32 and _cp1252(c))) else "·" for c in brut)
     propre = re.sub(r"·{2,}", "·", propre)
     return propre.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
@@ -139,7 +147,7 @@ def _cp1252(c: str) -> bool:
         return False
 
 
-def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[str], du: str, au: str, genere_le: datetime, tronque: bool = False) -> bytes:
+def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[str], du: str, au: str, genere_le: datetime, tronque: bool = False, _court: bool = False) -> bytes:
     """PDF A4 : titre, client, contacts, période, nombre de messages, DATE ET HEURE D'ÉDITION ; tableau Date/heure · Contact (pastille noir sur blanc) · Sens · Message ;
     sur CHAQUE page : « Page n / N » en pied et « Liluvine » écrit verticalement, en gris clair, discret, dans la marge du bas à droite."""
     from reportlab.lib import colors
@@ -148,6 +156,7 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
     from reportlab.lib.units import mm
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus.doctemplate import LayoutError
 
     edite = genere_le.astimezone(timezone.utc).strftime("%d/%m/%Y à %H:%M")
 
@@ -211,14 +220,20 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
         Paragraph("Messages bloqués (liste noire, barrière anti-rafale) non pris en compte. Du plus récent au plus ancien.", petit), Spacer(1, 4 * mm)]
     donnees: List[List[Any]] = [[Paragraph(h, entete) for h in ("Date et heure", "Contact", "Sens", "Message")]]
     for x in lignes:
-        donnees.append([Paragraph(x["quand"], cell), pastille(x["contact"]), Paragraph(x["sens"], cell), Paragraph(texte_pdf(x["message"]) or "<i>(sans texte)</i>", cell)])
+        donnees.append([Paragraph(x["quand"], cell), pastille(x["contact"]), Paragraph(x["sens"], cell), Paragraph(texte_pdf(x["message"], court=_court) or "<i>(sans texte)</i>", cell)])
     if not lignes:
         donnees.append([Paragraph("—", cell), "", "", Paragraph("Aucun message pour cette sélection.", cell)])
     t = Table(donnees, colWidths=[30 * mm, 36 * mm, 15 * mm, 101 * mm], repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")), ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fb")])]))
     corps.append(t)
-    doc.build(corps, canvasmaker=CanevasNumerote)
+    try:
+        doc.build(corps, canvasmaker=CanevasNumerote)
+    except LayoutError:
+        # Filet de sécurité : une ligne reste trop haute malgré les plafonds -> on refait tout avec des messages très courts (le CSV garde le texte complet).
+        if _court:
+            raise
+        return construire_pdf(lignes, client=client, contacts=contacts, du=du, au=au, genere_le=genere_le, tronque=tronque, _court=True)
     return sortie.getvalue()
 
 

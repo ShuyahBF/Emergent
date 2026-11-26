@@ -23,6 +23,8 @@ def run(coro):
 # ------------------------------------------------------------------------------------------------------------------ fonctions pures
 def test_message_bloque_est_ignore():
     assert hc.message_ignore({"barriere_retenu": True}, set()) and hc.message_ignore({"liste_noire": True}, set())
+    assert hc.message_ignore({"phone_digits": "22670111111", "created_at": "2026-11-20"}, {"70111111": "2026-11-01"})
+    assert not hc.message_ignore({"phone_digits": "22670111111", "created_at": "2026-10-20"}, {"70111111": "2026-11-01"})   # avant le blocage
     assert hc.message_ignore({"phone_digits": "22670111111"}, {"70111111"})                 # numéro encore en liste noire
     assert not hc.message_ignore({"phone_digits": "22670111111"}, {"70222222"})
     assert not hc.message_ignore({"phone_digits": "22670111111"}, set())
@@ -96,11 +98,20 @@ def test_collecte_sans_messages_bloques_ni_autre_tenant_du_plus_recent_au_plus_a
     assert [x["contact"] for x in lignes] == ["Awa", "Ben", "Awa"] and lignes[0]["sens"] == "Envoyé"
 
 
-def test_numero_inscrit_en_liste_noire_apres_coup_n_apparait_plus(db):
-    run(db["settings"].update_one({"_id": liste_noire_wa.ID_FICHE}, {"$set": {"entrees": [{"cle": "70222222", "numero": "+22670222222"}]}}, upsert=True))
+def test_contact_bloque_garde_ses_messages_d_avant_le_blocage(db):
+    # Lot 466.1 : seuls les messages écrits À PARTIR de la date de blocage disparaissent ; ceux d'avant restent visibles
+    run(db["settings"].update_one({"_id": liste_noire_wa.ID_FICHE}, {"$set": {"entrees": [
+        {"cle": "70222222", "numero": "+22670222222", "bloque_le": "2026-11-26T00:00:00+00:00"}]}}, upsert=True))
     liste_noire_wa.vider_cache()
     lignes, _ = run(hc.collecter(db, contacts_visibles=CONTACTS, visible_scope=["t1"]))
-    assert [x["id"] for x in lignes] == ["m2", "m1"]                                           # Ben bloqué : ses messages disparaissent
+    assert "m3" in [x["id"] for x in lignes]                                                    # Ben bloqué le 26/11 : son message du 25/11 reste
+    run(db["settings"].update_one({"_id": liste_noire_wa.ID_FICHE}, {"$set": {"entrees": [
+        {"cle": "70222222", "numero": "+22670222222", "bloque_le": "2026-11-24T00:00:00+00:00"}]}}, upsert=True))
+    liste_noire_wa.vider_cache()
+    lignes, _ = run(hc.collecter(db, contacts_visibles=CONTACTS, visible_scope=["t1"]))
+    assert "m3" not in [x["id"] for x in lignes]                                                # bloqué le 24/11 : message du 25/11 = période de blocage
+    contacts = run(liste_noire_wa.annoter_bloques(db, [dict(c) for c in CONTACTS]))
+    assert "bloque_le" in contacts[1] and "bloque_le" not in contacts[0]                        # le contact bloqué reste listé, marqué
     liste_noire_wa.vider_cache()
 
 

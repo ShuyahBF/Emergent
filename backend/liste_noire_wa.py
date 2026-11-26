@@ -74,6 +74,28 @@ async def sans_bloques(db, contacts: List[Dict[str, Any]]) -> List[Dict[str, Any
     return [c for c in contacts if not ({cle_numero(c.get("whatsapp")), cle_numero(c.get("phone"))} & cles)]
 
 
+async def dates_blocage(db) -> Dict[str, str]:
+    """Clé de 8 chiffres -> date ISO du blocage (« » si inconnue : alors tout est considéré comme bloqué)."""
+    return {e["cle"]: str(e.get("bloque_le") or "") for e in await _charger(db)}
+
+
+async def annoter_bloques(db, contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Garde TOUS les contacts mais ajoute `bloque_le` (date ISO) à ceux dont le numéro est en liste noire (Historique des conversations).
+    Ne lève jamais d'exception (liste intacte si la lecture échoue)."""
+    try:
+        dates = await dates_blocage(db)
+    except Exception:  # noqa: BLE001
+        return contacts
+    if not dates:
+        return contacts
+    for c in contacts:
+        for k in (cle_numero(c.get("whatsapp")), cle_numero(c.get("phone"))):
+            if k and k in dates:
+                c["bloque_le"] = dates[k] or "inconnue"
+                break
+    return contacts
+
+
 async def lister(db) -> List[Dict[str, Any]]:
     return sorted(await _charger(db), key=lambda e: e.get("bloque_le") or "", reverse=True)
 

@@ -5,7 +5,7 @@
 # date et heure d'édition sur le document, « Liluvine » écrit verticalement et discrètement en bas de chaque page. Les messages BLOQUÉS ne comptent pas.
 #
 # « Bloqués » = 1) messages retenus par la barrière anti-rafale (`barriere_retenu`), 2) messages d'un numéro de la liste noire (`liste_noire`, ou numéro encore inscrit),
-# 3) contacts actuellement bloqués (absents de la liste, comme dans le Centre de Messagerie).
+# 3) messages d'un numéro écrits À PARTIR de sa date de blocage ; les messages d'AVANT le blocage restent visibles et les contacts bloqués restent proposés.
 # Ce fichier : fonctions PURES (choix des messages, mise en forme, CSV, PDF) + collecte. Les routes sont dans routes/historique_conversations.py.
 from __future__ import annotations
 
@@ -55,9 +55,16 @@ def date_fr(iso: Any, avec_secondes: bool = True) -> str:
 
 
 # ------------------------------------------------------------------------------------------------------ choix et mise en forme
-def message_ignore(m: Dict[str, Any], bloques: Set[str]) -> bool:
-    """Vrai pour un message BLOQUÉ : retenu par la barrière, marqué liste noire, ou d'un numéro encore inscrit en liste noire."""
-    return bool(m.get("liste_noire") or m.get("barriere_retenu")) or (bool(bloques) and cle8(m.get("phone_digits")) in bloques)
+def message_ignore(m: Dict[str, Any], bloques: Any) -> bool:
+    """Vrai pour un message BLOQUÉ : retenu par la barrière, marqué liste noire, ou écrit/envoyé PENDANT le blocage du numéro (à partir de la date de blocage).
+    `bloques` : dict clé 8 chiffres -> date ISO du blocage (les messages antérieurs au blocage restent visibles) ; un simple ensemble = bloqué de tout temps."""
+    if m.get("liste_noire") or m.get("barriere_retenu") or not bloques:
+        return bool(m.get("liste_noire") or m.get("barriere_retenu"))
+    k = cle8(m.get("phone_digits"))
+    if k not in bloques:
+        return False
+    depuis = bloques.get(k) if isinstance(bloques, dict) else ""
+    return (not depuis) or str(m.get("created_at") or "") >= depuis
 
 
 def rattacher(m: Dict[str, Any], par_id: Dict[str, Dict[str, Any]], par_cle: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -218,7 +225,7 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
 # ------------------------------------------------------------------------------------------------------------------------ collecte
 async def collecter(db, *, contacts_visibles: List[Dict[str, Any]], visible_scope: List[str], du: str = "", au: str = "", client: str = "",
                     seulement_utilisateur: Optional[str] = None, limite: int = MAX_MESSAGES) -> Tuple[List[Dict[str, Any]], bool]:
-    """Messages WhatsApp des contacts donnés (déjà contrôlés : visibles, non bloqués), SANS les messages bloqués, du plus récent au plus ancien : (lignes, tronqué).
+    """Messages WhatsApp des contacts donnés (déjà contrôlés : visibles, non bloqués), SANS les messages bloqués (période de blocage), du plus récent au plus ancien : (lignes, tronqué).
     Une seule lecture groupée (règle 7) : messages rattachés par contact_id OU par numéro (8 derniers chiffres). `seulement_utilisateur` : restriction
     « communications anonymisées » du Centre de Messagerie (seuls les messages échangés par cet utilisateur)."""
     if not contacts_visibles:
@@ -239,7 +246,7 @@ async def collecter(db, *, contacts_visibles: List[Dict[str, Any]], visible_scop
         filtre["created_at"] = {**({"$gte": du} if du else {}), **({"$lte": au + "T99"} if au else {})}
     bruts = await db.whatsapp_messages.find(filtre, {"_id": 0}).sort("created_at", -1).limit(limite + 1).to_list(limite + 1)
     tronque = len(bruts) > limite
-    bloques = set(await liste_noire_wa.cles_bloquees(db))
+    bloques = await liste_noire_wa.dates_blocage(db)
     sortie: List[Dict[str, Any]] = []
     for m in bruts[:limite]:
         if message_ignore(m, bloques):

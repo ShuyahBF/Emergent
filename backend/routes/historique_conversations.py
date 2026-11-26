@@ -38,11 +38,9 @@ def setup_historique_conversations_routes(*, db, api, get_current_user, resolve_
             raise HTTPException(status_code=422, detail="Cochez au moins un contact.")
         scope = await resolve_visible_client_ids(user)
         contacts = await db.directory_contacts.find({"id": {"$in": ids}, "client_id": {"$in": scope}}, {"_id": 0, "notes_systeme": 0}).to_list(hc.MAX_CONTACTS)
-        # lignes WhatsApp autorisées à l'utilisateur, puis contacts bloqués retirés (comme la liste du Centre de Messagerie)
+        # lignes WhatsApp autorisées à l'utilisateur, les contacts bloqués restent inclus : seuls leurs messages de la période de blocage sont écartés
         from routes.numeros_wa import telephone_visible
         visibles = [c for c in contacts if await telephone_visible(db, user, c.get("whatsapp") or c.get("phone"), c)]
-        import liste_noire_wa
-        visibles = await liste_noire_wa.sans_bloques(db, visibles)
         restrictions = await resolve_content_restrictions(user)
         du, au = hc.jour_valide(demande.du), hc.jour_valide(demande.au)
         lignes, tronque = await hc.collecter(db, contacts_visibles=visibles, visible_scope=scope, du=du, au=au, client=demande.client,

@@ -23,7 +23,8 @@ def setup_performance_serveur_routes(*, db, api, get_current_user) -> None:
     @api.get("/admin/performance/appels", tags=["Admin — Santé"])
     async def appels(limite: int = 40, user: dict = Depends(get_current_user)):
         _admin(user)
-        return await ps.appels(db, max(1, min(int(limite), 500))   # 500 : l'export complet du tableau (400 routes suivies au plus))
+        # 500 routes au plus : l'export complet du tableau (le suivi garde 400 routes au plus)
+        return await ps.appels(db, max(1, min(int(limite), 500)))
 
     @api.post("/admin/performance/appels/reinitialiser", tags=["Admin — Santé"])
     async def reinitialiser(user: dict = Depends(get_current_user)):

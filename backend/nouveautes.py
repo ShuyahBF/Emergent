@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "467", "date": "2026-11-26",
+        "titre": "💬 Historique Conversation : chat interne du support avec la durée de l'assistance",
+        "description": "Sous les conversations WhatsApp, un bloc à part « Chat interne — Support Loois » : choisissez un client et ses postes pour voir les sessions d'assistance (ticket, agent, début, fin, durée, total) et les messages du plus récent au plus ancien, en PDF ou CSV. Les deux blocs sont repliables ; partage aux superviseurs avec l'élément de l'historique, ici.",
+        "rubrique": "🤖 Liluvine — partage avec les superviseurs",
+    },
+    {
         "lot": "466.2", "date": "2026-11-26",
         "titre": "🕘 Historique Conversation : PDF des messages très longs",
         "description": "Correction de « Génération PDF impossible » : un message très long est maintenant tronqué dans le PDF (marqué « message tronqué »), le texte complet reste dans l'export CSV.",

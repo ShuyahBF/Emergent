@@ -20,7 +20,7 @@ ELEMENTS = {
     "historique": "Liluvine PRO — Historique",
     "bloques": "Messages WhatsApp bloqués (barrière anti-rafale)",   # lot 79.6
     "consignes": "Consignes à Liluvine (instructions du moment)",    # lot 454
-    "historique_conversations": "Historique des conversations WhatsApp (par client et contacts)",   # lot 466
+    "historique_conversations": "Historique des conversations (WhatsApp et chat interne du support, par client)",   # lot 466
 }
 
 

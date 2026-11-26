@@ -5,6 +5,7 @@
 //    une pastille NOIR sur BLANC donne le nom du contact. « Imprimer / PDF » et « Exporter CSV » : mêmes données, mise en page faite par le serveur
 //    (date et heure d'édition, « Liluvine » écrit verticalement en bas de chaque page).
 // Accès : administrateur, et superviseur auquel l'élément « Historique des conversations WhatsApp » est partagé (Paramètres → Liluvine — partage avec les superviseurs).
+// Lot 467 : sous les conversations WhatsApp, un bloc à part « Chat interne — Support Loois » (components/HistoriqueChatInterne.jsx).
 // Backend : POST /api/me/liluvine-historique, …/pdf, …/csv ; contacts = GET /api/me/contacts (même périmètre que le Centre de Messagerie).
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,6 +15,8 @@ import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import ListeMultiChoix from "@/components/ListeMultiChoix";
+import BlocRepliable from "@/components/BlocRepliable";   // lot 467 : blocs repliables
+import HistoriqueChatInterne from "@/components/HistoriqueChatInterne";   // lot 467 : bloc à part pour le chat interne (support)
 
 // Options de client : MÊME règle que le Centre de Messagerie (code — nom, puis les sociétés déjà saisies sur des contacts), triées par libellé
 function optionsClients(clients, contacts) {
@@ -120,7 +123,10 @@ export default function LiluvineHistoriqueConversations() {
         <p className="text-sm text-slate-600">Toutes les conversations WhatsApp du Centre de Messagerie, par client et par contacts, de la plus récente à la plus ancienne. Les contacts bloqués sont proposés ; seuls leurs messages écrits pendant le blocage ne sont pas pris en compte.</p>
       </header>
 
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      {/* Lot 467 : chaque bloc se replie / se déplie d'un clic sur son titre */}
+      <BlocRepliable id="whatsapp" titre="Conversations WhatsApp — Centre de Messagerie" icone={History} classe="border-slate-200"
+        resume={resultat ? `${resultat.total} message(s) · ${resultat.contacts.length} contact(s)` : ""}>
+      <section className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block text-sm font-semibold">1. Client
             <select value={client} onChange={(e) => changerClient(e.target.value)} disabled={contacts === null} data-testid="historique-client" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal">
@@ -185,6 +191,10 @@ export default function LiluvineHistoriqueConversations() {
           </div>
           <p className="flex items-center gap-1 text-[11px] text-slate-500"><FileDown className="h-3 w-3" /> Le PDF et le CSV reprennent toute la sélection (pas seulement le filtre d'écran).</p>
         </section>)}
+      </BlocRepliable>
+
+      {/* Lot 467 — bloc À PART, sous les conversations WhatsApp : chat interne du Support Loois avec la durée de l'assistance */}
+      <HistoriqueChatInterne clientHaut={client} />
     </div>
   );
 }

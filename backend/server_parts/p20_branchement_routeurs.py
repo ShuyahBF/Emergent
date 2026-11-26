@@ -236,6 +236,9 @@ _setup_historique_conversations(db=db, api=api, get_current_user=get_current_use
 # Lot 468 — « Loois mobile » : registre des appareils Android (état Interdit / Autorisé, zone, base, utilisateur, IP) ; Paramètres → « 📱 Appareils Android »
 from routes.appareils_android import setup_appareils_android_routes as _setup_appareils_android  # noqa: E402
 _setup_appareils_android(db=db, api=api, get_current_user=get_current_user)
+# Lot 470 — Sonde réseau : mesures de débit / stabilité de la connexion envoyées par la page des Paramètres (administrateur seul)
+from routes.sonde_reseau import setup_sonde_reseau_routes as _setup_sonde_reseau  # noqa: E402
+_setup_sonde_reseau(db=db, api=api, get_current_user=get_current_user)
 # Lot 463 — mémoire du serveur et appels les plus lents (Paramètres → « ⏱️ Performance du serveur »)
 from routes.performance_serveur import setup_performance_serveur_routes as _setup_performance_serveur  # noqa: E402
 _setup_performance_serveur(db=db, api=api, get_current_user=get_current_user)

@@ -18,7 +18,13 @@
 
 NOUVEAUTES = [
     {
-        "lot": "469", "date": "2026-11-27",
+        "lot": "470", "date": "2026-11-26",
+        "titre": "📶 Sonde réseau : preuve de la qualité de votre connexion dans le temps",
+        "description": "Laissez la page ouverte sur le PC branché à la box : elle mesure la latence, la perte, les débits et la lecture vidéo vers Cloudflare, trace les courbes et produit un rapport HTML à envoyer à l'opérateur. Le tableau « Appels les plus lents » s'exporte aussi en entier (JSON ou CSV).",
+        "rubrique": "📶 Sonde réseau — débit et stabilité de la connexion",
+    },
+    {
+        "lot": "469", "date": "2026-11-26",
         "titre": "🚀 Pages plus rapides : appels les plus lents corrigés",
         "description": "Les compteurs de la barre latérale, le dictionnaire des traductions et l'état de la sauvegarde complète répondent beaucoup plus vite : vérifiez le gain dans le classement « Appels les plus lents », après remise à zéro.",
         "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",

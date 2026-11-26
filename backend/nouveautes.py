@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "462", "date": "2026-11-26",
+        "titre": "👥 Consignes : un numéro autorisé, plusieurs clients (liste déroulante)",
+        "description": "Dans « Numéros WhatsApp autorisés », la colonne Clients devient une liste déroulante à choix multiples : cochez un ou plusieurs clients (codes sans doublon) ; aucun coché = tout SAWALI. La consigne donnée par ce numéro ne vaut que pour ces clients.",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "461", "date": "2026-11-26",
         "titre": "⚡ Pages beaucoup plus rapides, surtout après une actualisation",
         "description": "Le site ne télécharge plus toutes les pages d'un coup : le fichier principal passe de 8,4 Mo à 1,5 Mo (0,4 Mo compressé), chaque page se charge à la demande. Les fichiers du site sont aussi gardés en cache par le navigateur.",

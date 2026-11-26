@@ -27,6 +27,7 @@ ID_CONSIGNES = "liluvine_consignes"
 ID_ACCES = "liluvine_consignes_acces"
 MAX_CONSIGNES = 200
 MAX_TEXTE = 1500
+MAX_TENANTS = 50                 # lot 462 : clients au plus par numéro autorisé
 MAX_ACCES = 100
 FORMAT_DATE = "%Y-%m-%dT%H:%M"            # « 2026-11-25T08:00 » (UTC)
 FORMAT_HEURE = "%H:%M"                    # « 12:00 » (créneau de la journée, UTC = heure du Burkina Faso)
@@ -116,10 +117,23 @@ def est_active(c: Dict[str, Any], instant: Optional[datetime] = None) -> bool:
     return (d is None or d <= instant) and (f is None or instant <= f)
 
 
+def tenants_de(fiche: Dict[str, Any]) -> List[str]:
+    """Codes des clients (tenants) d'une fiche — consigne OU numéro autorisé — SANS DOUBLON, dans l'ordre. Lot 462 : la liste `tenants` ; avant, un seul `tenant`."""
+    brut = fiche.get("tenants")
+    ids = [str(t or "").strip() for t in brut] if isinstance(brut, list) else []
+    if not any(ids) and fiche.get("tenant"):
+        ids = [str(fiche["tenant"]).strip()]
+    vus: List[str] = []
+    for t in ids:
+        if t and t[:80] not in vus:
+            vus.append(t[:80])
+    return vus[:MAX_TENANTS]
+
+
 def concerne(c: Dict[str, Any], scope_uid: str) -> bool:
-    """Une consigne sans tenant vaut pour tout SAWALI ; avec un tenant, seulement pour ce client."""
-    t = str(c.get("tenant") or "")
-    return not t or t == str(scope_uid or "")
+    """Une consigne sans client vaut pour tout SAWALI ; avec un ou plusieurs clients, seulement pour ces clients."""
+    ts = tenants_de(c)
+    return not ts or str(scope_uid or "") in ts
 
 
 def bloc_prompt(consignes: List[Dict[str, Any]], scope_uid: str = "", instant: Optional[datetime] = None) -> str:
@@ -191,7 +205,7 @@ async def _enregistrer(db, consignes: List[Dict[str, Any]]) -> None:
     await db.settings.update_one({"_id": ID_CONSIGNES}, {"$set": {"consignes": consignes[:MAX_CONSIGNES]}}, upsert=True)
 
 
-async def creer(db, proposition: Dict[str, Any], texte: str, par: str, tenant: str = "") -> Dict[str, Any]:
+async def creer(db, proposition: Dict[str, Any], texte: str, par: str, tenant: str = "", tenants: Optional[List[str]] = None) -> Dict[str, Any]:
     """Active une consigne VALIDÉE par la personne. Refuse une nature que le serveur n'applique pas encore."""
     p = valider_proposition(proposition, texte)
     if p["nature"] not in NATURES_APPLIQUEES:
@@ -203,7 +217,8 @@ async def creer(db, proposition: Dict[str, Any], texte: str, par: str, tenant: s
     toutes = await charger(db)
     if len(toutes) >= MAX_CONSIGNES:
         toutes = [c for c in toutes if est_active(c)] or toutes[-(MAX_CONSIGNES // 2):]       # on fait de la place : les consignes terminées partent d'abord
-    fiche = {"id": uuid.uuid4().hex[:12], "texte": str(texte or "")[:MAX_TEXTE], **p, "tenant": str(tenant or ""), "statut": "active",
+    ts = tenants_de({"tenants": tenants, "tenant": tenant})            # lot 462 : un ou plusieurs clients (`tenant` = le premier, pour les anciens usages)
+    fiche = {"id": uuid.uuid4().hex[:12], "texte": str(texte or "")[:MAX_TEXTE], **p, "tenant": ts[0] if ts else "", "tenants": ts, "statut": "active",
              "creee_par": par, "creee_le": datetime.now(timezone.utc).isoformat()}
     toutes.append(fiche)
     await _enregistrer(db, toutes)
@@ -270,18 +285,38 @@ def cle_numero(valeur: Any) -> str:
 
 
 def nettoyer_acces(liste: Any) -> List[Dict[str, Any]]:
-    """Liste des numéros autorisés, sans doublon (par numéro et client), bornée. Une ligne sans numéro valable est ignorée."""
-    vus, propre = set(), []
+    """Liste des numéros autorisés, UNE ligne par numéro, bornée. Une ligne sans numéro valable est ignorée.
+    Lot 462 : un numéro peut être lié à plusieurs clients (`tenants`, codes SANS DOUBLON ; vide = tout SAWALI) ; `tenants_noms` = leurs noms (affichage).
+    Compatibilité : un ancien `tenant` seul devient `tenants = [tenant]`. Deux lignes du même numéro sont fusionnées ; si l'une est limitée à des clients,
+    le résultat reste LIMITÉ (union des clients), jamais élargi à tout SAWALI par un doublon."""
+    par_cle: Dict[str, Dict[str, Any]] = {}
     for e in (liste if isinstance(liste, list) else []):
         if not isinstance(e, dict):
             continue
         cle = cle_numero(e.get("numero"))
-        tenant = str(e.get("tenant") or "")[:80]
-        if not cle or (cle, tenant) in vus:
+        if not cle:
             continue
-        vus.add((cle, tenant))
-        propre.append({"cle": cle, "numero": re.sub(r"[^\d+ ]", "", str(e.get("numero") or ""))[:30], "nom": str(e.get("nom") or "")[:120],
-                       "tenant": tenant, "tenant_nom": str(e.get("tenant_nom") or "")[:120], "actif": bool(e.get("actif", True))})
+        ids = tenants_de(e)
+        noms_brut = e.get("tenants_noms") if isinstance(e.get("tenants_noms"), list) else []
+        noms = {i: str(n or "")[:120] for i, n in zip(tenants_de({"tenants": e.get("tenants")}), noms_brut)}
+        if not noms and e.get("tenant") and e.get("tenant_nom"):
+            noms = {str(e["tenant"])[:80]: str(e["tenant_nom"])[:120]}
+        if cle in par_cle:
+            vue = par_cle[cle]
+            if ids or vue["tenants"]:
+                vue["tenants"] = (vue["tenants"] + [i for i in ids if i not in vue["tenants"]]) if vue["tenants"] else list(ids)
+                vue["_noms"].update(noms)
+            continue
+        par_cle[cle] = {"cle": cle, "numero": re.sub(r"[^\d+ ]", "", str(e.get("numero") or ""))[:30], "nom": str(e.get("nom") or "")[:120],
+                        "tenants": ids, "_noms": noms, "actif": bool(e.get("actif", True))}
+    propre = []
+    for v in par_cle.values():
+        noms = v.pop("_noms")
+        v["tenants"] = v["tenants"][:MAX_TENANTS]
+        v["tenants_noms"] = [noms.get(i, "") for i in v["tenants"]]
+        v["tenant"] = v["tenants"][0] if v["tenants"] else ""                       # anciens usages : le premier client
+        v["tenant_nom"] = ", ".join(n for n in v["tenants_noms"] if n)
+        propre.append(v)
     return propre[:MAX_ACCES]
 
 

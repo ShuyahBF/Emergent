@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "461"
-LOT_LIBELLE = "Chargement des pages beaucoup plus rapide : le site charge chaque page à la demande (fichier principal de 8,4 Mo à 1,5 Mo) ; fichiers du site gardés en cache par le navigateur."
+LOT = "462"
+LOT_LIBELLE = "Consignes à Liluvine : un numéro autorisé peut être lié à plusieurs clients, choisis dans une liste déroulante à choix multiples (codes sans doublon)."

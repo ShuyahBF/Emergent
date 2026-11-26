@@ -72,6 +72,8 @@ const clientLinks = [
   { to: "/portal/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, adminOrSup: true, groupe: "liluvine", partage: "bloques" },
   // Lot 454 — consignes à Liluvine (« ce matin, pour tout appel au sujet de RDV… ») : sous-menu Liluvine, superviseur compris
   { to: "/portal/liluvine-consignes", label: "Consignes", icon: MessageSquareText, adminOrSup: true, groupe: "liluvine", partage: "consignes" },
+  // Lot 466 — historique des conversations WhatsApp du Centre de Messagerie, par client et contacts (PDF / CSV)
+  { to: "/portal/liluvine-historique-conversations", label: "Historique Conversation", icon: History, adminOrSup: true, groupe: "liluvine", partage: "historique_conversations" },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
   // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
   { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
@@ -168,6 +170,7 @@ const adminLinks = [
   // Lot 79.6 — messages WhatsApp retenus par la barrière anti-rafale (tous correspondants)
   { to: "/admin/liluvine-messages-bloques", label: "Messages bloqués", icon: ShieldAlert, groupe: "liluvine", partage: "bloques" },
   { to: "/admin/liluvine-consignes", label: "Consignes", icon: MessageSquareText, groupe: "liluvine", partage: "consignes" },   // lot 454
+  { to: "/admin/liluvine-historique-conversations", label: "Historique Conversation", icon: History, groupe: "liluvine", partage: "historique_conversations" },   // lot 466
   // Lot 73 — Liluvine PRO (assistant) accessible aussi depuis le menu Liluvine de l'administration
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, groupe: "liluvine", partage: "pro" },
   { to: "/admin/automations", label: "Automations", icon: Zap },

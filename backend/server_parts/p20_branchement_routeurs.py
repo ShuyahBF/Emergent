@@ -229,6 +229,10 @@ from routes.quota_atlas import setup_quota_atlas_routes as _setup_quota_atlas  #
 from db import client as _client_mongo  # noqa: E402
 _setup_quota_atlas(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
                    base_courante=db.name)
+# Lot 466 — Liluvine → « Historique Conversation » (conversations WhatsApp par client et contacts, PDF / CSV)
+from routes.historique_conversations import setup_historique_conversations_routes as _setup_historique_conversations  # noqa: E402
+_setup_historique_conversations(db=db, api=api, get_current_user=get_current_user, resolve_visible_client_ids=_resolve_visible_client_ids,
+                                resolve_content_restrictions=_resolve_content_restrictions)
 # Lot 463 — mémoire du serveur et appels les plus lents (Paramètres → « ⏱️ Performance du serveur »)
 from routes.performance_serveur import setup_performance_serveur_routes as _setup_performance_serveur  # noqa: E402
 _setup_performance_serveur(db=db, api=api, get_current_user=get_current_user)

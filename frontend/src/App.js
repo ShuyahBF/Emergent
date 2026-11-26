@@ -119,6 +119,7 @@ const LooisDossiersHospitalisation = paresseux(() => import("@/pages/admin/Loois
 const LooisSynchro = paresseux(() => import("@/pages/admin/LooisSynchro"));   // Lot 68 — Plateformes → Loois → Synchro
 const AutomationsVocalesPage = paresseux(() => import("@/pages/portal/AutomationsVocalesPage"));   // lot 375 — Superviseur
 const LiluvineAgenda = paresseux(() => import("@/pages/admin/LiluvineAgenda"));   // Lot 70 — agenda d'appels de Liluvine
+const LiluvineHistoriqueConversations = paresseux(() => import("@/pages/admin/LiluvineHistoriqueConversations"));   // Lot 466 — historique des conversations WhatsApp (menu Liluvine)
 const LiluvineConsignes = paresseux(() => import("@/pages/admin/LiluvineConsignes"));   // Lot 454 — consignes à Liluvine (menu Liluvine)
 const MessagesBloquesWa = paresseux(() => import("@/pages/admin/MessagesBloquesWa"));   // Lot 79.6 — messages retenus par la barrière WA
 const VidalApiLogs = paresseux(() => import("@/pages/admin/VidalApiLogs"));
@@ -431,6 +432,7 @@ export default function App() {
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}
             <Route path="liluvine-messages-bloques" element={<MessagesBloquesWa />} />
             <Route path="liluvine-consignes" element={<LiluvineConsignes />} />   {/* lot 454 */}
+            <Route path="liluvine-historique-conversations" element={<LiluvineHistoriqueConversations />} />   {/* lot 466 */}
             <Route path="contacts" element={<Contacts />} />
             <Route path="contact-groups" element={<ContactGroups />} />
             <Route path="error-registry" element={<ErrorRegistry />} />
@@ -577,6 +579,7 @@ export default function App() {
             {/* Lot 79.6 — menu Liluvine → Messages bloqués (barrière anti-rafale WhatsApp) */}
             <Route path="liluvine-messages-bloques" element={<MessagesBloquesWa />} />
             <Route path="liluvine-consignes" element={<LiluvineConsignes />} />   {/* lot 454 */}
+            <Route path="liluvine-historique-conversations" element={<LiluvineHistoriqueConversations />} />   {/* lot 466 */}
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites).

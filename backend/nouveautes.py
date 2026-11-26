@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "466", "date": "2026-11-26",
+        "titre": "🕘 Liluvine → Historique Conversation",
+        "description": "Nouveau sous-menu : choisissez un client, cochez ses contacts, et toutes leurs conversations WhatsApp s'affichent de la plus récente à la plus ancienne (messages bloqués ignorés), avec une pastille au nom du contact ; impression PDF (date et heure, « Liluvine » vertical sur chaque page) ou export CSV. Partageable aux superviseurs ici.",
+        "rubrique": "🤖 Liluvine — partage avec les superviseurs",
+    },
+    {
         "lot": "465", "date": "2026-11-26",
         "titre": "📸 Suivis : captures d'écran annotables",
         "description": "Collez une capture d'écran (Ctrl + V) dans le contenu d'un suivi : une fenêtre permet de l'annoter (flèche, cadre, ovale, crayon, surligneur, texte, masquage d'une donnée sensible) puis de l'insérer, avant l'enregistrement. Interrupteur et largeur maximale réglables ici.",

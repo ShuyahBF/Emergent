@@ -216,3 +216,13 @@ def test_element_partageable_menu_et_routes_du_site():
     assert menu.count('label: "Historique Conversation"') == 2                                    # règle 18 : majuscule à chaque mot
     app = (racine / "App.js").read_text(encoding="utf-8")
     assert app.count('path="liluvine-historique-conversations"') == 2
+
+
+def test_pdf_message_tres_long_ne_fait_plus_echouer_la_generation():
+    # Lot 466.2 : un message énorme (ou plein de retours à la ligne) rendait une ligne plus haute que la page -> LayoutError « génération PDF impossible »
+    from datetime import datetime, timezone
+    lignes = [{"id": f"m{i}", "quand": "26/11/2026 09:00:00", "quand_iso": "2026-11-26T09:00:00+00:00", "contact": "Awa", "telephone": "+22670111111", "sens": "Reçu",
+               "type": "texte", "statut": "", "message": msg, "client": "AMY"}
+              for i, msg in enumerate(["x" * 20000, "ligne\n" * 400, "mot " * 5000, "Bonjour"])]
+    pdf = hc.construire_pdf(lignes, client="AMY", contacts=["Awa"], du="", au="", genere_le=datetime.now(timezone.utc))
+    assert pdf.startswith(b"%PDF")

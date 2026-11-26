@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "466.2", "date": "2026-11-26",
+        "titre": "🕘 Historique Conversation : PDF des messages très longs",
+        "description": "Correction de « Génération PDF impossible » : un message très long est maintenant tronqué dans le PDF (marqué « message tronqué »), le texte complet reste dans l'export CSV.",
+        "rubrique": "🤖 Liluvine — partage avec les superviseurs",
+    },
+    {
         "lot": "466.1", "date": "2026-11-26",
         "titre": "🕘 Historique Conversation : contacts bloqués inclus",
         "description": "Les contacts bloqués sont maintenant proposés (marqués « bloqué ») et leurs messages restent visibles jusqu'à la date de blocage ; seuls ceux écrits pendant le blocage sont écartés.",

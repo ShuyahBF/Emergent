@@ -100,7 +100,7 @@ async def traiter(db, numero: Any, texte: str, instant: Optional[datetime] = Non
             return "D'accord, la consigne est annulée. Rien n'a été activé ni envoyé."
         try:
             if attente["etape"] == "consigne":
-                fiche = await cl.creer(db, attente["proposition"], attente["texte"], par, tenant=acces.get("tenant") or "")
+                fiche = await cl.creer(db, attente["proposition"], attente["texte"], par, tenant=acces.get("tenant") or "", tenants=acces.get("tenants") or [])
                 return f"✅ Consigne activée (n° {fiche['id']}). Liluvine l'applique dès maintenant. Pour l'arrêter : écran Liluvine → Consignes."
             if attente["etape"] == "masse_apercu":                # 1er OUI : montrer la liste (deuxième temps de confirmation)
                 ap = await cm.apercu(db, attente["message"], attente["rdv_du"], attente["rdv_au"], par, instant)
@@ -125,7 +125,7 @@ async def traiter(db, numero: Any, texte: str, instant: Optional[datetime] = Non
         return f"⚠️ {exc}"
     expire = (instant + timedelta(minutes=VALIDITE_MIN)).isoformat()
     if prop["nature"] == "masse":
-        if acces.get("tenant"):
+        if cl.tenants_de(acces):                                  # lot 462 : lié à UN OU PLUSIEURS clients
             return "⚠️ Les envois en masse ne sont pas permis à un numéro lié à un client précis. Demandez à l'administrateur."
         if not prop.get("message") or not prop.get("rdv_du"):
             return "⚠️ Pour un envoi à un groupe, précisez le message et le jour des rendez-vous (ex. « consigne : écris à tous les RDV de demain que… »)."

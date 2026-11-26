@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "460"
-LOT_LIBELLE = "Modèle Meta des envois en masse soumis à Meta et suivi depuis SAWALI ; raccourcis HFSQL : la zone (/docx=CMC, /doc=CMC, /ekol) se saisit avec la commande."
+LOT = "461"
+LOT_LIBELLE = "Chargement des pages beaucoup plus rapide : le site charge chaque page à la demande (fichier principal de 8,4 Mo à 1,5 Mo) ; fichiers du site gardés en cache par le navigateur."

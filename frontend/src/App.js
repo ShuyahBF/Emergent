@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
@@ -45,193 +45,23 @@ import PortalLayout from "@/components/PortalLayout";
 
 // Public
 import Home from "@/pages/public/Home";
-import Missions from "@/pages/public/Missions";
-import Specialisations from "@/pages/public/Specialisations";
-import Catalogue from "@/pages/public/Catalogue";
-import AccordWhatsApp from "@/pages/public/AccordWhatsApp";   // Lot 164 : page d'accord WhatsApp (lien personnel)
-import PresentationCarte from "@/pages/public/PresentationCarte";   // Lot 94 : carte de carrousel sans lien
-import PresentationCarrousel from "@/pages/public/PresentationCarrousel";   // Lot 111 : tout le carrousel, #carte-n
-import LienCarrousel from "@/pages/public/LienCarrousel";   // Lot 117 : bouton des cartes de carrousel (/l/<code>)
-import Contact from "@/pages/public/Contact";
-import RDV from "@/pages/public/RDV";
-import Testimonials from "@/pages/public/Testimonials";
-import Feedback from "@/pages/public/Feedback";
-import CaseStudies from "@/pages/public/CaseStudies";
-import CaseStudyDetail from "@/pages/public/CaseStudyDetail";
-import Blog from "@/pages/public/Blog";
-import Subscriptions from "@/pages/public/Subscriptions";
-import BlogPost from "@/pages/public/BlogPost";
-import StatusPage from "@/pages/public/Status";
 
 // Auth
 import Login from "@/pages/auth/Login";
-import ConnexionGoogle from "@/pages/auth/ConnexionGoogle";   // retour de Google
 
 // Portal
-import ClientDashboard from "@/pages/portal/Dashboard";
-import ClientAppointments from "@/pages/portal/Appointments";
-import ClientDocuments from "@/pages/portal/Documents";
-import ClientInterventions from "@/pages/portal/Interventions";
-import ClientUsersTracking from "@/pages/portal/UsersTracking";
-import UserNotesPage from "@/pages/portal/UserNotes";
 
 // Admin
-import AdminDashboard from "@/pages/admin/AdminDashboard";
-import AdminClients from "@/pages/admin/AdminClients";
-import AdminAppointments from "@/pages/admin/AdminAppointments";
-import AdminInterventions from "@/pages/admin/AdminInterventions";
-import AdminDocuments from "@/pages/admin/AdminDocuments";
-import AdminContents from "@/pages/admin/AdminContents";
-import AdminSettings from "@/pages/admin/AdminSettings";
-import AdminTelecommandeTv from "@/pages/admin/AdminTelecommandeTv";   // lot 412 : télécommande vidéo pour les Smart TV
-import AdminPlateformesTempsReel from "@/pages/admin/AdminPlateformesTempsReel";   // Lot 63
-import AdminControleDistance from "@/pages/admin/AdminControleDistance";   // Lot 135.1 : Plateformes → Contrôle à distance
-import AdminRequetes from "@/pages/admin/AdminRequetes";   // Lot 86 : requêtes des clients
-import AdminEvaluationsLoois from "@/pages/admin/AdminEvaluationsLoois";   // Lot 88 : sondages « Evaluation Loois »
-import AdminSyntheseSupport from "@/pages/admin/AdminSyntheseSupport";   // Lot 92 : synthèse du support
-import AdminDemandesPlateformes from "@/pages/admin/AdminDemandesPlateformes";   // Lot 393 : menu Plateformes
-import AdminTransactionsSms from "@/pages/admin/AdminTransactionsSms";   // Lot 389 : transactions SMS (administrateur)
-import AdminLieuxBalises from "@/pages/admin/AdminLieuxBalises";   // Lot 388 : lieux « Vous êtes ici » (administrateur + superviseur)
-import LieuBalise from "@/pages/public/LieuBalise";   // Lot 388 : page publique d'un lieu
-import LooisSqlDistant from "@/pages/admin/LooisSqlDistant";   // Lot 446 — Plateformes → Loois → SQL Distant (téléphone)
-import LooisDossiersHospitalisation from "@/pages/admin/LooisDossiersHospitalisation";   // Lot 448 — Plateformes → Loois → Dossiers d'hospitalisation (web)
-import LooisSynchro from "@/pages/admin/LooisSynchro";   // Lot 68 — Plateformes → Loois → Synchro
-import AutomationsVocalesPage from "@/pages/portal/AutomationsVocalesPage";   // lot 375 — Superviseur
-import LiluvineAgenda from "@/pages/admin/LiluvineAgenda";   // Lot 70 — agenda d'appels de Liluvine
-import LiluvineConsignes from "@/pages/admin/LiluvineConsignes";   // Lot 454 — consignes à Liluvine (menu Liluvine)
-import MessagesBloquesWa from "@/pages/admin/MessagesBloquesWa";   // Lot 79.6 — messages retenus par la barrière WA
-import VidalApiLogs from "@/pages/admin/VidalApiLogs";
-import AdminContacts from "@/pages/admin/AdminContacts";
-import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
-import AdminTestimonials from "@/pages/admin/AdminTestimonials";
-import AdminCaseStudies from "@/pages/admin/AdminCaseStudies";
-import AdminBlog from "@/pages/admin/AdminBlog";
-import AdminSubscriptions from "@/pages/admin/AdminSubscriptions";
-import AdminNewsletter from "@/pages/admin/AdminNewsletter";
-import AdminVisits from "@/pages/admin/AdminVisits";
-import AdminDeployments from "@/pages/admin/AdminDeployments";
-import AdminBlacklist from "@/pages/admin/AdminBlacklist";
-import AdminAccessLogs from "@/pages/admin/AdminAccessLogs";
-import AdminApiTraces from "@/pages/admin/AdminApiTraces";
-import AdminSmsDashboard from "@/pages/admin/AdminSmsDashboard";
-import AdminHealthDashboard from "@/pages/admin/AdminHealthDashboard";
-import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
-import AdminFormations from "@/pages/admin/AdminFormations";
-import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
-import AdminMessaging from "@/pages/admin/AdminMessaging";
-import AdminAutomations from "@/pages/admin/AdminAutomations";
-import AdminWaTemplates from "@/pages/admin/AdminWaTemplates";
-import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
-import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
-import AdminVoiceNotifications from "@/pages/admin/AdminVoiceNotifications";
-import AdminAdBanners from "@/pages/admin/AdminAdBanners";
-import PublicAdReport from "@/pages/public/PublicAdReport";
-import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
-import AdminUsage from "@/pages/admin/AdminUsage";
-import AdminBrochures from "@/pages/admin/AdminBrochures";
-import AdminPolicies from "@/pages/admin/AdminPolicies";
-import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
-import AdminI18n from "@/pages/admin/AdminI18n";
-import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
-import AdminSuggestionsHistory from "@/pages/admin/AdminSuggestionsHistory";
-import AdminDownloadAudit from "@/pages/admin/AdminDownloadAudit";
-import Launch from "@/pages/public/Launch";
-import WaPlanningRecap from "@/pages/portal/WaPlanningRecap";
-import FormsList from "@/pages/portal/FormsList";
-import FormEditor from "@/pages/portal/FormEditor";
-import FormRunner from "@/pages/portal/FormRunner";
-import FormsAnalytics from "@/pages/portal/FormsAnalytics";
-import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
-import Contacts from "@/pages/portal/Contacts";
-import ContactGroups from "@/pages/portal/ContactGroups";
-import ErrorRegistry from "@/pages/portal/ErrorRegistry";
-import MediaGenerator from "@/pages/portal/MediaGenerator";
-import MediaLibrary from "@/pages/portal/MediaLibrary";
-import MyPayments from "@/pages/portal/MyPayments";
-import PayoutsPage from "@/pages/portal/Payouts";
-import VoiceStudio from "@/pages/portal/VoiceStudio";
-import { CheckoutSuccess, CheckoutCancel } from "@/pages/public/CheckoutPages";
-import SmsBulk from "@/pages/portal/SmsBulk";
-import WaBulk from "@/pages/portal/WaBulk";
 // Lot 27 — Sondages WhatsApp
-import Surveys from "@/pages/portal/Surveys";
-import SurveyEditor from "@/pages/portal/SurveyEditor";
-import SurveyResults from "@/pages/portal/SurveyResults";
-import PublicSurvey from "@/pages/public/PublicSurvey";
-import Disponibilites from "@/pages/public/Disponibilites";   // lot 41
-import SuiviRdv from "@/pages/public/SuiviRdv";   // lot 321 : suivi du RDV par le patient (QR du hall)
-import PortfolioInvoices from "@/pages/portal/PortfolioInvoices";
-import ComingSoon from "@/pages/portal/ComingSoon";
-import Tickets from "@/pages/portal/Tickets";
-import MesRequetes from "@/pages/portal/MesRequetes";   // Lot 86 : requêtes des clients
-import CashBilling from "@/pages/portal/CashBilling";
-import HumanResources from "@/pages/portal/HumanResources";
 // Iter43-fix24az-f (2026-02-26) — Production module (Fabricant tenants)
-import Production from "@/pages/portal/Production";
 // Iter43-fix24az-m (2026-07-18) — Planning médecins (RDV visualisation temps réel)
-import Planning from "@/pages/portal/Planning";
-import ReponsesRdv from "@/pages/portal/ReponsesRdv";   // lot 303
-import MetaIntegration from "@/pages/portal/MetaIntegration";
-import UnifiedInbox from "@/pages/portal/UnifiedInbox";
-import CatalogStats from "@/pages/portal/CatalogStats";
-import PaymentReturn from "@/pages/portal/PaymentReturn";
-import LiluvinePro from "@/pages/portal/LiluvinePro";
-import Vidal from "@/pages/portal/Vidal";
 // Iter43-fix24az-ac — Page standalone d'analyse de prescription (médecin sidebar)
-import PrescriptionAnalysis from "@/pages/portal/PrescriptionAnalysis";
-import AmmEditorPage from "@/pages/portal/AmmEditor";
 // Portage site-meetafrican — Fiche produit VIDAL + Posologie + Sécurisation
-import VidalFicheProduit from "@/pages/portal/VidalFicheProduit";
-import VidalPosologie from "@/pages/portal/VidalPosologie";
-import VidalSecurisation from "@/pages/portal/VidalSecurisation";
-import GestionStocks from "@/pages/portal/GestionStocks";
 // Lot OCR sur Pièces (2026-09) — module commun ocr-core + adaptateur Sawali
-import OcrPieces from "@/pages/portal/OcrPieces";
-import OrdonnancesStock from "@/pages/portal/OrdonnancesStock";   // lot 39
-import CarrouselWhatsApp from "@/pages/portal/CarrouselWhatsApp";   // lot 40
-import MaintenanceEquipements from "@/pages/portal/MaintenanceEquipements";   // lot 41
-import ParcInformatique from "@/pages/portal/ParcInformatique";   // lot 47
-import DecouverteReseau from "@/pages/admin/DecouverteReseau";   // lot 80 : appareils découverts par Loois
-import VersionsDeployees from "@/pages/admin/VersionsDeployees";   // lot 80 : « Postes et serveurs » dans « Équipements »
-import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
-import PublicRequete from "@/pages/public/PublicRequete";   // lot 86.1 : lien personnel des requêtes clients (sans connexion)
-import OfficinePaiement from "@/pages/public/OfficinePaiement";   // lot 386 : paiement au comptoir (QR + séquence USSD)
-import OfficinePaiementPortail from "@/pages/officines/Paiement";   // lot 386
-import OfficineOrdonnance from "@/pages/public/OfficineOrdonnance";   // lot 57 : délivrance en officine (QR de l'ordonnance)
-import Restauration from "@/pages/public/Restauration";   // lot 49 : restauration initiale d'un site neuf
-import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
-import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
-import PortalBrochures from "@/pages/portal/PortalBrochures";
-import MeetingMinutes from "@/pages/portal/MeetingMinutes";
-import ReceiptPrint from "@/pages/portal/ReceiptPrint";
-import InvoicePrint from "@/pages/portal/InvoicePrint";
-import MyAccount from "@/pages/portal/MyAccount";
 
 // Iter42 (2026-02) — Self-Service Portal pour Officines (pharmacies)
 import OfficineLayout from "@/components/OfficineLayout";
-import OfficineLogin from "@/pages/officines/Login";
-import OfficineMagicCallback from "@/pages/officines/MagicCallback";
-import OfficineDashboard from "@/pages/officines/Dashboard";
-import OfficineInventory from "@/pages/officines/Inventory";
-import OfficineSecret from "@/pages/officines/Secret";
-import OfficineHistory from "@/pages/officines/History";
-import AdminOfficinesRegistry from "@/pages/admin/AdminOfficinesRegistry";
-import AdminGardePlanning from "@/pages/admin/AdminGardePlanning";
-import AdminLiluvineWaRequests from "@/pages/admin/AdminLiluvineWaRequests";
 // Iter43-fix24f — Suggestions IA + Bird Cost
-import AdminHandlerSuggestions from "@/pages/admin/AdminHandlerSuggestions";
-import AdminBirdCost from "@/pages/admin/AdminBirdCost";
-import StoryStudio from "@/pages/admin/StoryStudio";
-import PayLink from "@/pages/public/PayLink";
-import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
-import PublicForm from "@/pages/public/PublicForm";
-import PoliciesPage from "@/pages/public/Policies";
-import PrivacyPage from "@/pages/public/Privacy";
-import PrivacyApplication from "@/pages/public/PrivacyApplication";
-import TermsOfServicePage from "@/pages/public/TermsOfService";
-import GardePage from "@/pages/public/Garde";
-import VerifierDocumentPage from "@/pages/public/VerifierDocument";   // lot 268 : vérification d'un document par QR code
-import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
@@ -241,7 +71,182 @@ import SurveillanceMaintenance from "@/components/MaintenancePlateforme";   // l
 import AbonnementAcces from "@/components/AbonnementAcces";   // lot 50 : grâce puis coupure de l'abonnement
 import NouvelleVersionBandeau from "@/components/NouvelleVersionBandeau";   // lot 264 : « nouvelle version disponible »
 
-import ApiDocs from "@/pages/ApiDocs";
+// Lot 461 — pages chargées À LA DEMANDE (fichiers séparés) : le premier affichage ne télécharge plus les 8,7 Mo de toutes les pages.
+import { paresseux } from "@/lib/paresseux";
+const Missions = paresseux(() => import("@/pages/public/Missions"));
+const Specialisations = paresseux(() => import("@/pages/public/Specialisations"));
+const Catalogue = paresseux(() => import("@/pages/public/Catalogue"));
+const AccordWhatsApp = paresseux(() => import("@/pages/public/AccordWhatsApp"));   // Lot 164 : page d'accord WhatsApp (lien personnel)
+const PresentationCarte = paresseux(() => import("@/pages/public/PresentationCarte"));   // Lot 94 : carte de carrousel sans lien
+const PresentationCarrousel = paresseux(() => import("@/pages/public/PresentationCarrousel"));   // Lot 111 : tout le carrousel, #carte-n
+const LienCarrousel = paresseux(() => import("@/pages/public/LienCarrousel"));   // Lot 117 : bouton des cartes de carrousel (/l/<code>)
+const Contact = paresseux(() => import("@/pages/public/Contact"));
+const RDV = paresseux(() => import("@/pages/public/RDV"));
+const Testimonials = paresseux(() => import("@/pages/public/Testimonials"));
+const Feedback = paresseux(() => import("@/pages/public/Feedback"));
+const CaseStudies = paresseux(() => import("@/pages/public/CaseStudies"));
+const CaseStudyDetail = paresseux(() => import("@/pages/public/CaseStudyDetail"));
+const Blog = paresseux(() => import("@/pages/public/Blog"));
+const Subscriptions = paresseux(() => import("@/pages/public/Subscriptions"));
+const BlogPost = paresseux(() => import("@/pages/public/BlogPost"));
+const StatusPage = paresseux(() => import("@/pages/public/Status"));
+const ConnexionGoogle = paresseux(() => import("@/pages/auth/ConnexionGoogle"));   // retour de Google
+const ClientDashboard = paresseux(() => import("@/pages/portal/Dashboard"));
+const ClientAppointments = paresseux(() => import("@/pages/portal/Appointments"));
+const ClientDocuments = paresseux(() => import("@/pages/portal/Documents"));
+const ClientInterventions = paresseux(() => import("@/pages/portal/Interventions"));
+const ClientUsersTracking = paresseux(() => import("@/pages/portal/UsersTracking"));
+const UserNotesPage = paresseux(() => import("@/pages/portal/UserNotes"));
+const AdminDashboard = paresseux(() => import("@/pages/admin/AdminDashboard"));
+const AdminClients = paresseux(() => import("@/pages/admin/AdminClients"));
+const AdminAppointments = paresseux(() => import("@/pages/admin/AdminAppointments"));
+const AdminInterventions = paresseux(() => import("@/pages/admin/AdminInterventions"));
+const AdminDocuments = paresseux(() => import("@/pages/admin/AdminDocuments"));
+const AdminContents = paresseux(() => import("@/pages/admin/AdminContents"));
+const AdminSettings = paresseux(() => import("@/pages/admin/AdminSettings"));
+const AdminTelecommandeTv = paresseux(() => import("@/pages/admin/AdminTelecommandeTv"));   // lot 412 : télécommande vidéo pour les Smart TV
+const AdminPlateformesTempsReel = paresseux(() => import("@/pages/admin/AdminPlateformesTempsReel"));   // Lot 63
+const AdminControleDistance = paresseux(() => import("@/pages/admin/AdminControleDistance"));   // Lot 135.1 : Plateformes → Contrôle à distance
+const AdminRequetes = paresseux(() => import("@/pages/admin/AdminRequetes"));   // Lot 86 : requêtes des clients
+const AdminEvaluationsLoois = paresseux(() => import("@/pages/admin/AdminEvaluationsLoois"));   // Lot 88 : sondages « Evaluation Loois »
+const AdminSyntheseSupport = paresseux(() => import("@/pages/admin/AdminSyntheseSupport"));   // Lot 92 : synthèse du support
+const AdminDemandesPlateformes = paresseux(() => import("@/pages/admin/AdminDemandesPlateformes"));   // Lot 393 : menu Plateformes
+const AdminTransactionsSms = paresseux(() => import("@/pages/admin/AdminTransactionsSms"));   // Lot 389 : transactions SMS (administrateur)
+const AdminLieuxBalises = paresseux(() => import("@/pages/admin/AdminLieuxBalises"));   // Lot 388 : lieux « Vous êtes ici » (administrateur + superviseur)
+const LieuBalise = paresseux(() => import("@/pages/public/LieuBalise"));   // Lot 388 : page publique d'un lieu
+const LooisSqlDistant = paresseux(() => import("@/pages/admin/LooisSqlDistant"));   // Lot 446 — Plateformes → Loois → SQL Distant (téléphone)
+const LooisDossiersHospitalisation = paresseux(() => import("@/pages/admin/LooisDossiersHospitalisation"));   // Lot 448 — Plateformes → Loois → Dossiers d'hospitalisation (web)
+const LooisSynchro = paresseux(() => import("@/pages/admin/LooisSynchro"));   // Lot 68 — Plateformes → Loois → Synchro
+const AutomationsVocalesPage = paresseux(() => import("@/pages/portal/AutomationsVocalesPage"));   // lot 375 — Superviseur
+const LiluvineAgenda = paresseux(() => import("@/pages/admin/LiluvineAgenda"));   // Lot 70 — agenda d'appels de Liluvine
+const LiluvineConsignes = paresseux(() => import("@/pages/admin/LiluvineConsignes"));   // Lot 454 — consignes à Liluvine (menu Liluvine)
+const MessagesBloquesWa = paresseux(() => import("@/pages/admin/MessagesBloquesWa"));   // Lot 79.6 — messages retenus par la barrière WA
+const VidalApiLogs = paresseux(() => import("@/pages/admin/VidalApiLogs"));
+const AdminContacts = paresseux(() => import("@/pages/admin/AdminContacts"));
+const AdminTrackedUsers = paresseux(() => import("@/pages/admin/AdminTrackedUsers"));
+const AdminTestimonials = paresseux(() => import("@/pages/admin/AdminTestimonials"));
+const AdminCaseStudies = paresseux(() => import("@/pages/admin/AdminCaseStudies"));
+const AdminBlog = paresseux(() => import("@/pages/admin/AdminBlog"));
+const AdminSubscriptions = paresseux(() => import("@/pages/admin/AdminSubscriptions"));
+const AdminNewsletter = paresseux(() => import("@/pages/admin/AdminNewsletter"));
+const AdminVisits = paresseux(() => import("@/pages/admin/AdminVisits"));
+const AdminDeployments = paresseux(() => import("@/pages/admin/AdminDeployments"));
+const AdminBlacklist = paresseux(() => import("@/pages/admin/AdminBlacklist"));
+const AdminAccessLogs = paresseux(() => import("@/pages/admin/AdminAccessLogs"));
+const AdminApiTraces = paresseux(() => import("@/pages/admin/AdminApiTraces"));
+const AdminSmsDashboard = paresseux(() => import("@/pages/admin/AdminSmsDashboard"));
+const AdminHealthDashboard = paresseux(() => import("@/pages/admin/AdminHealthDashboard"));
+const AdminDbExplorer = paresseux(() => import("@/pages/admin/AdminDbExplorer"));
+const AdminFormations = paresseux(() => import("@/pages/admin/AdminFormations"));
+const AdminIntegrationLinks = paresseux(() => import("@/pages/admin/AdminIntegrationLinks"));
+const AdminMessaging = paresseux(() => import("@/pages/admin/AdminMessaging"));
+const AdminAutomations = paresseux(() => import("@/pages/admin/AdminAutomations"));
+const AdminWaTemplates = paresseux(() => import("@/pages/admin/AdminWaTemplates"));
+const AdminClientTimeline = paresseux(() => import("@/pages/admin/AdminClientTimeline"));
+const AdminClientFeatures = paresseux(() => import("@/pages/admin/AdminClientFeatures"));
+const AdminVoiceNotifications = paresseux(() => import("@/pages/admin/AdminVoiceNotifications"));
+const AdminAdBanners = paresseux(() => import("@/pages/admin/AdminAdBanners"));
+const PublicAdReport = paresseux(() => import("@/pages/public/PublicAdReport"));
+const AdminRgpdPreview = paresseux(() => import("@/pages/admin/AdminRgpdPreview"));
+const AdminUsage = paresseux(() => import("@/pages/admin/AdminUsage"));
+const AdminBrochures = paresseux(() => import("@/pages/admin/AdminBrochures"));
+const AdminPolicies = paresseux(() => import("@/pages/admin/AdminPolicies"));
+const AdminLiluvineHistory = paresseux(() => import("@/pages/admin/AdminLiluvineHistory"));
+const AdminI18n = paresseux(() => import("@/pages/admin/AdminI18n"));
+const AdminSuggestionsRegistry = paresseux(() => import("@/pages/admin/AdminSuggestionsRegistry"));
+const AdminSuggestionsHistory = paresseux(() => import("@/pages/admin/AdminSuggestionsHistory"));
+const AdminDownloadAudit = paresseux(() => import("@/pages/admin/AdminDownloadAudit"));
+const Launch = paresseux(() => import("@/pages/public/Launch"));
+const WaPlanningRecap = paresseux(() => import("@/pages/portal/WaPlanningRecap"));
+const FormsList = paresseux(() => import("@/pages/portal/FormsList"));
+const FormEditor = paresseux(() => import("@/pages/portal/FormEditor"));
+const FormRunner = paresseux(() => import("@/pages/portal/FormRunner"));
+const FormsAnalytics = paresseux(() => import("@/pages/portal/FormsAnalytics"));
+const FormAnalyticsDetail = paresseux(() => import("@/pages/portal/FormAnalyticsDetail"));
+const Contacts = paresseux(() => import("@/pages/portal/Contacts"));
+const ContactGroups = paresseux(() => import("@/pages/portal/ContactGroups"));
+const ErrorRegistry = paresseux(() => import("@/pages/portal/ErrorRegistry"));
+const MediaGenerator = paresseux(() => import("@/pages/portal/MediaGenerator"));
+const MediaLibrary = paresseux(() => import("@/pages/portal/MediaLibrary"));
+const MyPayments = paresseux(() => import("@/pages/portal/MyPayments"));
+const PayoutsPage = paresseux(() => import("@/pages/portal/Payouts"));
+const VoiceStudio = paresseux(() => import("@/pages/portal/VoiceStudio"));
+const CheckoutSuccess = paresseux(() => import("@/pages/public/CheckoutPages"), "CheckoutSuccess");
+const CheckoutCancel = paresseux(() => import("@/pages/public/CheckoutPages"), "CheckoutCancel");
+const SmsBulk = paresseux(() => import("@/pages/portal/SmsBulk"));
+const WaBulk = paresseux(() => import("@/pages/portal/WaBulk"));
+const Surveys = paresseux(() => import("@/pages/portal/Surveys"));
+const SurveyEditor = paresseux(() => import("@/pages/portal/SurveyEditor"));
+const SurveyResults = paresseux(() => import("@/pages/portal/SurveyResults"));
+const PublicSurvey = paresseux(() => import("@/pages/public/PublicSurvey"));
+const Disponibilites = paresseux(() => import("@/pages/public/Disponibilites"));   // lot 41
+const SuiviRdv = paresseux(() => import("@/pages/public/SuiviRdv"));   // lot 321 : suivi du RDV par le patient (QR du hall)
+const PortfolioInvoices = paresseux(() => import("@/pages/portal/PortfolioInvoices"));
+const ComingSoon = paresseux(() => import("@/pages/portal/ComingSoon"));
+const Tickets = paresseux(() => import("@/pages/portal/Tickets"));
+const MesRequetes = paresseux(() => import("@/pages/portal/MesRequetes"));   // Lot 86 : requêtes des clients
+const CashBilling = paresseux(() => import("@/pages/portal/CashBilling"));
+const HumanResources = paresseux(() => import("@/pages/portal/HumanResources"));
+const Production = paresseux(() => import("@/pages/portal/Production"));
+const Planning = paresseux(() => import("@/pages/portal/Planning"));
+const ReponsesRdv = paresseux(() => import("@/pages/portal/ReponsesRdv"));   // lot 303
+const MetaIntegration = paresseux(() => import("@/pages/portal/MetaIntegration"));
+const UnifiedInbox = paresseux(() => import("@/pages/portal/UnifiedInbox"));
+const CatalogStats = paresseux(() => import("@/pages/portal/CatalogStats"));
+const PaymentReturn = paresseux(() => import("@/pages/portal/PaymentReturn"));
+const LiluvinePro = paresseux(() => import("@/pages/portal/LiluvinePro"));
+const Vidal = paresseux(() => import("@/pages/portal/Vidal"));
+const PrescriptionAnalysis = paresseux(() => import("@/pages/portal/PrescriptionAnalysis"));
+const AmmEditorPage = paresseux(() => import("@/pages/portal/AmmEditor"));
+const VidalFicheProduit = paresseux(() => import("@/pages/portal/VidalFicheProduit"));
+const VidalPosologie = paresseux(() => import("@/pages/portal/VidalPosologie"));
+const VidalSecurisation = paresseux(() => import("@/pages/portal/VidalSecurisation"));
+const GestionStocks = paresseux(() => import("@/pages/portal/GestionStocks"));
+const OcrPieces = paresseux(() => import("@/pages/portal/OcrPieces"));
+const OrdonnancesStock = paresseux(() => import("@/pages/portal/OrdonnancesStock"));   // lot 39
+const CarrouselWhatsApp = paresseux(() => import("@/pages/portal/CarrouselWhatsApp"));   // lot 40
+const MaintenanceEquipements = paresseux(() => import("@/pages/portal/MaintenanceEquipements"));   // lot 41
+const ParcInformatique = paresseux(() => import("@/pages/portal/ParcInformatique"));   // lot 47
+const DecouverteReseau = paresseux(() => import("@/pages/admin/DecouverteReseau"));   // lot 80 : appareils découverts par Loois
+const VersionsDeployees = paresseux(() => import("@/pages/admin/VersionsDeployees"));   // lot 80 : « Postes et serveurs » dans « Équipements »
+const RapportParc = paresseux(() => import("@/pages/public/RapportParc"));   // lot 47 : rapport d'intervention à signer
+const PublicRequete = paresseux(() => import("@/pages/public/PublicRequete"));   // lot 86.1 : lien personnel des requêtes clients (sans connexion)
+const OfficinePaiement = paresseux(() => import("@/pages/public/OfficinePaiement"));   // lot 386 : paiement au comptoir (QR + séquence USSD)
+const OfficinePaiementPortail = paresseux(() => import("@/pages/officines/Paiement"));   // lot 386
+const OfficineOrdonnance = paresseux(() => import("@/pages/public/OfficineOrdonnance"));   // lot 57 : délivrance en officine (QR de l'ordonnance)
+const Restauration = paresseux(() => import("@/pages/public/Restauration"));   // lot 49 : restauration initiale d'un site neuf
+const FonctionsClients = paresseux(() => import("@/pages/portal/FonctionsClients"));   // lot 34
+const PublicFormResults = paresseux(() => import("@/pages/public/PublicFormResults"));   // lot 36
+const PortalBrochures = paresseux(() => import("@/pages/portal/PortalBrochures"));
+const MeetingMinutes = paresseux(() => import("@/pages/portal/MeetingMinutes"));
+const ReceiptPrint = paresseux(() => import("@/pages/portal/ReceiptPrint"));
+const InvoicePrint = paresseux(() => import("@/pages/portal/InvoicePrint"));
+const MyAccount = paresseux(() => import("@/pages/portal/MyAccount"));
+const OfficineLogin = paresseux(() => import("@/pages/officines/Login"));
+const OfficineMagicCallback = paresseux(() => import("@/pages/officines/MagicCallback"));
+const OfficineDashboard = paresseux(() => import("@/pages/officines/Dashboard"));
+const OfficineInventory = paresseux(() => import("@/pages/officines/Inventory"));
+const OfficineSecret = paresseux(() => import("@/pages/officines/Secret"));
+const OfficineHistory = paresseux(() => import("@/pages/officines/History"));
+const AdminOfficinesRegistry = paresseux(() => import("@/pages/admin/AdminOfficinesRegistry"));
+const AdminGardePlanning = paresseux(() => import("@/pages/admin/AdminGardePlanning"));
+const AdminLiluvineWaRequests = paresseux(() => import("@/pages/admin/AdminLiluvineWaRequests"));
+const AdminHandlerSuggestions = paresseux(() => import("@/pages/admin/AdminHandlerSuggestions"));
+const AdminBirdCost = paresseux(() => import("@/pages/admin/AdminBirdCost"));
+const StoryStudio = paresseux(() => import("@/pages/admin/StoryStudio"));
+const PayLink = paresseux(() => import("@/pages/public/PayLink"));
+const RemoteSupportConsole = paresseux(() => import("@/pages/public/RemoteSupportConsole"));
+const PublicForm = paresseux(() => import("@/pages/public/PublicForm"));
+const PoliciesPage = paresseux(() => import("@/pages/public/Policies"));
+const PrivacyPage = paresseux(() => import("@/pages/public/Privacy"));
+const PrivacyApplication = paresseux(() => import("@/pages/public/PrivacyApplication"));
+const TermsOfServicePage = paresseux(() => import("@/pages/public/TermsOfService"));
+const GardePage = paresseux(() => import("@/pages/public/Garde"));
+const VerifierDocumentPage = paresseux(() => import("@/pages/public/VerifierDocument"));   // lot 268 : vérification d'un document par QR code
+const FormationsList = paresseux(() => import("@/pages/portal/Formations"), "FormationsList");
+const FormationDetail = paresseux(() => import("@/pages/portal/Formations"), "FormationDetail");
+const ApiDocs = paresseux(() => import("@/pages/ApiDocs"));
+
 
 const PublicRoute = ({ children }) => <MarketingLayout>{children}</MarketingLayout>;
 
@@ -288,6 +293,16 @@ function PortalIndex() {
   return <ClientDashboard />;
 }
 
+// Lot 461 — affiché le temps de charger le fichier de la page demandée (jauge circulaire, comme sur le reste du site)
+function ChargementPage() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-live="polite" data-testid="chargement-page">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-sky-600" />
+      <span className="sr-only">Patientez… chargement de la page</span>
+    </div>
+  );
+}
+
 export default function App() {
   // Iter40-ui-flags — Apply public branding (title, --brand-primary CSS var)
   // app-wide. The hook fetches once and listens for ui-flags-updated.
@@ -310,6 +325,7 @@ export default function App() {
         <SurveillanceMaintenance />
         <AbonnementAcces />
         <NouvelleVersionBandeau />
+        <Suspense fallback={<ChargementPage />}>
         <Routes>
           {/* Public marketing */}
           <Route path="/" element={<PublicRoute><Home /></PublicRoute>} />
@@ -594,6 +610,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
         <VirtualAssistant />
       </BrowserRouter>
       </I18nProvider>

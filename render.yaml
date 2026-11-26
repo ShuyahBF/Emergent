@@ -230,6 +230,11 @@ services:
         value: https://api.sawalismartsystems.com
     # Lot 307 : la page des écrans TV n'est jamais gardée en cache par les télés (elles gardaient d'anciennes versions)
     headers:
+      # Lot 461 : les fichiers /static/* portent un code dans leur nom (ex. main.5aabfef6.js) : ils ne changent jamais sous le même nom,
+      # le navigateur peut donc les garder un an sans reposer la question au serveur à chaque actualisation.
+      - path: /static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
       - path: /tv-ecran.html
         name: Cache-Control
         value: no-cache, no-store, must-revalidate

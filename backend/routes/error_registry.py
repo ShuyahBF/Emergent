@@ -42,6 +42,30 @@ ALLOWED_ROLES = ("moderator", "moderateur", "admin", "superviseur")
 SUPERVISOR_ROLES = ("superviseur",)
 
 
+# Lot 463 — qui insiste pendant la PAUSE du webhook ? Compteurs EN MÉMOIRE (aucune écriture par requête) : adresse -> nombre d'appels refusés et dernier appel.
+# Affichés dans Paramètres (carte du Registre des Erreurs) pour identifier l'expéditeur qui ignore le « 503 + Retry-After » et, si besoin, bloquer son adresse.
+_REFUSES: Dict[str, Dict[str, Any]] = {}
+MAX_ADRESSES_REFUSEES = 200
+
+
+def noter_appel_refuse(ip: str) -> None:
+    """Un appel refusé parce que le webhook est en pause. Au plus 200 adresses suivies (les plus récentes gagnent)."""
+    ip = (ip or "inconnue")[:64]
+    fiche = _REFUSES.get(ip)
+    if fiche is None:
+        if len(_REFUSES) >= MAX_ADRESSES_REFUSEES:
+            _REFUSES.pop(min(_REFUSES, key=lambda k: _REFUSES[k]["dernier"]))
+        fiche = _REFUSES[ip] = {"ip": ip, "nombre": 0, "premier": datetime.now(timezone.utc).isoformat(), "dernier": ""}
+    fiche["nombre"] += 1
+    fiche["dernier"] = datetime.now(timezone.utc).isoformat()
+
+
+def appels_refuses(limite: int = 5) -> Dict[str, Any]:
+    """Les adresses qui ont le plus insisté depuis le dernier redémarrage du serveur : {total, adresses: [{ip, nombre, premier, dernier}]}."""
+    liste = sorted(_REFUSES.values(), key=lambda f: -f["nombre"])
+    return {"total": sum(f["nombre"] for f in liste), "adresses": [dict(f) for f in liste[:limite]]}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -154,6 +178,8 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1, "error_severity_mapping": 1, "errors_webhook_pause": 1}) or {}
         # Pause temporaire (lot 172) : refus 503 sans toucher au token ; réglée depuis les Paramètres.
         if s.get("errors_webhook_pause"):
+            from ip_client import ip_reelle
+            noter_appel_refuse(ip_reelle(request))                  # lot 463 : on retient qui insiste (affiché dans Paramètres)
             raise HTTPException(status_code=503, detail="Webhook registre des erreurs désactivé temporairement",
                                 headers={"Retry-After": "3600"})
         expected = (s.get("errors_webhook_token") or "").strip()

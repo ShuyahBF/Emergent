@@ -1116,6 +1116,8 @@ class SettingsUpdate(BaseModel):
     atlas_seuil_alerte: Optional[int] = None
     atlas_secours_limite_mo: Optional[float] = None   # lot 122 : limite (Mo) du cluster de copie (512 en gratuit)
     atlas_secours_seuil_pct: Optional[float] = None   # lot 122 : alerte WhatsApp au-delà de ce % (90 par défaut)
+    perf_memoire_limite_mo: Optional[float] = None    # lot 463 : limite de mémoire du serveur (Mo) ; vide = celle du conteneur Render
+    perf_memoire_seuil_pct: Optional[float] = None    # lot 463 : alerte WhatsApp au-delà de ce % de la mémoire (85 par défaut)
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
     openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)

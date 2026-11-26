@@ -262,7 +262,8 @@ def attach_iter42d_routes(
     @api.get("/admin/errors-webhook/pause", tags=["Admin — Incidents Webhook"])
     async def admin_get_errors_webhook_pause(_: dict = Depends(get_current_admin)):
         s = await db.settings.find_one({"_id": "global"}) or {}
-        return {"pause": bool(s.get("errors_webhook_pause")), "pause_depuis": s.get("errors_webhook_pause_at")}
+        from routes.error_registry import appels_refuses            # lot 463 : qui insiste pendant la pause (mémoire du serveur)
+        return {"pause": bool(s.get("errors_webhook_pause")), "pause_depuis": s.get("errors_webhook_pause_at"), "appels_refuses": appels_refuses()}
 
     @api.put("/admin/errors-webhook/pause", tags=["Admin — Incidents Webhook"])
     async def admin_pause_errors_webhook(payload: dict = Body(...), user: dict = Depends(get_current_admin)):

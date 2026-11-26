@@ -262,6 +262,9 @@ app.add_middleware(
 # jamais les flux en continu, fichiers déjà compressés ni petites réponses (voir compression_reponses.py)
 from compression_reponses import CompressionSelective  # noqa: E402
 app.add_middleware(CompressionSelective)
+# Lot 463 — mesure de la durée de chaque appel /api/* (écran « ⏱️ Performance du serveur ») : ajouté en dernier = le plus externe, il mesure toute la pile
+from performance_serveur import MesureAppels  # noqa: E402
+app.add_middleware(MesureAppels)
 
 
 # Cached compiled blacklist networks; refreshed on every settings/blacklist change.

@@ -11,11 +11,13 @@ Stockage : une seule fiche de `settings` (`liluvine_masse`), aucune nouvelle col
 from __future__ import annotations
 
 import asyncio
+import logging
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+logger = logging.getLogger("sawali.consignes_masse")
 MAX_DESTINATAIRES = 200
 VALIDITE_APERCU_MIN = 15
 MAX_LOTS_GARDES = 20
@@ -270,6 +272,7 @@ def vue_soumission(sou: Dict[str, Any], modele: Dict[str, str]) -> Dict[str, Any
     alerte = ("Meta a classé ce modèle « " + cat + " » au lieu de UTILITY : l'envoi est facturé autrement. Vérifiez le texte dans le Gestionnaire WhatsApp.") if cat and cat != "UTILITY" else ""
     return {"nom": sou.get("nom") or MODELE_NOM, "langue": sou.get("langue") or "fr", "statut": statut, "libelle": LIBELLES_STATUT.get(statut, statut), "categorie": cat,
             "raison": sou.get("raison") or "", "id": sou.get("id") or "", "envoye_le": sou.get("envoye_le") or "", "verifie_le": sou.get("verifie_le") or "", "alerte": alerte,
+            "active_auto_le": sou.get("active_auto_le") or "",
             "active": bool(modele.get("nom")) and modele.get("nom") == (sou.get("nom") or MODELE_NOM)}
 
 
@@ -279,8 +282,11 @@ async def lire_soumission(db) -> Dict[str, Any]:
     return vue_soumission(f["soumission"], f["modele"])
 
 
-async def statut_modele(db, nom: Optional[str] = None, appeler=None, instant: Optional[datetime] = None) -> Dict[str, Any]:
-    """Interroge Meta (GET /{WABA}/message_templates?name=…) et garde le statut : ABSENT (jamais soumis), PENDING, APPROVED, REJECTED (avec la raison)…"""
+async def statut_modele(db, nom: Optional[str] = None, appeler=None, instant: Optional[datetime] = None, activer: bool = True) -> Dict[str, Any]:
+    """Interroge Meta (GET /{WABA}/message_templates?name=…) et garde le statut : ABSENT (jamais soumis), PENDING, APPROVED, REJECTED (avec la raison)…
+    Lot 463 — ACTIVATION AUTOMATIQUE : quand le statut PASSE à APPROUVÉ (il ne l'était pas à la mesure précédente), le modèle est activé pour les envois en masse
+    sans second champ ni second bouton ; la date est gardée (`active_auto_le`) et affichée. Un modèle désactivé ensuite à la main le reste (on ne réactive pas
+    un modèle déjà approuvé). `activer=False` : lecture seule."""
     appeler = appeler or _appel_meta
     f = await _fiche(db)
     n = _nom_valide(nom or f["soumission"].get("nom") or MODELE_NOM)
@@ -299,8 +305,26 @@ async def statut_modele(db, nom: Optional[str] = None, appeler=None, instant: Op
         raison = str(trouve.get("rejected_reason") or "")
         f["soumission"] = {"nom": n, "langue": langue, "statut": str(trouve.get("status") or "PENDING").upper(), "categorie": str(trouve.get("category") or "").upper(),
                            "raison": "" if raison.upper() == "NONE" else raison, "id": str(trouve.get("id") or ""), "envoye_le": ancien.get("envoye_le", ""), "verifie_le": maintenant}
+    if trouve and activer and f["soumission"]["statut"] == "APPROVED" and ancien.get("statut") != "APPROVED":
+        f["modele"] = {"nom": n, "langue": langue}
+        f["soumission"]["active_auto_le"] = maintenant
+    elif ancien.get("active_auto_le"):
+        f["soumission"]["active_auto_le"] = ancien["active_auto_le"]
     await _ecrire(db, f)
     return vue_soumission(f["soumission"], f["modele"])
+
+
+async def surveiller_modele(db, appeler=None, instant: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+    """Tâche HORAIRE (lot 463, comme la jauge des collections) : tant que Meta n'a pas répondu (en attente ou en appel), relit le statut ; à l'approbation le
+    modèle est activé tout seul. Rien à faire (aucun appel à Meta) pour un modèle jamais soumis, déjà approuvé ou refusé. Une panne n'arrête jamais la tâche."""
+    f = await _fiche(db)
+    if f["soumission"].get("statut") not in ("PENDING", "IN_APPEAL"):
+        return None
+    try:
+        return await statut_modele(db, None, appeler, instant)
+    except ValueError:
+        logger.warning("[modele_meta] relecture horaire du statut impossible", exc_info=True)
+        return None
 
 
 def _nom_valide(nom: Any) -> str:

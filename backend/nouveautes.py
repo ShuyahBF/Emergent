@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "463", "date": "2026-11-26",
+        "titre": "⏱️ Performance du serveur : mémoire et appels les plus lents",
+        "description": "Nouvelle rubrique : jauge de la mémoire du serveur (mesure toutes les heures, alerte WhatsApp au-delà du seuil, courbe des 72 derniers relevés) et classement des appels les plus lents par route (moyenne, 5 derniers, dernier, maximum). Le modèle Meta n'a plus de champ redondant : activé tout seul à l'approbation. Le webhook en pause montre qui insiste.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "462", "date": "2026-11-26",
         "titre": "👥 Consignes : un numéro autorisé, plusieurs clients (liste déroulante)",
         "description": "Dans « Numéros WhatsApp autorisés », la colonne Clients devient une liste déroulante à choix multiples : cochez un ou plusieurs clients (codes sans doublon) ; aucun coché = tout SAWALI. La consigne donnée par ce numéro ne vaut que pour ces clients.",

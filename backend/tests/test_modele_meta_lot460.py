@@ -72,9 +72,11 @@ def test_suivi_approuve_refuse_et_categorie_modifiee(db):
     meta.modeles[0]["status"] = "APPROVED"
     v = run(cm.statut_modele(db, appeler=meta))
     assert v["statut"] == "APPROVED" and v["alerte"] == "" and v["verifie_le"] and v["envoye_le"]       # la date d'envoi est conservée
-    assert v["active"] is False                                                                         # approuvé, mais pas encore ACTIVÉ : l'administrateur doit enregistrer le nom
+    assert v["active"] is True and v["active_auto_le"]                                                  # lot 463 : activé TOUT SEUL au passage à « approuvé »
+    run(cm.regler_modele(db, "", "fr"))                                                                 # l'administrateur le désactive...
+    assert run(cm.lire_soumission(db))["active"] is False
+    assert run(cm.statut_modele(db, appeler=meta))["active"] is False                                  # ...et une relecture ne le réactive PAS (déjà approuvé)
     run(cm.regler_modele(db, "information_rdv", "fr"))
-    assert run(cm.lire_soumission(db))["active"] is True
     meta.modeles[0].update(status="REJECTED", rejected_reason="INCORRECT_CATEGORY", category="MARKETING")
     v = run(cm.statut_modele(db, appeler=meta))
     assert v["statut"] == "REJECTED" and v["raison"] == "INCORRECT_CATEGORY" and "MARKETING" in v["alerte"]

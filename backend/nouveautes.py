@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "468", "date": "2026-11-26",
+        "titre": "📱 Loois mobile : registre des appareils Android",
+        "description": "Premier pas de l'application Android Loois : chaque téléphone ou tablette qui s'enregistre arrive « Interdit » ; vous renseignez l'utilisateur, la zone et la base de données (myAizenta-CMC, myAurora…), voyez son adresse IP à la connexion, puis vous l'autorisez ou l'interdisez.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "467.1", "date": "2026-11-26",
         "titre": "📄 Historique Conversation : messages longs complets dans le PDF",
         "description": "Un message très long n'est plus tronqué dans le PDF : il est réparti sur plusieurs lignes consécutives (« suite 2/3 »…), sans rien perdre. Au-delà de 40 lignes de suite, une mention renvoie à l'export CSV.",

@@ -63,6 +63,7 @@ import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection"; 
 import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSection";   // Lot 96 : page Facebook animée par Liluvine
 import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
+import AppareilsAndroidSection from "@/pages/admin/sections/AppareilsAndroidSection";   // Lot 468 : registre des appareils Android (Loois mobile)
 import PerformanceServeurSection from "@/pages/admin/sections/PerformanceServeurSection";   // Lot 463 : mémoire du serveur et appels les plus lents
 import LibererEspaceSection from "@/pages/admin/sections/LibererEspaceSection";   // Lot 113 : bouton unique « 🧹 Libérer l'Espace »
 import LooisSqlDistantSection from "@/pages/admin/sections/LooisSqlDistantSection";   // Lot 446 : page SQL distant pour le téléphone
@@ -186,6 +187,7 @@ const NEW_LOTS = {
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "📸 Captures d'écran annotées dans les suivis": "465",   // lot 465 : collage, annotation et insertion dans le suivi
+  "📱 Appareils Android — Loois mobile": "468",   // lot 468 : registre des appareils Android (état, zone, base, utilisateur, IP)
   "⏱️ Performance du serveur — mémoire et appels lents": "463",   // lot 463 : jauge de mémoire, alerte WhatsApp, appels les plus lents
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
   "Contrats — Seuil de retard de paiement (par défaut)": "390",   // lot 129 : même règle (échéance) pour Admin → Clients, alertes, Liluvine + filtre contrat ; lot 128.1 : formes juridiques ignorées ; lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
@@ -267,6 +269,7 @@ const NEW_SECTIONS = {
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "📸 Captures d'écran annotées dans les suivis": "2026-11-26",   // lot 465
+  "📱 Appareils Android — Loois mobile": "2026-11-26",   // lot 468
   "⏱️ Performance du serveur — mémoire et appels lents": "2026-11-26",   // lot 463
   "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-11-14",   // lot 120 (créée au lot 79.7)
@@ -364,6 +367,7 @@ const NEW_DESCRIPTIONS = {
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "📸 Captures d'écran annotées dans les suivis": "Collez une capture d'écran (Ctrl + V) dans le contenu d'un suivi : flèche, cadre, ovale, crayon, surligneur, texte, masquage, puis insertion avant l'enregistrement (lot 465).",
+  "📱 Appareils Android — Loois mobile": "Téléphones et tablettes de l'application Loois mobile : identifiant, utilisateur, adresse IP vue par le serveur, état de l'accès (Autorisé / Interdit), zone de lancement et base de données (lot 468).",
   "⏱️ Performance du serveur — mémoire et appels lents": "Jauge de la mémoire du serveur (mesure toutes les heures, alerte WhatsApp au-delà du seuil) et classement des appels les plus lents par route : moyenne, 5 derniers, dernier, maximum (lot 463).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
   "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124). Lot 390 : la validité du contrat se calcule d'après la PÉRIODE PAYÉE (fiche client → Paiements : « Ce paiement règle… »), pas d'après la date du dernier paiement : un client qui paie hier une facture de janvier reste en retard pour les mois suivants.",
@@ -1105,6 +1109,13 @@ export default function AdminSettings() {
       <CartesNouveautes />
       {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) —
           lot 79.8.1 : affichée juste sous la carte « Nouveautés », en haut de la page */}
+      {/* Lot 468 — registre des appareils Android de « Loois mobile » (état Interdit / Autorisé, zone, base, utilisateur, IP) */}
+      <Filterable title="📱 Appareils Android — Loois mobile" anchorId="s-appareils-android" category="auth">
+        <Cadre title="📱 Appareils Android — Loois mobile">
+          <AppareilsAndroidSection />
+        </Cadre>
+      </Filterable>
+
       {/* Lot 463 — mémoire du serveur (jauge, mesure horaire, alerte WhatsApp) et appels les plus lents (règle 7) */}
       <Filterable title="⏱️ Performance du serveur — mémoire et appels lents" anchorId="s-performance-serveur" category="diagnostics">
         <Cadre title="⏱️ Performance du serveur — mémoire et appels lents">

@@ -233,6 +233,9 @@ _setup_quota_atlas(db=db, client=_client_mongo, api=api, get_current_user=get_cu
 from routes.historique_conversations import setup_historique_conversations_routes as _setup_historique_conversations  # noqa: E402
 _setup_historique_conversations(db=db, api=api, get_current_user=get_current_user, resolve_visible_client_ids=_resolve_visible_client_ids,
                                 resolve_content_restrictions=_resolve_content_restrictions)
+# Lot 468 — « Loois mobile » : registre des appareils Android (état Interdit / Autorisé, zone, base, utilisateur, IP) ; Paramètres → « 📱 Appareils Android »
+from routes.appareils_android import setup_appareils_android_routes as _setup_appareils_android  # noqa: E402
+_setup_appareils_android(db=db, api=api, get_current_user=get_current_user)
 # Lot 463 — mémoire du serveur et appels les plus lents (Paramètres → « ⏱️ Performance du serveur »)
 from routes.performance_serveur import setup_performance_serveur_routes as _setup_performance_serveur  # noqa: E402
 _setup_performance_serveur(db=db, api=api, get_current_user=get_current_user)

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "465"
-LOT_LIBELLE = "Suivis : captures d'écran collées (Ctrl + V) dans le contenu, annotables (flèche, cadre, ovale, crayon, surligneur, texte, masquage) avant l'enregistrement."
+LOT = "466"
+LOT_LIBELLE = "Liluvine → Historique Conversation : conversations WhatsApp par client et contacts, du plus récent au plus ancien (messages bloqués ignorés), impression PDF et export CSV."

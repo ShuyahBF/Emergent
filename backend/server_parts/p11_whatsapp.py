@@ -1991,11 +1991,22 @@ async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
     by_contact: Dict[str, int] = {}
     unknown = 0
     older = 0
+    # Lot 464 — un contact BLOQUÉ (liste noire) a disparu de la liste du Centre de Messagerie (lot 453.3) : ses messages restés non lus (reçus AVANT le
+    # blocage) ne doivent plus gonfler la pastille de la barre latérale ni la cloche, sinon « 1 » s'affiche sans aucune conversation à ouvrir.
+    import liste_noire_wa as _lnw
+    try:
+        bloques = await _lnw.cles_bloquees(db)
+    except Exception:  # noqa: BLE001 — la liste noire ne casse jamais le compteur
+        bloques = frozenset()
+    blocked = 0
     base = {"direction": "inbound", "read_by_us_at": None, "client_id": {"$in": visible_scope}}
     group = {"$group": {"_id": {"c": "$contact_id", "p": "$phone_digits"}, "n": {"$sum": 1}}}
     async for row in db.whatsapp_messages.aggregate([{"$match": {**base, "created_at": {"$gte": cutoff}}}, group]):
         key = row.get("_id") or {}
         n = int(row.get("n") or 0)
+        if bloques and _lnw.cle_numero(key.get("p")) in bloques:      # lot 464 : contact bloqué, non compté
+            blocked += n
+            continue
         cid = _wa_attribute(ids, by_suffix, key.get("c"), key.get("p"))
         if cid:
             by_contact[cid] = by_contact.get(cid, 0) + n
@@ -2003,10 +2014,12 @@ async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
             unknown += n
     async for row in db.whatsapp_messages.aggregate([{"$match": {**base, "created_at": {"$lt": cutoff}}}, group]):
         key = row.get("_id") or {}
+        if bloques and _lnw.cle_numero(key.get("p")) in bloques:
+            continue
         if _wa_attribute(ids, by_suffix, key.get("c"), key.get("p")):
             older += int(row.get("n") or 0)
     return {"total": sum(by_contact.values()), "by_contact": by_contact, "unknown": unknown,
-            "older": older, "max_age_days": WA_UNREAD_MAX_AGE_DAYS}
+            "older": older, "max_age_days": WA_UNREAD_MAX_AGE_DAYS, "blocked": blocked}
 
 
 @api.post("/me/whatsapp/mark-all-read", tags=["Portail Client"])

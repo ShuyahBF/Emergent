@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "464", "date": "2026-11-26",
+        "titre": "💬 Centre de Messagerie : plus de « 1 » fantôme, « Sans prospects » par défaut",
+        "description": "La pastille de la barre latérale ne compte plus les messages non lus d'un contact bloqué (invisible dans la liste) ; bloquer un numéro marque aussi ses non-lus comme lus. À l'ouverture du Centre de Messagerie, l'option « Sans prospects » est active.",
+        "rubrique": "⛔ Liste noire WhatsApp (contacts bloqués)",
+    },
+    {
         "lot": "463", "date": "2026-11-26",
         "titre": "⏱️ Performance du serveur : mémoire et appels les plus lents",
         "description": "Nouvelle rubrique : jauge de la mémoire du serveur (mesure toutes les heures, alerte WhatsApp au-delà du seuil, courbe des 72 derniers relevés) et classement des appels les plus lents par route (moyenne, 5 derniers, dernier, maximum). Le modèle Meta n'a plus de champ redondant : activé tout seul à l'approbation. Le webhook en pause montre qui insiste.",

@@ -91,6 +91,14 @@ async def bloquer(db, numero: str, *, nom: str = "", contact_id: Optional[str] =
     entrees = [e for e in entrees if e["cle"] != cle] + [entree]
     await db.settings.update_one({"_id": ID_FICHE}, {"$set": {"entrees": entrees}}, upsert=True)
     vider_cache()
+    # Lot 464 : « pas de non-lu » pour un contact bloqué : ses messages reçus avant le blocage et restés non lus sont marqués lus (sinon la pastille de la
+    # barre latérale affichait « 1 » sans conversation visible). Ne casse jamais le blocage.
+    try:
+        await db.whatsapp_messages.update_many(
+            {"direction": "inbound", "read_by_us_at": None, "phone_digits": {"$regex": cle + "$"}},
+            {"$set": {"read_by_us_at": datetime.now(timezone.utc).isoformat(), "read_by_us_id": "liste_noire"}})
+    except Exception:  # noqa: BLE001
+        pass
     return entree
 
 

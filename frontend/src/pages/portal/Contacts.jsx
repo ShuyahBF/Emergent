@@ -349,7 +349,7 @@ function ContactsListe() {
   const [shareFilter, setShareFilter] = useState("all");
   // Bascule « avec / sans prospects » : activée (défaut) = tous les contacts ; désactivée = les contacts
   // portant l'étiquette « prospect » sont masqués de la liste.
-  const [avecProspects, setAvecProspects] = useState(true);
+  const [avecProspects, setAvecProspects] = useState(false);   // lot 464 : « Sans prospects » par défaut dès l'ouverture du module (un clic sur le commutateur les affiche)
   // Iter43-fix5 — Tri configurable. Par défaut : date d'interaction décroissante.
   const [sortBy, setSortBy] = useState("interaction_desc"); // interaction_desc | name_asc | name_desc
   // Iter35r — Auto-open on "Non-lus" tab when there are unread inbound messages.

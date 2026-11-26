@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "463"
-LOT_LIBELLE = "Performance du serveur : jauge de mémoire (mesure horaire, alerte WhatsApp) et appels les plus lents par route ; modèle Meta sans champ redondant (activé tout seul à l'approbation) ; appelants du webhook en pause."
+LOT = "464"
+LOT_LIBELLE = "Centre de Messagerie : la pastille de la barre latérale ne compte plus les non-lus d'un contact bloqué ; « Sans prospects » est l'option par défaut à l'ouverture."

@@ -7,11 +7,12 @@
 // Réglages (limite en Mo, seuil en %) : champs `perf_memoire_limite_mo` / `perf_memoire_seuil_pct` des réglages généraux (enregistrés avec la page).
 // ============================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { Eraser, RefreshCw, Gauge as IcoGauge } from "lucide-react";
+import { Download, Eraser, FileDown, RefreshCw, Gauge as IcoGauge } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
+import { appelsEnCsv, appelsEnJson } from "@/lib/exportAppelsLents";   // lot 470 : export complet du tableau
 import { COULEURS as COULEURS_ATLAS, Jauge } from "@/pages/admin/sections/QuotaAtlasSection";
 
 // Même couleurs que la jauge des collections, libellés propres à la mémoire (vert < 70 %, orange ≥ 70 %, rouge ≥ 90 %)
@@ -108,6 +109,26 @@ function AppelsLents() {
     try { await apiClient.post("/admin/performance/appels/reinitialiser"); toast.success("Compteurs remis à zéro."); await charger(false); }
     catch (e) { toast.error(e?.response?.data?.detail || "Remise à zéro impossible"); }
   };
+  // Lot 470 — EXPORT COMPLET du tableau (toutes les routes, pas seulement les 60 affichées) dans un format qu'une machine lit sans ambiguïté :
+  // JSON (contexte + description des champs + mémoire) ou CSV (Excel). Toast « en cours » puis toast de résultat (règle 17).
+  const exporter = async (format) => {
+    toast("Préparation de l'export en cours…");
+    try {
+      const [a, m] = await Promise.all([
+        apiClient.get("/admin/performance/appels", { params: { limite: 500 } }),
+        apiClient.get("/admin/performance/memoire").catch(() => ({ data: null })),     // la mémoire est un plus : son échec n'empêche pas l'export
+      ]);
+      const maintenant = new Date();
+      const json = format === "json";
+      const contenu = json ? appelsEnJson(a.data, m.data, maintenant.toISOString()) : "\ufeff" + appelsEnCsv(a.data);
+      const blob = new Blob([contenu], { type: json ? "application/json;charset=utf-8" : "text/csv;charset=utf-8" });
+      const lien = document.createElement("a");
+      lien.href = URL.createObjectURL(blob);
+      lien.download = `appels-lents-${maintenant.toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-")}.${json ? "json" : "csv"}`;
+      document.body.appendChild(lien); lien.click(); lien.remove(); URL.revokeObjectURL(lien.href);
+      toast.success(`${(a.data.classement || []).length} route(s) exportée(s) en ${json ? "JSON" : "CSV"}.`);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Export impossible"); }
+  };
   const lignes = (d?.classement || []).map((l) => ({ ...l, cle: `${l.methode} ${l.route}` }));
   const { lignes: triees, tri, basculer } = useTri(lignes, {
     route: (l) => l.route, appels: (l) => l.appels, moyenne: (l) => l.moyenne_ms, dernier: (l) => l.dernier_ms, maximum: (l) => l.maximum_ms, lents: (l) => l.lents, erreurs: (l) => l.erreurs,
@@ -127,6 +148,8 @@ function AppelsLents() {
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <button type="button" onClick={() => charger(true)} disabled={enCours} data-testid="appels-actualiser" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm disabled:opacity-50"><RefreshCw className="w-4 h-4" /> Actualiser</button>
         <button type="button" onClick={remettre} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><Eraser className="w-4 h-4" /> Remettre à zéro</button>
+        <button type="button" onClick={() => exporter("json")} data-testid="appels-export-json" title="Tout le tableau, avec la description de chaque champ et la mémoire du serveur : le format le plus facile à analyser" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><FileDown className="w-4 h-4" /> Exporter tout (JSON)</button>
+        <button type="button" onClick={() => exporter("csv")} data-testid="appels-export-csv" title="Tout le tableau pour Excel" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><Download className="w-4 h-4" /> Exporter tout (CSV)</button>
       </div>
       <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
         <table className="min-w-full text-xs" data-testid="table-appels-lents">

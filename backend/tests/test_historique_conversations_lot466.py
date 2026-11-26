@@ -226,3 +226,29 @@ def test_pdf_message_tres_long_ne_fait_plus_echouer_la_generation():
               for i, msg in enumerate(["x" * 20000, "ligne\n" * 400, "mot " * 5000, "Bonjour"])]
     pdf = hc.construire_pdf(lignes, client="AMY", contacts=["Awa"], du="", au="", genere_le=datetime.now(timezone.utc))
     assert pdf.startswith(b"%PDF")
+
+
+def test_decouper_texte_ne_perd_rien_et_respecte_les_limites():
+    # Lot 467.1 : un message long est réparti sur plusieurs lignes du PDF au lieu d'être tronqué
+    assert hc.decouper_texte("Bonjour") == ["Bonjour"] and hc.decouper_texte("") == [""]
+    long = " ".join(f"mot{i}" for i in range(1000))                          # ≈ 6 000 caractères sur une seule ligne
+    parties = hc.decouper_texte(long)
+    assert len(parties) > 1 and all(len(p) <= hc.MAX_TEXTE_PDF and p.count("\n") < hc.MAX_LIGNES_PDF for p in parties)
+    assert " ".join(parties).split() == long.split()                          # aucun mot perdu ni coupé en deux
+    lignes = "\n".join(f"ligne {i}" for i in range(100))                      # 100 lignes courtes
+    assert all(p.count("\n") < hc.MAX_LIGNES_PDF for p in hc.decouper_texte(lignes)) and "\n".join(hc.decouper_texte(lignes)).count("ligne") == 100
+    assert "x" * 5000 == "".join(hc.decouper_texte("x" * 5000))                # une « ligne » sans espace est coupée net, sans perte
+    enorme = hc.decouper_texte("y" * 100000)                                   # au-delà du plafond : mention de la suite dans le CSV
+    assert len(enorme) == hc.MAX_PARTIES_PDF and enorme[-1].endswith("export CSV]")
+
+
+def test_pdf_message_long_complet_sur_plusieurs_lignes():
+    from datetime import datetime, timezone
+    if not shutil.which("pdftotext"):
+        pytest.skip("pdftotext absent")
+    texte = "DEBUT " + " ".join(f"mot{i}" for i in range(700)) + " FIN-DU-MESSAGE"
+    lignes = [{"id": "m1", "quand": "26/11/2026 09:00:00", "quand_iso": "2026-11-26T09:00:00+00:00", "contact": "Awa", "telephone": "", "sens": "Reçu", "type": "texte",
+               "statut": "", "message": texte, "client": "AMY"}]
+    pdf = hc.construire_pdf(lignes, client="AMY", contacts=["Awa"], du="", au="", genere_le=datetime.now(timezone.utc))
+    t = subprocess.run(["pdftotext", "-layout", "-", "-"], input=pdf, capture_output=True).stdout.decode("utf-8", "ignore")
+    assert "DEBUT" in t and "FIN-DU-MESSAGE" in t and "mot350" in t and "tronqué" not in t and "suite 2/" in t

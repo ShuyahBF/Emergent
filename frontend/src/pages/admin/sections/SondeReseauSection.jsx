@@ -7,12 +7,13 @@
 // Backend : POST/GET/DELETE /api/sonde-reseau/mesures, GET /api/sonde-reseau/rapport (administrateur seul). Moteur : lib/sondeReseau.js.
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Download, Eraser, FileDown, Play, RefreshCw, Square, Wifi } from "lucide-react";
+import { Activity, Download, Eraser, Eye, EyeOff, FileDown, KeyRound, Play, RefreshCw, Square, TriangleAlert, Wifi } from "lucide-react";
 import { toast } from "sonner";
-import { apiClient } from "@/lib/api";
+import { API, apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import { executerCycle } from "@/lib/sondeReseau";
+import { messageAlerte, viderFile } from "@/lib/sondeEnvoi";
 import { COULEUR_NIVEAU, doitMesurerDebit, enCsv, heureProchaine, niveauDebit, niveauPerte, pctPerte, SEUIL_PERTE_ATTENTION } from "@/lib/sondeReseauCalculs";
 
 const INTERVALLES = [5, 15, 30, 60];                         // minutes
@@ -60,6 +61,13 @@ export default function SondeReseauSection() {
   const [filtrePoste, setFiltrePoste] = useState("");
   const [d, setD] = useState(null);
   const [chargement, setChargement] = useState(false);
+  // Lot 471 — clé de la sonde : l'envoi ne dépend plus de la session de l'administrateur (qui expire) ; retenue dans CE navigateur seulement
+  const [cle, setCle] = useState(() => lire("sonde.cle", ""));
+  const [cleVisible, setCleVisible] = useState(false);          // masquée par défaut (règle 22 : œil sur toute saisie secrète)
+  const [cleServeur, setCleServeur] = useState(null);           // la clé est-elle configurée sur le serveur ? (jamais sa valeur)
+  const [alerteEnvoi, setAlerteEnvoi] = useState("");           // bandeau rouge : mesures en attente d'envoi
+  const cleRef = useRef(cle);
+  cleRef.current = cle;
 
   const cycle = useRef(0);          // numéro du cycle (les débits ne sont mesurés qu'un cycle sur quatre)
   const minuteur = useRef(null);
@@ -85,18 +93,28 @@ export default function SondeReseauSection() {
   }, [jours, filtrePoste]);
   useEffect(() => { charger(false); }, [charger]);
   chargerRef.current = charger;
+  // La clé est-elle configurée sur le serveur ? (lecture administrateur ; sans effet sur les mesures)
+  useEffect(() => { apiClient.get("/sonde-reseau/cle-etat").then((r) => setCleServeur(!!r.data?.configuree)).catch(() => setCleServeur(null)); }, []);
 
   // ---------- envoi d'une mesure (arrière-plan ; en cas d'échec réseau elle attend dans une file locale de 50 mesures) ----------
+  // Avec la clé de la sonde : POST /sonde-reseau/envoi (aucune session nécessaire). Sans clé : route administrateur (session). Les réponses sont classées par
+  // lib/sondeEnvoi.js : une session expirée ou une clé fausse GARDE les mesures et l'écran le dit (plus aucune mesure n'est perdue en silence).
   const envoyer = useCallback(async (mesure) => {
     let file = [];
     try { file = JSON.parse(lire("sonde.file", "[]")); } catch { file = []; }
     file.push(mesure);
-    const reste = [];
-    for (const m of file.slice(-50)) {
-      try { await apiClient.post("/sonde-reseau/mesures", m); }
-      catch (e) { if (!e?.response || e.response.status >= 500) reste.push(m); }     // 4xx (trop rapprochée, incohérente) : abandonnée ; coupure réseau : on réessaie
-    }
+    const avecCle = !!cleRef.current.trim();
+    const envoyeur = async (m) => {
+      if (avecCle) {
+        const r = await fetch(`${API}/sonde-reseau/envoi`, { method: "POST", headers: { "Content-Type": "application/json", "X-Cle-Sonde": cleRef.current.trim() }, body: JSON.stringify(m) });
+        return { status: r.status };
+      }
+      try { await apiClient.post("/sonde-reseau/mesures", m); return { status: 200 }; }
+      catch (e) { return { status: e?.response?.status || 0 }; }
+    };
+    const { reste, alerte } = await viderFile(file, envoyeur);
     ecrire("sonde.file", JSON.stringify(reste));
+    setAlerteEnvoi(messageAlerte(alerte, reste.length, avecCle));
     return reste.length;
   }, []);
 
@@ -213,6 +231,26 @@ export default function SondeReseauSection() {
                   className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-intervalle">
             {INTERVALLES.map((m) => <option key={m} value={m}>{m} minutes</option>)}</select></label>
       </div>
+
+      {/* Lot 471 — clé de la sonde (œil afficher / masquer) et état sur le serveur */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2" data-testid="sonde-cle-bloc">
+        <label className="block text-xs"><span className="flex items-center gap-1 font-semibold text-slate-700"><KeyRound className="h-3.5 w-3.5" /> Clé de la sonde (pour un envoi sans session)</span>
+          <span className="mt-1 flex items-center gap-2">
+            <input type={cleVisible ? "text" : "password"} value={cle} autoComplete="off" placeholder="Collez ici la valeur de SONDE_RESEAU_CLE" data-testid="sonde-cle"
+                   onChange={(e) => { setCle(e.target.value); ecrire("sonde.cle", e.target.value); }}
+                   className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" />
+            <button type="button" onClick={() => setCleVisible((v) => !v)} aria-label={cleVisible ? "Masquer la saisie" : "Afficher la saisie"} title={cleVisible ? "Masquer la saisie" : "Afficher la saisie"}
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded border border-slate-300 bg-white" data-testid="sonde-cle-oeil">
+              {cleVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+          </span></label>
+        <p className="text-[11px] text-slate-600">
+          {cleServeur === true && <span className="font-semibold text-emerald-700">Clé configurée sur le serveur. </span>}
+          {cleServeur === false && <span className="font-semibold text-orange-700">Clé non configurée sur le serveur : dans Render → sawali-backend → Environment, ajoutez la variable SONDE_RESEAU_CLE (une longue valeur de votre choix), puis saisissez la même ici. </span>}
+          Avec la clé, la page continue d'envoyer ses mesures même après l'expiration de votre session (12 h ou inactivité) ; elle reste dans ce navigateur et n'est jamais affichée par SAWALI.</p>
+      </div>
+      {alerteEnvoi && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800" data-testid="sonde-alerte-envoi">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {alerteEnvoi}</div>)}
 
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         {!enMarche

@@ -99,3 +99,72 @@ def test_plafond_des_mesures():
     finally:
         sr.MAX_MESURES = old
         sr.DELAI_MIN_S = 50
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# Lot 471 — envoi par la CLÉ DE LA SONDE (page laissée allumée, application Android) : jamais accepté par défaut
+# ---------------------------------------------------------------------------------------------------------------------------------------
+import pytest  # noqa: E402
+import routes.sonde_reseau as rs  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _remise_a_zero(monkeypatch):
+    """Chaque test repart d'un compteur d'adresses vide et d'un délai anti-abus normal."""
+    rs._envois_par_ip.clear()
+    monkeypatch.setattr(sr, "DELAI_MIN_S", 50)
+
+
+def _poste(nom):
+    return {**CORPS, "poste": nom}
+
+
+def test_cle_non_configuree_refuse_par_defaut(monkeypatch):
+    monkeypatch.delenv("SONDE_RESEAU_CLE", raising=False)
+    r = _appli("client").post("/api/sonde-reseau/envoi", json=CORPS, headers={"X-Cle-Sonde": "n-importe-quoi"})
+    assert r.status_code == 503 and "SONDE_RESEAU_CLE" in r.json()["detail"]          # jamais acceptée par défaut, même avec une clé quelconque
+
+
+def test_cle_fausse_ou_absente_refusee_cle_juste_acceptee_sans_session(monkeypatch):
+    monkeypatch.setenv("SONDE_RESEAU_CLE", "cle-secrete-de-test-0123456789")
+    c = _appli("client")                                                               # aucune session administrateur : seule la clé compte
+    assert c.post("/api/sonde-reseau/envoi", json=_poste("A")).status_code == 401
+    assert c.post("/api/sonde-reseau/envoi", json=_poste("A"), headers={"X-Cle-Sonde": "fausse"}).status_code == 401
+    ok = c.post("/api/sonde-reseau/envoi", json=_poste("A"), headers={"X-Cle-Sonde": "cle-secrete-de-test-0123456789"})
+    assert ok.status_code == 200
+    assert _appli("admin").get("/api/sonde-reseau/mesures").status_code == 200       # (base différente : seulement pour vérifier la route de lecture)
+
+
+def test_cle_valide_garde_l_anti_abus_et_les_bornes(monkeypatch):
+    monkeypatch.setenv("SONDE_RESEAU_CLE", "k" * 24)
+    c = _appli("client")
+    h = {"X-Cle-Sonde": "k" * 24}
+    assert c.post("/api/sonde-reseau/envoi", json=_poste("B"), headers=h).status_code == 200
+    assert c.post("/api/sonde-reseau/envoi", json=_poste("B"), headers=h).status_code == 429          # même poste, 2 envois collés
+    assert c.post("/api/sonde-reseau/envoi", json={**_poste("C"), "perdus": 11}, headers=h).status_code == 422
+    assert c.post("/api/sonde-reseau/envoi", json={**_poste("C"), "debit_desc_mbps": -1}, headers=h).status_code == 422
+
+
+def test_champs_de_l_application_android_acceptes(monkeypatch):
+    monkeypatch.setenv("SONDE_RESEAU_CLE", "k" * 24)
+    c = _appli("client")
+    r = c.post("/api/sonde-reseau/envoi", headers={"X-Cle-Sonde": "k" * 24},
+               json={**_poste("Tel"), "type": "mobile", "methode": "ping", "debit_desc_min_mbps": 1.2, "debit_mont_min_mbps": 0.4})
+    assert r.status_code == 200
+    assert c.post("/api/sonde-reseau/envoi", headers={"X-Cle-Sonde": "k" * 24}, json={**_poste("Tel2"), "methode": "telepathie"}).status_code == 422
+
+
+def test_limite_par_adresse_ip():
+    t0 = 1000.0
+    assert not any(rs._limite_ip_atteinte("1.2.3.4", t0 + i) for i in range(rs.LIMITE_ENVOIS_IP))      # 120 appels : encore permis
+    assert rs._limite_ip_atteinte("1.2.3.4", t0 + 121)                                                   # le 121e est refusé
+    assert not rs._limite_ip_atteinte("5.6.7.8", t0 + 121)                                               # une autre adresse n'est pas touchée
+    assert not rs._limite_ip_atteinte("1.2.3.4", t0 + rs.FENETRE_S + 500)                                # une heure plus tard : de nouveau permis
+
+
+def test_etat_de_la_cle_ne_donne_jamais_la_valeur(monkeypatch):
+    monkeypatch.setenv("SONDE_RESEAU_CLE", "valeur-secrete-qui-ne-doit-jamais-sortir")
+    r = _appli("admin").get("/api/sonde-reseau/cle-etat")
+    assert r.status_code == 200 and r.json()["configuree"] is True
+    assert "valeur-secrete" not in r.text
+    assert _appli("client").get("/api/sonde-reseau/cle-etat").status_code == 403

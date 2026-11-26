@@ -147,9 +147,14 @@ def _cp1252(c: str) -> bool:
         return False
 
 
-def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[str], du: str, au: str, genere_le: datetime, tronque: bool = False, _court: bool = False) -> bytes:
+def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[str], du: str, au: str, genere_le: datetime, tronque: bool = False, _court: bool = False,
+                   titre: str = "Historique des conversations WhatsApp", libelle_contacts: str = "Contacts", note: str = "",
+                   recap: Optional[Tuple[List[str], List[List[str]], List[str]]] = None,
+                   entetes: Tuple[str, str, str, str] = ("Date et heure", "Contact", "Sens", "Message"), largeurs_mm: Tuple[int, int, int, int] = (30, 36, 15, 101)) -> bytes:
     """PDF A4 : titre, client, contacts, période, nombre de messages, DATE ET HEURE D'ÉDITION ; tableau Date/heure · Contact (pastille noir sur blanc) · Sens · Message ;
-    sur CHAQUE page : « Page n / N » en pied et « Liluvine » écrit verticalement, en gris clair, discret, dans la marge du bas à droite."""
+    sur CHAQUE page : « Page n / N » en pied et « Liluvine » écrit verticalement, en gris clair, discret, dans la marge du bas à droite.
+    Lot 467 (Historique du support) : `titre`, `libelle_contacts`, `note` personnalisables et `recap` = (en-têtes, lignes, ligne de total) : tableau récapitulatif des sessions
+    d'assistance (avec leur durée) placé AVANT les messages."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -207,23 +212,34 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
 
     sortie = io.BytesIO()
     doc = SimpleDocTemplate(sortie, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=14 * mm, bottomMargin=16 * mm,
-                            title="Historique des conversations WhatsApp", author="Liluvine — SAWALI Smart Systems")
+                            title=titre, author="Liluvine — SAWALI Smart Systems")
     def _j(j: str) -> str:
         return f"{j[8:10]}/{j[5:7]}/{j[:4]}"
     periode = f"du {_j(du)} au {_j(au)}" if du and au else (f"depuis le {_j(du)}" if du else (f"jusqu'au {_j(au)}" if au else "toutes les dates"))
     corps: List[Any] = [
-        Paragraph("<b>Historique des conversations WhatsApp</b>", styles["Title"]),
+        Paragraph(f"<b>{texte_pdf(titre)}</b>", styles["Title"]),
         Paragraph(f"<b>Client :</b> {texte_pdf(client or '—')}", petit),
-        Paragraph(f"<b>Contacts ({len(contacts)}) :</b> {texte_pdf(', '.join(contacts) if contacts else '—')}", petit),
+        Paragraph(f"<b>{texte_pdf(libelle_contacts)} ({len(contacts)}) :</b> {texte_pdf(', '.join(contacts) if contacts else '—')}", petit),
         Paragraph(f"<b>Période :</b> {periode} · <b>Messages :</b> {len(lignes)}{' (les plus récents ; liste tronquée)' if tronque else ''} · "
                   f"<b>Édité le :</b> {edite} (heure du Burkina Faso)", petit),
-        Paragraph("Messages bloqués (liste noire, barrière anti-rafale) non pris en compte. Du plus récent au plus ancien.", petit), Spacer(1, 4 * mm)]
-    donnees: List[List[Any]] = [[Paragraph(h, entete) for h in ("Date et heure", "Contact", "Sens", "Message")]]
+        Paragraph(texte_pdf(note or "Messages bloqués (liste noire, barrière anti-rafale) non pris en compte. Du plus récent au plus ancien."), petit), Spacer(1, 4 * mm)]
+    if recap:
+        # Tableau récapitulatif (sessions d'assistance : ticket, poste, agent, début, fin, durée) + ligne de total, avant les messages
+        en_tete, lignes_recap, total_recap = recap
+        grille = [[Paragraph(texte_pdf(h), entete) for h in en_tete]] + [[Paragraph(texte_pdf(v), cell) for v in r] for r in lignes_recap]
+        if total_recap:
+            grille.append([Paragraph("<b>" + texte_pdf(v) + "</b>", cell) for v in total_recap])
+        largeur = 182 * mm / max(1, len(en_tete))
+        tr = Table(grille, colWidths=[largeur] * len(en_tete), repeatRows=1)
+        tr.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")), ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#eef2ff"))]))
+        corps.extend([tr, Spacer(1, 5 * mm)])
+    donnees: List[List[Any]] = [[Paragraph(h, entete) for h in entetes]]
     for x in lignes:
         donnees.append([Paragraph(x["quand"], cell), pastille(x["contact"]), Paragraph(x["sens"], cell), Paragraph(texte_pdf(x["message"], court=_court) or "<i>(sans texte)</i>", cell)])
     if not lignes:
         donnees.append([Paragraph("—", cell), "", "", Paragraph("Aucun message pour cette sélection.", cell)])
-    t = Table(donnees, colWidths=[30 * mm, 36 * mm, 15 * mm, 101 * mm], repeatRows=1)
+    t = Table(donnees, colWidths=[w * mm for w in largeurs_mm], repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")), ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b8c2d0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6fb")])]))
     corps.append(t)
@@ -233,7 +249,7 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
         # Filet de sécurité : une ligne reste trop haute malgré les plafonds -> on refait tout avec des messages très courts (le CSV garde le texte complet).
         if _court:
             raise
-        return construire_pdf(lignes, client=client, contacts=contacts, du=du, au=au, genere_le=genere_le, tronque=tronque, _court=True)
+        return construire_pdf(lignes, client=client, contacts=contacts, du=du, au=au, genere_le=genere_le, tronque=tronque, _court=True, titre=titre, libelle_contacts=libelle_contacts, note=note, recap=recap, entetes=entetes, largeurs_mm=largeurs_mm)
     return sortie.getvalue()
 
 

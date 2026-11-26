@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "461", "date": "2026-11-26",
+        "titre": "⚡ Pages beaucoup plus rapides, surtout après une actualisation",
+        "description": "Le site ne télécharge plus toutes les pages d'un coup : le fichier principal passe de 8,4 Mo à 1,5 Mo (0,4 Mo compressé), chaque page se charge à la demande. Les fichiers du site sont aussi gardés en cache par le navigateur.",
+        "rubrique": "📈 Disponibilité (/uptime) — journal des sondes",
+    },
+    {
         "lot": "460", "date": "2026-11-26",
         "titre": "📤 Modèle Meta soumis et suivi depuis SAWALI ; zone saisie avec la commande HFSQL",
         "description": "Le modèle « Bien reçu » des envois en masse se soumet à Meta d'un bouton, son statut (en attente, approuvé, refusé + motif) se suit ici. Dans les raccourcis HFSQL, la zone n'est plus enregistrée : on l'écrit avec la commande (« hfsql 1 /docx=CMC », /doc=CMC ou /ekol).",

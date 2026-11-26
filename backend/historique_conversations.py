@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 MAX_CONTACTS = 100            # contacts cochés au plus
 MAX_MESSAGES = 5000           # messages rendus au plus (les plus récents) ; au-delà, « tronqué »
 MAX_LIGNES_PDF = 12
+MAX_PARTIES_PDF = 40          # un message très long est réparti sur 40 lignes de tableau au plus (≈ 40 000 caractères) ; au-delà, mention « suite dans le CSV »
 MAX_TEXTE_PDF = 1000          # caractères d'un message dans le PDF
 ENTETE_CSV = ["Date et heure", "Client", "Contact", "Téléphone", "Sens", "Type", "Statut", "Message"]
 SENS = {"inbound": "Reçu", "outbound": "Envoyé"}
@@ -139,6 +140,45 @@ def texte_pdf(texte: Any, court: bool = False) -> str:
     return propre.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
 
 
+def decouper_texte(texte: Any, max_car: int = 0, max_lig: int = 0, max_parties: int = 0) -> List[str]:
+    """Répartit un message long en PARTIES qui tiennent chacune dans une ligne du tableau PDF (au plus `max_car` caractères et `max_lig` lignes) : une ligne de tableau ne
+    peut pas être coupée entre deux pages. Coupe de préférence aux retours à la ligne, puis aux espaces ; rien n'est perdu (sauf au-delà de `max_parties`, signalé)."""
+    max_car, max_lig, max_parties = max_car or MAX_TEXTE_PDF, max_lig or MAX_LIGNES_PDF, max_parties or MAX_PARTIES_PDF
+    brut = str(texte if texte is not None else "")
+    parties: List[str] = []
+    courant: List[str] = []
+    n_car = 0
+
+    def vider() -> None:
+        nonlocal courant, n_car
+        if courant:
+            parties.append("\n".join(courant))
+        courant, n_car = [], 0
+
+    for ligne_brute in brut.split("\n"):
+        reste = ligne_brute
+        while True:
+            if len(reste) > max_car:                       # ligne plus longue qu'une partie entière : coupée à un espace proche de la fin, sinon net
+                coupe = reste.rfind(" ", int(max_car * 0.7), max_car)
+                coupe = coupe if coupe > 0 else max_car
+                morceau, reste = reste[:coupe], reste[coupe:].lstrip(" ")
+                vider()
+                parties.append(morceau)
+                continue
+            break
+        if courant and (n_car + len(reste) + 1 > max_car or len(courant) >= max_lig):
+            vider()
+        courant.append(reste)
+        n_car += len(reste) + 1
+    vider()
+    if not parties:
+        return [""]
+    if len(parties) > max_parties:
+        parties = parties[:max_parties]
+        parties[-1] += " … [suite non reprise : texte complet dans l'export CSV]"
+    return parties
+
+
 def _cp1252(c: str) -> bool:
     try:
         c.encode("cp1252")
@@ -235,8 +275,17 @@ def construire_pdf(lignes: List[Dict[str, Any]], *, client: str, contacts: List[
                                 ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#eef2ff"))]))
         corps.extend([tr, Spacer(1, 5 * mm)])
     donnees: List[List[Any]] = [[Paragraph(h, entete) for h in entetes]]
+    gris = ParagraphStyle("suite", parent=cell, textColor=colors.HexColor("#6b7280"), fontName="Helvetica-Oblique")
     for x in lignes:
-        donnees.append([Paragraph(x["quand"], cell), pastille(x["contact"]), Paragraph(x["sens"], cell), Paragraph(texte_pdf(x["message"], court=_court) or "<i>(sans texte)</i>", cell)])
+        # Message long : réparti sur plusieurs lignes consécutives (« suite 2/3 »…) au lieu d'être tronqué ; filet de sécurité (_court) : message très court
+        parties = [x["message"]] if _court else decouper_texte(x["message"])
+        n = len(parties)
+        for i, partie in enumerate(parties):
+            texte = texte_pdf(partie, court=_court) or ("<i>(sans texte)</i>" if i == 0 else "")
+            if i == 0:
+                donnees.append([Paragraph(x["quand"], cell), pastille(x["contact"]), Paragraph(x["sens"], cell), Paragraph(texte, cell)])
+            else:
+                donnees.append([Paragraph(f"suite {i + 1}/{n}", gris), "", "", Paragraph(texte, cell)])
     if not lignes:
         donnees.append([Paragraph("—", cell), "", "", Paragraph("Aucun message pour cette sélection.", cell)])
     t = Table(donnees, colWidths=[w * mm for w in largeurs_mm], repeatRows=1)

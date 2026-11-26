@@ -666,6 +666,8 @@ class SettingsUpdate(BaseModel):
     # during in-flight API calls is hidden. Defaults to true. Useful for users
     # who find the indicator intrusive on fast connections.
     global_route_loader_enabled: Optional[bool] = None
+    suivis_captures_actives: Optional[bool] = None       # lot 465 : fenêtre d'annotation des captures collées dans un suivi (oui par défaut)
+    suivis_captures_largeur_max: Optional[int] = None    # lot 465 : largeur maximale (px) de la capture insérée, 800 à 2400 (1600 par défaut)
 
     # --- 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications ---
     # Global switch enabling native Notification API for portal users (tab-blink

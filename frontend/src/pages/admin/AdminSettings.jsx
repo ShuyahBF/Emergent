@@ -5,7 +5,7 @@ import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import CadreCartesSection from "@/pages/admin/sections/CadreCartesSection";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin, ArrowUp, ArrowDown, Camera } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import HistoriqueIncidentsSection from "@/pages/admin/sections/HistoriqueIncidentsSection";   // Lot 115
 import ListeNoireWaAdminSection from "@/pages/admin/sections/ListeNoireWaAdminSection";   // Lot 453
@@ -185,6 +185,7 @@ const NEW_LOTS = {
   "💳 Paiement au comptoir des officines": "386",   // lot 386 : QR + séquence USSD
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
+  "📸 Captures d'écran annotées dans les suivis": "465",   // lot 465 : collage, annotation et insertion dans le suivi
   "⏱️ Performance du serveur — mémoire et appels lents": "463",   // lot 463 : jauge de mémoire, alerte WhatsApp, appels les plus lents
   "🗄️ Base Atlas — collections du cluster": "122",   // lot 122 : taille du cluster de copie, alerte 90 % ; lots 79.8-85 : jauge, contenu et purge des bases
   "Contrats — Seuil de retard de paiement (par défaut)": "390",   // lot 129 : même règle (échéance) pour Admin → Clients, alertes, Liluvine + filtre contrat ; lot 128.1 : formes juridiques ignorées ; lot 128 : société comparée comme la liste « Société (client) » du formulaire contact ; lot 127 : vrais clients plus pris pour internes ; lot 126 : société sans contrat = rouge ; lot 124 : contacts avec Société seulement ; lot 123 : bandeau dans la conversation WA ; lot 121 : puce aussi dans le chat Support Loois ; lot 120 : puce de contrat (orange = retard selon ce seuil) ; lot 79.7 : récapitulatif « ok 1,2,5 »
@@ -265,6 +266,7 @@ const NEW_SECTIONS = {
   "💳 Paiement au comptoir des officines": "2026-11-14",   // lot 386
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
+  "📸 Captures d'écran annotées dans les suivis": "2026-11-26",   // lot 465
   "⏱️ Performance du serveur — mémoire et appels lents": "2026-11-26",   // lot 463
   "🗄️ Base Atlas — collections du cluster": "2026-10-12",   // lot 122 (créée aux lots 79.8-85)
   "Contrats — Seuil de retard de paiement (par défaut)": "2026-11-14",   // lot 120 (créée au lot 79.7)
@@ -361,6 +363,7 @@ const NEW_DESCRIPTIONS = {
   "🖥️ Contrôle à distance Loois": "Voir ou contrôler un poste Loois depuis le navigateur (lot 131) ; postes sans surveillance avec la clé « LKS-… », réservés au super-admin, et liste des postes (lot 131.1) ; écran verrouillé et session fermée par le service Windows, fichiers, image DXGI, onglets, vidéo, clavier virtuel, blocage clavier/souris, actions système, identifiant Windows mémorisé, ticket et n° CD automatiques, temps de connexion, volet caractéristiques et chat (lot 135) ; purge automatique des vidéos après la durée de conservation et écran Plateformes → Contrôle à distance (lot 135.1).",
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
+  "📸 Captures d'écran annotées dans les suivis": "Collez une capture d'écran (Ctrl + V) dans le contenu d'un suivi : flèche, cadre, ovale, crayon, surligneur, texte, masquage, puis insertion avant l'enregistrement (lot 465).",
   "⏱️ Performance du serveur — mémoire et appels lents": "Jauge de la mémoire du serveur (mesure toutes les heures, alerte WhatsApp au-delà du seuil) et classement des appels les plus lents par route : moyenne, 5 derniers, dernier, maximum (lot 463).",
   "🗄️ Base Atlas — collections du cluster": "2e jauge : taille du cluster de copie des sauvegardes (512 Mo en gratuit), alerte WhatsApp à 90 % comme pour les collections (lot 122).",
   "Contrats — Seuil de retard de paiement (par défaut)": "Ce seuil décide aussi de la puce orange « retard de paiement » devant chaque contact du Centre de messagerie (lot 120) dans le chat Support Loois (lot 121) et en bandeau au-dessus des Tickets de la conversation WhatsApp (lot 123) ; seuls les contacts dont la « Société » est renseignée sont analysés (lot 124). Lot 390 : la validité du contrat se calcule d'après la PÉRIODE PAYÉE (fiche client → Paiements : « Ce paiement règle… »), pas d'après la date du dernier paiement : un client qui paie hier une facture de janvier reste en retard pour les mois suivants.",
@@ -2507,6 +2510,33 @@ export default function AdminSettings() {
         <p className="text-[10px] text-slate-500 italic">
           Référence : <code>/app/memory/SUGGESTIONS.md → S051</code>. Le réglage est lu à chaque rafraîchissement de page via <code>GET /api/public/ui-flags</code> (endpoint anonyme — aucune donnée sensible).
         </p>
+      </Section>
+
+      {/* Lot 465 — captures d'écran annotées dans les suivis : interrupteur, largeur maximale, mode d'emploi */}
+      <Section icon={Camera} title="📸 Captures d'écran annotées dans les suivis">
+        <p className="text-xs text-slate-500">
+          Dans le contenu d'un <strong>suivi</strong> (et des rapports et comptes rendus qui utilisent le même éditeur), une capture d'écran collée avec <strong>Ctrl + V</strong> (ou le bouton « Capture »,
+          ou déposée par glisser-déposer) s'ouvre dans une fenêtre d'<strong>annotation</strong> : flèche, cadre, ovale, crayon, surligneur, texte, masquage d'une donnée sensible. « Insérer dans le suivi » l'ajoute
+          au texte <strong>avant</strong> l'enregistrement du suivi.
+        </p>
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={s.suivis_captures_actives !== false} onChange={(e) => upd("suivis_captures_actives", e.target.checked)} data-testid="suivis-captures-actives" />
+          <span>Ouvrir la fenêtre d'annotation quand une capture est collée
+            <span className="ml-1 text-[10px] text-slate-500">(décocher = le collage d'une image garde son comportement habituel du navigateur)</span></span>
+        </label>
+        <label className="block text-xs max-w-xs">
+          <span className="font-semibold text-slate-700">Largeur maximale d'une capture insérée (pixels, 800 à 2400)</span>
+          <input type="number" min="800" max="2400" step="100" value={s.suivis_captures_largeur_max ?? 1600}
+            onChange={(e) => upd("suivis_captures_largeur_max", e.target.value === "" ? null : Number(e.target.value))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="suivis-captures-largeur" />
+        </label>
+        <p className="text-[11px] text-slate-600" data-testid="suivis-captures-etat">
+          État : <strong className={s.suivis_captures_actives !== false ? "text-emerald-700" : "text-red-700"}>{s.suivis_captures_actives !== false ? "✅ active" : "⛔ désactivée"}</strong>
+          {" "}· captures réduites au-delà de {s.suivis_captures_largeur_max ?? 1600} px de large (jamais agrandies). Le réglage est relu à chaque chargement du site : « Enregistrer » la page puis actualisez.
+        </p>
+        <a href="/portal/notes/suivis" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-testid="suivis-captures-ouvrir">
+          <Camera className="h-3.5 w-3.5" /> Ouvrir les Suivis
+        </a>
       </Section>
 
       {/* 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications */}

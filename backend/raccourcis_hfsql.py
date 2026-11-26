@@ -42,7 +42,8 @@ def _normaliser_nom(texte: Any) -> str:
 
 
 def valider_modele(nom: Any, sql: Any, zone: Any = "") -> Tuple[Optional[Dict[str, Any]], str]:
-    """(raccourci propre, raison du refus). Le modèle est contrôlé en remplaçant chaque {paramètre} par une valeur plausible."""
+    """(raccourci propre, raison du refus). Le modèle est contrôlé en remplaçant chaque {paramètre} par une valeur plausible.
+    Lot 460 : la ZONE (/docx=CMC, /doc=CMC, /ekol) se saisit en lançant la commande par WhatsApp ; `zone` est accepté (anciens écrans, Loois) mais n'est plus gardé."""
     from routes.loois_sql_distant import verifier
     n = re.sub(r"\s+", " ", str(nom or "")).strip()
     if not (NOM_MIN <= len(n) <= NOM_MAX):
@@ -58,10 +59,7 @@ def valider_modele(nom: Any, sql: Any, zone: Any = "") -> Tuple[Optional[Dict[st
     ok, nature, raison = verifier(essai)
     if not ok:
         return None, raison
-    z = re.sub(r"\s+", "", str(zone or "")).lstrip("/")
-    if z and not re.fullmatch(r"(?:(?:docx|doc|ekol)=)?[A-Za-z0-9_-]{1,20}", z, re.I):
-        return None, "Zone invalide (ex. docx=CMC)."
-    return {"nom": n, "sql": texte, "zone": z, "nature": nature, "parametres": parametres(texte)}, ""
+    return {"nom": n, "sql": texte, "zone": "", "nature": nature, "parametres": parametres(texte)}, ""
 
 
 def valider_valeur(nom: str, valeur: Any) -> str:
@@ -114,7 +112,8 @@ def resoudre(sql: str, valeurs: Dict[str, str]) -> str:
 
 
 async def lister(db) -> List[Dict[str, Any]]:
-    return list((await db["settings"].find_one({"_id": ID_FICHE}) or {}).get("raccourcis") or [])
+    # Lot 460 : une ancienne « zone par défaut » éventuellement gardée par un raccourci créé avant ce lot est ignorée (la zone se saisit avec la commande)
+    return [{**r, "zone": ""} for r in ((await db["settings"].find_one({"_id": ID_FICHE}) or {}).get("raccourcis") or [])]
 
 
 async def _ecrire(db, liste: List[Dict[str, Any]]) -> None:

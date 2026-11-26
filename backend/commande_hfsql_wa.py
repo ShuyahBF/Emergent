@@ -38,11 +38,13 @@ PAS_SONDAGE_S = 3
 TEXTE_MAX = 3000
 LIGNES_AFFICHEES = 15
 DECLENCHEUR = re.compile(r"^\s*!?\s*hfsql\b[\s:,-]*(.*)$", re.I | re.S)
-ZONE_FIN = re.compile(r"^(.*?)\s+((?:docx|doc|ekol)\s*=\s*[A-Za-z0-9_-]{1,20})\s*$", re.I | re.S)
+# Lot 460 : une ZONE s'écrit « /docx=CMC », « /doc=CMC » ou « /ekol » (le « / » est facultatif ; « ekol » vaut zone e-Kol sans code).
+ZONE_TXT = r"/?(?:(?:docx|doc|ekol)\s*=\s*[A-Za-z0-9_-]{1,20}|ekol)"
+ZONE_FIN = re.compile(r"^(.*?)\s+(" + ZONE_TXT + r")\s*$", re.I | re.S)
 MOTS_SQL = ("SELECT", "INSERT", "UPDATE", "DELETE")
 MOTS_DANGER = ("DROP", "ALTER", "CREATE", "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE", "RENAME", "MERGE")
 VALIDITE_PARAMETRES_MIN = 10
-ZONE = re.compile(r"^\s*((?:docx|doc|ekol)\s*=\s*[A-Za-z0-9_-]{1,20}|/?(?:docx|doc)=[A-Za-z0-9_-]{1,20}|[A-Za-z0-9_-]{1,20})\s+(.+)$", re.I | re.S)
+ZONE = re.compile(r"^\s*(" + ZONE_TXT + r"|[A-Za-z0-9_-]{1,20})\s+(.+)$", re.I | re.S)
 OUI = {"oui", "o", "ok", "d'accord", "daccord", "valider", "confirme", "confirmer", "executer", "execute", "yes"}
 NON = {"non", "n", "annuler", "annule", "stop", "no"}
 
@@ -66,7 +68,8 @@ def _mot(texte: str) -> str:
 def analyser(texte: str) -> Optional[Dict[str, Any]]:
     """Comprend un message « hfsql … » : {type: "menu"} (« hfsql » seul : liste des raccourcis), {type: "commande", zone, client, sql} (« hfsql docx=CMC UPDATE … »)
     ou {type: "raccourci", ref, zone?} (« hfsql 2 » ou « hfsql statut reçu docx=PHL »). None si ce n'est pas pour nous.
-    La zone est « docx=CMC », « doc=CMC », « ekol=IPM » ou le code seul « CMC » : le CODE DU CLIENT (celui de la base) est la partie après « = »."""
+    La zone est « /docx=CMC », « /doc=CMC », « /ekol » (ou « ekol=IPM », ou le code seul « CMC ») : le CODE DU CLIENT est la partie après « = » (« ekol » seul → EKOL).
+    Lot 460 : la zone n'est JAMAIS enregistrée dans un raccourci, elle se saisit avec la commande (« hfsql 1 /docx=CMC »)."""
     m = DECLENCHEUR.match(str(texte or ""))
     if not m:
         return None
@@ -76,11 +79,11 @@ def analyser(texte: str) -> Optional[Dict[str, Any]]:
     z = ZONE.match(reste)
     # Une zone EN TÊTE (« docx=CMC … ») ou un mot SQL / interdit juste après un code (« cmc DROP … ») = une commande tapée à la main (les contrôles « Prudent » la refusent si besoin) ;
     # sinon c'est la référence d'un raccourci (numéro ou nom, zone éventuelle à la FIN).
-    if z and ("=" in z.group(1) or z.group(2).split(None, 1)[0].upper() in MOTS_SQL + MOTS_DANGER):
+    if z and ("=" in z.group(1) or z.group(1).startswith("/") or z.group(2).split(None, 1)[0].upper() in MOTS_SQL + MOTS_DANGER):
         zone = re.sub(r"\s+", "", z.group(1)).lstrip("/")
         return {"type": "commande", "zone": zone, "client": zone.split("=")[-1].upper(), "sql": z.group(2).strip()}
     zf = ZONE_FIN.match(reste)
-    ref, zone = (zf.group(1).strip(), re.sub(r"\s+", "", zf.group(2))) if zf else (reste, "")
+    ref, zone = (zf.group(1).strip(), re.sub(r"\s+", "", zf.group(2)).lstrip("/")) if zf else (reste, "")
     return {"type": "raccourci", "ref": ref, "zone": zone}
 
 
@@ -223,11 +226,11 @@ def _liste_pour_whatsapp(raccourcis: List[Dict[str, Any]]) -> str:
     if not raccourcis:
         return ("📡 Commande HFSQL distante.\nAucun raccourci n'est encore enregistré.\n"
                 "Envoyez une commande complète : « hfsql docx=CMC SELECT … ». Les raccourcis se créent depuis Loois (Requête SQL distante → Dernières requêtes → ⭐ Créer un raccourci).")
-    lignes = ["📡 Raccourcis HFSQL — envoyez « hfsql <numéro> » (ou « hfsql <nom> ») :"]
+    lignes = ["📡 Raccourcis HFSQL — envoyez « hfsql <numéro> <zone> » (ou « hfsql <nom> <zone> ») :"]
     for n, r in enumerate(raccourcis, 1):
         params = ", ".join(r.get("parametres") or []) or "aucun paramètre"
-        lignes.append(f"{n}. {r['nom']} — {r.get('zone') or 'zone à préciser'} — {params}")
-    lignes.append("Pour une autre zone : « hfsql 2 docx=PHL ». « annuler » arrête un raccourci en cours.")
+        lignes.append(f"{n}. {r['nom']} — {params}")
+    lignes.append("La zone se précise avec la commande : « hfsql 2 /docx=CMC », « hfsql 2 /doc=CMC » ou « hfsql 2 /ekol ». « annuler » arrête un raccourci en cours.")
     return "\n".join(lignes)
 
 
@@ -344,9 +347,9 @@ async def traiter(db, numero: Any, texte: str, envoyer: Callable[[str], Awaitabl
         r = rh.trouver(liste, msg["ref"])
         if not r:
             return f"⚠️ Je ne trouve pas le raccourci « {msg['ref']} ».\n" + _liste_pour_whatsapp(liste)
-        zone = msg["zone"] or r.get("zone") or ""
-        if not zone:
-            return f"⚠️ Le raccourci « {r['nom']} » n'a pas de zone : ajoutez-la (« hfsql {liste.index(r) + 1} docx=CMC »)."
+        zone = msg["zone"]
+        if not zone:                                            # lot 460 : la zone se saisit avec la commande, jamais déduite du raccourci
+            return f"⚠️ Précisez la zone avec la commande : « hfsql {liste.index(r) + 1} /docx=CMC » (ou /doc=CMC, /ekol). Rien n'a été exécuté."
         client = zone.split("=")[-1].upper()
         etat = {"id": r["id"], "nom": r["nom"], "sql": r["sql"], "zone": zone, "client": client, "attendus": rh.parametres(r["sql"]), "valeurs": [],
                 "confirmer": bool(r.get("confirmer")), "expire_le": (instant + timedelta(minutes=VALIDITE_PARAMETRES_MIN)).isoformat()}

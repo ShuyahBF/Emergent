@@ -50,6 +50,10 @@ class ModeleMasse(BaseModel):
     langue: str = Field(default="fr", max_length=10)
 
 
+class SoumissionModele(BaseModel):
+    nom: str = Field(default="", max_length=120)             # vide = nom par défaut (cm.MODELE_NOM)
+
+
 class RaccourciHfsql(BaseModel):
     nom: str = Field(default="", max_length=80)
     sql: str = Field(default="", max_length=4100)
@@ -136,8 +140,27 @@ def setup_consignes_liluvine_routes(*, db, api, get_current_user) -> None:
     async def masse_modele(user: dict = Depends(get_current_user)):
         """Modèle Meta réglé + le texte à SOUMETTRE à Meta (nom, catégorie, corps, bouton « Bien reçu »)."""
         await _autoriser(user)
-        return {"modele": await cm.lire_modele(db), "a_soumettre": {"nom": cm.MODELE_NOM, "categorie": "UTILITY", "langue": "fr", "corps": cm.MODELE_CORPS, "bouton": cm.MODELE_BOUTON,
-                "exemples": ["Awa", "Votre rendez-vous de demain est décalé d'une heure."]}}
+        return {"modele": await cm.lire_modele(db), "soumission": await cm.lire_soumission(db),
+                "a_soumettre": {"nom": cm.MODELE_NOM, "categorie": "UTILITY", "langue": "fr", "corps": cm.MODELE_CORPS, "bouton": cm.MODELE_BOUTON, "exemples": cm.MODELE_EXEMPLES}}
+
+    # ---- Lot 460 : soumettre le modèle à Meta depuis SAWALI et suivre son statut (administrateur SEUL ; Meta n'est interrogé que par ces deux boutons)
+    @api.post("/admin/liluvine-consignes/masse/modele/soumettre", tags=["Liluvine — consignes"])
+    async def masse_modele_soumettre(payload: SoumissionModele, user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            return {"ok": True, "soumission": await cm.soumettre_modele(db, payload.nom or None)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @api.get("/admin/liluvine-consignes/masse/modele/statut", tags=["Liluvine — consignes"])
+    async def masse_modele_statut(nom: str = "", user: dict = Depends(get_current_user)):
+        if not est_admin(user):
+            raise HTTPException(status_code=403, detail="Réservé à l'administrateur")
+        try:
+            return {"ok": True, "soumission": await cm.statut_modele(db, nom or None)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     @api.put("/admin/liluvine-consignes/masse/modele", tags=["Liluvine — consignes"])
     async def masse_regler_modele(payload: ModeleMasse, user: dict = Depends(get_current_user)):

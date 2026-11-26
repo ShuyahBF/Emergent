@@ -7,9 +7,11 @@ import {
   Heading2, Heading3, List, ListOrdered, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link as LinkIcon, Undo2, Redo2, Eraser, Code,
-  Mic, Square, MessageCircle, Loader2, Megaphone, Eye,
+  Mic, Square, MessageCircle, Loader2, Megaphone, Eye, Camera,
 } from "lucide-react";
 import { toast } from "sonner";
+import AnnotateurCapture from "@/components/AnnotateurCapture";   // lot 465 : annotation d'une capture d'écran collée dans le contenu
+import { estImage, lireReglagesCaptures, nomFichierCapture } from "@/lib/annotationCapture";
 import { useAuth } from "@/contexts/AuthContext";
 import { getFileIcon } from "@/lib/fileIcons";
 import TenantSharingToggle from "@/components/TenantSharingToggle";
@@ -874,6 +876,10 @@ export function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = tr
   const [showHighlights, setShowHighlights] = useState(false);
   const [recState, setRecState] = useState("idle"); // idle | recording | processing
   const recRef = useRef({ recorder: null, chunks: [], stream: null });
+  // Lot 465 — capture d'écran collée / déposée : ouverte dans la fenêtre d'annotation, puis téléversée et insérée À L'ENDROIT du curseur
+  const [capture, setCapture] = useState(null);            // image à annoter (Blob) ou null
+  const [envoiCapture, setEnvoiCapture] = useState(false);
+  const curseurRef = useRef(null);                          // position du curseur au moment du collage (la fenêtre d'annotation prend le focus)
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== (value || "")) {
@@ -886,6 +892,58 @@ export function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = tr
   const emit = () => { if (ref.current) onChange(ref.current.innerHTML); };
   const exec = (cmd, arg = null) => { ref.current?.focus(); document.execCommand(cmd, false, arg); emit(); };
   const setLink = () => { const url = window.prompt("URL du lien :", "https://"); if (url) exec("createLink", url); };
+
+  // Mémorise le curseur puis ouvre l'annotation ; rend faux si la fonction est désactivée (Paramètres) : le collage garde alors son comportement habituel
+  const ouvrirCapture = (fichier) => {
+    if (!lireReglagesCaptures().actives) return false;
+    const sel = window.getSelection();
+    curseurRef.current = sel && sel.rangeCount && ref.current?.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+    setCapture(fichier);
+    return true;
+  };
+  // Collage (Ctrl + V) : si le presse-papiers contient une image (capture d'écran), on l'annote au lieu de la coller telle quelle ; le texte se colle normalement
+  const surCollage = (e) => {
+    const item = Array.from(e.clipboardData?.items || []).find((i) => i.kind === "file" && estImage({ type: i.type }));
+    const fichier = item?.getAsFile();
+    if (fichier && ouvrirCapture(fichier)) e.preventDefault();
+  };
+  // Glisser-déposer d'une image dans le contenu : même chemin que le collage
+  const surDepot = (e) => {
+    const fichier = Array.from(e.dataTransfer?.files || []).find(estImage);
+    if (fichier && ouvrirCapture(fichier)) e.preventDefault();
+  };
+  // Bouton « Capture » : lit le presse-papiers (autorisation du navigateur demandée une fois) ; sinon explique le raccourci
+  const collerCapture = async () => {
+    try {
+      const elements = await navigator.clipboard.read();
+      for (const el of elements) {
+        const type = el.types.find((t) => estImage({ type: t }));
+        if (type) { ouvrirCapture(await el.getType(type)); return; }
+      }
+      toast.message("Aucune capture dans le presse-papiers : faites une capture (Windows + Maj + S) puis cliquez de nouveau.");
+    } catch {
+      toast.message("Faites une capture (Windows + Maj + S), puis collez-la ici avec Ctrl + V.");
+    }
+  };
+  // « Insérer dans le suivi » : téléverse le PNG annoté (même envoi que les pièces jointes) et l'insère au curseur ; le suivi n'est enregistré qu'avec son bouton habituel
+  const insererCapture = async (blob) => {
+    setEnvoiCapture(true); toast("Patientez… envoi de la capture en cours");
+    try {
+      const fd = new FormData();
+      fd.append("file", new File([blob], nomFichierCapture(), { type: "image/png" }));
+      const r = await apiClient.post("/me/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const adresse = absoluteImg(r.data.url).replace(/"/g, "%22");
+      const zone = ref.current;
+      zone.focus();
+      if (curseurRef.current) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(curseurRef.current); }
+      else { const fin = document.createRange(); fin.selectNodeContents(zone); fin.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(fin); }
+      document.execCommand("insertHTML", false, `<p><img src="${adresse}" alt="Capture d'écran annotée" data-capture="1" /></p><p><br></p>`);
+      emit();
+      toast.success("Capture annotée insérée dans le suivi.");
+      setCapture(null);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Envoi de la capture impossible"); }
+    finally { setEnvoiCapture(false); }
+  };
 
   const insertText = (text) => {
     if (!text) return;
@@ -1003,6 +1061,11 @@ export function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = tr
         <Btn onClick={() => exec("undo")} title="Annuler" testid="rte-undo"><Undo2 className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("redo")} title="Rétablir" testid="rte-redo"><Redo2 className="h-3.5 w-3.5" /></Btn>
         <span className="w-px h-5 bg-slate-200 mx-1" />
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={collerCapture} data-testid="rte-capture"
+          title="Coller une capture d'écran du presse-papiers et l'annoter (ou Ctrl + V dans le contenu)" className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">
+          <Camera className="h-3.5 w-3.5" /> Capture
+        </button>
+        <span className="w-px h-5 bg-slate-200 mx-1" />
         {recState === "recording" ? (
           <button
             type="button"
@@ -1036,7 +1099,8 @@ export function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = tr
           </button>
         )}
       </div>
-      <div ref={ref} contentEditable suppressContentEditableWarning onInput={emit} onBlur={emit} className="prose-sawali min-h-[180px] max-h-[360px] overflow-auto px-3 py-2 text-sm focus:outline-none" style={{ caretColor: accent }} data-testid="rte-content" />
+      <div ref={ref} contentEditable suppressContentEditableWarning onInput={emit} onBlur={emit} onPaste={surCollage} onDrop={surDepot} className="prose-sawali min-h-[180px] max-h-[360px] overflow-auto px-3 py-2 text-sm focus:outline-none" style={{ caretColor: accent }} data-testid="rte-content" />
+      {capture && <AnnotateurCapture fichier={capture} largeurMax={lireReglagesCaptures().largeurMax} envoi={envoiCapture} onInserer={insererCapture} onFermer={() => setCapture(null)} />}
     </div>
   );
 }

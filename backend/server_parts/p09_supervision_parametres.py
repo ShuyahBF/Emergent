@@ -676,10 +676,14 @@ async def public_ui_flags():
     exposing only the UI display toggles and public branding fields needed by
     frontend components that mount BEFORE auth (e.g. GlobalRouteLoader, brand
     color CSS variable, public logo). NEVER expose secrets here."""
+    from captures_suivis import reglages_captures as _reglages_captures      # lot 465
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     return {
         "global_route_loader_enabled": s.get("global_route_loader_enabled") is not False,
         "download_gauge_enabled": s.get("download_gauge_enabled") is not False,
+        # Lot 465 — captures d'écran annotées dans les suivis (actives ? largeur maximale)
+        "suivis_captures_actives": _reglages_captures(s)["actives"],
+        "suivis_captures_largeur_max": _reglages_captures(s)["largeur_max"],
         # 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications global switch
         "browser_notifications_enabled": s.get("browser_notifications_enabled") is not False,
         # Lot 136 — filet des cartes (noir par défaut ; valeur inconnue = noir)

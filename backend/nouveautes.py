@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "465", "date": "2026-11-26",
+        "titre": "📸 Suivis : captures d'écran annotables",
+        "description": "Collez une capture d'écran (Ctrl + V) dans le contenu d'un suivi : une fenêtre permet de l'annoter (flèche, cadre, ovale, crayon, surligneur, texte, masquage d'une donnée sensible) puis de l'insérer, avant l'enregistrement. Interrupteur et largeur maximale réglables ici.",
+        "rubrique": "📸 Captures d'écran annotées dans les suivis",
+    },
+    {
         "lot": "464", "date": "2026-11-26",
         "titre": "💬 Centre de Messagerie : plus de « 1 » fantôme, « Sans prospects » par défaut",
         "description": "La pastille de la barre latérale ne compte plus les messages non lus d'un contact bloqué (invisible dans la liste) ; bloquer un numéro marque aussi ses non-lus comme lus. À l'ouverture du Centre de Messagerie, l'option « Sans prospects » est active.",

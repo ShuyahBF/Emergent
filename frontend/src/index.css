@@ -127,6 +127,8 @@ html {
 /* Rich text content */
 .prose-sawali h1, .prose-sawali h2, .prose-sawali h3 { font-family: "Space Grotesk", sans-serif; font-weight: 700; }
 .prose-sawali h2 { font-size: 1.25rem; margin: 0.75rem 0 0.5rem; }
+/* Lot 465 : captures d'écran annotées insérées dans un suivi : jamais plus larges que le cadre */
+.prose-sawali img { max-width: 100%; height: auto; border: 1px solid #e2e8f0; border-radius: 6px; margin: 0.4rem 0; }
 .prose-sawali h3 { font-size: 1.05rem; margin: 0.5rem 0 0.4rem; }
 .prose-sawali p { line-height: 1.7; margin-bottom: 1rem; }
 .prose-sawali a { color: #1e90ff; text-decoration: underline; }

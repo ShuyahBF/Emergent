@@ -58,6 +58,23 @@ SUPPORTED_LANGS = [
 LANG_CODES = {lang["code"] for lang in SUPPORTED_LANGS}
 
 
+# ----------------------------------------------------------------------------------------------------------------------------------------
+# Cache du dictionnaire public {clé: texte} (règle 7, 26/11/2026).
+# Constat en production : GET /api/i18n/translations prenait 2,8 s en moyenne (5,4 s au pire) car il relisait TOUTE la collection à chaque
+# ouverture de page. Les traductions changent rarement : on garde le dictionnaire de chaque langue EN MÉMOIRE (30 s au plus) ; toute écriture
+# faite depuis l'administration vide ce cache tout de suite (_vider_cache_traductions), donc une correction se voit immédiatement.
+# ----------------------------------------------------------------------------------------------------------------------------------------
+import time as _time
+
+_DUREE_CACHE_TRADUCTIONS_S = 30.0
+_CACHE_TRADUCTIONS: Dict[str, tuple] = {}      # langue -> (instant de création, réponse déjà prête)
+
+
+def _vider_cache_traductions() -> None:
+    """À appeler après TOUTE écriture dans i18n_translations : le prochain appel public relit la base."""
+    _CACHE_TRADUCTIONS.clear()
+
+
 # Region → preferred language map. Best-effort fallback when the browser
 # doesn't advertise a language. Country codes are ISO 3166-1 alpha-2.
 # Africa francophone, Maghreb arab, anglo-American etc.
@@ -418,6 +435,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                         "updated_by_email": "_system_",
                     }
                     await db.i18n_translations.insert_one(doc)
+                    _vider_cache_traductions()
                     continue
                 # Backfill : update only EMPTY DB columns with non-empty seed values.
                 patch: Dict[str, Any] = {}
@@ -432,6 +450,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                     await db.i18n_translations.update_one(
                         {"key": s["key"]}, {"$set": patch},
                     )
+                    _vider_cache_traductions()
         except Exception as exc:  # noqa: BLE001
             logger.warning("[i18n] seed upsert failed: %s", exc)
 
@@ -446,6 +465,10 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
         when the row has an empty value for that language."""
         if lang not in LANG_CODES:
             raise HTTPException(status_code=400, detail=f"Langue non supportée : {lang}")
+        # Réponse déjà prête en mémoire et encore fraîche : renvoyée sans toucher à la base.
+        en_cache = _CACHE_TRADUCTIONS.get(lang)
+        if en_cache and (_time.monotonic() - en_cache[0]) < _DUREE_CACHE_TRADUCTIONS_S:
+            return en_cache[1]
         await _ensure_seed()
         out: Dict[str, str] = {}
         async for row in db.i18n_translations.find({}, {"_id": 0, "key": 1, "fr": 1, lang: 1}):
@@ -453,7 +476,9 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             if not value:
                 value = row.get("fr") or row.get("key") or ""
             out[row["key"]] = value
-        return {"lang": lang, "translations": out, "count": len(out)}
+        reponse = {"lang": lang, "translations": out, "count": len(out)}
+        _CACHE_TRADUCTIONS[lang] = (_time.monotonic(), reponse)
+        return reponse
 
     # ----------------------------------------------------------
     # S046 (2026-02) — Public language detection. The Frontend calls this
@@ -630,6 +655,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             await db.i18n_translations.update_one(
                 {"key": payload.key}, {"$set": patch},
             )
+            _vider_cache_traductions()
             # Log the contribution for daily/monthly scoring + payroll.
             if words_added > 0:
                 today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -668,6 +694,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
         await db.i18n_translations.update_one(
             {"key": payload.key}, {"$set": update}, upsert=True,
         )
+        _vider_cache_traductions()
         update.pop("_id", None)
         return {"ok": True, "row": update}
 
@@ -680,6 +707,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
         if not re.match(r"^[a-zA-Z][a-zA-Z0-9._-]*$", key):
             raise HTTPException(status_code=400, detail="Clé invalide")
         res = await db.i18n_translations.delete_one({"key": key})
+        _vider_cache_traductions()      # la suppression doit se voir tout de suite dans le dictionnaire public
         return {"ok": True, "deleted": res.deleted_count}
 
     @api.post("/admin/i18n/translations/bulk", tags=["Admin — i18n"])
@@ -705,6 +733,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             await db.i18n_translations.update_one(
                 {"key": row.key}, {"$set": update}, upsert=True,
             )
+            _vider_cache_traductions()
             n += 1
         return {"ok": True, "upserted": n}
 
@@ -926,6 +955,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                         "updated_by_email": user.get("email"),
                     }},
                 )
+                _vider_cache_traductions()
                 translated += 1
             except Exception as exc:  # noqa: BLE001
                 logger.exception("[i18n] bulk-translate failed for key=%s", key)
@@ -986,5 +1016,6 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             await db.i18n_translations.update_one(
                 {"key": key}, {"$set": update}, upsert=True,
             )
+            _vider_cache_traductions()
             upserts += 1
         return {"ok": True, "upserted": upserts, "errors": errors, "errors_count": len(errors)}

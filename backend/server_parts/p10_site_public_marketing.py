@@ -752,11 +752,16 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
     # Default lookback window: 30 days for modules the user has never visited
     default_since = (now - timedelta(days=30)).isoformat()
 
-    visits_cursor = db.user_module_visits.find({"user_id": user["id"]}, {"_id": 0, "module": 1, "last_visited_at": 1})
-    visits = {v["module"]: v["last_visited_at"] async for v in visits_cursor}
+    import asyncio
+
+    async def _lire_visites() -> dict:
+        # dernière visite de chaque module par cet utilisateur
+        curseur = db.user_module_visits.find({"user_id": user["id"]}, {"_id": 0, "module": 1, "last_visited_at": 1})
+        return {v["module"]: v["last_visited_at"] async for v in curseur}
 
     is_admin = user.get("role") == "admin"
-    client_scope = await _resolve_client_id(user)
+    # Les visites et le périmètre client sont indépendants : lus en même temps (règle 7).
+    visits, client_scope = await asyncio.gather(_lire_visites(), _resolve_client_id(user))
     counts: dict[str, int] = {}
 
     async def _count(module_key: str, spec: tuple) -> int:
@@ -780,43 +785,46 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
         except Exception:
             return 0
 
-    for key, spec in MODULE_COUNT_QUERIES.items():
-        counts[key] = await _count(key, spec)
-    # Special: WhatsApp inbound unread (not based on last_visited_at — uses read_by_us_at).
-    # Lot 23 — MÊME calcul que les pastilles du Centre de Messagerie
-    # (_wa_unread_summary) : avant, le badge comptait sur un autre périmètre
-    # (un seul client_id, ou tous les tenants pour l'admin) et incluait des
-    # messages qu'aucune conversation ne permettait de marquer comme lus.
-    try:
-        counts["contacts_unread"] = (await _wa_unread_summary(user))["total"]
-    except Exception:
-        counts["contacts_unread"] = 0
-    # Iter34l — Admin-only: pending profile-update requests (status-driven, not visit-driven)
-    try:
-        if is_admin:
-            counts["admin_profile_requests"] = await db.profile_update_requests.count_documents({"status": "pending"})
-        else:
-            counts["admin_profile_requests"] = 0
-    except Exception:
-        counts["admin_profile_requests"] = 0
-    # Iter40 (2026-02) → Iter43-fix (2026-03) — Registre des erreurs :
-    # 2 badges (high + critical) basés sur le nouveau champ `mapped_severity`
-    # (Iter43-fix). Fallback heuristique sur StatutEnCours pour les anciennes
-    # entrées sans mapped_severity (pré-Iter43).
-    try:
-        from routes.error_registry import ALLOWED_ROLES as _ER_ALLOWED
-        role_ok = (user.get("role") or "").lower() in _ER_ALLOWED
-        if role_ok:
+    # Règle 7 (chargement des pages) : TOUTES les lectures ci-dessous sont indépendantes, donc lancées EN MÊME TEMPS (asyncio.gather) au lieu
+    # d'être enchaînées l'une après l'autre. Mesuré en production le 26/11/2026 : cette route (appelée par chaque page ouverte) prenait
+    # 448 ms en moyenne et jusqu'à 2,5 s ; elle ne dure plus que le temps de sa lecture la plus lente.
+    import asyncio
+
+    async def _wa_non_lus() -> int:
+        # WhatsApp entrant non lu (basé sur read_by_us_at, pas sur la dernière visite).
+        # Lot 23 — MÊME calcul que les pastilles du Centre de Messagerie (_wa_unread_summary).
+        try:
+            return (await _wa_unread_summary(user))["total"]
+        except Exception:
+            return 0
+
+    async def _profils_en_attente() -> int:
+        # Iter34l — réservé à l'admin : demandes de mise à jour de profil en attente (pilotées par le statut, pas par la visite).
+        try:
+            if is_admin:
+                return await db.profile_update_requests.count_documents({"status": "pending"})
+            return 0
+        except Exception:
+            return 0
+
+    async def _compteurs_erreurs() -> dict:
+        # Iter40 → Iter43-fix — Registre des erreurs : 2 badges (high + critical) basés sur `mapped_severity`,
+        # avec repli heuristique sur StatutEnCours pour les anciennes entrées sans mapped_severity.
+        zero = {"errors_unack": 0, "errors_high": 0, "errors_critical": 0, "errors_exception": 0, "errors_fatale": 0}
+        try:
+            from routes.error_registry import ALLOWED_ROLES as _ER_ALLOWED
+            if (user.get("role") or "").lower() not in _ER_ALLOWED:
+                return zero
             base_q = {"deleted_at": None, "acknowledged": False, "estActif": True}
-            counts["errors_unack"] = await db.error_registry.count_documents(base_q)
-            # Récupère la table de mapping admin pour traduire les anciennes entrées
-            s_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0, "error_severity_mapping": 1}) or {}
-            mapping_lc = {k.lower(): v for k, v in (s_doc.get("error_severity_mapping") or {}).items()}
-            # Branche A — entrées avec mapped_severity déjà résolu
-            mapped_high = await db.error_registry.count_documents({**base_q, "mapped_severity": "high"})
-            mapped_critical = await db.error_registry.count_documents({**base_q, "mapped_severity": "critical"})
-            # Branche B — entrées legacy (pas de mapped_severity) — on applique
-            # l'heuristique sur StatutEnCours pour chaque entrée pertinente.
+            # Les 4 lectures de départ sont indépendantes : en parallèle.
+            total, mapped_high, mapped_critical, s_doc = await asyncio.gather(
+                db.error_registry.count_documents(base_q),
+                db.error_registry.count_documents({**base_q, "mapped_severity": "high"}),
+                db.error_registry.count_documents({**base_q, "mapped_severity": "critical"}),
+                db.settings.find_one({"_id": "global"}, {"_id": 0, "error_severity_mapping": 1}),
+            )
+            mapping_lc = {k.lower(): v for k, v in ((s_doc or {}).get("error_severity_mapping") or {}).items()}
+            # Branche B — entrées legacy (sans mapped_severity) : on applique l'heuristique sur StatutEnCours.
             legacy_high = 0
             legacy_critical = 0
             legacy_filter = {**base_q, "mapped_severity": {"$exists": False}}
@@ -832,23 +840,24 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
                     legacy_high += 1
                 elif mapped == "critical":
                     legacy_critical += 1
-            counts["errors_high"] = mapped_high + legacy_high
-            counts["errors_critical"] = mapped_critical + legacy_critical
-            # Backward compat — alias avec les anciens noms (sidebar pré-fix)
-            counts["errors_exception"] = counts["errors_high"]
-            counts["errors_fatale"] = counts["errors_critical"]
-        else:
-            counts["errors_unack"] = 0
-            counts["errors_high"] = 0
-            counts["errors_critical"] = 0
-            counts["errors_exception"] = 0
-            counts["errors_fatale"] = 0
-    except Exception:
-        counts["errors_unack"] = 0
-        counts["errors_high"] = 0
-        counts["errors_critical"] = 0
-        counts["errors_exception"] = 0
-        counts["errors_fatale"] = 0
+            hauts = mapped_high + legacy_high
+            critiques = mapped_critical + legacy_critical
+            # errors_exception / errors_fatale = anciens noms gardés (compatibilité avec la barre latérale d'avant le correctif)
+            return {"errors_unack": total, "errors_high": hauts, "errors_critical": critiques,
+                    "errors_exception": hauts, "errors_fatale": critiques}
+        except Exception:
+            return zero
+
+    cles = list(MODULE_COUNT_QUERIES.keys())
+    resultats = await asyncio.gather(
+        *[_count(k, MODULE_COUNT_QUERIES[k]) for k in cles],
+        _wa_non_lus(), _profils_en_attente(), _compteurs_erreurs(),
+    )
+    n = len(cles)
+    counts.update(zip(cles, resultats[:n]))
+    counts["contacts_unread"] = resultats[n]
+    counts["admin_profile_requests"] = resultats[n + 1]
+    counts.update(resultats[n + 2])
     return {"counts": counts, "generated_at": _now()}
 
 

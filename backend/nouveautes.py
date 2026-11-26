@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "469", "date": "2026-11-27",
+        "titre": "🚀 Pages plus rapides : appels les plus lents corrigés",
+        "description": "Les compteurs de la barre latérale, le dictionnaire des traductions et l'état de la sauvegarde complète répondent beaucoup plus vite : vérifiez le gain dans le classement « Appels les plus lents », après remise à zéro.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "468", "date": "2026-11-26",
         "titre": "📱 Loois mobile : registre des appareils Android",
         "description": "Premier pas de l'application Android Loois : chaque téléphone ou tablette qui s'enregistre arrive « Interdit » ; vous renseignez l'utilisateur, la zone et la base de données (myAizenta-CMC, myAurora…), voyez son adresse IP à la connexion, puis vous l'autorisez ou l'interdisez.",

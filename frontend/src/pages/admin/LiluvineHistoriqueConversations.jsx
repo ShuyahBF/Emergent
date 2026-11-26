@@ -53,7 +53,7 @@ export default function LiluvineHistoriqueConversations() {
   const charger = useCallback(async () => {
     toast("Lecture des contacts en cours…");
     try {
-      const [c, r] = await Promise.all([apiClient.get("/me/contacts"), apiClient.get("/me/clients-roster").catch(() => ({ data: [] }))]);
+      const [c, r] = await Promise.all([apiClient.get("/me/contacts", { params: { avec_bloques: true } }), apiClient.get("/me/clients-roster").catch(() => ({ data: [] }))]);
       setContacts(Array.isArray(c.data) ? c.data : []); setClients(r.data || []);
       toast.success(`${(Array.isArray(c.data) ? c.data : []).length} contact(s) lus.`);
     } catch (e) { setContacts([]); toast.error(e?.response?.data?.detail || "Lecture des contacts impossible"); }
@@ -62,7 +62,7 @@ export default function LiluvineHistoriqueConversations() {
 
   const clientsOptions = useMemo(() => optionsClients(clients, contacts), [clients, contacts]);
   const contactsDuClient = useMemo(() => (client ? (contacts || []).filter((c) => (c.company || "") === client) : []), [contacts, client]);
-  const optionsContacts = useMemo(() => contactsDuClient.map((c) => ({ id: c.id, label: c.name || c.whatsapp || c.phone || "Contact sans nom", detail: c.whatsapp || c.phone || "" })), [contactsDuClient]);
+  const optionsContacts = useMemo(() => contactsDuClient.map((c) => ({ id: c.id, label: c.name || c.whatsapp || c.phone || "Contact sans nom", detail: (c.whatsapp || c.phone || "") + (c.bloque_le ? " · ⛔ bloqué" : "") })), [contactsDuClient]);
   const libelleClient = clientsOptions.find((o) => o.valeur === client)?.label || client;
   const corps = useMemo(() => ({ contact_ids: choisis, du, au, client: libelleClient }), [choisis, du, au, libelleClient]);
 
@@ -117,7 +117,7 @@ export default function LiluvineHistoriqueConversations() {
     <div className="space-y-5" data-testid="historique-conversations">
       <header>
         <h1 className="flex items-center gap-2 text-2xl font-bold"><History className="h-6 w-6 text-sky-700" /> Historique Conversation</h1>
-        <p className="text-sm text-slate-600">Toutes les conversations WhatsApp du Centre de Messagerie, par client et par contacts, de la plus récente à la plus ancienne. Les messages bloqués ne sont pas pris en compte.</p>
+        <p className="text-sm text-slate-600">Toutes les conversations WhatsApp du Centre de Messagerie, par client et par contacts, de la plus récente à la plus ancienne. Les contacts bloqués sont proposés ; seuls leurs messages écrits pendant le blocage ne sont pas pris en compte.</p>
       </header>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -148,7 +148,7 @@ export default function LiluvineHistoriqueConversations() {
         <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" data-testid="historique-resultat">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-slate-700">
-              <b>{resultat.total}</b> message(s) · {resultat.contacts.length} contact(s){resultat.ignores > 0 && <span className="text-amber-700"> · {resultat.ignores} contact(s) ignoré(s) (bloqués ou hors de votre périmètre)</span>}
+              <b>{resultat.total}</b> message(s) · {resultat.contacts.length} contact(s){resultat.ignores > 0 && <span className="text-amber-700"> · {resultat.ignores} contact(s) ignoré(s) (hors de votre périmètre)</span>}
               {resultat.tronque && <span className="text-amber-700"> · limité aux {resultat.maximum} messages les plus récents : réduisez la période</span>}
               <span className="ml-2 text-xs text-slate-500">édité le {new Date(resultat.genere_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
             </p>

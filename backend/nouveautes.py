@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "466.1", "date": "2026-11-26",
+        "titre": "🕘 Historique Conversation : contacts bloqués inclus",
+        "description": "Les contacts bloqués sont maintenant proposés (marqués « bloqué ») et leurs messages restent visibles jusqu'à la date de blocage ; seuls ceux écrits pendant le blocage sont écartés.",
+        "rubrique": "🤖 Liluvine — partage avec les superviseurs",
+    },
+    {
         "lot": "466", "date": "2026-11-26",
         "titre": "🕘 Liluvine → Historique Conversation",
         "description": "Nouveau sous-menu : choisissez un client, cochez ses contacts, et toutes leurs conversations WhatsApp s'affichent de la plus récente à la plus ancienne (messages bloqués ignorés), avec une pastille au nom du contact ; impression PDF (date et heure, « Liluvine » vertical sur chaque page) ou export CSV. Partageable aux superviseurs ici.",

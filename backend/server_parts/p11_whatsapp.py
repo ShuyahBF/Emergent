@@ -354,7 +354,7 @@ async def me_export_contacts_pdf(user: dict = Depends(get_current_user)):
 
 
 @api.get("/me/contacts", tags=["Portail Client"])
-async def me_list_contacts(user: dict = Depends(get_current_user)):
+async def me_list_contacts(avec_bloques: bool = False, user: dict = Depends(get_current_user)):
     """Liste TOUS les contacts dans le scope du client de l'utilisateur.
 
     Sharing model (iter29 onward, refined iter34): every contact created by
@@ -384,7 +384,8 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
         items = [c for c in items if vis.contact_visible(c)]
     # Lot 453.3 — liste noire WhatsApp : un contact bloqué n'apparaît plus dans la liste des conversations jusqu'à son déblocage
     import liste_noire_wa as _liste_noire_wa
-    items = await _liste_noire_wa.sans_bloques(db, items)
+    # `avec_bloques=true` (Historique des conversations, lot 466.1) : les contacts bloqués restent listés, marqués `bloque_le`
+    items = await (_liste_noire_wa.annoter_bloques(db, items) if avec_bloques else _liste_noire_wa.sans_bloques(db, items))
     if vis.derniere_ligne or vis.tenants_vip or any(c.get("wa_ligne") for c in items):
         for c in items:
             cle = vis.cle_contact(c)

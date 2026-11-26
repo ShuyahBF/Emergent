@@ -1,7 +1,7 @@
 // ============================================================================
 // Lot 458 — Paramètres → « 📡 Commande HFSQL distante via Liluvine ».
 // L'administrateur (SEUL : une commande SQL touche des données réelles) règle QUI peut envoyer une commande HFSQL à Liluvine par WhatsApp :
-//   « hfsql docx=CMC SELECT … » ou « hfsql docx=CMC UPDATE … » (une modification demande « OUI »). Une machine du client l'exécute ; la réponse (zone, base, commande, résultat du moteur) revient sur WhatsApp.
+//   « hfsql /docx=CMC SELECT … » ou « hfsql /docx=CMC UPDATE … » (une modification demande « OUI » ; zone : /docx=CMC, /doc=CMC ou /ekol). Une machine du client l'exécute ; la réponse (zone, base, commande, résultat du moteur) revient sur WhatsApp.
 // Un numéro peut être limité à certaines zones (codes de clients, ex. CMC, PHL). Journal des dernières commandes ci-dessous. Enregistrement explicite (règle 15).
 // Backend : GET/PUT /api/admin/liluvine-hfsql-acces (administrateur seul).
 // ============================================================================
@@ -17,7 +17,7 @@ const parametresDe = (sql) => [...new Set([...String(sql || "").matchAll(PARAM)]
 function RaccourcisHfsql() {
   const [liste, setListe] = useState(null);
   const [max, setMax] = useState(20);
-  const [edition, setEdition] = useState(null);          // { id?, nom, zone, sql, confirmer } : fenêtre de création / modification (règle 20)
+  const [edition, setEdition] = useState(null);          // { id?, nom, sql, confirmer } : fenêtre de création / modification (règle 20) ; lot 460 : la zone se saisit avec la commande, plus ici
   const [enCours, setEnCours] = useState(false);
 
   const charger = useCallback(async () => {
@@ -30,7 +30,7 @@ function RaccourcisHfsql() {
   const enregistrer = async () => {
     setEnCours(true); toast("Enregistrement du raccourci en cours…");
     try {
-      const corps = { nom: edition.nom, sql: edition.sql, zone: edition.zone, confirmer: !!edition.confirmer };
+      const corps = { nom: edition.nom, sql: edition.sql, confirmer: !!edition.confirmer };
       if (edition.id) await apiClient.put(`/admin/liluvine-hfsql-raccourcis/${edition.id}`, corps); else await apiClient.post("/admin/liluvine-hfsql-raccourcis", corps);
       toast.success("Raccourci enregistré."); setEdition(null); await charger();
     } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); }
@@ -50,38 +50,37 @@ function RaccourcisHfsql() {
       <h4 className="font-semibold">⭐ Raccourcis de commandes ({liste.length} / {max})</h4>
       <p className="text-xs text-slate-600">
         Une commande déjà réussie devient un raccourci : les valeurs qui changent s'écrivent entre accolades, ex. <code>UPDATE VenteClinique SET Mag = {"{vStatut}"} WHERE Référence = {"{RefNum}"}</code>.
-        Par WhatsApp : « <b>hfsql</b> » liste les raccourcis, « <b>hfsql 1</b> » lance le n° 1, Liluvine demande chaque valeur dans l'ordre, exécute et renvoie le résultat. On les crée aussi dans Loois
+        Par WhatsApp : « <b>hfsql</b> » liste les raccourcis, « <b>hfsql 1 /docx=CMC</b> » lance le n° 1 pour la zone CMC, Liluvine demande chaque valeur dans l'ordre, exécute et renvoie le résultat.
+        <b>La zone se saisit avec la commande</b> : <code>/docx=CMC</code>, <code>/doc=CMC</code> ou <code>/ekol</code> (elle n'est pas enregistrée dans le raccourci). On les crée aussi dans Loois
         (Requête SQL distante → Dernières requêtes → ⭐ Créer un raccourci).
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="text-left text-slate-600"><th className="px-1">N°</th><th className="px-1">Nom</th><th className="px-1">Zone</th><th className="px-1">Paramètres (ordre demandé)</th><th className="px-1">OUI avant ?</th><th /></tr></thead>
+          <thead><tr className="text-left text-slate-600"><th className="px-1">N°</th><th className="px-1">Nom</th><th className="px-1">Paramètres (ordre demandé)</th><th className="px-1">OUI avant ?</th><th /></tr></thead>
           <tbody>
             {liste.map((r, i) => (
               <tr key={r.id} className="border-t align-top">
-                <td className="px-1 py-1 tabular-nums">{i + 1}</td><td className="px-1 py-1 font-semibold">{r.nom}</td><td className="px-1 py-1">{r.zone || <span className="text-amber-700">à préciser</span>}</td>
+                <td className="px-1 py-1 tabular-nums">{i + 1}</td><td className="px-1 py-1 font-semibold">{r.nom}</td>
                 <td className="px-1 py-1">{(r.parametres || []).join(", ") || "aucun"}</td><td className="px-1 py-1">{r.confirmer ? "oui" : "non"}</td>
                 <td className="px-1 py-1 whitespace-nowrap">
                   <button type="button" onClick={() => setEdition({ ...r })} className="mr-2 inline-flex items-center gap-1 text-slate-700" aria-label={`Modifier ${r.nom}`}><Pencil className="w-4 h-4" /> Modifier</button>
                   <button type="button" onClick={() => supprimer(r)} className="inline-flex items-center gap-1 text-red-700" aria-label={`Supprimer ${r.nom}`}><Trash2 className="w-4 h-4" /> Supprimer</button>
                 </td>
               </tr>))}
-            {liste.length === 0 && <tr><td colSpan={6} className="px-1 py-2 text-slate-500">Aucun raccourci.</td></tr>}
+            {liste.length === 0 && <tr><td colSpan={5} className="px-1 py-2 text-slate-500">Aucun raccourci.</td></tr>}
           </tbody>
         </table>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" disabled={liste.length >= max} onClick={() => setEdition({ nom: "", zone: "docx=", sql: "", confirmer: false })} data-testid="raccourci-nouveau" className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"><Plus className="w-4 h-4" /> Nouveau raccourci</button>
+        <button type="button" disabled={liste.length >= max} onClick={() => setEdition({ nom: "", sql: "", confirmer: false })} data-testid="raccourci-nouveau" className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"><Plus className="w-4 h-4" /> Nouveau raccourci</button>
         <button type="button" onClick={charger} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><RefreshCw className="w-4 h-4" /> Actualiser</button>
       </div>
       {edition && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3" role="dialog" aria-modal="true">
           <div className="w-full max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3" data-testid="raccourci-fenetre">
             <h2 className="text-lg font-bold">{edition.id ? "Modifier le raccourci" : "Nouveau raccourci"}</h2>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-sm font-semibold">Nom<input value={edition.nom} onChange={(e) => setEdition({ ...edition, nom: e.target.value })} maxLength={40} placeholder="Statut d'un reçu" className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
-              <label className="text-sm font-semibold">Zone par défaut<input value={edition.zone} onChange={(e) => setEdition({ ...edition, zone: e.target.value })} placeholder="docx=CMC" className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
-            </div>
+            <label className="block text-sm font-semibold">Nom<input value={edition.nom} onChange={(e) => setEdition({ ...edition, nom: e.target.value })} maxLength={40} placeholder="Statut d'un reçu" className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm font-normal" /></label>
+            <p className="text-xs text-slate-600">La zone n'est pas demandée ici : on la précise en lançant le raccourci par WhatsApp (« hfsql 1 /docx=CMC », « hfsql 1 /doc=CMC » ou « hfsql 1 /ekol »).</p>
             <label className="block text-sm font-semibold">Commande (paramètres entre accolades)
               <textarea value={edition.sql} onChange={(e) => setEdition({ ...edition, sql: e.target.value })} rows={4} className="mt-1 w-full rounded-lg border border-slate-300 p-2 font-mono text-sm font-normal" placeholder="UPDATE VenteClinique SET Mag = {vStatut} WHERE Référence = {RefNum}" /></label>
             <p className="text-sm" data-testid="raccourci-parametres">{params.length ? <>Paramètres détectés, dans l'ordre demandé : <b>{params.join(" → ")}</b></> : "Aucun paramètre : la commande s'exécutera telle quelle."}</p>

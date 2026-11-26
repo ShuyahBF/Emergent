@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "459"
-LOT_LIBELLE = "Raccourcis de commandes HFSQL avec paramètres {nom} : créés depuis Loois, lancés par WhatsApp via Liluvine (valeurs demandées une à une, résultat renvoyé)."
+LOT = "460"
+LOT_LIBELLE = "Modèle Meta des envois en masse soumis à Meta et suivi depuis SAWALI ; raccourcis HFSQL : la zone (/docx=CMC, /doc=CMC, /ekol) se saisit avec la commande."

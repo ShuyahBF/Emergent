@@ -86,13 +86,14 @@ async def _fiche(db) -> Dict[str, Any]:
     f.setdefault("apercus", [])
     f.setdefault("lots", [])
     f.setdefault("modele", {"nom": "", "langue": "fr"})
+    f.setdefault("soumission", {})            # lot 460 : dernière soumission du modèle à Meta (nom, statut, raison, dates)
     return f
 
 
 async def _ecrire(db, fiche: Dict[str, Any]) -> None:
     fiche["apercus"] = fiche["apercus"][-10:]
     fiche["lots"] = fiche["lots"][-MAX_LOTS_GARDES:]
-    await db["settings"].update_one({"_id": ID_FICHE}, {"$set": {"apercus": fiche["apercus"], "lots": fiche["lots"], "modele": fiche["modele"]}}, upsert=True)
+    await db["settings"].update_one({"_id": ID_FICHE}, {"$set": {"apercus": fiche["apercus"], "lots": fiche["lots"], "modele": fiche["modele"], "soumission": fiche.get("soumission") or {}}}, upsert=True)
 
 
 async def apercu(db, message: str, du: Any, au: Any, par: str, instant: Optional[datetime] = None) -> Dict[str, Any]:
@@ -214,6 +215,121 @@ async def regler_modele(db, nom: Any, langue: Any) -> Dict[str, str]:
     f["modele"] = {"nom": n, "langue": l}
     await _ecrire(db, f)
     return f["modele"]
+
+
+# ---------------------------------------------------------------- lot 460 : SOUMISSION du modèle à Meta depuis SAWALI et SUIVI de son statut
+# Le propriétaire ne passe plus par le Gestionnaire WhatsApp : un bouton envoie le modèle (corps, exemples, bouton « Bien reçu ») à Meta, un autre relit son statut.
+# Aucun appel à Meta à l'ouverture de l'écran (règle 7) : le dernier statut connu est lu dans la fiche ; seuls les boutons interrogent Meta. Administrateur seul.
+WA_GRAPH_VERSION = "v21.0"
+MODELE_EXEMPLES = ["Awa", "Votre rendez-vous de demain est décalé d'une heure."]
+LIBELLES_STATUT = {
+    "ABSENT": "Non soumis à Meta", "PENDING": "En attente d'examen par Meta", "IN_APPEAL": "En appel chez Meta", "APPROVED": "Approuvé par Meta",
+    "REJECTED": "Refusé par Meta", "PAUSED": "Mis en pause par Meta", "DISABLED": "Désactivé par Meta", "PENDING_DELETION": "Suppression en cours",
+}
+
+
+def contenu_modele_meta(nom: str = MODELE_NOM, langue: str = "fr") -> Dict[str, Any]:
+    """Fonction PURE : le JSON exact à envoyer à Meta (POST /{WABA}/message_templates) : catégorie UTILITY, corps avec exemples {{1}} / {{2}}, bouton de réponse rapide."""
+    return {"name": nom, "language": langue, "category": "UTILITY", "components": [
+        {"type": "BODY", "text": MODELE_CORPS, "example": {"body_text": [list(MODELE_EXEMPLES)]}},
+        {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": MODELE_BOUTON}]},
+    ]}
+
+
+async def _appel_meta(methode: str, url: str, jeton: str, json: Any = None, params: Any = None) -> tuple:
+    """Appel réel à l'API Graph de Meta (injecté par les tests) : rend (code HTTP, corps JSON)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.request(methode, url, headers={"Authorization": f"Bearer {jeton}"}, json=json, params=params)
+    try:
+        corps = r.json()
+    except Exception:  # noqa: BLE001
+        corps = {}
+    return r.status_code, corps if isinstance(corps, dict) else {}
+
+
+async def _acces_meta(db) -> tuple:
+    """(jeton, identifiant du compte WhatsApp Business) lus dans les réglages WhatsApp de SAWALI ; ValueError si l'un manque. Jamais affichés ni journalisés."""
+    g = await db["settings"].find_one({"_id": "global"}) or {}
+    jeton, waba = str(g.get("wa_access_token") or "").strip(), str(g.get("wa_business_account_id") or "").strip()
+    if not jeton or not waba:
+        raise ValueError("WhatsApp n'est pas configuré : renseignez l'identifiant du compte WhatsApp Business et le jeton d'accès dans les Paramètres.")
+    return jeton, waba
+
+
+def _erreur_meta(code: int, corps: Dict[str, Any]) -> str:
+    """Message d'erreur de Meta, lisible (jamais renvoyé en 401 / 403 : l'écran déconnecterait l'administrateur)."""
+    e = corps.get("error") or {}
+    return f"Meta a répondu {code} : " + str(e.get("error_user_msg") or e.get("message") or "échec sans détail")[:300]
+
+
+def vue_soumission(sou: Dict[str, Any], modele: Dict[str, str]) -> Dict[str, Any]:
+    """Ce que l'écran affiche : statut en clair, catégorie, raison d'un refus, alerte si Meta a changé la catégorie, et si le modèle est déjà ACTIVÉ pour les envois."""
+    statut = str(sou.get("statut") or "ABSENT")
+    cat = str(sou.get("categorie") or "")
+    alerte = ("Meta a classé ce modèle « " + cat + " » au lieu de UTILITY : l'envoi est facturé autrement. Vérifiez le texte dans le Gestionnaire WhatsApp.") if cat and cat != "UTILITY" else ""
+    return {"nom": sou.get("nom") or MODELE_NOM, "langue": sou.get("langue") or "fr", "statut": statut, "libelle": LIBELLES_STATUT.get(statut, statut), "categorie": cat,
+            "raison": sou.get("raison") or "", "id": sou.get("id") or "", "envoye_le": sou.get("envoye_le") or "", "verifie_le": sou.get("verifie_le") or "", "alerte": alerte,
+            "active": bool(modele.get("nom")) and modele.get("nom") == (sou.get("nom") or MODELE_NOM)}
+
+
+async def lire_soumission(db) -> Dict[str, Any]:
+    """Dernier statut CONNU (lu dans la fiche, aucun appel à Meta)."""
+    f = await _fiche(db)
+    return vue_soumission(f["soumission"], f["modele"])
+
+
+async def statut_modele(db, nom: Optional[str] = None, appeler=None, instant: Optional[datetime] = None) -> Dict[str, Any]:
+    """Interroge Meta (GET /{WABA}/message_templates?name=…) et garde le statut : ABSENT (jamais soumis), PENDING, APPROVED, REJECTED (avec la raison)…"""
+    appeler = appeler or _appel_meta
+    f = await _fiche(db)
+    n = _nom_valide(nom or f["soumission"].get("nom") or MODELE_NOM)
+    langue = f["soumission"].get("langue") or "fr"
+    jeton, waba = await _acces_meta(db)
+    code, corps = await appeler("GET", f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba}/message_templates", jeton,
+                                params={"name": n, "fields": "id,name,status,category,language,rejected_reason", "limit": 25})
+    if code >= 300:
+        raise ValueError(_erreur_meta(code, corps))
+    trouve = next((t for t in (corps.get("data") or []) if t.get("name") == n and str(t.get("language") or "")[:2] == langue[:2]), None)
+    maintenant = (instant or datetime.now(timezone.utc)).isoformat()
+    ancien = f["soumission"] if f["soumission"].get("nom") == n else {}
+    if not trouve:
+        f["soumission"] = {"nom": n, "langue": langue, "statut": "ABSENT", "categorie": "", "raison": "", "id": "", "envoye_le": "", "verifie_le": maintenant}
+    else:
+        raison = str(trouve.get("rejected_reason") or "")
+        f["soumission"] = {"nom": n, "langue": langue, "statut": str(trouve.get("status") or "PENDING").upper(), "categorie": str(trouve.get("category") or "").upper(),
+                           "raison": "" if raison.upper() == "NONE" else raison, "id": str(trouve.get("id") or ""), "envoye_le": ancien.get("envoye_le", ""), "verifie_le": maintenant}
+    await _ecrire(db, f)
+    return vue_soumission(f["soumission"], f["modele"])
+
+
+def _nom_valide(nom: Any) -> str:
+    """Nom d'un modèle Meta : minuscules, chiffres et _ (512 au plus)."""
+    import re
+    n = str(nom or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,512}", n):
+        raise ValueError("Nom du modèle : lettres minuscules, chiffres et _ seulement")
+    return n
+
+
+async def soumettre_modele(db, nom: Optional[str] = None, appeler=None, instant: Optional[datetime] = None) -> Dict[str, Any]:
+    """Envoie le modèle à Meta pour approbation. Si un modèle de ce nom existe déjà chez Meta, on NE le renvoie PAS : on relit son statut (rien n'est écrasé ni doublé)."""
+    appeler = appeler or _appel_meta
+    n = _nom_valide(nom or MODELE_NOM)
+    deja = await statut_modele(db, n, appeler, instant)
+    if deja["statut"] != "ABSENT":
+        return {**deja, "deja": True}
+    jeton, waba = await _acces_meta(db)
+    contenu = contenu_modele_meta(n, "fr")
+    code, corps = await appeler("POST", f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba}/message_templates", jeton, json=contenu)
+    if code >= 300:
+        raise ValueError(_erreur_meta(code, corps))
+    f = await _fiche(db)
+    maintenant = (instant or datetime.now(timezone.utc)).isoformat()
+    f["soumission"] = {"nom": n, "langue": "fr", "statut": str(corps.get("status") or "PENDING").upper(), "categorie": str(corps.get("category") or "UTILITY").upper(),
+                       "raison": "", "id": str(corps.get("id") or ""), "envoye_le": maintenant, "verifie_le": maintenant}
+    await _ecrire(db, f)
+    return {**vue_soumission(f["soumission"], f["modele"]), "deja": False}
 
 
 def envoyeurs_serveur():

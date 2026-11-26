@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "460", "date": "2026-11-26",
+        "titre": "📤 Modèle Meta soumis et suivi depuis SAWALI ; zone saisie avec la commande HFSQL",
+        "description": "Le modèle « Bien reçu » des envois en masse se soumet à Meta d'un bouton, son statut (en attente, approuvé, refusé + motif) se suit ici. Dans les raccourcis HFSQL, la zone n'est plus enregistrée : on l'écrit avec la commande (« hfsql 1 /docx=CMC », /doc=CMC ou /ekol).",
+        "rubrique": "💬 Consignes à Liluvine — numéros WhatsApp autorisés",
+    },
+    {
         "lot": "459", "date": "2026-11-25",
         "titre": "⭐ Raccourcis de commandes HFSQL avec paramètres",
         "description": "Une commande SQL distante réussie devient un raccourci : les valeurs qui changent s'écrivent {NomParametre}. Par WhatsApp, « hfsql 1 » lance le raccourci, Liluvine demande chaque valeur dans l'ordre, exécute et renvoie le résultat (20 raccourcis au plus).",

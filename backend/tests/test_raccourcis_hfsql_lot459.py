@@ -105,8 +105,8 @@ def test_trouver_par_numero_ou_nom(db):
 def test_whatsapp_menu_puis_valeurs_une_a_une_puis_execution(db, file_):
     run(rh.creer(db, "Statut d'un reçu", MODELE, "docx=CMC"))
     menu = run(chw.traiter(db, NUM, "hfsql", _noop))
-    assert "1. Statut d'un reçu" in menu and "vStatut, RefNum" in menu
-    q1 = run(chw.traiter(db, NUM, "hfsql 1", _noop))
+    assert "1. Statut d'un reçu" in menu and "vStatut, RefNum" in menu and "/ekol" in menu            # lot 460 : le menu explique la zone, sans zone par raccourci
+    q1 = run(chw.traiter(db, NUM, "hfsql 1 /docx=CMC", _noop))
     assert "vStatut" in q1 and "1/2" in q1 and file_.deposees == []
     q2 = run(chw.traiter(db, NUM, "SUP", _noop))
     assert "RefNum" in q2 and "2/2" in q2 and file_.deposees == []
@@ -128,7 +128,7 @@ def test_whatsapp_menu_puis_valeurs_une_a_une_puis_execution(db, file_):
 
 def test_valeur_refusee_est_redemandee_et_annuler_arrete(db, file_):
     run(rh.creer(db, "Statut d'un reçu", MODELE, "docx=CMC"))
-    run(chw.traiter(db, NUM, "hfsql statut", _noop))
+    run(chw.traiter(db, NUM, "hfsql statut /docx=CMC", _noop))
     rep = run(chw.traiter(db, NUM, "ligne1\nligne2", _noop))
     assert "refusé" in rep and "vStatut" in rep and file_.deposees == []            # redemandée, rien exécuté
     assert "annulé" in run(chw.traiter(db, NUM, "annuler", _noop))
@@ -149,5 +149,26 @@ def test_raccourci_inconnu_et_zone_limitee(db, file_):
     assert "Je ne trouve pas" in run(chw.traiter(db, NUM, "hfsql 7", _noop))
     run(chw.enregistrer_acces(db, [{"numero": NUM, "nom": "Limité", "zones": "PHL", "actif": True}]))
     run(rh.creer(db, "Lire", "SELECT * FROM A WHERE X = {a}", "docx=CMC"))
-    run(chw.traiter(db, NUM, "hfsql 1", _noop))
+    run(chw.traiter(db, NUM, "hfsql 1 /docx=CMC", _noop))
     assert "pas autorisé pour la zone" in run(chw.traiter(db, NUM, "5", _noop))
+
+
+# ------------------------------------------------------------------ lot 460 : la zone se saisit AVEC la commande
+def test_zone_obligatoire_avec_le_raccourci_et_jamais_enregistree(db, file_):
+    f = run(rh.creer(db, "Statut d'un reçu", MODELE, "docx=CMC"))
+    assert f["zone"] == "" and run(rh.lister(db))[0]["zone"] == ""                       # la zone fournie à la création est ignorée
+    rep = run(chw.traiter(db, NUM, "hfsql 1", _noop))
+    assert "Précisez la zone" in rep and "/docx=CMC" in rep and file_.deposees == []      # sans zone : rien ne démarre
+    assert "vStatut" in run(chw.traiter(db, NUM, "hfsql 1 /doc=PHL", _noop))              # avec zone : la première valeur est demandée
+
+
+def test_zones_docx_doc_ekol_avec_ou_sans_barre():
+    for texte, zone, client in (("hfsql 1 /docx=CMC", "docx=CMC", "CMC"), ("hfsql 1 docx=CMC", "docx=CMC", "CMC"), ("hfsql 1 /doc=CMC", "doc=CMC", "CMC"),
+                                ("hfsql 1 /ekol", "ekol", "EKOL"), ("hfsql statut reçu /ekol", "ekol", "EKOL")):
+        a = chw.analyser(texte)
+        assert a["type"] == "raccourci" and a["zone"] == zone, texte
+        assert a["zone"].split("=")[-1].upper() == client
+    c = chw.analyser("hfsql /ekol SELECT * FROM Eleve WHERE Id = 1")
+    assert c["type"] == "commande" and c["zone"] == "ekol" and c["client"] == "EKOL" and c["sql"].startswith("SELECT")
+    c = chw.analyser("hfsql /docx=PHL SELECT 1 WHERE 1 = 1")
+    assert c["type"] == "commande" and c["zone"] == "docx=PHL" and c["client"] == "PHL"

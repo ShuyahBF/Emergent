@@ -1403,6 +1403,26 @@ async def _start_scheduler():
                     await _surveiller_secours(db)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[quota_atlas] surveillance du cluster de copie en échec : %s", exc)
+            # Lot 463 — même passage horaire : échantillon de mémoire du serveur, relevé des appels lents, alerte WhatsApp au-delà du seuil (1 fois par jour)
+            async def _scheduled_performance_serveur():
+                try:
+                    from performance_serveur import surveiller as _surveiller_perf
+                    await _surveiller_perf(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[performance] surveillance en échec : %s", exc)
+                # Lot 463 — même passage : tant que Meta n'a pas répondu, relecture du statut du modèle des envois en masse (activé tout seul à l'approbation)
+                try:
+                    from consignes_masse import surveiller_modele as _surveiller_modele
+                    await _surveiller_modele(db)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[modele_meta] surveillance en échec : %s", exc)
+            _safe_add_job(
+                _scheduled_performance_serveur,
+                CronTrigger(minute=12, timezone="Africa/Abidjan"),
+                id="performance_serveur_horaire",
+                replace_existing=True,
+                misfire_grace_time=1800,
+            )
             _safe_add_job(
                 _scheduled_quota_atlas,
                 CronTrigger(minute=7, timezone="Africa/Abidjan"),

@@ -210,7 +210,7 @@ def texte_alerte_secours(m: Dict[str, Any]) -> str:
             f"avant que les sauvegardes programmées ne soient refusées.")
 
 
-async def _envoyer_alerte(db, texte: str, maintenant: datetime) -> bool:
+async def _envoyer_alerte(db, texte: str, maintenant: datetime, titre: str = "Liluvine — base Atlas") -> bool:
     """WhatsApp au super-admin par le relais de Liluvine (même canal que l'alerte des collections)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     proprio = "".join(c for c in str(s.get("super_admin_phone") or "") if c.isdigit())
@@ -221,7 +221,7 @@ async def _envoyer_alerte(db, texte: str, maintenant: datetime) -> bool:
         cfg = ap.reglages(s)
         numero_id, _ligne = ap.ligne_appelante(s, cfg)
         r = await ap.envoyer_relais(db, s, cfg, numero_id, proprio, texte,
-                                    ["Liluvine — base Atlas", texte, ap.formater_date(maintenant)], maintenant)
+                                    [titre, texte, ap.formater_date(maintenant)], maintenant)
         return bool(r.get("ok"))
     except Exception:  # noqa: BLE001 — l'alerte ne doit jamais casser la tâche
         logger.warning("[quota_atlas] alerte WhatsApp non envoyée", exc_info=True)

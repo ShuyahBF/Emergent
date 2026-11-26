@@ -229,6 +229,9 @@ from routes.quota_atlas import setup_quota_atlas_routes as _setup_quota_atlas  #
 from db import client as _client_mongo  # noqa: E402
 _setup_quota_atlas(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,
                    base_courante=db.name)
+# Lot 463 — mémoire du serveur et appels les plus lents (Paramètres → « ⏱️ Performance du serveur »)
+from routes.performance_serveur import setup_performance_serveur_routes as _setup_performance_serveur  # noqa: E402
+_setup_performance_serveur(db=db, api=api, get_current_user=get_current_user)
 # Lot 113 — bouton unique « 🧹 Libérer l'Espace » : sauvegardes R2 (migration, quotidiennes) et bases Atlas obsolètes
 from routes.liberer_espace import setup_liberer_espace_routes as _setup_liberer_espace  # noqa: E402
 _setup_liberer_espace(db=db, client=_client_mongo, api=api, get_current_user=get_current_user,

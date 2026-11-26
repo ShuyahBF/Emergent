@@ -12,7 +12,7 @@ import { saisieMajuscules } from "@/lib/saisieMajuscules";   // curseur qui ne s
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, KeyRound, Copy, AlertTriangle, Save, RefreshCw, Trash2, ShieldCheck, Globe2 } from "lucide-react";
+import { Loader2, KeyRound, Copy, AlertTriangle, Save, RefreshCw, Trash2, ShieldCheck, Globe2, Ban } from "lucide-react";
 
 export default function IncidentsAndCountrySection() {
   const [loading, setLoading] = useState(true);
@@ -376,7 +376,20 @@ function ErrorRegistryWebhookCard({ apiBase }) {
   // Lot 172 : pause temporaire du webhook (le token est conservé)
   const [pause, setPause] = useState(false);
   const [busyPause, setBusyPause] = useState(false);
-  const chargerPause = () => apiClient.get("/admin/errors-webhook/pause").then((r) => setPause(!!r.data?.pause)).catch(() => {});
+  // Lot 463 : qui insiste pendant la pause ? (adresses qui ont appelé malgré le « 503 », comptées en mémoire par le serveur)
+  const [refuses, setRefuses] = useState({ total: 0, adresses: [] });
+  const chargerPause = (avecToast) => {
+    if (avecToast) toast("Lecture des appels refusés en cours…");
+    return apiClient.get("/admin/errors-webhook/pause").then((r) => { setPause(!!r.data?.pause); setRefuses(r.data?.appels_refuses || { total: 0, adresses: [] }); if (avecToast) toast.success(`${r.data?.appels_refuses?.total || 0} appel(s) refusé(s) depuis le dernier redémarrage du serveur.`); })
+      .catch(() => { if (avecToast) toast.error("Lecture impossible"); });
+  };
+  // Bloque l'adresse (liste des adresses bloquées des Paramètres : on peut la débloquer à tout moment). Confirmation d'abord : l'adresse peut être partagée.
+  const bloquerAdresse = async (ip) => {
+    if (!window.confirm(`Bloquer l'adresse ${ip} sur TOUTE l'API de SAWALI ?\n\nSi c'est une adresse partagée (bureau, fournisseur), d'autres personnes seront bloquées avec elle. Vous pourrez la débloquer dans la liste des adresses bloquées.`)) return;
+    toast("Blocage de l'adresse en cours…");
+    try { await apiClient.post("/admin/blacklisted-ips", { cidr: ip, reason: "Insiste sur le webhook du Registre des Erreurs en pause" }); toast.success(`Adresse ${ip} bloquée.`); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Blocage impossible"); }
+  };
   const basculerPause = async () => {
     setBusyPause(true);
     try {
@@ -453,6 +466,25 @@ function ErrorRegistryWebhookCard({ apiBase }) {
         </button>
         {pause && <span className="text-xs text-amber-800">En pause : les erreurs entrantes sont refusées (503). Le token est conservé.</span>}
       </div>
+      {/* Lot 463 : la pause refuse les appels mais n'arrête pas un expéditeur qui ignore le 503 : on voit qui insiste */}
+      {pause && (
+        <div className="mb-3 rounded bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200" data-testid="errors-webhook-refuses">
+          <p className="font-medium">Appels refusés pendant la pause : <b>{refuses.total}</b> depuis le dernier redémarrage du serveur.</p>
+          <p className="mt-1">La pause répond « 503 » avec l'ordre de revenir dans 1 heure, mais un programme qui ignore cet ordre continue d'appeler : il faut l'arrêter chez l'expéditeur (ou bloquer son adresse).</p>
+          {refuses.adresses.length > 0 && (
+            <table className="mt-2 w-full">
+              <thead><tr className="text-left"><th className="p-1">Adresse</th><th className="p-1 text-right">Appels</th><th className="p-1">Dernier appel</th><th className="p-1" /></tr></thead>
+              <tbody>
+                {refuses.adresses.map((a) => (
+                  <tr key={a.ip} className="border-t border-amber-200">
+                    <td className="p-1 font-mono">{a.ip}</td><td className="p-1 text-right tabular-nums">{a.nombre}</td>
+                    <td className="p-1">{a.dernier ? new Date(a.dernier).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" }) : ""}</td>
+                    <td className="p-1 text-right"><button type="button" onClick={() => bloquerAdresse(a.ip)} className="inline-flex items-center gap-1 rounded border border-red-300 bg-white px-2 py-0.5 text-red-700"><Ban className="h-3 w-3" /> Bloquer cette adresse</button></td>
+                  </tr>))}
+              </tbody>
+            </table>)}
+          <button type="button" onClick={() => chargerPause(true)} className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-slate-700"><RefreshCw className="h-3 w-3" /> Actualiser</button>
+        </div>)}
 
       <div className="space-y-3">
         <div className="bg-white ring-1 ring-slate-200 rounded p-3 text-xs space-y-2">

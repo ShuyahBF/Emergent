@@ -14,7 +14,7 @@ import { RenvoiLibererEspace } from "@/pages/admin/sections/LibererEspaceSection
 
 import { Trash2 as Ico15Trash2 } from "lucide-react";
 // Couleurs par niveau (vert, orange, rouge)
-const COULEURS = {
+export const COULEURS = {
   ok: { arc: "#059669", fond: "bg-emerald-50", texte: "text-emerald-800", libelle: "Marge confortable" },
   attention: { arc: "#d97706", fond: "bg-amber-50", texte: "text-amber-800", libelle: "Plus de 45 % utilisés" },   // lot 79.9
   plein: { arc: "#dc2626", fond: "bg-red-50", texte: "text-red-800", libelle: "Il reste 10 % ou moins : à libérer vite" },   // lot 79.9
@@ -22,7 +22,7 @@ const COULEURS = {
 
 // Jauge circulaire (SVG) : arc proportionnel au taux d'occupation, repère du seuil d'alerte
 // Lot 122 — `unite` (ex. « Mo ») affichée sous le total ; `libelle` = texte lu par les lecteurs d'écran
-function Jauge({ total, limite, seuil, niveau, unite = "", libelle }) {
+export function Jauge({ total, limite, seuil, niveau, unite = "", libelle }) {   // lot 463 : exportée, réutilisée par « Performance du serveur »
   const rayon = 54;
   const circonference = 2 * Math.PI * rayon;
   const part = Math.min(1, limite ? total / limite : 0);

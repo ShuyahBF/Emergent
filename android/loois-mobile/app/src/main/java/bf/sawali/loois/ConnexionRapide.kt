@@ -95,11 +95,14 @@ object Biometrie {
 
 /** COMPTE GOOGLE et CLÉS D'ACCÈS par le Gestionnaire d'identifiants d'Android (Credential Manager). */
 object Identites {
+    /** Détail technique ajouté aux erreurs d'Android (ex. « [TYPE_SECURITY_ERROR] ») : permet de distinguer les causes à distance. */
+    private fun detail(type: String): String = " [" + type.substringAfterLast('/').substringAfterLast('.') + "]"
+
     private fun texteErreur(e: Exception): String = when (e) {
         is GetCredentialCancellationException, is CreateCredentialCancellationException -> "Opération annulée."
         is NoCredentialException -> "Aucun compte ou aucune clé d'accès disponible sur ce téléphone."
-        is GetCredentialException -> e.message ?: "Échec de l'identification."
-        is CreateCredentialException -> e.message ?: "Échec de la création."
+        is GetCredentialException -> (e.message ?: "Échec de l'identification.") + detail(e.type)
+        is CreateCredentialException -> (e.message ?: "Échec de la création.") + detail(e.type)
         else -> e.message ?: "Erreur inattendue."
     }
 

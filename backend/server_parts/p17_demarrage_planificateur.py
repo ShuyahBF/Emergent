@@ -1303,6 +1303,14 @@ async def _start_scheduler():
                 max_instances=1,
             )
 
+            # Lot 475 — PRÉCHAUFFAGE : les modules importés par les tâches planifiées sont chargés tout de suite dans un FIL
+            # (sinon le premier passage de la tâche ci-dessous les importait dans la boucle du serveur : gel de 3 à 4 s).
+            try:
+                from prechauffage import prechauffer as _prechauffer
+                asyncio.create_task(_prechauffer())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Préchauffage non lancé : %s", exc)
+
             # Lot 70 — Agenda d'appels de Liluvine : chaque minute, anniversaires (toutes les 10 min) puis
             # évènements échus RÉCLAMÉS de façon atomique (un seul serveur les prend), lancés en arrière-plan.
             async def _scheduled_liluvine_agenda():

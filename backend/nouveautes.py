@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "475", "date": "2026-11-27",
+        "titre": "🔥 Préchauffage au démarrage : fin du gel de 3 à 4 secondes",
+        "description": "Après un redémarrage, les modules lourds de l'agenda de Liluvine se chargent dans un fil à part : le serveur continue de répondre. La ligne « Réactivité du serveur » le confirme.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "474", "date": "2026-11-27",
         "titre": "🧭 Appels lents : fichiers, appels WhatsApp, plateformes et réactivité du serveur",
         "description": "Les images du stockage externe restent 10 minutes en mémoire, les appels WhatsApp en cours et l'activité des plateformes font beaucoup moins de requêtes, la roadmap se synchronise au démarrage, et une nouvelle ligne « Réactivité du serveur » dit si un calcul bloque le serveur (ce qui ralentirait toutes les routes en même temps).",

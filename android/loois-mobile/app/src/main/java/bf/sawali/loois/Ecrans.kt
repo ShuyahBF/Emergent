@@ -250,6 +250,25 @@ fun SelecteurJour(jour: String, onChange: (String) -> Unit) {
     }
 }
 
+/** Lot M8 — choix de la date de vente : les jours APRÈS aujourd'hui ne sont pas sélectionnables (règle : jamais supérieure à la date système). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SelecteurDateVente(jour: String, modifiee: Boolean, onChange: (String) -> Unit) {
+    var ouvert by remember { mutableStateOf(false) }
+    val plafond = LocalDate.now(ZoneOffset.UTC).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+    OutlinedButton(onClick = { ouvert = true }, border = BorderStroke(if (modifiee) 2.dp else 1.dp, if (modifiee) Couleurs.OrangeFonce else Color(0xFFCBD5E1))) {
+        Icon(Icons.Filled.CalendarMonth, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Date : ${jourFr(jour)}", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Edit, "Modifier la date de vente", Modifier.size(14.dp))
+    }
+    if (ouvert) {
+        val etat = rememberDatePickerState(initialSelectedDateMillis = try { LocalDate.parse(jour).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli() } catch (x: Exception) { null },
+            selectableDates = object : SelectableDates { override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= plafond })
+        DatePickerDialog(onDismissRequest = { ouvert = false },
+            confirmButton = { TextButton(onClick = { etat.selectedDateMillis?.let { onChange(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()) }; ouvert = false }) { Text("Valider") } },
+            dismissButton = { TextButton(onClick = { ouvert = false }) { Text("Annuler") } }) { DatePicker(etat) }
+    }
+}
+
 @Composable
 fun EcranListe(e: UiEtat, vm: AppViewModel, corrections: Boolean) {
     val liste = if (corrections) e.corrections else e.historique
@@ -360,7 +379,7 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
             onDismissRequest = { vm.fermerConfirmationModif() },
             icon = { Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce) },
             title = { Text("Écrire dans la base du client ?") },
-            text = { Text("Reçu ${r.reference}\n" + (e.editRegle?.let { "Réglé : ${if (d.infos.regle == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
+            text = { Text("Reçu ${r.reference}\n" + (e.editDate?.let { "Date de vente : ${jourFr(r.dateVente)} → ${jourFr(it)} (heure ${r.heure} conservée)\n" } ?: "") + (e.editRegle?.let { "Réglé : ${if (d.infos.regle == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
                 (e.editVise?.let { "Visé : ${if (d.infos.vise == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
                 (if (e.editPartAssure != null) "Part assuré : ${formaterMontant(r.partAssure)} → ${formaterMontant(lireNombreSaisi(e.editPartAssure) ?: 0.0)}\nPart assureur : ${formaterMontant(r.partAssureur)} → ${formaterMontant(lireNombreSaisi(e.editPartAssureur) ?: 0.0)}\n(montant total ${formaterMontant(d.infos.montantTotal ?: 0.0)}, inchangé)\n" else "") + "\nLa modification sera enregistrée dans HFSQL et notée dans le journal.") },
             confirmButton = { Button(onClick = { vm.enregistrerModifs() }) { Icon(Icons.Filled.Save, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Confirmer l'enregistrement") } },
@@ -369,9 +388,13 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
             item {
                 Column(Modifier.padding(12.dp)) {
                     Text(r.patient.ifBlank { "—" }, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    Text("${jourFr(r.dateVente)} à ${r.heure} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
-                    Spacer(Modifier.height(6.dp))
                     val peutModifier = e.droits?.administrateur == true && e.droits?.consultationSeule == false
+                    // Lot M8 — date de vente : le superviseur la change (jamais après aujourd'hui), l'heure de la vente est conservée
+                    if (peutModifier) Row(verticalAlignment = Alignment.CenterVertically) {
+                        SelecteurDateVente(e.editDate ?: r.dateVente, e.editDate != null) { vm.changerDateVente(it) }
+                        Text("  à ${r.heure} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
+                    } else Text("${jourFr(r.dateVente)} à ${r.heure} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
+                    Spacer(Modifier.height(6.dp))
                     // Lot M5 — caissier, VID (vendeur), réglé et visé : écrits en toutes lettres (jamais la couleur seule)
                     Text("Caissier : ${r.caissier.ifBlank { "—" }}  ·  VID : ${d.infos.vid.ifBlank { "—" }}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     // Lot M6 : le SUPERVISEUR touche « Réglé » / « Visé » pour changer la valeur, puis « Enregistrer » (avec confirmation) ; les autres utilisateurs ne font que lire
@@ -382,8 +405,8 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
                         EtatOuiNon("Visé", viseAffiche, if (peutModifier) ({ vm.basculerVise() }) else null, e.editVise != null)
                     }
                     if (peutModifier) {
-                        val modifie = e.editRegle != null || e.editVise != null || e.editPartAssure != null
-                        Text(if (modifie) "✏ Modifié, non enregistré" else "Superviseur : touchez « Réglé » ou « Visé », ou changez une part, puis « Enregistrer ».", color = if (modifie) Couleurs.OrangeFonce else Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        val modifie = e.editRegle != null || e.editVise != null || e.editDate != null || e.editPartAssure != null
+                        Text(if (modifie) "✏ Modifié, non enregistré" else "Superviseur : changez la date, « Réglé », « Visé » ou une part, puis « Enregistrer ».", color = if (modifie) Couleurs.OrangeFonce else Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                         if (modifie) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                             BoutonAction("Enregistrer", Icons.Filled.Save, !e.enCours) { vm.demanderConfirmationModif() }
                             BoutonAction("Annuler", Icons.Filled.Close, !e.enCours, plein = false) { vm.annulerModifs() }

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "494", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : date de vente modifiable",
+        "description": "Dans le détail d'un reçu ou d'une facture (Loois mobile 1.7.0), le superviseur change la date de vente avec un calendrier qui interdit les jours après aujourd'hui ; l'heure de la vente est conservée. Contrôle refait par le serveur, écriture dans HFSQL relue et journalisée.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "493", "date": "2026-11-27",
         "titre": "📱 Loois mobile : montant, PPC et parts assuré / assureur",
         "description": "Le détail d'un reçu ou d'une facture (Loois mobile 1.6.0) montre le montant total, le PPC et les parts assuré / assureur. Le superviseur change une part : l'autre est déduite du total, les deux sont écrites ensemble dans HFSQL, relues et journalisées. Le total n'est jamais modifié.",

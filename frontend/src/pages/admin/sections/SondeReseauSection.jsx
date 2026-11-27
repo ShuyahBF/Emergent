@@ -7,7 +7,7 @@
 // Backend : POST/GET/DELETE /api/sonde-reseau/mesures, GET /api/sonde-reseau/rapport (administrateur seul). Moteur : lib/sondeReseau.js.
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, BarChart3, CloudUpload, Download, Eraser, Eye, EyeOff, FileDown, KeyRound, Play, RefreshCw, SlidersHorizontal, Square, Table2, TriangleAlert, Wifi } from "lucide-react";
+import { Activity, BarChart3, Gauge, CloudUpload, Download, Eraser, Eye, EyeOff, FileDown, KeyRound, Play, RefreshCw, SlidersHorizontal, Square, Table2, TriangleAlert, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { API, apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
@@ -232,16 +232,6 @@ export default function SondeReseauSection() {
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {alerteEnvoi}</div>)}
 
 
-      <Tabs defaultValue={lire("sonde.onglet", "graphiques")} onValueChange={(v) => ecrire("sonde.onglet", v)} data-testid="sonde-onglets">
-        <TabsList className="h-auto flex-wrap gap-1 bg-slate-100 p-1">
-          <TabsTrigger value="graphiques" className={onglet} data-testid="onglet-graphiques"><BarChart3 className="mr-1 h-4 w-4" /> Graphiques</TabsTrigger>
-          <TabsTrigger value="reglages" className={onglet} data-testid="onglet-reglages"><SlidersHorizontal className="mr-1 h-4 w-4" /> Réglages</TabsTrigger>
-          <TabsTrigger value="mesures" className={onglet} data-testid="onglet-mesures"><Table2 className="mr-1 h-4 w-4" /> Mesures</TabsTrigger>
-          <TabsTrigger value="envois" className={onglet} data-testid="onglet-envois"><CloudUpload className="mr-1 h-4 w-4" /> Sauvegardes Et Envois</TabsTrigger>
-        </TabsList>
-
-        {/* Onglet 1 : synthèse colorée et courbes */}
-        <TabsContent value="graphiques" className="space-y-4">
       {/* Période et poste affichés */}
       <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-3">
         <label className="text-xs"><span className="mr-2 font-semibold text-slate-700">Période</span>
@@ -253,16 +243,20 @@ export default function SondeReseauSection() {
       </div>
 
       {d?.erreur && <p className="text-xs text-red-700">{d.erreur}</p>}
+
+      <Tabs defaultValue={lire("sonde.onglet", "graphiques")} onValueChange={(v) => ecrire("sonde.onglet", v)} data-testid="sonde-onglets">
+        <TabsList className="h-auto flex-wrap gap-1 bg-slate-100 p-1">
+          <TabsTrigger value="graphiques" className={onglet} data-testid="onglet-graphiques"><BarChart3 className="mr-1 h-4 w-4" /> Graphiques</TabsTrigger>
+          <TabsTrigger value="reglages" className={onglet} data-testid="onglet-reglages"><SlidersHorizontal className="mr-1 h-4 w-4" /> Réglages</TabsTrigger>
+          <TabsTrigger value="mesures" className={onglet} data-testid="onglet-mesures"><Gauge className="mr-1 h-4 w-4" /> Mesures</TabsTrigger>
+          <TabsTrigger value="tableau" className={onglet} data-testid="onglet-tableau"><Table2 className="mr-1 h-4 w-4" /> Tableau</TabsTrigger>
+          <TabsTrigger value="envois" className={onglet} data-testid="onglet-envois"><CloudUpload className="mr-1 h-4 w-4" /> Sauvegardes Et Envois</TabsTrigger>
+        </TabsList>
+
+        {/* Onglet 1 : courbes */}
+        <TabsContent value="graphiques" className="space-y-4">
       {r && (
         <>
-          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${bandeau[r.niveau] || bandeau.inconnu}`} data-testid="sonde-verdict">{r.verdict}</div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Carte titre="Perte de paquets" valeur={r.perte_pct == null ? "—" : `${num(r.perte_pct)} %`} detail={`${r.perdus} perdu(s) sur ${r.essais}`} niveau={niveauPerte(r.perte_pct)} />
-            <Carte titre="Latence moyenne" valeur={r.latence_moy_ms == null ? "—" : `${num(r.latence_moy_ms)} ms`} detail={`95 % sous ${num(r.latence_p95_ms)} ms`} />
-            <Carte titre="Débit descendant" valeur={r.debit_desc_moy == null ? "—" : `${num(r.debit_desc_moy)} Mb/s`} detail={`minimum ${num(r.debit_desc_min)} Mb/s`} niveau={niveauDebit(r.debit_desc_moy)} />
-            <Carte titre="Débit montant" valeur={r.debit_mont_moy == null ? "—" : `${num(r.debit_mont_moy)} Mb/s`} />
-            <Carte titre="Connexions HTTPS" valeur={r.https_pct == null ? "—" : `${num(r.https_pct)} %`} detail={`${r.https_ok}/${r.https_total} réussies`} niveau={r.https_pct != null && r.https_pct < 95 ? "attention" : "ok"} />
-          </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Courbe titre="Latence (ms)" valeurs={chrono.map((m) => m.latence_moy_ms)} couleur="#2563eb" unite="ms" />
             <Courbe titre="Perte de paquets (%)" valeurs={chrono.map((m) => m.perte_pct)} couleur="#dc2626" unite="%" repere={SEUIL_PERTE_ATTENTION} />
@@ -270,7 +264,7 @@ export default function SondeReseauSection() {
           </div>
         </>)}
 
-          {!r && <p className="text-sm text-slate-500">Aucune synthèse pour l'instant : lancez une mesure (pictogramme bleu) ou démarrez la sonde.</p>}
+          {!r && <p className="text-sm text-slate-500">Aucune courbe pour l'instant : lancez une mesure (pictogramme bleu) ou démarrez la sonde.</p>}
         </TabsContent>
 
         {/* Onglet 2 : réglages des mesures, de la surveillance et des tests */}
@@ -307,8 +301,23 @@ export default function SondeReseauSection() {
           </div>
         </TabsContent>
 
-        {/* Onglet 3 : tableau des mesures */}
+        {/* Onglet 3 : synthèse des mesures (verdict et cartes colorées) */}
         <TabsContent value="mesures" className="space-y-4">
+          {r ? (
+            <>
+          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${bandeau[r.niveau] || bandeau.inconnu}`} data-testid="sonde-verdict">{r.verdict}</div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <Carte titre="Perte de paquets" valeur={r.perte_pct == null ? "—" : `${num(r.perte_pct)} %`} detail={`${r.perdus} perdu(s) sur ${r.essais}`} niveau={niveauPerte(r.perte_pct)} />
+            <Carte titre="Latence moyenne" valeur={r.latence_moy_ms == null ? "—" : `${num(r.latence_moy_ms)} ms`} detail={`95 % sous ${num(r.latence_p95_ms)} ms`} />
+            <Carte titre="Débit descendant" valeur={r.debit_desc_moy == null ? "—" : `${num(r.debit_desc_moy)} Mb/s`} detail={`minimum ${num(r.debit_desc_min)} Mb/s`} niveau={niveauDebit(r.debit_desc_moy)} />
+            <Carte titre="Débit montant" valeur={r.debit_mont_moy == null ? "—" : `${num(r.debit_mont_moy)} Mb/s`} />
+            <Carte titre="Connexions HTTPS" valeur={r.https_pct == null ? "—" : `${num(r.https_pct)} %`} detail={`${r.https_ok}/${r.https_total} réussies`} niveau={r.https_pct != null && r.https_pct < 95 ? "attention" : "ok"} />
+          </div>
+            </>) : <p className="text-sm text-slate-500">Aucune mesure pour l'instant : lancez une mesure (pictogramme bleu) ou démarrez la sonde.</p>}
+        </TabsContent>
+
+        {/* Onglet 4 : tableau des mesures (colonnes triables, totaux) */}
+        <TabsContent value="tableau" className="space-y-4">
       {/* Tableau : colonnes triables, nombres à droite, ligne de totaux collée dessous (plus de 30 lignes : le défilement est automatique) */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs" data-testid="table-sonde">
@@ -355,7 +364,7 @@ export default function SondeReseauSection() {
       </div>
         </TabsContent>
 
-        {/* Onglet 4 : tout ce qui est sauvegardé, exporté ou envoyé à SAWALI */}
+        {/* Onglet 5 : tout ce qui est sauvegardé, exporté ou envoyé à SAWALI */}
         <TabsContent value="envois" className="space-y-4">
       {/* Lot 471 — clé de la sonde (œil afficher / masquer) et état sur le serveur */}
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2" data-testid="sonde-cle-bloc">

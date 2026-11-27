@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "494"
-LOT_LIBELLE = "Loois mobile : le superviseur change la date de vente d'un reçu (jamais après la date du jour, heure conservée)."
+LOT = "495"
+LOT_LIBELLE = "Loois mobile : plus aucun recalcul automatique des parts (les deux parts sont saisies, leur somme doit faire le total)."

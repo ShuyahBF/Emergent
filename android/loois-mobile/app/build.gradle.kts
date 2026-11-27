@@ -13,9 +13,9 @@ plugins {
 }
 
 // Version et numéro de lot affichés dans l'application (règle 1 : mis à jour à CHAQUE publication)
-val versionApp = "1.7.0"
-val codeVersion = 12
-val lotApp = "M8"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
+val versionApp = "1.7.1"
+val codeVersion = 13
+val lotApp = "M8.1"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
 // Date et heure de compilation (heure du Burkina Faso = UTC), affichées « déployée le JJ/MM/AAAA HH:MM » (règle 2)
 val dateCompilation: String = SimpleDateFormat("dd/MM/yyyy HH:mm").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
 

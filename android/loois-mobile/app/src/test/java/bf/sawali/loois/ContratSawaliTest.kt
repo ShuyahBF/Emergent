@@ -62,7 +62,7 @@ class ContratSawaliTest {
         assertEquals("0461/2026", m.getString("reference"))
         val i = lireInfos(m.getJSONObject("infos")); val r = lireRecu(m.getJSONObject("recu"))
         assertEquals("MED07", i.vid); assertEquals(40000.0, i.montantTotal!!, 0.001)
-        assertEquals(15000.0, r.partAssure, 0.001); assertEquals(25000.0, r.partAssureur, 0.001)                 // 40 000 − 25 000 = 15 000 : contrepartie déduite
+        assertEquals(15000.0, r.partAssure, 0.001); assertEquals(25000.0, r.partAssureur, 0.001)                 // les deux parts relues dans la base (somme = total)
     }
 
     @Test fun factureAssureeMontantPpcEtParts() {
@@ -72,7 +72,7 @@ class ContratSawaliTest {
         assertEquals(d.infos.montantTotal!!, d.recu.partAssure + d.recu.partAssureur, 0.001)                      // total = part assuré + part assureur
     }
 
-    @Test fun saisieDesPartsEtDeduction() {
+    @Test fun saisieDesParts() {
         assertEquals(12000.5, lireNombreSaisi("12 000,5")!!, 0.001); assertEquals(0.0, lireNombreSaisi("0")!!, 0.001)
         assertNull(lireNombreSaisi("")); assertNull(lireNombreSaisi("abc")); assertNull(lireNombreSaisi("-5")); assertNull(lireNombreSaisi("1e999"))
         assertEquals("15000", formaterNombreSaisi(15000.0)); assertEquals("12000.50", formaterNombreSaisi(12000.5)); assertEquals("0", formaterNombreSaisi(40000.0 - 40000.0))

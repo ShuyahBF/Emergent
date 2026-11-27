@@ -215,22 +215,21 @@ def _decimal_sql(v: float) -> str:
 
 
 def parts_deduites(total: float, part_assure: Optional[float], part_assureur: Optional[float]) -> Tuple[float, float]:
-    """Lot 493 — parts d'un reçu pris en charge : TOTAL = part assuré + part assureur. Une seule part donnée : l'autre est DÉDUITE (total − part donnée) ; les deux données : leur somme doit
-    faire le total (à 1 centime près). Chaque part est comprise entre 0 et le total. Lève ValueError (message clair) sinon."""
+    """Lots 493-495 — parts d'un reçu pris en charge : TOTAL = part assuré + part assureur. DEPUIS LE 27/11/2026 (décision du propriétaire : « ne jamais recalculer les parts pour le moment ») il n'y a
+    AUCUNE déduction automatique : les DEUX parts doivent être données, chacune entre 0 et le total, et leur somme doit faire le total (à 1 centime près). Lève ValueError (message clair) sinon.
+    (Le nom de la fonction est gardé pour ne pas casser les appelants.)"""
     if part_assure is None and part_assureur is None:
         raise ValueError("aucune part")
+    if part_assure is None or part_assureur is None:
+        raise ValueError("Donnez les deux parts (assuré ET assureur) : aucune part n'est recalculée automatiquement.")
     if total is None or total < 0:
-        raise ValueError("Le montant total du reçu est inconnu : impossible de répartir les parts.")
+        raise ValueError("Le montant total du reçu est inconnu : impossible de contrôler les parts.")
     for nom, v in (("part assuré", part_assure), ("part assureur", part_assureur)):
-        if v is not None and (v != v or v < 0 or v > total + 0.005):
+        if v != v or v < 0 or v > total + 0.005:
             raise ValueError(f"La {nom} doit être comprise entre 0 et le montant total ({total:g}).")
-    if part_assure is not None and part_assureur is not None:
-        if abs(part_assure + part_assureur - total) > 0.01:
-            raise ValueError(f"Part assuré + part assureur doivent faire le montant total ({total:g}).")
-        return round(part_assure, 2), round(part_assureur, 2)
-    if part_assure is not None:
-        return round(part_assure, 2), round(total - part_assure, 2)
-    return round(total - part_assureur, 2), round(part_assureur, 2)
+    if abs(part_assure + part_assureur - total) > 0.01:
+        raise ValueError(f"Part assuré + part assureur doivent faire le montant total ({total:g}).")
+    return round(part_assure, 2), round(part_assureur, 2)
 
 
 def date_vente_valide(jour: str, aujourdhui: date) -> date:

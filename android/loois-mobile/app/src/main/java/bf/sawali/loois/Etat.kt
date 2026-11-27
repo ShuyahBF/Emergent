@@ -371,28 +371,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun basculerVise() = maj { e -> val d = e.detail ?: return@maj e; val actuel = e.editVise ?: d.infos.vise ?: false; val nouveau = !actuel
         e.copy(editVise = if (nouveau == d.infos.vise) null else nouveau) }
     fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, editDate = null, editPartAssure = null, editPartAssureur = null, confirmerModif = false) }
-    /** Lot M7 — la personne tape UNE part ; l'autre est calculée tout de suite (total − part). Revenir aux parts d'origine annule le changement. */
     /** Lot M8 — nouvelle date de vente : JAMAIS après la date du jour (le serveur le contrôle aussi) ; remettre la date d'origine annule le changement. */
     fun changerDateVente(jour: String) = maj { e ->
         val d = e.detail ?: return@maj e
         if (jour > aujourdhui()) e.copy(message = "La date de vente ne peut pas dépasser la date du jour (${jourFr(aujourdhui())}).")
         else e.copy(editDate = if (jour == d.recu.dateVente) null else jour)
     }
+
+    /** Lots M7 à M8.1 — la personne tape CHAQUE part elle-même : AUCUN recalcul automatique de la contrepartie (décision du propriétaire, 27/11/2026 : « ne jamais recalculer les parts pour le moment »).
+     *  Revenir aux deux parts d'origine annule le changement ; l'enregistrement exige que part assuré + part assureur fassent le montant total. */
     fun changerPartAssure(t: String) = maj { e -> partsModifiees(e, t, true) }
     fun changerPartAssureur(t: String) = maj { e -> partsModifiees(e, t, false) }
     private fun partsModifiees(e: UiEtat, texte: String, assure: Boolean): UiEtat {
         val d = e.detail ?: return e
-        val total = d.infos.montantTotal ?: return e.copy(message = "Montant total inconnu : impossible de répartir les parts.")
-        val v = lireNombreSaisi(texte)
-        val autre = if (v != null && v in 0.0..total) formaterNombreSaisi(total - v) else ""
-        val (pa, pr) = if (assure) texte to autre else autre to texte
+        val pa = if (assure) texte else (e.editPartAssure ?: formaterNombreSaisi(d.recu.partAssure))
+        val pr = if (assure) (e.editPartAssureur ?: formaterNombreSaisi(d.recu.partAssureur)) else texte
         val origine = Math.abs((lireNombreSaisi(pa) ?: -1.0) - d.recu.partAssure) < 0.005 && Math.abs((lireNombreSaisi(pr) ?: -1.0) - d.recu.partAssureur) < 0.005
         return if (origine) e.copy(editPartAssure = null, editPartAssureur = null) else e.copy(editPartAssure = pa, editPartAssureur = pr)
     }
     fun demanderConfirmationModif() = maj {
         val parts = it.editPartAssure != null
-        val valides = !parts || (lireNombreSaisi(it.editPartAssure) != null && lireNombreSaisi(it.editPartAssureur) != null)
-        if (!valides) it.copy(message = "Part invalide : tapez un nombre compris entre 0 et le montant total.")
+        val total = it.detail?.infos?.montantTotal
+        val a = lireNombreSaisi(it.editPartAssure); val r = lireNombreSaisi(it.editPartAssureur)
+        val valides = !parts || (a != null && r != null)
+        val somme = !parts || (total != null && a != null && r != null && Math.abs(a + r - total) <= 0.01)
+        if (!valides) it.copy(message = "Part invalide : tapez un nombre pour la part assuré ET pour la part assureur.")
+        else if (!somme) it.copy(message = "Part assuré + part assureur doivent faire le montant total (${formaterMontant(total ?: 0.0)}).")
         else if (it.editRegle != null || it.editVise != null || it.editDate != null || parts) it.copy(confirmerModif = true) else it
     }
     fun fermerConfirmationModif() = maj { it.copy(confirmerModif = false) }

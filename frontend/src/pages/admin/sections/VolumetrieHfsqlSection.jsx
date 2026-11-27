@@ -100,7 +100,8 @@ export default function VolumetrieHfsqlSection() {
         <label className="text-sm font-semibold text-slate-700" title="Durée du cache en jours">Cache <span className="font-normal text-slate-500">(jours)</span>
           <input type="number" min={1} max={60} value={jours} onChange={(e) => setJours(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal" data-testid="volu-jours" /></label>
         <div className="min-w-0 text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-1">Tables <span className="font-normal text-slate-500">({choisies.length})</span>
-          <div className="mt-1 font-normal"><ListeMultiChoix options={options} valeur={choisies} onChange={setChoisies} vide="Cocher des tables…" pluriel="tables choisies" testid="volu-tables" /></div></div>
+          <div className="mt-1 font-normal"><ListeMultiChoix options={options} valeur={choisies} onChange={setChoisies} vide="Cocher des tables…" pluriel="tables choisies" testid="volu-tables"
+            classeBouton="sm:w-full" classePanneau="w-[min(70rem,calc(100vw-3rem))] max-w-none" alignement="end" classeListe="max-h-[26rem]" /></div></div>
       </div>
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <button type="button" onClick={compter} disabled={enCours} data-testid="volu-compter" className="inline-flex items-center gap-1 rounded-full bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Play className="h-4 w-4" /> Compter</button>

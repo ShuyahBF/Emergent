@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "489.1"
-LOT_LIBELLE = "Volumétrie des tables HFSQL : liste des tables beaucoup plus large, durée du cache réduite."
+LOT = "489.2"
+LOT_LIBELLE = "Volumétrie des tables HFSQL : panneau de choix des tables beaucoup plus large (noms lisibles en entier)."

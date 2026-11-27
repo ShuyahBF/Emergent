@@ -263,7 +263,8 @@ app.add_middleware(
 from compression_reponses import CompressionSelective  # noqa: E402
 app.add_middleware(CompressionSelective)
 # Lot 463 — mesure de la durée de chaque appel /api/* (écran « ⏱️ Performance du serveur ») : ajouté en dernier = le plus externe, il mesure toute la pile
-from performance_serveur import MesureAppels  # noqa: E402
+from performance_serveur import MesureAppels, installer_mesure_base  # noqa: E402
+installer_mesure_base()      # lot 472 : compte les requêtes à la base de chaque appel (sans effet si Motor a une forme inattendue)
 app.add_middleware(MesureAppels)
 
 

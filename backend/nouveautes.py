@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "472", "date": "2026-11-27",
+        "titre": "🔎 Appels lents : combien de requêtes à la base par route",
+        "description": "Le tableau « Appels les plus lents » montre maintenant, pour chaque route, le nombre de requêtes à la base et le temps passé dedans (en rouge au-delà de 25 requêtes) : on voit tout de suite quelles routes corriger. Les deux colonnes sont aussi dans l'export JSON et CSV.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "471", "date": "2026-11-26",
         "titre": "🔑 Sonde réseau : envoi par clé, sans dépendre de votre session",
         "description": "La page laissée ouverte toute la nuit continue d'envoyer ses mesures même quand votre session expire : saisissez la clé de la sonde (variable SONDE_RESEAU_CLE de Render). Si l'envoi échoue, les mesures sont gardées et un bandeau rouge le dit.",

@@ -35,6 +35,9 @@ data class UiEtat(
     val corrections: ListeRecus? = null,
     val seulementACorriger: Boolean = true,
     val detail: DetailRecu? = null,
+    val editRegle: Boolean? = null,                   // lot M6 : « Réglé » modifié à l'écran, non enregistré (null = inchangé)
+    val editVise: Boolean? = null,                    // « Visé » modifié à l'écran, non enregistré
+    val confirmerModif: Boolean = false,              // fenêtre de confirmation avant d'écrire dans la base du client
     val recherche: String = "",                       // numéro de reçu tapé (lot M5)
     val resultatsRecherche: List<Recu>? = null,       // plusieurs reçus finissent par ces chiffres : on les propose
     val tableau: TableauJour? = null,                 // tableau de bord du jour
@@ -358,6 +361,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun changerJour(jour: String) = maj { it.copy(jour = jour) }
     fun changerCaissier(c: String) = maj { it.copy(caissierFiltre = c) }
+    // ------------------------------------------------------------------------------------------------------------ lot M6 : le superviseur modifie « Réglé » et « Visé »
+    /** Un toucher sur « Réglé » / « Visé » change la valeur À L'ÉCRAN ; rien n'est écrit tant que le superviseur n'a pas confirmé. Revenir à la valeur d'origine annule le changement. */
+    fun basculerRegle() = maj { e -> val d = e.detail ?: return@maj e; val actuel = e.editRegle ?: d.infos.regle ?: false; val nouveau = !actuel
+        e.copy(editRegle = if (nouveau == d.infos.regle) null else nouveau) }
+    fun basculerVise() = maj { e -> val d = e.detail ?: return@maj e; val actuel = e.editVise ?: d.infos.vise ?: false; val nouveau = !actuel
+        e.copy(editVise = if (nouveau == d.infos.vise) null else nouveau) }
+    fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, confirmerModif = false) }
+    fun demanderConfirmationModif() = maj { if (it.editRegle != null || it.editVise != null) it.copy(confirmerModif = true) else it }
+    fun fermerConfirmationModif() = maj { it.copy(confirmerModif = false) }
+
+    /** Écrit les changements dans la base HFSQL du client (via SAWALI), puis relit : on n'affiche « enregistré » que si le serveur l'a confirmé. */
+    fun enregistrerModifs() {
+        val d = _etat.value.detail ?: return
+        val regle = _etat.value.editRegle; val vise = _etat.value.editVise
+        if (_etat.value.enCours || (regle == null && vise == null)) return
+        viewModelScope.launch {
+            maj { it.copy(confirmerModif = false, enCours = true, message = "Patientez… enregistrement dans la base du client en cours") }
+            try {
+                val corps = JSONObject().put("reference", d.recu.reference)
+                if (regle != null) corps.put("regle", regle)
+                if (vise != null) corps.put("vise", vise)
+                val r = appel { base -> api.appeler(base, "/api/android/caisse/recu/modifier", corps) }
+                val infos = lireInfos(r.optJSONObject("infos"))
+                maj { it.copy(detail = it.detail?.copy(infos = infos), editRegle = null, editVise = null, message = "✔ Enregistré dans la base du client : réglé ${if (infos.regle == true) "oui" else "non"}, visé ${if (infos.vise == true) "oui" else "non"}.") }
+            } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
+        }
+    }
+
     fun changerRecherche(t: String) = maj { it.copy(recherche = t, resultatsRecherche = null) }
 
     /** Lot M5 — retrouve un reçu par son numéro (complet ou fin du numéro). Un seul reçu : il s'ouvre ; plusieurs : liste à choisir ; aucun : message clair. */
@@ -398,7 +429,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             maj { it.copy(enCours = true, selection = reference, message = "Patientez… lecture du reçu $reference") }
             try {
                 val d = lireDetail(appel { base -> api.appeler(base, "/api/android/caisse/recu", JSONObject().put("reference", reference)) })
-                maj { it.copy(detail = d, ecran = Ecran.DETAIL, retourDetail = depuis, message = null) }
+                maj { it.copy(detail = d, ecran = Ecran.DETAIL, retourDetail = depuis, message = null, editRegle = null, editVise = null, confirmerModif = false) }
             } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
         }
     }

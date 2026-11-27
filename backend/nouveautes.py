@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "492", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : le superviseur modifie Réglé et Visé",
+        "description": "Dans le détail d'un reçu ou d'une facture (Loois mobile 1.5.0), le superviseur touche « Réglé » ou « Visé », confirme, et la modification est écrite dans la base HFSQL du client, relue pour confirmation et notée dans le journal (action « modifier_recu »). Les autres utilisateurs ne peuvent que lire.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "491", "date": "2026-11-27",
         "titre": "📱 Loois mobile : factures d'hospitalisation",
         "description": "Dans Loois mobile, on peut taper le numéro d'une facture d'hospitalisation (ex. 0461/2026) comme celui d'un reçu : elle s'ouvre avec caissier, VID, réglé et visé, et reste visible de tout caissier.",

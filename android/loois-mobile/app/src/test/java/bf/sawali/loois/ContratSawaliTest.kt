@@ -56,6 +56,14 @@ class ContratSawaliTest {
         assertEquals("", ancien.infos.vid); assertNull(ancien.infos.regle); assertNull(ancien.infos.vise); assertNull(ancien.infos.montantRegle)
     }
 
+    @Test fun modificationDeRegleEtVisePuisRelecture() {
+        // Lot M6 : la réponse du serveur après l'écriture dans HFSQL est la RELECTURE de la base (jamais la valeur envoyée)
+        val m = charger("modifier")
+        assertEquals("R-0003", m.getString("reference"))
+        val i = lireInfos(m.getJSONObject("infos"))
+        assertEquals("ASI01", i.vid); assertEquals(false, i.regle); assertEquals(true, i.vise)
+    }
+
     @Test fun rechercheDUnRecuParSonNumero() {
         val r = lireRecherche(charger("recherche"))
         assertEquals("R-0003", r.numero); assertEquals(listOf("R-0003"), r.recus.map { it.reference }); assertEquals("TASSEMBH", r.recus[0].caissier)

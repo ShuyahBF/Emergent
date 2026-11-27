@@ -333,16 +333,19 @@ fun LigneListe(r: Recu, selectionnee: Boolean, corrections: Boolean, onClick: ()
 // ================================================================================================================ détail d'un reçu
 /** Réglé / Visé : « Oui » (vert, coche) / « Non » (rouge, croix) / « — » (inconnu) : l'état est TOUJOURS écrit, la couleur ne suffit jamais. */
 @Composable
-fun EtatOuiNon(libelle: String, valeur: Boolean?) {
+fun EtatOuiNon(libelle: String, valeur: Boolean?, onClick: (() -> Unit)? = null, modifie: Boolean = false) {
     val (texte, couleur, icone) = when (valeur) {
         true -> Triple("Oui", Couleurs.Vert, Icons.Filled.CheckCircle)
         false -> Triple("Non", Color(0xFFB91C1C), Icons.Filled.Cancel)
         null -> Triple("—", Couleurs.Gris, Icons.Filled.Info)
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // Modifiable : toute la zone se touche (au moins 48 dp), encadrée d'un filet orange tant que la valeur n'est pas enregistrée
+    val zone = if (onClick == null) Modifier else Modifier.heightIn(min = 48.dp).border(BorderStroke(if (modifie) 2.dp else 1.dp, if (modifie) Couleurs.OrangeFonce else Color(0xFFCBD5E1)), RoundedCornerShape(8.dp)).clickable { onClick() }.padding(horizontal = 10.dp)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = zone) {
         Text("$libelle : ", fontWeight = FontWeight.SemiBold)
         Icon(icone, null, tint = couleur, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
         Text(texte, color = couleur, fontWeight = FontWeight.Bold)
+        if (onClick != null) { Spacer(Modifier.width(6.dp)); Icon(Icons.Filled.Edit, "Modifier $libelle", tint = Couleurs.Gris, modifier = Modifier.size(14.dp)) }
     }
 }
 
@@ -353,6 +356,14 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
         BarreHaut("Reçu ${d?.recu?.reference ?: ""}", { vm.retour() })
         if (d == null) { Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { Text("Patientez…") }; PiedVersion(); return }
         val r = d.recu
+        if (e.confirmerModif) AlertDialog(
+            onDismissRequest = { vm.fermerConfirmationModif() },
+            icon = { Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce) },
+            title = { Text("Écrire dans la base du client ?") },
+            text = { Text("Reçu ${r.reference}\n" + (e.editRegle?.let { "Réglé : ${if (d.infos.regle == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
+                (e.editVise?.let { "Visé : ${if (d.infos.vise == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") + "\nLa modification sera enregistrée dans HFSQL et notée dans le journal.") },
+            confirmButton = { Button(onClick = { vm.enregistrerModifs() }) { Icon(Icons.Filled.Save, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Confirmer l'enregistrement") } },
+            dismissButton = { OutlinedButton(onClick = { vm.fermerConfirmationModif() }) { Icon(Icons.Filled.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Annuler") } })
         LazyColumn(Modifier.weight(1f)) {
             item {
                 Column(Modifier.padding(12.dp)) {
@@ -361,9 +372,21 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
                     Spacer(Modifier.height(6.dp))
                     // Lot M5 — caissier, VID (vendeur), réglé et visé : écrits en toutes lettres (jamais la couleur seule)
                     Text("Caissier : ${r.caissier.ifBlank { "—" }}  ·  VID : ${d.infos.vid.ifBlank { "—" }}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    // Lot M6 : le SUPERVISEUR touche « Réglé » / « Visé » pour changer la valeur, puis « Enregistrer » (avec confirmation) ; les autres utilisateurs ne font que lire
+                    val peutModifier = e.droits?.administrateur == true && e.droits?.consultationSeule == false
+                    val regleAffiche = e.editRegle ?: d.infos.regle
+                    val viseAffiche = e.editVise ?: d.infos.vise
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 4.dp)) {
-                        EtatOuiNon("Réglé", d.infos.regle)
-                        EtatOuiNon("Visé", d.infos.vise)
+                        EtatOuiNon("Réglé", regleAffiche, if (peutModifier) ({ vm.basculerRegle() }) else null, e.editRegle != null)
+                        EtatOuiNon("Visé", viseAffiche, if (peutModifier) ({ vm.basculerVise() }) else null, e.editVise != null)
+                    }
+                    if (peutModifier) {
+                        val modifie = e.editRegle != null || e.editVise != null
+                        Text(if (modifie) "✏ Modifié, non enregistré" else "Touchez « Réglé » ou « Visé » pour le changer (superviseur).", color = if (modifie) Couleurs.OrangeFonce else Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        if (modifie) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                            BoutonAction("Enregistrer", Icons.Filled.Save, !e.enCours) { vm.demanderConfirmationModif() }
+                            BoutonAction("Annuler", Icons.Filled.Close, !e.enCours, plein = false) { vm.annulerModifs() }
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                     Row { Text("Montant : ", fontWeight = FontWeight.SemiBold); Text(formaterMontant(r.montant), color = Couleurs.Vert, fontWeight = FontWeight.Bold) }

@@ -208,6 +208,19 @@ def sql_recherche_recu(chiffres: str) -> str:
             f"ORDER BY [Date Vente] DESC, Référence DESC")
 
 
+def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool]) -> str:
+    """Lot 492 — UNIQUEMENT les deux cases « Réglé » et « Visée » d'UN reçu (WHERE sur sa référence exacte, contrôlée) ; jamais un montant ni une autre colonne.
+    Au moins une des deux valeurs doit être donnée (sinon ValueError) ; les booléens HFSQL s'écrivent 1 / 0."""
+    morceaux = []
+    if regle is not None:
+        morceaux.append(f"[Réglé] = {1 if regle else 0}")
+    if vise is not None:
+        morceaux.append(f"[Visée] = {1 if vise else 0}")
+    if not morceaux:
+        raise ValueError("aucune modification")
+    return f"UPDATE VenteClinique SET {', '.join(morceaux)} WHERE Référence = '{echapper(reference)}'"
+
+
 def sql_lignes_recu(reference: str) -> str:
     return f"SELECT [Code Produit], Realisé_par, Domaine, [Qte Livrée], [Prix Cession] FROM A_Acheté WHERE Référence = '{echapper(reference)}'"
 

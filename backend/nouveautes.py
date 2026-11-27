@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "477", "date": "2026-11-27",
+        "titre": "🧮 Routes lourdes allégées : traductions, sauvegarde complète, activité des plateformes",
+        "description": "Les traductions se lisent en une requête au lieu de ~190, l'état de la sauvegarde complète utilise les compteurs de métadonnées (6 s en moins pour 289 collections) et les comptages des plateformes ne saturent plus la base (moins de pics de 1,5 s sur les routes légères).",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "476", "date": "2026-11-27",
         "titre": "🔥 Préchauffage au démarrage : fin du gel de 3 à 4 secondes",
         "description": "Après un redémarrage, les modules lourds de l'agenda de Liluvine se chargent dans un fil à part : le serveur continue de répondre. La ligne « Réactivité du serveur » le confirme.",

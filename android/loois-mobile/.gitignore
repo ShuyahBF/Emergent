@@ -7,3 +7,4 @@ app/build/
 *.keystore
 *.jks
 *.p12
+.kotlin/

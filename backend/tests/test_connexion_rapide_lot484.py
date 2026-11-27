@@ -58,7 +58,7 @@ def test_assetlinks_public():
     app = FastAPI()
     rcr.attacher_assetlinks(app)
     r = TestClient(app).get("/.well-known/assetlinks.json")
-    assert r.status_code == 200 and r.json()[0]["relation"] == ["delegate_permission/common.get_login_creds"]
+    assert r.status_code == 200 and "delegate_permission/common.get_login_creds" in r.json()[0]["relation"]
 
 
 # ------------------------------------------------------------------------------------------------------------------ biométrie
@@ -223,3 +223,11 @@ def test_administrateur_liste_et_revoque(banc):
     assert c.get("/api/admin/android-rapide", headers=entetes(b)).json()["liaisons"] == []
     b["admin"]["user"] = {"id": "u2", "role": "client"}
     assert c.get("/api/admin/android-rapide", headers=entetes(b)).status_code == 403
+
+
+def test_domaine_des_cles_d_acces_et_fichier_statique_coherents():
+    """Lot 489 : le domaine par défaut est le domaine principal ; le fichier statique du site porte la MÊME déclaration que le serveur d'API."""
+    import json
+    assert rcr.RP_PAR_DEFAUT == "sawalismartsystems.com"
+    statique = json.loads((Path(__file__).resolve().parents[2] / "frontend" / "public" / ".well-known" / "assetlinks.json").read_text(encoding="utf-8"))
+    assert statique == cr.assetlinks(cr.empreintes_apk(""))

@@ -97,7 +97,7 @@ def origine_android(empreinte_hex: str) -> str:
 
 def assetlinks(empreintes: List[str]) -> List[Dict[str, Any]]:
     """Contenu de /.well-known/assetlinks.json : autorise l'application à utiliser les clés d'accès du domaine de SAWALI."""
-    return [{"relation": ["delegate_permission/common.get_login_creds"], "target": {"namespace": "android_app", "package_name": PACKAGE_ANDROID, "sha256_cert_fingerprints": empreintes}}]
+    return [{"relation": ["delegate_permission/common.get_login_creds", "delegate_permission/common.handle_all_urls"], "target": {"namespace": "android_app", "package_name": PACKAGE_ANDROID, "sha256_cert_fingerprints": empreintes}}]
 
 
 # ---------------------------------------------------------------------------------------------------------------------------- liaisons

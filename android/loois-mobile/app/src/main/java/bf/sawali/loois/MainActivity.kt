@@ -1,12 +1,13 @@
 package bf.sawali.loois
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.fragment.app.FragmentActivity
 
-/** Point d'entrée : une seule activité, l'interface (Jetpack Compose) change d'écran selon l'état du ViewModel. */
-class MainActivity : ComponentActivity() {
+/** Point d'entrée : une seule activité, l'interface (Jetpack Compose) change d'écran selon l'état du ViewModel.
+ *  FragmentActivity (et non ComponentActivity) : requis par BiometricPrompt (connexion par empreinte / visage). */
+class MainActivity : FragmentActivity() {
     private val vm: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {

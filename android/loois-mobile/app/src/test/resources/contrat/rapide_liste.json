@@ -1,0 +1,22 @@
+{
+ "liaisons": [
+  {
+   "id": "9bbafe45e53a201a",
+   "methode": "google",
+   "zone": "docx=CMC",
+   "login": "TASSEMBH",
+   "cree_le": "2026-11-27T03:11:42.805320+00:00",
+   "dernier_usage": null,
+   "detail": "a***@gmail.com"
+  },
+  {
+   "id": "ba3bd1ec98c53b48",
+   "methode": "biometrie",
+   "zone": "docx=CMC",
+   "login": "TASSEMBH",
+   "cree_le": "2026-11-27T03:11:42.801088+00:00",
+   "dernier_usage": null,
+   "detail": ""
+  }
+ ]
+}

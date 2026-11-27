@@ -2,7 +2,11 @@
 
 package bf.sawali.loois
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,7 +51,7 @@ fun Racine(vm: AppViewModel) {
     val e by vm.etat.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(e.message) { e.message?.let { snack.showSnackbar(it); vm.messageAffiche() } }
-    BackHandler(enabled = e.ecran in setOf(Ecran.HISTORIQUE, Ecran.DETAIL, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.PARAMETRES)) { vm.retour() }
+    BackHandler(enabled = e.ecran in setOf(Ecran.HISTORIQUE, Ecran.DETAIL, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.RAPIDE, Ecran.PARAMETRES)) { vm.retour() }
     Scaffold(snackbarHost = { SnackbarHost(snack) }, containerColor = Couleurs.Fond) { marge ->
         Box(Modifier.padding(marge).fillMaxSize()) {
             when (e.ecran) {
@@ -58,6 +62,7 @@ fun Racine(vm: AppViewModel) {
                 Ecran.HISTORIQUE -> EcranListe(e, vm, corrections = false)
                 Ecran.CORRECTIONS -> EcranListe(e, vm, corrections = true)
                 Ecran.TABLEAU -> EcranTableau(e, vm)
+                Ecran.RAPIDE -> EcranRapide(e, vm)
                 Ecran.DETAIL -> EcranDetail(e, vm)
                 Ecran.PARAMETRES -> EcranParametres(e, vm)
             }
@@ -140,8 +145,12 @@ fun EcranAttente(e: UiEtat, vm: AppViewModel) {
 // ================================================================================================================ connexion
 @Composable
 fun EcranConnexion(e: UiEtat, vm: AppViewModel) {
-    var login by remember { mutableStateOf("") }
+    // Identifiant mémorisé pour la zone de l'appareil (jamais le mot de passe) ; la zone change => on retrouve l'identifiant de la nouvelle zone
+    var login by remember(e.profil.login, e.statut?.zone) { mutableStateOf(e.profil.login) }
     var mdp by remember { mutableStateOf("") }
+    var memoriser by remember { mutableStateOf(true) }
+    val activite = LocalContext.current.activiteFragment()
+    val rapides = (listOf(e.profil.preferee) + METHODES_RAPIDES).distinct().filter { it in e.profil.methodes }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Card(colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(4.dp), modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp)) {
             Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -161,7 +170,20 @@ fun EcranConnexion(e: UiEtat, vm: AppViewModel) {
                 Spacer(Modifier.height(8.dp))
                 ChampMotDePasse(mdp, { mdp = it }, "Mot de passe", Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
-                BoutonAction("Se Connecter", Icons.AutoMirrored.Filled.Login, !e.enCours) { vm.connecter(login, mdp) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Checkbox(memoriser, { memoriser = it }); Text("Mémoriser l'identifiant pour cette zone", fontSize = 13.sp)
+                }
+                BoutonAction("Se Connecter", Icons.AutoMirrored.Filled.Login, !e.enCours) { vm.connecter(login, mdp, memoriser) }
+                // Connexion rapide : seulement les méthodes activées pour cette zone (méthode préférée en premier) ; Internet requis, le mot de passe reste le secours
+                if (rapides.isNotEmpty() && e.profil.login.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Connexion rapide — ${e.profil.login}", color = Couleurs.Gris, fontSize = 12.sp)
+                    rapides.forEach { m ->
+                        OutlinedButton(onClick = { if (activite != null) vm.connecterRapide(m, activite) }, enabled = !e.enCours && activite != null, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            Icon(iconeMethode(m), null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(libelleMethode(m))
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Row { TextButton(onClick = { vm.verifierServeur(); vm.rafraichirStatut() }) { Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Actualiser") }
                     TextButton(onClick = { vm.aller(Ecran.PARAMETRES) }) { Icon(Icons.Filled.Settings, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Paramètres") } }
@@ -183,6 +205,7 @@ fun EcranMenu(e: UiEtat, vm: AppViewModel) {
                     Text("${e.utilisateur?.espace ?: ""} · base ${e.statut?.base ?: ""}${if (e.droits?.administrateur == true) " · administrateur" else if (e.droits?.laboratoire == true) " · laboratoire (consultation)" else ""}", color = Couleurs.Gris, fontSize = 12.sp) }
             }
             PastilleServeur(e.serveur, e.modeAffiche)
+            TuileMenu("Connexion Rapide", "Empreinte / visage, compte Google, clé d'accès", Icons.Filled.Fingerprint, Couleurs.OrangeFonce) { vm.aller(Ecran.RAPIDE); vm.chargerRapide() }
             if (e.droits?.tableauDeBord == true) {
                 TuileMenu("Tableau de Bord", "Reçus et montants du jour, par caissier, 7 derniers jours", Icons.Filled.Dashboard, Couleurs.Vert) { vm.aller(Ecran.TABLEAU); if (e.tableau == null) vm.chargerTableau() }
             }
@@ -375,6 +398,14 @@ fun EcranParametres(e: UiEtat, vm: AppViewModel) {
                 BoutonAction("Tester Le Serveur", Icons.Filled.Refresh, plein = false) { vm.verifierServeur() }
             }
             PastilleServeur(e.serveur, e.modeAffiche)
+            // Mémorisation par zone (lot M4) : ce que le téléphone retient pour la zone de l'appareil
+            val zoneTxt = e.statut?.zone ?: ""
+            if (zoneTxt.isNotBlank()) {
+                Text("Mémorisé pour la zone /$zoneTxt", fontWeight = FontWeight.SemiBold)
+                Text(if (e.profil.login.isBlank() && e.profil.methodes.isEmpty()) "Rien pour l'instant : l'identifiant est mémorisé à la prochaine connexion (case « Mémoriser l'identifiant »)."
+                    else "Identifiant : ${e.profil.login.ifBlank { "—" }} · connexion rapide : ${if (e.profil.methodes.isEmpty()) "aucune" else e.profil.methodes.joinToString(", ") { libelleMethode(it) }}. Le mot de passe n'est jamais enregistré.", color = Couleurs.Gris, fontSize = 12.sp)
+                if (e.profil != ProfilZone()) BoutonAction("Oublier Cette Zone", Icons.Filled.DeleteSweep, plein = false) { vm.oublierProfil() }
+            }
             if (e.appareilId.isNotBlank()) Text("Identifiant de l'appareil : ${e.appareilId}", color = Couleurs.BleuCiel, fontSize = 12.sp)
         }
         PiedVersion()
@@ -456,6 +487,57 @@ fun EcranTableau(e: UiEtat, vm: AppViewModel) {
         Column(Modifier.fillMaxWidth().background(Color(0xFFE0F2FE)).padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row { Text("${t.parCaissier.size} caissier(s) · ${t.nombre} reçu(s)", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(formaterMontant(t.total), fontWeight = FontWeight.Bold, color = Couleurs.Vert, textAlign = TextAlign.End) }
             e.semaine?.let { w -> Row { Text("7 jours · ${w.nombre} reçu(s)", color = Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.weight(1f)); Text(formaterMontant(w.total), color = Couleurs.Vert, fontSize = 12.sp, textAlign = TextAlign.End) } }
+        }
+        PiedVersion()
+    }
+}
+
+// ================================================================================================================ connexion rapide
+/** Retrouve la FragmentActivity (exigée par BiometricPrompt) derrière le contexte de l'interface ; nul dans les tests sans activité adaptée. */
+fun Context.activiteFragment(): FragmentActivity? { var c: Context? = this; while (c is ContextWrapper) { if (c is FragmentActivity) return c; c = c.baseContext }; return null }
+
+fun iconeMethode(m: String) = when (m) { "biometrie" -> Icons.Filled.Fingerprint; "google" -> Icons.Filled.AccountCircle; else -> Icons.Filled.VpnKey }
+
+/** Une méthode : état (activée / non), bouton Activer ou Retirer. `indisponible` explique pourquoi elle ne peut pas être activée. */
+@Composable
+fun CarteMethode(methode: String, titre: String, aide: String, liaisons: List<LiaisonRapide>, indisponible: String?, enCours: Boolean, activer: () -> Unit, retirer: (LiaisonRapide) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFE2E8F0)), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(iconeMethode(methode), null, tint = Couleurs.BleuCiel); Spacer(Modifier.width(8.dp))
+                Text(titre, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(if (liaisons.isEmpty()) "Non activée" else "Activée", color = if (liaisons.isEmpty()) Couleurs.Gris else Couleurs.Vert, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            }
+            Text(aide, color = Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            liaisons.forEach { l ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                    Text(listOf(l.detail, "depuis le ${l.creeLe.take(10)}").filter { it.isNotBlank() }.joinToString(" · "), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { retirer(l) }, enabled = !enCours) { Icon(Icons.Filled.Delete, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Retirer") }
+                }
+            }
+            if (indisponible != null) Text(indisponible, color = Couleurs.OrangeFonce, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            else Spacer(Modifier.height(6.dp))
+            if (indisponible == null) BoutonAction(if (liaisons.isEmpty()) "Activer" else "Réactiver", Icons.Filled.Check, !enCours, plein = liaisons.isEmpty()) { activer() }
+        }
+    }
+}
+
+@Composable
+fun EcranRapide(e: UiEtat, vm: AppViewModel) {
+    val activite = LocalContext.current.activiteFragment()
+    fun de(m: String) = e.rapide.filter { it.methode == m }
+    Column(Modifier.fillMaxSize()) {
+        BarreHaut("Connexion Rapide", { vm.retour() }) { IconButton(onClick = { vm.chargerRapide() }, enabled = !e.enCours) { Icon(Icons.Filled.Refresh, "Actualiser", tint = Color.White) } }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Connectez-vous sans retaper votre mot de passe. Il n'est jamais enregistré : chaque méthode est liée à ce téléphone, à la zone /${e.statut?.zone ?: ""} et à l'identifiant ${e.utilisateur?.login ?: ""}, et SAWALI revérifie l'identifiant chez le client à chaque connexion. Elles demandent Internet ; le mot de passe reste le secours.", color = Couleurs.Gris, fontSize = 13.sp)
+            val act = activite
+            CarteMethode("biometrie", "Empreinte / visage", "L'empreinte ou le visage enregistré sur le téléphone déverrouille un secret gardé dans le coffre Android.", de("biometrie"), if (act == null) "Indisponible dans ce contexte." else null, e.enCours,
+                { act?.let { vm.activerBiometrie(it) } }, { vm.retirerRapide(it) })
+            CarteMethode("google", "Compte Google", "Liez votre compte Google : il remplace le mot de passe, jamais le contrôle de l'identifiant chez le client.", de("google"),
+                if (e.configRapide?.google == false) "Pas encore configuré sur SAWALI (l'administrateur doit saisir le client Google)." else if (act == null) "Indisponible dans ce contexte." else null, e.enCours,
+                { act?.let { vm.activerGoogle(it) } }, { vm.retirerRapide(it) })
+            CarteMethode("cle", "Clé d'accès", "Une clé d'accès (passkey) créée sur ce téléphone, protégée par son empreinte ou son code d'écran.", de("cle"), if (act == null) "Indisponible dans ce contexte." else null, e.enCours,
+                { act?.let { vm.activerCle(it) } }, { vm.retirerRapide(it) })
         }
         PiedVersion()
     }

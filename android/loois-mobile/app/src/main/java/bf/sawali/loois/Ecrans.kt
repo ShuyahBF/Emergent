@@ -531,7 +531,7 @@ fun EcranRapide(e: UiEtat, vm: AppViewModel) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Connectez-vous sans retaper votre mot de passe. Il n'est jamais enregistré : chaque méthode est liée à ce téléphone, à la zone /${e.statut?.zone ?: ""} et à l'identifiant ${e.utilisateur?.login ?: ""}, et SAWALI revérifie l'identifiant chez le client à chaque connexion. Elles demandent Internet ; le mot de passe reste le secours.", color = Couleurs.Gris, fontSize = 13.sp)
             val act = activite
-            CarteMethode("biometrie", "Empreinte / visage", "L'empreinte ou le visage enregistré sur le téléphone déverrouille un secret gardé dans le coffre Android.", de("biometrie"), if (act == null) "Indisponible dans ce contexte." else null, e.enCours,
+            CarteMethode("biometrie", "Empreinte / visage", "L'empreinte, le visage ou, à défaut, le code du téléphone déverrouille un secret gardé dans le coffre Android.", de("biometrie"), if (act == null) "Indisponible dans ce contexte." else null, e.enCours,
                 { act?.let { vm.activerBiometrie(it) } }, { vm.retirerRapide(it) })
             CarteMethode("google", "Compte Google", "Liez votre compte Google : il remplace le mot de passe, jamais le contrôle de l'identifiant chez le client.", de("google"),
                 if (e.configRapide?.google == false) "Pas encore configuré sur SAWALI (l'administrateur doit saisir le client Google)." else if (act == null) "Indisponible dans ce contexte." else null, e.enCours,

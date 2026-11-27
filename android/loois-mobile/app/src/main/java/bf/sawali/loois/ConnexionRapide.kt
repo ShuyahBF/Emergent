@@ -42,8 +42,12 @@ class ErreurRapide(message: String) : Exception(message)
  * authentification biométrique (usage unique par opération, clé invalidée si les empreintes du téléphone changent). Le mot de passe n'est jamais gardé.
  */
 object Biometrie {
-    fun disponible(activite: Activity): Boolean =
-        BiometricManager.from(activite).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+    /** Authentifications acceptées : empreinte / visage fort OU code du téléphone (Android 11 et plus : le code sert de secours quand l'empreinte échoue) ; avant Android 11, empreinte seule. */
+    private val AUTHENTIFICATEURS = if (Build.VERSION.SDK_INT >= 30) BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL else BiometricManager.Authenticators.BIOMETRIC_STRONG
+    /** Marque des secrets créés avec la clé « empreinte OU code » : les anciens (empreinte seule) doivent être réactivés. */
+    private const val MARQUE = "v2:"
+
+    fun disponible(activite: Activity): Boolean = BiometricManager.from(activite).canAuthenticate(AUTHENTIFICATEURS) == BiometricManager.BIOMETRIC_SUCCESS
 
     private fun alias(zone: String, login: String): String =
         "loois_bio_" + MessageDigest.getInstance("SHA-256").digest("$zone|${login.uppercase()}".toByteArray()).take(8).joinToString("") { "%02x".format(it) }
@@ -57,7 +61,7 @@ object Biometrie {
         val b = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256)
             .setUserAuthenticationRequired(true).setInvalidatedByBiometricEnrollment(true)
-        if (Build.VERSION.SDK_INT >= 30) b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG) else @Suppress("DEPRECATION") b.setUserAuthenticationValidityDurationSeconds(-1)
+        if (Build.VERSION.SDK_INT >= 30) b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL) else @Suppress("DEPRECATION") b.setUserAuthenticationValidityDurationSeconds(-1)
         g.init(b.build())
         return g.generateKey()
     }
@@ -79,8 +83,9 @@ object Biometrie {
                 if (suite.isActive) suite.resumeWithException(ErreurRapide("$texte [$code]"))
             }
         }
-        val info = BiometricPrompt.PromptInfo.Builder().setTitle(titre).setSubtitle(sousTitre).setNegativeButtonText("Utiliser le mot de passe")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).build()
+        val constructeur = BiometricPrompt.PromptInfo.Builder().setTitle(titre).setSubtitle(sousTitre).setAllowedAuthenticators(AUTHENTIFICATEURS)
+        if (Build.VERSION.SDK_INT < 30) constructeur.setNegativeButtonText("Annuler")       // avec le code du téléphone accepté, Android affiche lui-même « Utiliser le code »
+        val info = constructeur.build()
         BiometricPrompt(activite, ContextCompat.getMainExecutor(activite), rappel).authenticate(info, BiometricPrompt.CryptoObject(chiffre))
     }
 
@@ -88,12 +93,14 @@ object Biometrie {
     suspend fun chiffrer(activite: FragmentActivity, zone: String, login: String, secret: String): String {
         val cle = creerCle(alias(zone, login))
         val c = authentifier(activite, "Activer la connexion biométrique", "Zone /$zone · $login", Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, cle) })
-        return Base64.encodeToString(c.iv + c.doFinal(secret.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        return MARQUE + Base64.encodeToString(c.iv + c.doFinal(secret.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
     }
 
     /** CONNEXION : demande l'empreinte / le visage puis rend le secret. */
     suspend fun dechiffrer(activite: FragmentActivity, zone: String, login: String, stocke: String): String {
-        val brut = Base64.decode(stocke, Base64.NO_WRAP)
+        // Un secret créé par une version précédente (empreinte seule, sans la marque) ne s'ouvre pas avec le code du téléphone : il faut le réactiver
+        if (Build.VERSION.SDK_INT >= 30 && !stocke.startsWith(MARQUE)) throw ErreurRapide("Mise à jour de la sécurité : touchez « Connexion Rapide » puis « Réactiver » pour l'empreinte (une seule fois). Connectez-vous d'abord par mot de passe.")
+        val brut = Base64.decode(stocke.removePrefix(MARQUE), Base64.NO_WRAP)
         val cle = try { ks().getKey(alias(zone, login), null) as? SecretKey } catch (_: Exception) { null } ?: throw ErreurRapide("Clé biométrique introuvable : connectez-vous par mot de passe puis réactivez-la.")
         val chiffre = try { Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, cle, GCMParameterSpec(128, brut.copyOfRange(0, 12))) } }
         catch (e: KeyPermanentlyInvalidatedException) { oublier(zone, login); throw ErreurRapide("Les empreintes du téléphone ont changé : connectez-vous par mot de passe puis réactivez la connexion biométrique.") }

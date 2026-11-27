@@ -1683,3 +1683,6 @@ _attach_formulaire_automates(
         "fonction_active_pour_compte": _fonction_active_pour_compte,
     },
 )
+# Lot 484 — fichier public /.well-known/assetlinks.json (clés d'accès de « Loois mobile » : Digital Asset Links)
+from routes.connexion_rapide import attacher_assetlinks as _attacher_assetlinks  # noqa: E402
+_attacher_assetlinks(app)

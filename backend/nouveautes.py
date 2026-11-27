@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "484", "date": "2026-11-27",
+        "titre": "🔐 Loois mobile : connexion rapide (biométrie, compte Google, clé d'accès)",
+        "description": "Loois Mobile 1.3 mémorise la zone et l'identifiant, et propose la connexion par empreinte / visage, par compte Google ou par clé d'accès. Le mot de passe n'est jamais gardé ; l'administrateur voit et révoque chaque liaison.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "483", "date": "2026-11-27",
         "titre": "📱 Loois mobile : tableau de bord de suivi et profil « client »",
         "description": "Nouveau choix « Profil de l'appareil » (Agent ou Client) : le téléphone d'un responsable d'établissement ouvre un tableau de bord (reçus et montants du jour, par caissier, 7 derniers jours). L'administrateur de Loois y a aussi accès ; le laboratoire jamais.",

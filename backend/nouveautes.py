@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "495", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : plus de recalcul automatique des parts",
+        "description": "Décision du propriétaire : les parts ne sont plus jamais recalculées pour le moment. Dans Loois mobile 1.7.1, le superviseur saisit lui-même la part assuré ET la part assureur ; leur somme doit faire le montant total (contrôle dans l'application et sur le serveur).",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "494", "date": "2026-11-27",
         "titre": "📱 Loois mobile : date de vente modifiable",
         "description": "Dans le détail d'un reçu ou d'une facture (Loois mobile 1.7.0), le superviseur change la date de vente avec un calendrier qui interdit les jours après aujourd'hui ; l'heure de la vente est conservée. Contrôle refait par le serveur, écriture dans HFSQL relue et journalisée.",

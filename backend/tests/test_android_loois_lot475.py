@@ -451,41 +451,44 @@ def test_modification_non_confirmee_par_la_base_est_signalee(banc):
 
 
 # ------------------------------------------------------------------------------------------------------------------ lot 493 : montant, PPC, parts assuré / assureur (la contrepartie est déduite)
-def test_parts_deduites_du_total():
-    assert al.parts_deduites(40000, None, 25000) == (15000, 25000)               # part assureur donnée : l'assuré paie le reste
-    assert al.parts_deduites(40000, 8000, None) == (8000, 32000)                 # part assuré donnée : l'assureur prend le reste
+def test_parts_jamais_recalculees_les_deux_sont_exigees():
     assert al.parts_deduites(40000, 10000, 30000) == (10000, 30000)
-    for mauvais in ((40000, 10000, 20000), (40000, -1, None), (40000, None, 40001), (40000, float("nan"), None)):
+    for mauvais in ((40000, None, 25000), (40000, 8000, None), (40000, 10000, 20000), (40000, -1, 40001), (40000, 50000, -10000), (40000, float("nan"), 0.0)):
         with pytest.raises(ValueError):
-            al.parts_deduites(*mauvais)
+            al.parts_deduites(*mauvais)                                              # une seule part, somme fausse, hors bornes : refusé, rien n'est déduit
     with pytest.raises(ValueError):
-        al.parts_deduites(None, 100, None)                                         # total inconnu : jamais de répartition devinée
+        al.parts_deduites(None, 100, 0)                                              # total inconnu : jamais de contrôle deviné
     assert al.sql_modifier_recu("0461/2026", None, None, 10000, 30000) == "UPDATE VenteClinique SET [PArtAssuré] = 10000.00, [PArtAssureur] = 30000.00 WHERE Référence = '0461/2026'"
     with pytest.raises(ValueError):
         al.sql_modifier_recu("R-1", None, None, 10000, None)                       # jamais une seule part écrite seule
 
 
-def test_le_superviseur_change_une_part_la_contrepartie_est_deduite_et_ecrite_ensemble(banc):
+def test_le_superviseur_donne_les_deux_parts_rien_n_est_deduit(banc):
     c, b = banc
     s = session_superviseur(c, b)
     h = entetes(b, s)
     d = c.post("/api/android/caisse/recu", json={"reference": "0461/2026"}, headers=h).json()
     assert d["recu"]["ppc"] == 80 and d["recu"]["part_assure"] == 8000 and d["recu"]["part_assureur"] == 32000 and d["infos"]["montant_total"] == 40000
-    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assureur": 25000}, headers=h)
+    n = len([1 for sql, _ in b["envoyees"] if sql.startswith("UPDATE")])
+    # UNE seule part : refusé (aucune déduction automatique), rien n'est écrit
+    for corps in ({"part_assureur": 25000}, {"part_assure": 4000}):
+        r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", **corps}, headers=h)
+        assert r.status_code == 422 and "aucune part n'est recalculée" in r.json()["detail"]
+    # somme fausse, hors bornes, inchangé : refusé
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 1000, "part_assureur": 1000}, headers=h).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 50000, "part_assureur": -10000}, headers=h).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 8000, "part_assureur": 32000}, headers=h).status_code == 422       # déjà enregistré
+    assert len([1 for sql, _ in b["envoyees"] if sql.startswith("UPDATE")]) == n
+    # les DEUX parts, dont la somme fait le total : écrites ensemble, relues, journalisées
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 15000, "part_assureur": 25000}, headers=h)
     assert r.status_code == 200, r.text
-    assert r.json()["recu"]["part_assure"] == 15000 and r.json()["recu"]["part_assureur"] == 25000                     # 40 000 − 25 000 = 15 000
-    maj = [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1]
-    assert maj == "UPDATE VenteClinique SET [PArtAssuré] = 15000.00, [PArtAssureur] = 25000.00 WHERE Référence = '0461/2026'"      # les DEUX parts, jamais le total
+    assert r.json()["recu"]["part_assure"] == 15000 and r.json()["recu"]["part_assureur"] == 25000
+    assert [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1] == "UPDATE VenteClinique SET [PArtAssuré] = 15000.00, [PArtAssureur] = 25000.00 WHERE Référence = '0461/2026'"
     journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
     assert "assuré 8000→15000 assureur 32000→25000 (total 40000)" in [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]["detail"]
-    # part assuré donnée : l'assureur prend le reste ; refus si incohérent, hors bornes ou inchangé
-    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 4000}, headers=h).json()["recu"]["part_assureur"] == 36000
-    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 1000, "part_assureur": 1000}, headers=h).status_code == 422
-    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 50000}, headers=h).status_code == 422
-    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 4000}, headers=h).status_code == 422       # déjà enregistré
-    # parts et « Réglé » ensemble dans UNE seule écriture
-    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "regle": True, "part_assureur": 30000}, headers=h)
-    assert r.status_code == 200 and r.json()["infos"]["regle"] is True and r.json()["recu"]["part_assure"] == 10000
+    # avec « Réglé » : une seule écriture
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "regle": True, "part_assure": 10000, "part_assureur": 30000}, headers=h)
+    assert r.status_code == 200 and r.json()["infos"]["regle"] is True
     assert [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1] == "UPDATE VenteClinique SET [Réglé] = 1, [PArtAssuré] = 10000.00, [PArtAssureur] = 30000.00 WHERE Référence = '0461/2026'"
 
 

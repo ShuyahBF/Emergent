@@ -431,8 +431,13 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
                                 Column(Modifier.weight(1f)) { Text("Part assureur", fontSize = 11.sp, color = Couleurs.Gris); Text(formaterMontant(r.partAssureur), fontWeight = FontWeight.Bold) }
                             }
                         }
-                        if (peutModifier) Text(if (partsModifiees) "✏ L'autre part est calculée : assuré + assureur = ${formaterMontant(total)}" else "Changez une part : l'autre est calculée (assuré + assureur = montant total).",
-                            fontSize = 11.sp, color = if (partsModifiees) Couleurs.OrangeFonce else Couleurs.Gris)
+                        // Aucun recalcul automatique : on montre seulement si la somme des deux parts fait le montant total
+                        if (peutModifier) {
+                            val somme = (lireNombreSaisi(e.editPartAssure ?: formaterNombreSaisi(r.partAssure)) ?: 0.0) + (lireNombreSaisi(e.editPartAssureur ?: formaterNombreSaisi(r.partAssureur)) ?: 0.0)
+                            val juste = Math.abs(somme - total) <= 0.01
+                            Text(if (juste) "Assuré + assureur = ${formaterMontant(somme)} (montant total)" else "⚠ Assuré + assureur = ${formaterMontant(somme)} ≠ montant total ${formaterMontant(total)} : corrigez les deux parts.",
+                                fontSize = 11.sp, color = if (juste) Couleurs.Gris else Color(0xFFB91C1C), fontWeight = if (juste) FontWeight.Normal else FontWeight.SemiBold)
+                        }
                     }
                     if (d.aCorriger) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce); Spacer(Modifier.width(6.dp))

@@ -26,6 +26,7 @@ ESSAIS_MAX = 5                        # mots de passe faux autorisés…
 ESSAIS_FENETRE_S = 900                # … par appareil ET identifiant sur 15 minutes
 _RE_LOGIN = re.compile(r"^[\w .@'-]{1,40}$", re.UNICODE)
 _RE_REFERENCE = re.compile(r"^R-[A-Za-z0-9_.-]{1,40}$")
+_RE_FACTURE = re.compile(r"^[0-9]{1,6}/[0-9]{4}$")                 # facture d'hospitalisation (Caisse « FCT ») : numéro séquentiel / année, ex. « 0461/2026 »
 _RE_JOUR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Espaces de travail connus : table des utilisateurs et colonnes (Loois : LecteurUtilisateurs.cs)
@@ -57,7 +58,13 @@ def login_valide(login: str) -> bool:
 
 
 def reference_valide(reference: str) -> bool:
-    return bool(_RE_REFERENCE.match(reference or ""))
+    """Référence d'un reçu de caisse (« R-… ») OU d'une facture d'hospitalisation (« 0461/2026 »)."""
+    return bool(_RE_REFERENCE.match(reference or "") or _RE_FACTURE.match(reference or ""))
+
+
+def est_facture_hospi(reference: str) -> bool:
+    """Facture d'hospitalisation : visible de tout caissier (le patient reçoit sa facture puis passe à la caisse — décision du propriétaire)."""
+    return bool(_RE_FACTURE.match(reference or ""))
 
 
 def jour_valide(jour: str) -> Optional[date]:
@@ -178,11 +185,21 @@ def numero_recherche(saisie: str) -> Optional[Dict[str, str]]:
     """Ce que l'utilisateur tape pour retrouver un reçu : « R-202630889 », « 202630889 » ou seulement la fin « 30889 » (3 chiffres au moins).
     Rend la référence EXACTE possible (« R-… ») et les chiffres pour une recherche par fin de numéro ; None si la saisie n'est pas un numéro de reçu."""
     t = re.sub(r"\s+", "", (saisie or "")).upper()
+    f = _RE_FACTURE.match(t)
+    if f:                                                                   # facture d'hospitalisation : « 0461/2026 » (ou « 461/2026 », complétée à 4 chiffres)
+        numero, annee = t.split("/")
+        return {"chiffres": "", "reference": f"{numero.zfill(4)}/{annee}", "facture": "1", "sans_zero": f"{int(numero)}/{annee}"}
     m = _RE_NUMERO.match(t)
     if not m:
         return None
     chiffres = m.group(1)
     return {"chiffres": chiffres, "reference": PREFIXE_RECU + chiffres}
+
+
+def sql_recherche_facture(reference: str, sans_zero: str) -> str:
+    """Facture d'hospitalisation par son numéro EXACT (« 0461/2026 », ou la même sans zéros de tête) ; deux valeurs contrôlées par `numero_recherche` (chiffres et « / » seulement)."""
+    return (f"SELECT TOP {MAX_RESULTATS_RECHERCHE} {COLONNES_RECU} FROM VenteClinique WHERE Référence IN ('{echapper(reference)}', '{echapper(sans_zero)}') "
+            f"AND (Mag <> 'SUP' OR Mag IS NULL) ORDER BY [Date Vente] DESC")
 
 
 def sql_recherche_recu(chiffres: str) -> str:

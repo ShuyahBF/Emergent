@@ -5,7 +5,7 @@
 #   POST /api/android/connexion              identifiant + mot de passe Loois de l'utilisateur → session signée (8 h) + droits
 #   GET  /api/android/moi                    session en cours (droits, appareil, zone, base)
 #   POST /api/android/caisse/historique      Historique de Caisse : reçus d'un jour (un caissier ne voit que les siens)
-#   POST /api/android/caisse/recu            détail d'un reçu : lignes, médecin, validité, date d'expiration, VID, réglé, visé (lot 490)
+#   POST /api/android/caisse/recu            détail d'un reçu ou d'une facture d'hospitalisation (« 0461/2026 ») : lignes, médecin, validité, date d'expiration, VID, réglé, visé (lots 490-491)
 #   POST /api/android/caisse/recu/recherche  retrouver un reçu par son numéro (complet ou fin du numéro) (lot 490)
 #   POST /api/android/corrections/liste      Corrections de reçus : reçus du jour avec le nombre de lignes à corriger
 #   GET  /api/admin/android-journal          (administrateur) journal d'audit des actions des appareils
@@ -270,7 +270,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=403, detail="La caisse n'est pas disponible pour cette zone.")
         reference = corps.reference.strip()
         if not al.reference_valide(reference):
-            raise HTTPException(status_code=422, detail="Référence de reçu invalide (« R-… »).")
+            raise HTTPException(status_code=422, detail="Référence invalide : « R-… » (reçu) ou « 0461/2026 » (facture d'hospitalisation).")
         a = s["appareil"]
         await _client_en_ligne(a)
         entete, lignes, (clinique, prestations), infos_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_lignes_recu(reference)), _referentiel(a),
@@ -279,7 +279,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         if not recus:
             raise HTTPException(status_code=404, detail="Reçu introuvable.")
         recu = recus[0]
-        if not s["d"].get("voir_tous_les_recus") and recu["caissier"].strip().upper() != s["login"].upper():
+        if not al.est_facture_hospi(reference) and not s["d"].get("voir_tous_les_recus") and recu["caissier"].strip().upper() != s["login"].upper():
             await _journal(a, s["login"], "detail_recu", reference, "refuse")
             raise HTTPException(status_code=403, detail="Ce reçu appartient à un autre caissier.")
         brutes = lignes.get("lignes") or []
@@ -301,12 +301,13 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=403, detail="La caisse n'est pas disponible pour cette zone.")
         n = al.numero_recherche(corps.numero)
         if n is None:
-            raise HTTPException(status_code=422, detail="Tapez le numéro du reçu : « R-202630889 », « 202630889 » ou la fin du numéro (3 chiffres au moins).")
+            raise HTTPException(status_code=422, detail="Tapez le numéro du reçu (« R-202630889 », « 202630889 » ou la fin du numéro, 3 chiffres au moins) ou d'une facture d'hospitalisation (« 0461/2026 »).")
         a = s["appareil"]
         await _client_en_ligne(a)
-        vue = await _executer(a, al.sql_recherche_recu(n["chiffres"]))
+        facture = bool(n.get("facture"))
+        vue = await _executer(a, al.sql_recherche_facture(n["reference"], n["sans_zero"]) if facture else al.sql_recherche_recu(n["chiffres"]))
         recus = al.lire_recus(vue.get("lignes") or [])
-        if not s["d"].get("voir_tous_les_recus"):
+        if not facture and not s["d"].get("voir_tous_les_recus"):          # une facture d'hospitalisation reste visible de tout caissier
             recus = [r for r in recus if r["caissier"].strip().upper() == s["login"].upper()]
         # Un numéro EXACT passe en premier : « 30889 » peut aussi finir d'autres numéros plus anciens
         recus.sort(key=lambda r: r["reference"].upper() != n["reference"].upper())

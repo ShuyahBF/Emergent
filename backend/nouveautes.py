@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "480", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : serveurs locaux remontés par Loois",
+        "description": "Le service Windows Loois signale à SAWALI l'adresse de sa passerelle locale (jamais de mot de passe) : les téléphones autorisés la reçoivent seuls, avec un ticket de 72 h pour travailler sans Internet. Liste et régénération du secret ici.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "479", "date": "2026-11-27",
         "titre": "⚡ Routes très fréquentes : postes Loois, chat et briefing d'accueil",
         "description": "Les postes Loois (interrogation toutes les 5 s) coûtent 2 requêtes de moins par appel grâce à un cache de 10 s des clés reconnues (révocation immédiate), le décompte des messages non lus du chat se fait en parallèle et le briefing d'accueil est gardé 30 s.",

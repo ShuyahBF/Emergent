@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 import android_loois as al
 import appareils_android as aa
+import serveurs_locaux as sl
 from ip_client import ip_reelle
 from routes.liluvine_partage import est_admin
 
@@ -78,9 +79,10 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         return fiche
 
     async def _session(appareil: Dict[str, Any] = Depends(_appareil), x_session: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-        try:
-            s = jwt.decode(x_session or "", _secret(), algorithms=["HS256"])
-        except Exception:  # noqa: BLE001
+        # Session signée avec une clé dérivée du SECRET DU CLIENT (lot 480) : la même session est valable sur la passerelle locale de Loois, sans Internet
+        secret = await sl.secret_client(db, appareil["client_code"])
+        s = sl.lire_session(secret, x_session or "") if secret else None
+        if s is None:
             raise HTTPException(status_code=401, detail="Session expirée : reconnectez-vous.")
         if s.get("aid") != appareil["id"]:
             raise HTTPException(status_code=401, detail="Session d'un autre appareil : reconnectez-vous.")
@@ -188,10 +190,10 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         groupe = str((groupe_v.get("lignes") or [[""]])[0][0] or "").strip()
         peut_supprimer = al.vrai((suppr_v.get("lignes") or [[""]])[0][0])
         d = al.droits(espace, login, groupe, autoriser, peut_supprimer)
-        exp = datetime.now(timezone.utc) + timedelta(seconds=al.SESSION_DUREE_S)
-        session = jwt.encode({"aid": appareil["id"], "login": login, "groupe": groupe, "d": d, "exp": exp}, _secret(), algorithm="HS256")
+        secret = await sl.secret_client(db, appareil["client_code"], creer=True)
+        session = sl.creer_session(secret, appareil["id"], login, groupe, d)
         await _journal(appareil, login, "connexion", "réussie", "ok")
-        return {"session": session, "expire_dans_s": al.SESSION_DUREE_S, "utilisateur": {"login": login, "groupe": groupe, "espace": espace["nom"]}, "droits": d,
+        return {"session": session, "expire_dans_s": sl.SESSION_TTL_H * 3600, "utilisateur": {"login": login, "groupe": groupe, "espace": espace["nom"]}, "droits": d,
                 "appareil": {"zone": appareil["zone"], "base": appareil.get("base", ""), "client": appareil["client_code"]}}
 
     async def _vide() -> Dict[str, Any]:

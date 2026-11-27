@@ -245,6 +245,9 @@ _setup_android_loois(db=db, api=api, get_current_user=get_current_user)
 # Lot 480 — serveurs locaux remontés par Loois (adresses de passerelle, secret du client, tickets locaux de « Loois mobile »)
 from routes.serveurs_locaux import setup_serveurs_locaux_routes as _setup_serveurs_locaux  # noqa: E402
 _setup_serveurs_locaux(db=db, api=api, get_current_user=get_current_user)
+# Lot 482 — volumétrie des tables HFSQL (dimensionnement du cache Atlas) : Paramètres → « 📊 Volumétrie des tables HFSQL »
+from routes.volumetrie_hfsql import setup_volumetrie_hfsql_routes as _setup_volumetrie_hfsql  # noqa: E402
+_setup_volumetrie_hfsql(db=db, api=api, get_current_user=get_current_user)
 # Lot 463 — mémoire du serveur et appels les plus lents (Paramètres → « ⏱️ Performance du serveur »)
 from routes.performance_serveur import setup_performance_serveur_routes as _setup_performance_serveur  # noqa: E402
 _setup_performance_serveur(db=db, api=api, get_current_user=get_current_user)

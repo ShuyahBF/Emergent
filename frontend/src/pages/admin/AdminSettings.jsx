@@ -63,6 +63,7 @@ import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection"; 
 import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSection";   // Lot 96 : page Facebook animée par Liluvine
 import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
+import VolumetrieHfsqlSection from "@/pages/admin/sections/VolumetrieHfsqlSection";   // Lot 482 : volumétrie des tables HFSQL (cache Atlas)
 import AppareilsAndroidSection from "@/pages/admin/sections/AppareilsAndroidSection";   // Lot 468 : registre des appareils Android (Loois mobile)
 import PerformanceServeurSection from "@/pages/admin/sections/PerformanceServeurSection";   // Lot 463 : mémoire du serveur et appels les plus lents
 import SondeReseauSection from "@/pages/admin/sections/SondeReseauSection";   // Lot 470 : sonde de débit et de stabilité de la connexion
@@ -188,6 +189,7 @@ const NEW_LOTS = {
   "📑 Contrats des plateformes": "82",   // lots 81-82 : contrat de chaque plateforme, services suspendus
   "🛰️ Équipements — découverte du réseau": "80",   // lot 80 : menu Équipements et découverte du réseau par Loois
   "📸 Captures d'écran annotées dans les suivis": "465",   // lot 465 : collage, annotation et insertion dans le suivi
+  "📊 Volumétrie des tables HFSQL — cache Atlas": "482",   // lot 482 : comptages en lecture seule pour dimensionner le cache Atlas
   "📱 Appareils Android — Loois mobile": "468",   // lot 468 : registre des appareils Android (état, zone, base, utilisateur, IP)
   "⏱️ Performance du serveur — mémoire et appels lents": "463",   // lot 463 : jauge de mémoire, alerte WhatsApp, appels les plus lents
   "📶 Sonde réseau — débit et stabilité de la connexion": "470",   // lot 470 : mesures de latence, perte, débit et vidéo toutes les 15 min, rapport HTML à partager
@@ -271,6 +273,7 @@ const NEW_SECTIONS = {
   "📑 Contrats des plateformes": "2026-10-08",   // lots 81-82
   "🛰️ Équipements — découverte du réseau": "2026-10-08",   // lot 80
   "📸 Captures d'écran annotées dans les suivis": "2026-11-26",   // lot 465
+  "📊 Volumétrie des tables HFSQL — cache Atlas": "2026-11-27",   // lot 482
   "📱 Appareils Android — Loois mobile": "2026-11-26",   // lot 468
   "⏱️ Performance du serveur — mémoire et appels lents": "2026-11-26",   // lot 463
   "📶 Sonde réseau — débit et stabilité de la connexion": "2026-11-26",   // lot 470
@@ -370,6 +373,7 @@ const NEW_DESCRIPTIONS = {
   "⌨️ Saisie — reprendre le texte par défaut d'un champ": "Dans tout champ qui affiche un texte gris par défaut : Ctrl + Espace (ou double-clic / double appui sur le champ vide) recopie ce texte pour le modifier (lot 130).",
   "🤖📞 Liluvine décroche les appels WhatsApp": "Le résumé d'appel connaît l'appelant (nom, société, numéro) et n'invente rien au-delà de ce qui a été dit (lot 125).",
   "📸 Captures d'écran annotées dans les suivis": "Collez une capture d'écran (Ctrl + V) dans le contenu d'un suivi : flèche, cadre, ovale, crayon, surligneur, texte, masquage, puis insertion avant l'enregistrement (lot 465).",
+  "📊 Volumétrie des tables HFSQL — cache Atlas": "Comptes en lecture seule, chez un client en ligne, des lignes des tables Biolog, Aizenta et e-Kol (total et derniers jours) et taille estimée d'un cache Atlas, avec totaux et export CSV (lot 482).",
   "📱 Appareils Android — Loois mobile": "Téléphones et tablettes de l'application Loois mobile : identifiant, utilisateur, adresse IP vue par le serveur, état de l'accès (Autorisé / Interdit), zone de lancement et base de données (lot 468).",
   "⏱️ Performance du serveur — mémoire et appels lents": "Jauge de la mémoire du serveur (mesure toutes les heures, alerte WhatsApp au-delà du seuil) et classement des appels les plus lents par route : moyenne, 5 derniers, dernier, maximum (lot 463).",
   "📶 Sonde réseau — débit et stabilité de la connexion": "Page à laisser ouverte sur le PC branché à la box : mesure la latence, la perte, les connexions HTTPS, les débits et la lecture vidéo vers Cloudflare, courbes dans le temps, rapport HTML à partager avec l'opérateur et export CSV (lot 470).",
@@ -1113,6 +1117,13 @@ export default function AdminSettings() {
       <CartesNouveautes />
       {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) —
           lot 79.8.1 : affichée juste sous la carte « Nouveautés », en haut de la page */}
+      {/* Lot 482 — volumétrie des tables HFSQL : dimensionnement du cache Atlas */}
+      <Filterable title="📊 Volumétrie des tables HFSQL — cache Atlas" anchorId="s-volumetrie-hfsql" category="diagnostics">
+        <Cadre title="📊 Volumétrie des tables HFSQL — cache Atlas">
+          <VolumetrieHfsqlSection />
+        </Cadre>
+      </Filterable>
+
       {/* Lot 468 — registre des appareils Android de « Loois mobile » (état Interdit / Autorisé, zone, base, utilisateur, IP) */}
       <Filterable title="📱 Appareils Android — Loois mobile" anchorId="s-appareils-android" category="auth">
         <Cadre title="📱 Appareils Android — Loois mobile">

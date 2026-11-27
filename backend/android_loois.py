@@ -109,6 +109,12 @@ def sql_authentifier(espace: Dict[str, Any], login: str, mot_de_passe: str) -> s
     return f"SELECT {colonnes} FROM [{espace['table']}] WHERE [{espace['login']}] = '{echapper(login)}' AND [{espace['mdp']}] = '{echapper(mot_de_passe)}'"
 
 
+def sql_utilisateur_connu(espace: Dict[str, Any], login: str) -> str:
+    """Connexion rapide : la ligne de l'utilisateur (identifiant seul, SANS mot de passe) pour vérifier qu'il existe toujours chez le client."""
+    colonnes = f"[{espace['login']}]" + (f", [{espace['autoriser']}]" if espace["autoriser"] else "")
+    return f"SELECT {colonnes} FROM [{espace['table']}] WHERE [{espace['login']}] = '{echapper(login)}'"
+
+
 def sql_colonne_utilisateur(espace: Dict[str, Any], cle: str, login: str) -> Optional[str]:
     """Lecture tolérante d'une colonne de droits (groupe, droit de suppression) pour un identifiant déjà authentifié (None si l'espace n'a pas cette colonne)."""
     colonne = espace.get(cle)

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
+import ConnexionsRapidesBloc from "./ConnexionsRapidesBloc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const quand = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
@@ -157,6 +158,9 @@ export default function AppareilsAndroidSection() {
           </tbody>
         </table>
       </div>
+
+      {/* Lot 484 : connexions rapides (biométrie, Google, clé d'accès) */}
+      <ConnexionsRapidesBloc />
 
       {/* Serveurs locaux remontés par Loois : le téléphone les reçoit tout seul dans son statut (rien à saisir) */}
       <details className="rounded-lg border border-slate-200 p-3" onToggle={(e) => { if (e.currentTarget.open && locaux === null) chargerLocaux(false); }} data-testid="serveurs-locaux">

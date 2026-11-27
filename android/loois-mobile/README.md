@@ -23,7 +23,7 @@ sont les vraies réponses du serveur (produites par `backend/tests/test_android_
 Kit Android (SDK 34) + Java 17+. Signature avec la clé PERMANENTE de ShuyahStore, lue dans les variables d'environnement
 `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (jamais dans le dépôt).
 `gradle :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk`. Sans clé, l'APK est « unsigned » : ne jamais le livrer.
-À chaque publication : `versionApp`, `codeVersion` et `lotApp` dans `app/build.gradle.kts` sont mis à jour (la date de compilation est automatique).
+Numérotation : lots de SAWALI = nombres simples (477…) ; lots de Loois Mobile = préfixe M (M1, M2…) ; lots de Loois Windows = préfixe L. À chaque publication : `versionApp`, `codeVersion` et `lotApp` dans `app/build.gradle.kts` sont mis à jour (la date de compilation est automatique).
 
 ## Limites connues
 - Mode « serveur local » : l'application sait l'appeler (même API), mais la **passerelle HTTP du service Windows Loois** qui l'expose n'existe pas encore : à développer dans le dépôt Loois.

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "485", "date": "2026-11-27",
+        "titre": "🌍 Sonde réseau : espace commun des téléphones",
+        "description": "L'application Sonde Réseau (compte Google obligatoire, consentement à la première utilisation) partage ses mesures : synthèse par lieu (zone de 2 km), Wi-Fi ou mobile et opérateur, liste des participants à gérer.",
+        "rubrique": "🌍 Sonde réseau — espace commun des téléphones",
+    },
+    {
         "lot": "484", "date": "2026-11-27",
         "titre": "🔐 Loois mobile : connexion rapide (biométrie, compte Google, clé d'accès)",
         "description": "Loois Mobile 1.3 mémorise la zone et l'identifiant, et propose la connexion par empreinte / visage, par compte Google ou par clé d'accès. Le mot de passe n'est jamais gardé ; l'administrateur voit et révoque chaque liaison.",

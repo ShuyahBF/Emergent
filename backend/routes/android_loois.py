@@ -6,10 +6,11 @@
 #   GET  /api/android/moi                    session en cours (droits, appareil, zone, base)
 #   POST /api/android/caisse/historique      Historique de Caisse : reçus d'un jour (un caissier ne voit que les siens)
 #   POST /api/android/caisse/recu            détail d'un reçu ou d'une facture d'hospitalisation (« 0461/2026 ») : lignes, médecin, validité, date d'expiration, VID, réglé, visé (lots 490-491)
+#   POST /api/android/caisse/recu/modifier   (superviseur) changer « Réglé » / « Visée » d'un reçu ; écrit dans HFSQL, relu, journalisé (lot 492)
 #   POST /api/android/caisse/recu/recherche  retrouver un reçu par son numéro (complet ou fin du numéro) (lot 490)
 #   POST /api/android/corrections/liste      Corrections de reçus : reçus du jour avec le nombre de lignes à corriger
 #   GET  /api/admin/android-journal          (administrateur) journal d'audit des actions des appareils
-# Les requêtes HFSQL sont exécutées par UNE machine du client (file « SQL à distance ») : la clé « SQL à distance » reste sur SAWALI. Aucune écriture dans la base du client : lecture seule.
+# Les requêtes HFSQL sont exécutées par UNE machine du client (file « SQL à distance ») : la clé « SQL à distance » reste sur SAWALI. Lecture seule, SAUF /caisse/recu/modifier (lot 492) : « Réglé » et « Visée » seulement, superviseur seul.
 # Journal d'audit : qui (utilisateur, appareil), quoi (action, date ou référence), résultat, IP vue par le serveur — jamais de mot de passe ni de montant.
 from __future__ import annotations
 
@@ -58,6 +59,12 @@ class DemandeJour(BaseModel):
 
 class DemandeRecu(BaseModel):
     reference: str = Field(min_length=3, max_length=60)
+
+
+class DemandeModifRecu(BaseModel):
+    reference: str = Field(min_length=3, max_length=60)
+    regle: Optional[bool] = None            # lot 492 : nouvelle valeur de « Réglé » (None = inchangé)
+    vise: Optional[bool] = None             # nouvelle valeur de « Visée » (None = inchangé)
 
 
 class DemandeRecherche(BaseModel):
@@ -293,6 +300,45 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         await _journal(a, s["login"], "detail_recu", reference, "ok")
         return {"recu": recu, "lignes": details, "total": round(sum(l["montant"] for l in details), 2), "validite_clinique": clinique, "a_corriger": any(l["necessite_correction"] for l in details),
                 "infos": al.lire_infos_recu(infos_v.get("lignes") or [])}
+
+    @api.post("/android/caisse/recu/modifier", tags=["Loois mobile (Android)"])
+    async def modifier_recu(corps: DemandeModifRecu, s: Dict[str, Any] = Depends(_session)):
+        """Lot 492 — le SUPERVISEUR (administrateur de l'espace, jamais le laboratoire) change « Réglé » et / ou « Visée » d'un reçu ou d'une facture d'hospitalisation ; la modification est
+        écrite dans la base HFSQL du client par une machine du client (file « SQL à distance », contrôle « Prudent »), RELUE pour confirmation, et journalisée (ancienne → nouvelle valeur)."""
+        d = s["d"]
+        if not d.get("caisse"):
+            raise HTTPException(status_code=403, detail="La caisse n'est pas disponible pour cette zone.")
+        a = s["appareil"]
+        reference = corps.reference.strip()
+        if not al.reference_valide(reference):
+            raise HTTPException(status_code=422, detail="Référence invalide : « R-… » (reçu) ou « 0461/2026 » (facture d'hospitalisation).")
+        if not d.get("administrateur") or d.get("consultation_seule"):
+            await _journal(a, s["login"], "modifier_recu", reference, "refuse")
+            raise HTTPException(status_code=403, detail="Seul le superviseur peut modifier « Réglé » et « Visé ».")
+        if corps.regle is None and corps.vise is None:
+            raise HTTPException(status_code=422, detail="Rien à modifier : choisissez « Réglé » et / ou « Visé ».")
+        await _client_en_ligne(a)
+        entete, avant_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_infos_recu(reference)))
+        if not al.lire_recus(entete.get("lignes") or []):
+            raise HTTPException(status_code=404, detail="Reçu introuvable.")
+        avant = al.lire_infos_recu(avant_v.get("lignes") or [])
+        nouveau_regle = avant["regle"] if corps.regle is None else corps.regle
+        nouveau_vise = avant["vise"] if corps.vise is None else corps.vise
+        if (corps.regle is None or corps.regle == avant["regle"]) and (corps.vise is None or corps.vise == avant["vise"]):
+            raise HTTPException(status_code=422, detail="Aucun changement : ces valeurs sont déjà enregistrées.")
+        detail = f"{reference} réglé {avant['regle']}→{nouveau_regle} visé {avant['vise']}→{nouveau_vise}"
+        try:
+            await _executer(a, al.sql_modifier_recu(reference, corps.regle, corps.vise))
+        except HTTPException as e:
+            await _journal(a, s["login"], "modifier_recu", detail, f"erreur {e.status_code}")
+            raise
+        # Relecture : on n'affirme « enregistré » que si la base le confirme
+        apres = al.lire_infos_recu((await _executer(a, al.sql_infos_recu(reference))).get("lignes") or [])
+        confirme = apres["regle"] == nouveau_regle and apres["vise"] == nouveau_vise
+        await _journal(a, s["login"], "modifier_recu", detail, "ok" if confirme else "non confirmé")
+        if not confirme:
+            raise HTTPException(status_code=502, detail="La modification a été envoyée mais la base ne la confirme pas : rouvrez le reçu pour vérifier.")
+        return {"reference": reference, "infos": apres}
 
     @api.post("/android/caisse/recu/recherche", tags=["Loois mobile (Android)"])
     async def recherche_recu(corps: DemandeRecherche, s: Dict[str, Any] = Depends(_session)):

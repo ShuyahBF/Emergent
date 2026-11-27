@@ -6,14 +6,14 @@ Application Kotlin / Jetpack Compose (minSdk 26, Android 8+). Publiée sur Shuya
 - **Appareil** : au premier lancement, elle s'enregistre auprès de SAWALI (état « Interdit »). L'administrateur la renseigne et l'autorise dans
   *Paramètres → « 📱 Appareils Android — Loois mobile »* (utilisateur, zone, base de données, code client, IP vue par le serveur).
 - **Connexion** : identifiant et mot de passe Loois, vérifiés chez le client par SAWALI (zone et base imposées par l'administrateur). Aucun mot de passe n'est stocké.
-- **Historique de Caisse** : reçus d'un jour (un caissier ne voit que les siens), détail d'un reçu, totaux, colonnes triables.
+- **Historique de Caisse** : reçus d'un jour (un caissier ne voit que les siens), détail d'un reçu, totaux, colonnes triables ; recherche par numéro (reçu « R-… » ou facture d'hospitalisation « 0461/2026 ») ; caissier, VID, réglé, visé. Le SUPERVISEUR (administrateur de l'espace) peut changer « Réglé » et « Visé » (confirmation, écriture HFSQL, relecture, journal) : seule écriture de l'application.
 - **Corrections de Reçus** (lecture seule) : reçus dont la validité propre à la prestation diffère de celle de la clinique, avec la date d'expiration effective.
 - **Réseau** : Internet détecté → SQL distantes via SAWALI ; sinon les **passerelles locales** du client, dont SAWALI donne les adresses et un ticket de 72 h (version 1.1) ; une adresse saisie à la main reste possible. Voir `docs/PASSERELLE_MOBILE.md` du dépôt Loois.
 
 ## Architecture
 `Stockage` (réglages + jeton chiffré par le Keystore Android) · `Reseau` (HTTP JSON, adresses autorisées) · `Modeles` (lecture des réponses, formats, tri) · `Etat` (ViewModel) ·
 `Ecrans` (Compose). Côté SAWALI : `backend/routes/appareils_android.py` (registre) et `backend/routes/android_loois.py` (API ; requêtes HFSQL préparées côté serveur).
-L'application ne contient AUCUNE clé SQL ni requête SQL libre : SAWALI fabrique les requêtes et les fait exécuter par une machine du client (file « SQL à distance »).
+L'application ne contient AUCUNE clé SQL ni requête SQL libre (la seule écriture, « Réglé » / « Visée » d'un reçu par le superviseur, est fabriquée par le serveur : `sql_modifier_recu`) : SAWALI fabrique les requêtes et les fait exécuter par une machine du client (file « SQL à distance »).
 
 ## Tests
 Aucun test ne contacte SAWALI (`AppViewModel.sansDemarrageReseau`) : sinon chaque test enregistrerait un faux appareil « robolectric » dans le registre de production.

@@ -1,6 +1,7 @@
 """Lot 475 — API « Loois mobile » : requêtes préparées, connexion (mot de passe jamais gardé ni renvoyé), droits (caissier / administrateur / laboratoire), Historique de Caisse,
 détail d'un reçu, Corrections de reçus, journal d'audit. Aucun accès réseau : la file « SQL à distance » est remplacée par une file simulée (Mongo simulé)."""
 import asyncio
+import re
 import os
 from datetime import datetime
 
@@ -76,7 +77,7 @@ def construire_banc():
     al._essais.clear()
     db = mongomock_motor.AsyncMongoMockClient()["test_lot475"]
     envoyees: list = []                                        # (sql, auteur)
-    etat = {"en_ligne": True, "mdp_ok": True, "groupe": "", "autoriser": "1", "suppr": "0", "silence": False}
+    etat = {"login": "tassembh", "infos": {"R-0003": ["ASI01", "1", "0", "15 000"], "R-0002": ["TASSEMBH", "0", "1", "0"], "0461/2026": ["MED07", "0", "1", "0"]}, "refuser_maj": False, "en_ligne": True, "mdp_ok": True, "groupe": "", "autoriser": "1", "suppr": "0", "silence": False}
 
     def repondre(sql: str):
         S = sql
@@ -85,14 +86,20 @@ def construire_banc():
         if S.startswith("SELECT COUNT(*), SUM(MontantRéglé)"):
             return [["4", "25 600,5"]] if ">= '20261126'" in S else [["0", ""]]
         if S.startswith("SELECT [Login], [AutoriserCorrectionReçu] FROM [UtilisateurBlg]"):
-            return [["tassembh", etat["autoriser"]]] if etat["mdp_ok"] else []
+            return [[etat["login"], etat["autoriser"]]] if etat["mdp_ok"] else []
         if S.startswith("SELECT [GroupeLogin]"):
             return [[etat["groupe"]]]
         if S.startswith("SELECT [PeutSupprimerRecu]"):
             return [[etat["suppr"]]]
         if S.startswith("SELECT [Code Vendeur], [Réglé], [Visée]"):                       # lot 490 : VID, réglé, visé d'un reçu
             ref = S.split("Référence = '")[1].split("'")[0]
-            return {"R-0003": [["ASI01", "1", "0", "15 000"]], "R-0002": [["TASSEMBH", "0", "1", "0"]], "0461/2026": [["MED07", "0", "1", "0"]]}.get(ref, [])
+            return [etat["infos"][ref]] if ref in etat["infos"] else []
+        if S.startswith("UPDATE VenteClinique SET"):                                      # lot 492 : « Réglé » et « Visée » seulement
+            ref = S.split("Référence = '")[1].split("'")[0]
+            if not etat["refuser_maj"] and ref in etat["infos"]:
+                for col, val in re.findall(r"\[(Réglé|Visée)\] = ([01])", S):
+                    etat["infos"][ref][1 if col == "Réglé" else 2] = val
+            return []
         if S.startswith("SELECT TOP 8") and "LIKE 'R-%" in S:                             # lot 490 : recherche par numéro (fin de numéro)
             fin = S.split("LIKE 'R-%")[1].split("'")[0]
             return [r for r in RECUS if r[0].endswith(fin)]
@@ -375,3 +382,61 @@ def test_une_facture_d_hospitalisation_se_retrouve_et_s_ouvre_meme_si_un_autre_c
     assert d["recu"]["caissier"] == "ASI2020" and d["infos"] == {"vid": "MED07", "regle": False, "vise": True, "montant_regle": 0.0} and len(d["lignes"]) == 1
     # un reçu ordinaire d'un autre caissier reste refusé
     assert c.post("/api/android/caisse/recu", json={"reference": "R-0002"}, headers=entetes(b, s)).status_code == 403
+
+
+# ------------------------------------------------------------------------------------------------------------------ lot 492 : le superviseur modifie « Réglé » et « Visée »
+def session_superviseur(c, b):
+    b["etat"]["login"] = "SUPERVISEU"
+    return se_connecter(c, b).json()["session"]
+
+
+def test_requete_de_modification_limitee_a_regle_et_vise():
+    sql = al.sql_modifier_recu("R-0003", True, False)
+    assert sql == "UPDATE VenteClinique SET [Réglé] = 1, [Visée] = 0 WHERE Référence = 'R-0003'"
+    assert al.sql_modifier_recu("0461/2026", None, True) == "UPDATE VenteClinique SET [Visée] = 1 WHERE Référence = '0461/2026'"
+    with pytest.raises(ValueError):
+        al.sql_modifier_recu("R-0003", None, None)
+    from routes.loois_sql_distant import verifier
+    assert verifier(sql)[0] is True                                                                    # accepté par le contrôle « Prudent » (UPDATE avec WHERE)
+
+
+def test_le_superviseur_modifie_regle_et_vise_relu_et_journalise(banc):
+    c, b = banc
+    s = session_superviseur(c, b)
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "regle": True, "vise": False}, headers=entetes(b, s))
+    assert r.status_code == 200, r.text
+    assert r.json()["infos"]["regle"] is True and r.json()["infos"]["vise"] is False
+    d = c.post("/api/android/caisse/recu", json={"reference": "0461/2026"}, headers=entetes(b, s)).json()
+    assert d["infos"]["regle"] is True and d["infos"]["vise"] is False                                 # la base HFSQL (simulée) a bien été modifiée
+    assert any(sql.startswith("UPDATE VenteClinique SET [Réglé] = 1, [Visée] = 0 WHERE Référence = '0461/2026'") for sql, _ in b["envoyees"])
+    journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
+    derniere = [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]
+    assert derniere["resultat"] == "ok" and "réglé False→True" in derniere["detail"] and "visé True→False" in derniere["detail"]
+    # une seule case : l'autre ne change pas ; rien à changer = refusé
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "vise": True}, headers=entetes(b, s)).status_code == 200
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "vise": True}, headers=entetes(b, s)).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026"}, headers=entetes(b, s)).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "R-9999", "regle": True}, headers=entetes(b, s)).status_code == 404
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "R-1'; DROP", "regle": True}, headers=entetes(b, s)).status_code == 422
+
+
+def test_un_caissier_ou_le_laboratoire_ne_peuvent_pas_modifier(banc):
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]                                                           # caissier TASSEMBH
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "R-0003", "regle": False}, headers=entetes(b, s))
+    assert r.status_code == 403 and "superviseur" in r.json()["detail"]
+    assert not any(sql.startswith("UPDATE") for sql, _ in b["envoyees"])                              # rien n'est parti vers le client
+    b["etat"]["login"] = "LAB1"; b["etat"]["groupe"] = "labo"
+    s2 = se_connecter(c, b).json()["session"]
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "R-0003", "regle": False}, headers=entetes(b, s2)).status_code == 403
+    assert not any(sql.startswith("UPDATE") for sql, _ in b["envoyees"])
+
+
+def test_modification_non_confirmee_par_la_base_est_signalee(banc):
+    c, b = banc
+    s = session_superviseur(c, b)
+    b["etat"]["refuser_maj"] = True                                                                    # la base n'applique pas la modification
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "R-0003", "regle": False}, headers=entetes(b, s))
+    assert r.status_code == 502 and "ne la confirme pas" in r.json()["detail"]
+    journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
+    assert [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]["resultat"] == "non confirmé"

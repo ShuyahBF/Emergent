@@ -1,0 +1,9 @@
+{
+ "reference": "R-0003",
+ "infos": {
+  "vid": "ASI01",
+  "regle": false,
+  "vise": true,
+  "montant_regle": 15000.0
+ }
+}

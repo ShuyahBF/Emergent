@@ -63,7 +63,7 @@ RECUS = [  # Référence, Date Vente, Code Client, Libellé, MontantRéglé, Mac
     ["R-0002", "20261126093000000", "C2", "Ben Kaboré", "8 500,50", "ASI2020", "0", "8500,5", "0"],
     ["R-0001", "20261126080000000", "C3", "Fatim Sawadogo", "2 000", "TASSEMBH", "0", "2000", "0"],
 ]
-FACTURES = [["0461/2026", "20261126110000000", "C9", "Paul KABORE", "40 000", "ASI2020", "0", "40000", "0"]]     # lot 491 : facture d'hospitalisation (Caisse FCT), faite par un AUTRE caissier
+FACTURES = [["0461/2026", "20261126110000000", "C9", "Paul KABORE", "8 000", "ASI2020", "80", "8000", "32000"]]     # lot 491 : facture d'hospitalisation (Caisse FCT), faite par un AUTRE caissier
 LIGNES = {"0461/2026": [["P2", "", "CONSULT", "1", "40000"]], "R-0003": [["P1", "M1", "PEDIATRIE", "1", "10000"], ["P2", "M1", "CONSULT", "2", "2500"]], "R-0002": [["P3", "M2", "CONSULT", "1", "8500,5"]], "R-0001": [["P2", "", "CONSULT", "1", "2000"]]}
 
 
@@ -77,7 +77,7 @@ def construire_banc():
     al._essais.clear()
     db = mongomock_motor.AsyncMongoMockClient()["test_lot475"]
     envoyees: list = []                                        # (sql, auteur)
-    etat = {"login": "tassembh", "infos": {"R-0003": ["ASI01", "1", "0", "15 000"], "R-0002": ["TASSEMBH", "0", "1", "0"], "0461/2026": ["MED07", "0", "1", "0"]}, "refuser_maj": False, "en_ligne": True, "mdp_ok": True, "groupe": "", "autoriser": "1", "suppr": "0", "silence": False}
+    etat = {"login": "tassembh", "infos": {"R-0003": ["ASI01", "1", "0", "15 000", "15 000"], "R-0002": ["TASSEMBH", "0", "1", "0", "8 500,50"], "0461/2026": ["MED07", "0", "1", "0", "40 000"]}, "refuser_maj": False, "en_ligne": True, "mdp_ok": True, "groupe": "", "autoriser": "1", "suppr": "0", "silence": False}
 
     def repondre(sql: str):
         S = sql
@@ -99,6 +99,10 @@ def construire_banc():
             if not etat["refuser_maj"] and ref in etat["infos"]:
                 for col, val in re.findall(r"\[(Réglé|Visée)\] = ([01])", S):
                     etat["infos"][ref][1 if col == "Réglé" else 2] = val
+                for col, val in re.findall(r"\[(PArtAssuré|PArtAssureur)\] = ([0-9.]+)", S):
+                    for r in RECUS + FACTURES:
+                        if r[0] == ref:
+                            r[7 if col == "PArtAssuré" else 8] = val
             return []
         if S.startswith("SELECT TOP 8") and "LIKE 'R-%" in S:                             # lot 490 : recherche par numéro (fin de numéro)
             fin = S.split("LIKE 'R-%")[1].split("'")[0]
@@ -340,16 +344,16 @@ def test_numero_de_recherche_et_requetes_sans_injection():
     assert al.numero_recherche("12") is None and al.numero_recherche("R-1'; DROP") is None and al.numero_recherche("") is None and al.numero_recherche("abc") is None
     sql = al.sql_recherche_recu("30889")
     assert "LIKE 'R-%30889'" in sql and "TOP 8" in sql and "(Mag <> 'SUP' OR Mag IS NULL)" in sql
-    assert "[Code Vendeur]" in al.sql_infos_recu("R-1") and "[Visée]" in al.sql_infos_recu("R-1")
-    assert al.lire_infos_recu([["ASI01", "1", "0", "15 000"]]) == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000}
-    assert al.lire_infos_recu([]) == {"vid": "", "regle": None, "vise": None, "montant_regle": None}      # inconnu ≠ « non »
+    assert "[Code Vendeur]" in al.sql_infos_recu("R-1") and "[Visée]" in al.sql_infos_recu("R-1") and "Montant FROM" in al.sql_infos_recu("R-1")
+    assert al.lire_infos_recu([["ASI01", "1", "0", "15 000", "20 000"]]) == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000, "montant_total": 20000}
+    assert al.lire_infos_recu([]) == {"vid": "", "regle": None, "vise": None, "montant_regle": None, "montant_total": None}      # inconnu ≠ « non »
 
 
 def test_detail_porte_vid_regle_et_vise_et_la_recherche_trouve_le_recu(banc):
     c, b = banc
     s = se_connecter(c, b).json()["session"]
     d = c.post("/api/android/caisse/recu", json={"reference": "R-0003"}, headers=entetes(b, s)).json()
-    assert d["infos"] == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000} and d["recu"]["caissier"] == "TASSEMBH"
+    assert d["infos"] == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000, "montant_total": 15000} and d["recu"]["caissier"] == "TASSEMBH"
     r = c.post("/api/android/caisse/recu/recherche", json={"numero": "0003"}, headers=entetes(b, s)).json()
     assert r["nombre"] == 1 and r["recus"][0]["reference"] == "R-0003"
     # un caissier (TASSEMBH) ne retrouve pas le reçu d'un autre caissier (R-0002 est à ASI2020)
@@ -373,13 +377,13 @@ def test_une_facture_d_hospitalisation_se_retrouve_et_s_ouvre_meme_si_un_autre_c
     c, b = banc
     s = se_connecter(c, b).json()["session"]                                   # TASSEMBH : la facture est à ASI2020
     r = c.post("/api/android/caisse/recu/recherche", json={"numero": "0461/2026"}, headers=entetes(b, s)).json()
-    assert r["nombre"] == 1 and r["recus"][0]["reference"] == "0461/2026" and r["recus"][0]["montant"] == 40000
+    assert r["nombre"] == 1 and r["recus"][0]["reference"] == "0461/2026" and r["recus"][0]["ppc"] == 80
     r2 = c.post("/api/android/caisse/recu/recherche", json={"numero": "461/2026"}, headers=entetes(b, s)).json()
     assert r2["nombre"] == 1                                                   # sans le zéro de tête
     d = c.post("/api/android/caisse/recu", json={"reference": "0461/2026"}, headers=entetes(b, s))
     assert d.status_code == 200, d.text
     d = d.json()
-    assert d["recu"]["caissier"] == "ASI2020" and d["infos"] == {"vid": "MED07", "regle": False, "vise": True, "montant_regle": 0.0} and len(d["lignes"]) == 1
+    assert d["recu"]["caissier"] == "ASI2020" and d["infos"] == {"vid": "MED07", "regle": False, "vise": True, "montant_regle": 0.0, "montant_total": 40000} and len(d["lignes"]) == 1
     # un reçu ordinaire d'un autre caissier reste refusé
     assert c.post("/api/android/caisse/recu", json={"reference": "R-0002"}, headers=entetes(b, s)).status_code == 403
 
@@ -440,3 +444,49 @@ def test_modification_non_confirmee_par_la_base_est_signalee(banc):
     assert r.status_code == 502 and "ne la confirme pas" in r.json()["detail"]
     journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
     assert [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]["resultat"] == "non confirmé"
+
+
+# ------------------------------------------------------------------------------------------------------------------ lot 493 : montant, PPC, parts assuré / assureur (la contrepartie est déduite)
+def test_parts_deduites_du_total():
+    assert al.parts_deduites(40000, None, 25000) == (15000, 25000)               # part assureur donnée : l'assuré paie le reste
+    assert al.parts_deduites(40000, 8000, None) == (8000, 32000)                 # part assuré donnée : l'assureur prend le reste
+    assert al.parts_deduites(40000, 10000, 30000) == (10000, 30000)
+    for mauvais in ((40000, 10000, 20000), (40000, -1, None), (40000, None, 40001), (40000, float("nan"), None)):
+        with pytest.raises(ValueError):
+            al.parts_deduites(*mauvais)
+    with pytest.raises(ValueError):
+        al.parts_deduites(None, 100, None)                                         # total inconnu : jamais de répartition devinée
+    assert al.sql_modifier_recu("0461/2026", None, None, 10000, 30000) == "UPDATE VenteClinique SET [PArtAssuré] = 10000.00, [PArtAssureur] = 30000.00 WHERE Référence = '0461/2026'"
+    with pytest.raises(ValueError):
+        al.sql_modifier_recu("R-1", None, None, 10000, None)                       # jamais une seule part écrite seule
+
+
+def test_le_superviseur_change_une_part_la_contrepartie_est_deduite_et_ecrite_ensemble(banc):
+    c, b = banc
+    s = session_superviseur(c, b)
+    h = entetes(b, s)
+    d = c.post("/api/android/caisse/recu", json={"reference": "0461/2026"}, headers=h).json()
+    assert d["recu"]["ppc"] == 80 and d["recu"]["part_assure"] == 8000 and d["recu"]["part_assureur"] == 32000 and d["infos"]["montant_total"] == 40000
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assureur": 25000}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["recu"]["part_assure"] == 15000 and r.json()["recu"]["part_assureur"] == 25000                     # 40 000 − 25 000 = 15 000
+    maj = [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1]
+    assert maj == "UPDATE VenteClinique SET [PArtAssuré] = 15000.00, [PArtAssureur] = 25000.00 WHERE Référence = '0461/2026'"      # les DEUX parts, jamais le total
+    journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
+    assert "assuré 8000→15000 assureur 32000→25000 (total 40000)" in [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]["detail"]
+    # part assuré donnée : l'assureur prend le reste ; refus si incohérent, hors bornes ou inchangé
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 4000}, headers=h).json()["recu"]["part_assureur"] == 36000
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 1000, "part_assureur": 1000}, headers=h).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 50000}, headers=h).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assure": 4000}, headers=h).status_code == 422       # déjà enregistré
+    # parts et « Réglé » ensemble dans UNE seule écriture
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "regle": True, "part_assureur": 30000}, headers=h)
+    assert r.status_code == 200 and r.json()["infos"]["regle"] is True and r.json()["recu"]["part_assure"] == 10000
+    assert [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1] == "UPDATE VenteClinique SET [Réglé] = 1, [PArtAssuré] = 10000.00, [PArtAssureur] = 30000.00 WHERE Référence = '0461/2026'"
+
+
+def test_un_caissier_ne_peut_pas_changer_les_parts(banc):
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assureur": 1000}, headers=entetes(b, s)).status_code == 403
+    assert not any(sql.startswith("UPDATE") for sql, _ in b["envoyees"])

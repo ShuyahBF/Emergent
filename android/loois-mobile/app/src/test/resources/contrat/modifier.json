@@ -1,9 +1,23 @@
 {
- "reference": "R-0003",
+ "reference": "0461/2026",
  "infos": {
-  "vid": "ASI01",
+  "vid": "MED07",
   "regle": false,
   "vise": true,
-  "montant_regle": 15000.0
+  "montant_regle": 0.0,
+  "montant_total": 40000.0
+ },
+ "recu": {
+  "reference": "0461/2026",
+  "date_vente": "2026-11-26",
+  "heure": "11:00",
+  "date_heure_iso": "2026-11-26T11:00:00",
+  "code_client": "C9",
+  "patient": "Paul KABORE",
+  "montant": 8000.0,
+  "caissier": "ASI2020",
+  "ppc": 80.0,
+  "part_assure": 15000.0,
+  "part_assureur": 25000.0
  }
 }

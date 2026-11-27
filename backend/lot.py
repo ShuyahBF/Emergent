@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "492"
-LOT_LIBELLE = "Loois mobile : le superviseur modifie « Réglé » et « Visé » d'un reçu ou d'une facture (écrit dans HFSQL, relu, journalisé)."
+LOT = "493"
+LOT_LIBELLE = "Loois mobile : montant total, PPC et parts assuré / assureur d'un reçu ; le superviseur change une part, l'autre est déduite."

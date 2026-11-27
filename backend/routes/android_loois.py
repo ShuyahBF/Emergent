@@ -65,6 +65,8 @@ class DemandeModifRecu(BaseModel):
     reference: str = Field(min_length=3, max_length=60)
     regle: Optional[bool] = None            # lot 492 : nouvelle valeur de « Réglé » (None = inchangé)
     vise: Optional[bool] = None             # nouvelle valeur de « Visée » (None = inchangé)
+    part_assure: Optional[float] = None     # lot 493 : nouvelle part assuré (la part assureur est DÉDUITE du total si elle n'est pas donnée)
+    part_assureur: Optional[float] = None   # nouvelle part assureur (la part assuré est DÉDUITE du total si elle n'est pas donnée)
 
 
 class DemandeRecherche(BaseModel):
@@ -303,7 +305,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
 
     @api.post("/android/caisse/recu/modifier", tags=["Loois mobile (Android)"])
     async def modifier_recu(corps: DemandeModifRecu, s: Dict[str, Any] = Depends(_session)):
-        """Lot 492 — le SUPERVISEUR (administrateur de l'espace, jamais le laboratoire) change « Réglé » et / ou « Visée » d'un reçu ou d'une facture d'hospitalisation ; la modification est
+        """Lots 492-493 — le SUPERVISEUR (administrateur de l'espace, jamais le laboratoire) change « Réglé », « Visée » et / ou les parts assuré / assureur (l'une donnée, l'autre déduite du total) d'un reçu ou d'une facture d'hospitalisation ; la modification est
         écrite dans la base HFSQL du client par une machine du client (file « SQL à distance », contrôle « Prudent »), RELUE pour confirmation, et journalisée (ancienne → nouvelle valeur)."""
         d = s["d"]
         if not d.get("caisse"):
@@ -315,30 +317,51 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         if not d.get("administrateur") or d.get("consultation_seule"):
             await _journal(a, s["login"], "modifier_recu", reference, "refuse")
             raise HTTPException(status_code=403, detail="Seul le superviseur peut modifier « Réglé » et « Visé ».")
-        if corps.regle is None and corps.vise is None:
-            raise HTTPException(status_code=422, detail="Rien à modifier : choisissez « Réglé » et / ou « Visé ».")
+        if corps.regle is None and corps.vise is None and corps.part_assure is None and corps.part_assureur is None:
+            raise HTTPException(status_code=422, detail="Rien à modifier : choisissez « Réglé », « Visé » et / ou une part.")
         await _client_en_ligne(a)
         entete, avant_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_infos_recu(reference)))
-        if not al.lire_recus(entete.get("lignes") or []):
+        recus_avant = al.lire_recus(entete.get("lignes") or [])
+        if not recus_avant:
             raise HTTPException(status_code=404, detail="Reçu introuvable.")
         avant = al.lire_infos_recu(avant_v.get("lignes") or [])
+        recu_avant = recus_avant[0]
+        # Parts : une seule donnée = l'autre est déduite du MONTANT TOTAL (colonne Montant) ; contrôles de cohérence avant toute écriture
+        parts = None
+        if corps.part_assure is not None or corps.part_assureur is not None:
+            try:
+                parts = al.parts_deduites(avant["montant_total"], corps.part_assure, corps.part_assureur)
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            if abs(parts[0] - recu_avant["part_assure"]) < 0.005 and abs(parts[1] - recu_avant["part_assureur"]) < 0.005:
+                parts = None                                                                              # mêmes parts qu'avant : rien à écrire pour elles
         nouveau_regle = avant["regle"] if corps.regle is None else corps.regle
         nouveau_vise = avant["vise"] if corps.vise is None else corps.vise
-        if (corps.regle is None or corps.regle == avant["regle"]) and (corps.vise is None or corps.vise == avant["vise"]):
+        regle_change = corps.regle is not None and corps.regle != avant["regle"]
+        vise_change = corps.vise is not None and corps.vise != avant["vise"]
+        if not regle_change and not vise_change and parts is None:
             raise HTTPException(status_code=422, detail="Aucun changement : ces valeurs sont déjà enregistrées.")
         detail = f"{reference} réglé {avant['regle']}→{nouveau_regle} visé {avant['vise']}→{nouveau_vise}"
+        if parts is not None:
+            detail += f" assuré {recu_avant['part_assure']:g}→{parts[0]:g} assureur {recu_avant['part_assureur']:g}→{parts[1]:g} (total {avant['montant_total']:g})"
         try:
-            await _executer(a, al.sql_modifier_recu(reference, corps.regle, corps.vise))
+            await _executer(a, al.sql_modifier_recu(reference, corps.regle if regle_change else None, corps.vise if vise_change else None,
+                                                    parts[0] if parts else None, parts[1] if parts else None))
         except HTTPException as e:
             await _journal(a, s["login"], "modifier_recu", detail, f"erreur {e.status_code}")
             raise
-        # Relecture : on n'affirme « enregistré » que si la base le confirme
-        apres = al.lire_infos_recu((await _executer(a, al.sql_infos_recu(reference))).get("lignes") or [])
+        # Relecture : on n'affirme « enregistré » que si la base le confirme (réglé, visé ET parts)
+        entete_apres, infos_apres_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_infos_recu(reference)))
+        apres = al.lire_infos_recu(infos_apres_v.get("lignes") or [])
+        recus_apres = al.lire_recus(entete_apres.get("lignes") or [])
+        recu_apres = recus_apres[0] if recus_apres else recu_avant
         confirme = apres["regle"] == nouveau_regle and apres["vise"] == nouveau_vise
+        if parts is not None:
+            confirme = confirme and abs(recu_apres["part_assure"] - parts[0]) < 0.01 and abs(recu_apres["part_assureur"] - parts[1]) < 0.01
         await _journal(a, s["login"], "modifier_recu", detail, "ok" if confirme else "non confirmé")
         if not confirme:
             raise HTTPException(status_code=502, detail="La modification a été envoyée mais la base ne la confirme pas : rouvrez le reçu pour vérifier.")
-        return {"reference": reference, "infos": apres}
+        return {"reference": reference, "infos": apres, "recu": recu_apres}
 
     @api.post("/android/caisse/recu/recherche", tags=["Loois mobile (Android)"])
     async def recherche_recu(corps: DemandeRecherche, s: Dict[str, Any] = Depends(_session)):

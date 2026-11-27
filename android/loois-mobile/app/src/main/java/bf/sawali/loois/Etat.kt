@@ -37,6 +37,8 @@ data class UiEtat(
     val detail: DetailRecu? = null,
     val editRegle: Boolean? = null,                   // lot M6 : « Réglé » modifié à l'écran, non enregistré (null = inchangé)
     val editVise: Boolean? = null,                    // « Visé » modifié à l'écran, non enregistré
+    val editPartAssure: String? = null,               // lot M7 : part assuré saisie (texte), non enregistrée ; la part assureur en est DÉDUITE (total − part)
+    val editPartAssureur: String? = null,
     val confirmerModif: Boolean = false,              // fenêtre de confirmation avant d'écrire dans la base du client
     val recherche: String = "",                       // numéro de reçu tapé (lot M5)
     val resultatsRecherche: List<Recu>? = null,       // plusieurs reçus finissent par ces chiffres : on les propose
@@ -367,24 +369,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         e.copy(editRegle = if (nouveau == d.infos.regle) null else nouveau) }
     fun basculerVise() = maj { e -> val d = e.detail ?: return@maj e; val actuel = e.editVise ?: d.infos.vise ?: false; val nouveau = !actuel
         e.copy(editVise = if (nouveau == d.infos.vise) null else nouveau) }
-    fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, confirmerModif = false) }
-    fun demanderConfirmationModif() = maj { if (it.editRegle != null || it.editVise != null) it.copy(confirmerModif = true) else it }
+    fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, editPartAssure = null, editPartAssureur = null, confirmerModif = false) }
+    /** Lot M7 — la personne tape UNE part ; l'autre est calculée tout de suite (total − part). Revenir aux parts d'origine annule le changement. */
+    fun changerPartAssure(t: String) = maj { e -> partsModifiees(e, t, true) }
+    fun changerPartAssureur(t: String) = maj { e -> partsModifiees(e, t, false) }
+    private fun partsModifiees(e: UiEtat, texte: String, assure: Boolean): UiEtat {
+        val d = e.detail ?: return e
+        val total = d.infos.montantTotal ?: return e.copy(message = "Montant total inconnu : impossible de répartir les parts.")
+        val v = lireNombreSaisi(texte)
+        val autre = if (v != null && v in 0.0..total) formaterNombreSaisi(total - v) else ""
+        val (pa, pr) = if (assure) texte to autre else autre to texte
+        val origine = Math.abs((lireNombreSaisi(pa) ?: -1.0) - d.recu.partAssure) < 0.005 && Math.abs((lireNombreSaisi(pr) ?: -1.0) - d.recu.partAssureur) < 0.005
+        return if (origine) e.copy(editPartAssure = null, editPartAssureur = null) else e.copy(editPartAssure = pa, editPartAssureur = pr)
+    }
+    fun demanderConfirmationModif() = maj {
+        val parts = it.editPartAssure != null
+        val valides = !parts || (lireNombreSaisi(it.editPartAssure) != null && lireNombreSaisi(it.editPartAssureur) != null)
+        if (!valides) it.copy(message = "Part invalide : tapez un nombre compris entre 0 et le montant total.")
+        else if (it.editRegle != null || it.editVise != null || parts) it.copy(confirmerModif = true) else it
+    }
     fun fermerConfirmationModif() = maj { it.copy(confirmerModif = false) }
 
     /** Écrit les changements dans la base HFSQL du client (via SAWALI), puis relit : on n'affiche « enregistré » que si le serveur l'a confirmé. */
     fun enregistrerModifs() {
         val d = _etat.value.detail ?: return
         val regle = _etat.value.editRegle; val vise = _etat.value.editVise
-        if (_etat.value.enCours || (regle == null && vise == null)) return
+        val partA = _etat.value.editPartAssure?.let { lireNombreSaisi(it) }; val partR = _etat.value.editPartAssureur?.let { lireNombreSaisi(it) }
+        if (_etat.value.enCours || (regle == null && vise == null && partA == null)) return
         viewModelScope.launch {
             maj { it.copy(confirmerModif = false, enCours = true, message = "Patientez… enregistrement dans la base du client en cours") }
             try {
                 val corps = JSONObject().put("reference", d.recu.reference)
                 if (regle != null) corps.put("regle", regle)
                 if (vise != null) corps.put("vise", vise)
+                if (partA != null && partR != null) { corps.put("part_assure", partA); corps.put("part_assureur", partR) }      // les deux parts : le serveur vérifie qu'elles font le total
                 val r = appel { base -> api.appeler(base, "/api/android/caisse/recu/modifier", corps) }
                 val infos = lireInfos(r.optJSONObject("infos"))
-                maj { it.copy(detail = it.detail?.copy(infos = infos), editRegle = null, editVise = null, message = "✔ Enregistré dans la base du client : réglé ${if (infos.regle == true) "oui" else "non"}, visé ${if (infos.vise == true) "oui" else "non"}.") }
+                val recuRelu = r.optJSONObject("recu")?.let { lireRecu(it) }
+                maj { it.copy(detail = it.detail?.copy(infos = infos, recu = recuRelu ?: it.detail.recu), editRegle = null, editVise = null, editPartAssure = null, editPartAssureur = null, message = "✔ Enregistré dans la base du client : réglé ${if (infos.regle == true) "oui" else "non"}, visé ${if (infos.vise == true) "oui" else "non"}${if (partA != null) " ; parts ${formaterMontant(recuRelu?.partAssure ?: 0.0)} / ${formaterMontant(recuRelu?.partAssureur ?: 0.0)}" else ""}.") }
             } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
         }
     }

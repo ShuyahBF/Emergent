@@ -23,7 +23,7 @@ data class LigneRecu(val codeProduit: String, val designation: String, val domai
                      val joursValiditePropre: Int?, val joursValiditeEffective: Int, val necessiteCorrection: Boolean, val dateExpiration: String)
 
 /** Informations de caisse d'un reçu (lot M5) : VID = code du vendeur ; réglé / visé : `null` = inconnu (jamais affiché « non » à tort). */
-data class InfosRecu(val vid: String = "", val regle: Boolean? = null, val vise: Boolean? = null, val montantRegle: Double? = null)
+data class InfosRecu(val vid: String = "", val regle: Boolean? = null, val vise: Boolean? = null, val montantRegle: Double? = null, val montantTotal: Double? = null)
 
 data class DetailRecu(val recu: Recu, val lignes: List<LigneRecu>, val total: Double, val validiteClinique: Int?, val aCorriger: Boolean, val infos: InfosRecu = InfosRecu())
 
@@ -108,7 +108,8 @@ fun lireListeRecus(j: JSONObject) = ListeRecus(j.texte("date"), j.optJSONArray("
 /** Booléen facultatif : absent ou null = inconnu (null). */
 private fun JSONObject.booleenOuNul(cle: String): Boolean? = if (has(cle) && !isNull(cle)) optBoolean(cle) else null
 
-fun lireInfos(j: JSONObject?) = if (j == null) InfosRecu() else InfosRecu(j.texte("vid"), j.booleenOuNul("regle"), j.booleenOuNul("vise"), if (j.has("montant_regle") && !j.isNull("montant_regle")) j.optDouble("montant_regle") else null)
+fun lireInfos(j: JSONObject?) = if (j == null) InfosRecu() else InfosRecu(j.texte("vid"), j.booleenOuNul("regle"), j.booleenOuNul("vise"), if (j.has("montant_regle") && !j.isNull("montant_regle")) j.optDouble("montant_regle") else null,
+    if (j.has("montant_total") && !j.isNull("montant_total")) j.optDouble("montant_total") else null)
 
 fun lireDetail(j: JSONObject) = DetailRecu(lireRecu(j.getJSONObject("recu")), j.optJSONArray("lignes").liste(::lireLigne), j.optDouble("total", 0.0), j.entierOuNul("validite_clinique"), j.optBoolean("a_corriger"),
     lireInfos(j.optJSONObject("infos")))
@@ -184,3 +185,10 @@ private fun cle(r: Recu, c: ColonneTri): Any = when (c) {
     ColonneTri.CAISSIER -> r.caissier.lowercase()
     ColonneTri.REFERENCE -> r.reference
 }
+
+
+/** Nombre tapé par la personne : espaces (même insécables) retirés, virgule acceptée ; `null` si ce n'est pas un nombre positif ou nul. */
+fun lireNombreSaisi(t: String?): Double? = t?.replace(Regex("[\\s\u00A0\u202F]"), "")?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it >= 0 && !it.isNaN() && !it.isInfinite() }
+
+/** Nombre rendu à la saisie : sans décimales s'il est entier (12000), sinon deux décimales (12000.50). */
+fun formaterNombreSaisi(v: Double): String = if (Math.abs(v - Math.round(v)) < 0.005) Math.round(v).toString() else String.format(java.util.Locale.US, "%.2f", v)

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "489.1", "date": "2026-11-27",
+        "titre": "📊 Volumétrie HFSQL : liste des tables plus large",
+        "description": "Dans « Volumétrie des tables HFSQL — cache Atlas », la durée du cache est réduite à un petit champ et la liste des tables occupe toute la largeur restante (4 à 5 fois plus large).",
+        "rubrique": "📊 Volumétrie des tables HFSQL — cache Atlas",
+    },
+    {
         "lot": "489", "date": "2026-11-27",
         "titre": "🔑 Loois mobile : clé d'accès sur le domaine principal",
         "description": "Les clés d'accès de Loois mobile utilisent désormais le domaine principal de SAWALI (comme celles du site) avec son fichier de liaison à l'application ; à réessayer dans l'application après le déploiement.",

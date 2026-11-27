@@ -334,3 +334,5 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Sur tout écran, les actions (démarrer, arrêter, mesurer, actualiser, exporter, effacer, rapport…) sont des **boutons ronds à pictogramme seul**, colorés (règle 16), zone tactile d'au moins 44 px, avec **info-bulle (`title`) et libellé d'accessibilité (`aria-label`)** : jamais un gros bouton à texte.
 - Une courte légende discrète peut accompagner une rangée de pictogrammes ; le pictogramme reste l'élément principal (règle 15 : pictogramme usuel et intuitif).
 - Pages à nombreux blocs (ex. Sonde réseau) : les regrouper en **onglets** (Graphiques, Réglages, Mesures, Sauvegardes Et Envois) plutôt qu'une longue page. Modèle : `frontend/src/pages/admin/sections/SondeReseauSection.jsx` (lot 485).
+
+- Lot 489.1 (27/11/2026) : « Volumétrie des tables HFSQL — cache Atlas » (`VolumetrieHfsqlSection.jsx`) : client, plateforme et durée du cache gardent une largeur fixe (`lg:grid-cols-[11rem_13rem_6.5rem_minmax(0,1fr)]`), la liste des tables prend toute la largeur restante (4 à 5 fois plus large) ; libellé « Cache (jours) » sur une ligne pour garder les champs alignés.

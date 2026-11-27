@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "476", "date": "2026-11-27",
+        "titre": "🔥 Préchauffage au démarrage : fin du gel de 3 à 4 secondes",
+        "description": "Après un redémarrage, les modules lourds de l'agenda de Liluvine se chargent dans un fil à part : le serveur continue de répondre. La ligne « Réactivité du serveur » le confirme.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "475", "date": "2026-11-27",
         "titre": "📱 Loois mobile : connexion, Historique de Caisse et Corrections de reçus",
         "description": "Côté serveur de l'application Android : connexion de l'utilisateur avec ses identifiants Loois (mot de passe jamais gardé), Historique de Caisse, détail d'un reçu, reçus à corriger (lecture seule), le tout par la file SQL à distance, et un journal d'activité des appareils.",

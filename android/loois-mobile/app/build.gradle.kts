@@ -13,9 +13,9 @@ plugins {
 }
 
 // Version et numéro de lot affichés dans l'application (règle 1 : mis à jour à CHAQUE publication)
-val versionApp = "1.1"
-val codeVersion = 2
-val lotApp = "M2"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
+val versionApp = "1.3"
+val codeVersion = 4
+val lotApp = "M4"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
 // Date et heure de compilation (heure du Burkina Faso = UTC), affichées « déployée le JJ/MM/AAAA HH:MM » (règle 2)
 val dateCompilation: String = SimpleDateFormat("dd/MM/yyyy HH:mm").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
 
@@ -71,6 +71,11 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.fragment:fragment-ktx:1.8.3")                       // BiometricPrompt exige une FragmentActivity
+    implementation("androidx.biometric:biometric:1.1.0")                          // empreinte / visage (lot M4)
+    implementation("androidx.credentials:credentials:1.3.0")                      // Credential Manager : compte Google et clés d'accès (lot M4)
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")

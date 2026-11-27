@@ -26,9 +26,11 @@ from pydantic import BaseModel, Field
 import auth as auth_module
 import connexions_ip
 import google_auth
+import sonde_communaute
 
 logger = logging.getLogger("sawali.google")
 SCHEMA_APP = "sawali"            # réservé à une application Android (non utilisé : site seul pour l'instant)
+SCHEMA_SONDE = "sondereseau"     # lot 485 : application Android « Sonde Réseau » (retour par sondereseau://google?code=…)
 
 
 # Modèles au NIVEAU DU MODULE : FastAPI ne retrouve pas les modèles déclarés dans une fonction (annotations différées)
@@ -89,13 +91,30 @@ def attach_google_routes(api: APIRouter | FastAPI, *, db, helpers: Dict[str, Any
 
     def _vers_site(request: Request, cible: str, **params):
         params = {k: v for k, v in params.items() if v}
-        if cible == "app":
-            lien = f"{SCHEMA_APP}://google?{urlencode(params)}"
-            return HTMLResponse(f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>SAWALI</title>"
-                                f"<body style='font-family:sans-serif;text-align:center;padding:2rem'><p>Retour dans l'application SAWALI…</p>"
+        if cible in ("app", "sonde"):
+            nom_app = "SAWALI" if cible == "app" else "Sonde Réseau"
+            lien = f"{SCHEMA_APP if cible == 'app' else SCHEMA_SONDE}://google?{urlencode(params)}"
+            return HTMLResponse(f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>{nom_app}</title>"
+                                f"<body style='font-family:sans-serif;text-align:center;padding:2rem'><p>Retour dans l'application {nom_app}…</p>"
                                 f"<p><a href=\"{escape(lien)}\" style='display:inline-block;padding:1rem 2rem;background:#0a3d8f;color:#fff;border-radius:2rem;text-decoration:none'>Retourner dans l'application</a></p>"
                                 f"<script>location.href={json.dumps(lien)}</script></body>")
         return RedirectResponse(f"{_site(request)}/connexion-google?{urlencode(params)}", status_code=302)
+
+    async def _retour_sonde(request: Request, identite: dict):
+        """Lot 485 — Sonde Réseau : l'identité Google (e-mail VÉRIFIÉ, contrôlé par identite_depuis_jeton) crée ou met à jour la fiche d'un PARTICIPANT de la sonde
+        (aucun compte SAWALI n'est créé ni rapproché) et un code à usage unique de 2 minutes est remis à l'application, qui l'échange contre son jeton d'appareil
+        (POST /sonde-reseau/participant/echange, avec le consentement accepté)."""
+        pid = sonde_communaute.identifiant_participant(identite["sub"])
+        p = ((await db.settings.find_one({"_id": sonde_communaute.DOC_PARTICIPANTS}, {"p": 1}) or {}).get("p") or {})
+        if pid not in p and len(p) >= sonde_communaute.MAX_PARTICIPANTS:
+            return _vers_site(request, "sonde", erreur="plein")
+        maj = {f"p.{pid}.email": identite["email"], f"p.{pid}.nom": identite["nom"]}
+        if pid not in p:
+            maj[f"p.{pid}.cree_le"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        await db.settings.update_one({"_id": sonde_communaute.DOC_PARTICIPANTS}, {"$set": maj}, upsert=True)
+        clair, empreinte = google_auth.nouveau_code()
+        await db.google_codes.insert_one({"empreinte": empreinte, "sonde_pid": pid, "expire": time.time() + google_auth.VALIDITE_CODE_S})
+        return _vers_site(request, "sonde", code=clair)
 
     @api.get("/auth/google/config", tags=["Google"])
     async def google_config():
@@ -131,6 +150,8 @@ def attach_google_routes(api: APIRouter | FastAPI, *, db, helpers: Dict[str, Any
         identite = await echanger_code(code, _adresse_retour(request), cid, secret)
         if not identite:
             return _vers_site(request, cible, erreur="google")
+        if cible == "sonde":                                                    # application Sonde Réseau : participant, jamais un compte SAWALI
+            return await _retour_sonde(request, identite)
         existant = await db.users.find_one({"google.sub": identite["sub"]}, {"_id": 0, "id": 1, "account_status": 1})
         if etat.get("l"):                                                       # liaison du compte connecté
             if existant and existant["id"] != etat["l"]:
@@ -148,7 +169,7 @@ def attach_google_routes(api: APIRouter | FastAPI, *, db, helpers: Dict[str, Any
     async def google_echange(data: Echange, request: Request):
         """Le site remet le code à usage unique (reçu de Google). Le code est consommé tout de suite (une seule utilisation) ;
         la réponse est celle de /auth/login : un code de vérification est envoyé, la session s'ouvre par /auth/verify-otp."""
-        ligne = await db.google_codes.find_one_and_delete({"empreinte": google_auth.empreinte_code(data.code)})
+        ligne = await db.google_codes.find_one_and_delete({"empreinte": google_auth.empreinte_code(data.code), "sonde_pid": {"$exists": False}})   # un code de la sonde (lot 485) ne sert pas ici
         if not ligne or ligne.get("expire", 0) < time.time():
             raise HTTPException(status_code=401, detail="Connexion Google expirée : recommencez")
         user = await db.users.find_one({"id": ligne["user_id"]})

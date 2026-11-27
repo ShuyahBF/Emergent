@@ -67,6 +67,7 @@ import VolumetrieHfsqlSection from "@/pages/admin/sections/VolumetrieHfsqlSectio
 import AppareilsAndroidSection from "@/pages/admin/sections/AppareilsAndroidSection";   // Lot 468 : registre des appareils Android (Loois mobile)
 import PerformanceServeurSection from "@/pages/admin/sections/PerformanceServeurSection";   // Lot 463 : mémoire du serveur et appels les plus lents
 import SondeReseauSection from "@/pages/admin/sections/SondeReseauSection";   // Lot 470 : sonde de débit et de stabilité de la connexion
+import SondeCommunauteSection from "@/pages/admin/sections/SondeCommunauteSection";   // Lot 485 : espace commun des téléphones de la sonde
 import LibererEspaceSection from "@/pages/admin/sections/LibererEspaceSection";   // Lot 113 : bouton unique « 🧹 Libérer l'Espace »
 import LooisSqlDistantSection from "@/pages/admin/sections/LooisSqlDistantSection";   // Lot 446 : page SQL distant pour le téléphone
 import LooisDossiersHospitalisationSection from "@/pages/admin/sections/LooisDossiersHospitalisationSection";   // Lot 448 : page web des dossiers d'hospitalisation
@@ -1142,6 +1143,13 @@ export default function AdminSettings() {
       <Filterable title="📶 Sonde réseau — débit et stabilité de la connexion" anchorId="s-sonde-reseau" category="diagnostics">
         <Cadre title="📶 Sonde réseau — débit et stabilité de la connexion">
           <SondeReseauSection />
+        </Cadre>
+      </Filterable>
+
+      {/* Lot 485 — espace commun de la sonde : mesures des téléphones (compte Google + consentement), synthèse par lieu, connexion et opérateur */}
+      <Filterable title="🌍 Sonde réseau — espace commun des téléphones" anchorId="s-sonde-communaute" category="diagnostics">
+        <Cadre title="🌍 Sonde réseau — espace commun des téléphones">
+          <SondeCommunauteSection />
         </Cadre>
       </Filterable>
 

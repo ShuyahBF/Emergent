@@ -76,4 +76,34 @@ class ContratSawaliTest {
         val sans = lireStatut(charger("statut"))
         assertEquals(emptyList<String>(), sans.serveursLocaux); assertEquals("", sans.ticketLocal)
     }
+
+    @Test fun tableauDeBordDuJour() {
+        // Connexion d'un profil « client » : le droit du tableau de bord est lu
+        assertTrue(lireDroits(charger("connexion_client").getJSONObject("droits")).tableauDeBord)
+        val t = lireTableau(charger("tableau"))
+        assertEquals("2026-11-26", t.date); assertEquals(4, t.nombre)
+        assertEquals(25600.5, t.total, 0.001); assertEquals(3, t.parCaissier.size)
+        assertEquals("TASSEMBH", t.parCaissier[0].caissier); assertEquals(17000.0, t.parCaissier[0].montant, 0.001)
+    }
+
+    @Test fun tableauDeBordSemaine() {
+        val w = lireSemaine(charger("semaine"))
+        assertEquals(7, w.jours.size); assertEquals("2026-11-26", w.jours.last().date); assertEquals(4, w.jours.last().nombre)
+    }
+
+    @Test fun montantsCourtsDesGraphiques() {
+        assertEquals("800", formaterMontantCourt(800.0)); assertEquals("25,6 k", formaterMontantCourt(25600.0)); assertEquals("1,3 M", formaterMontantCourt(1250000.0))
+        assertEquals("26/11", jourCourt("2026-11-26"))
+    }
+
+    @Test fun connexionRapideConfigListeEtSession() {
+        val cfg = lireConfigRapide(charger("rapide_config"))
+        assertTrue(cfg.google); assertEquals("cid.apps.googleusercontent.com", cfg.googleClientId); assertEquals("api.sawalismartsystems.com", cfg.rpId)
+        val l = lireLiaisons(charger("rapide_liste"))
+        assertEquals(setOf("google", "biometrie"), l.map { it.methode }.toSet())
+        assertEquals("a***@gmail.com", l.first { it.methode == "google" }.detail)
+        // La connexion rapide rend la MÊME réponse que la connexion par mot de passe
+        val r = charger("rapide_connexion")
+        assertTrue(r.getString("session").isNotBlank()); assertEquals("tassembh", r.getJSONObject("utilisateur").getString("login")); assertTrue(lireDroits(r.getJSONObject("droits")).caisse)
+    }
 }

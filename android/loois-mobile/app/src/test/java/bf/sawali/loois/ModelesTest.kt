@@ -70,4 +70,17 @@ class ModelesTest {
         assertEquals("Trop de demandes : patientez un instant.", messageErreur(429, "pas du json"))
         assertEquals("Erreur du serveur (500).", messageErreur(500, ""))
     }
+
+    @Test fun profilDeZoneAllerRetourEtValeursInvalides() {
+        val p = ProfilZone("tassembh", setOf("biometrie", "google"), "google", "internet", "http://192.168.1.10:8750")
+        assertEquals(p, profilDepuisJson(profilVersJson(p)))
+        assertEquals(ProfilZone(), profilDepuisJson(null)); assertEquals(ProfilZone(), profilDepuisJson("pas du json"))
+        assertEquals(setOf("cle"), profilDepuisJson("""{"login":"x","methodes":["cle","inconnue"]}""").methodes)     // une méthode inconnue est ignorée
+        assertFalse(profilVersJson(p).contains("mot_de_passe", true))                                                // jamais de mot de passe
+    }
+
+    @Test fun zonesMemoriseesSeparement() {
+        assertEquals("docx_cmc", cleZone("docx=CMC")); assertEquals("doc_cmc", cleZone(" /doc=CMC ")); assertTrue(cleZone("docx=CMC") != cleZone("doc=CMC"))
+        assertEquals("Compte Google", libelleMethode("google")); assertEquals("Empreinte / visage", libelleMethode("biometrie"))
+    }
 }

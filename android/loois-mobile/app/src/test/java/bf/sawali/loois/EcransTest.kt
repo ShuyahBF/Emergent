@@ -98,6 +98,56 @@ class EcransTest {
         rule.onNodeWithText("2 ligne(s)").assertIsDisplayed()
     }
 
+    @Test fun tableauDeBordMontreLesIndicateursEtLesCaissiers() {
+        val t = TableauJour("2026-11-26", 4, 25600.5, 6400.12, listOf(LigneCaissier("TASSEMBH", 2, 17000.0), LigneCaissier("ASI2020", 2, 8600.5)))
+        val sem = Semaine("2026-11-26", listOf(JourSemaine("2026-11-25", 3, 9000.0), JourSemaine("2026-11-26", 4, 25600.5)), 34600.5, 7)
+        afficher(UiEtat(ecran = Ecran.TABLEAU, statut = statut, utilisateur = Utilisateur("CLIENT", "", "Biolog"), droits = Droits(false, false, false, false, false, false, true), tableau = t, semaine = sem))
+        rule.onNodeWithText("Tableau De Bord").assertIsDisplayed()
+        rule.onNodeWithText("Par caissier").assertIsDisplayed()
+        rule.onNodeWithText("TASSEMBH").assertIsDisplayed()
+        rule.onNodeWithText("7 derniers jours").assertIsDisplayed()
+    }
+
+    @Test fun menuMontreLeTableauDeBordPourUnClient() {
+        afficher(UiEtat(ecran = Ecran.MENU, statut = statut, utilisateur = Utilisateur("CLIENT", "", "Biolog"), droits = Droits(false, false, false, false, false, false, true), serveur = "actif"))
+        rule.onNodeWithText("Tableau De Bord").assertIsDisplayed()
+    }
+
+    @Test fun connexionMontreLIdentifiantMemoriseEtLesMethodesRapides() {
+        afficher(UiEtat(ecran = Ecran.CONNEXION, statut = statut, serveur = "actif", profil = ProfilZone("tassembh", setOf("biometrie", "cle"), "cle")))
+        rule.onNodeWithText("tassembh").assertIsDisplayed()                                         // identifiant retrouvé pour la zone
+        rule.onNodeWithText("Mémoriser l'identifiant pour cette zone").assertIsDisplayed()
+        rule.onNodeWithText("Connexion rapide — tassembh").assertIsDisplayed()
+        rule.onNodeWithText("Empreinte / visage").assertExists(); rule.onNodeWithText("Clé d'accès").assertExists()
+        assertEquals(0, rule.onAllNodesWithTextCount("Compte Google"))                              // seulement les méthodes activées pour la zone
+    }
+
+    @Test fun connexionSansMethodeRapideNeMontreRien() {
+        afficher(UiEtat(ecran = Ecran.CONNEXION, statut = statut, serveur = "actif"))
+        assertEquals(0, rule.onAllNodesWithTextCount("Connexion rapide"))
+    }
+
+    @Test fun menuProposeLaConnexionRapide() {
+        afficher(UiEtat(ecran = Ecran.MENU, statut = statut, utilisateur = Utilisateur("TASSEMBH", "", "Biolog"), droits = droitsCaissier, serveur = "actif"))
+        rule.onNodeWithText("Connexion Rapide").assertIsDisplayed()
+    }
+
+    @Test fun ecranRapideMontreLEtatDesTroisMethodes() {
+        afficher(UiEtat(ecran = Ecran.RAPIDE, statut = statut, utilisateur = Utilisateur("TASSEMBH", "", "Biolog"), droits = droitsCaissier,
+            configRapide = ConfigRapide(false, "", "api.sawalismartsystems.com"), rapide = listOf(LiaisonRapide("a1", "biometrie", "", "2026-11-27T03:00:00", ""))))
+        rule.onNodeWithText("Connexion Rapide").assertIsDisplayed()
+        rule.onNodeWithText("Empreinte / visage").assertIsDisplayed(); rule.onNodeWithText("Compte Google").assertExists(); rule.onNodeWithText("Clé d'accès").assertExists()
+        rule.onNodeWithText("Activée").assertExists()                                                // empreinte activée
+        rule.onNodeWithText("Pas encore configuré sur SAWALI", substring = true).assertExists()      // Google non configuré : expliqué, pas de bouton
+    }
+
+    @Test fun parametresMontrentLaMemorisationDeLaZone() {
+        afficher(UiEtat(ecran = Ecran.PARAMETRES, statut = statut, urlSawali = "https://api.sawalismartsystems.com", mode = "auto", profil = ProfilZone("tassembh", setOf("google"))))
+        rule.onNodeWithText("Mémorisé pour la zone /docx=CMC").assertIsDisplayed()
+        rule.onNodeWithText("Identifiant : tassembh", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("Oublier Cette Zone").assertIsDisplayed()
+    }
+
     @Test fun parametresMontrentLesServeursLocauxRecusDeSawali() {
         afficher(UiEtat(ecran = Ecran.PARAMETRES, urlSawali = "https://api.sawalismartsystems.com", mode = "auto", serveursLocaux = listOf("http://192.168.1.10:8750"), ticketExpire = "30/11/2026 14:05"))
         rule.onNodeWithText("Serveurs locaux reçus de SAWALI").assertIsDisplayed()

@@ -185,6 +185,10 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         al.effacer_echecs(cle)
         login = str(lignes[0][0]).strip() or corps.login
         autoriser = al.vrai(lignes[0][1]) if espace["autoriser"] and len(lignes[0]) > 1 else False
+        return await _emettre(appareil, espace, login, autoriser, "réussie")
+
+    async def _emettre(appareil: Dict[str, Any], espace: Dict[str, Any], login: str, autoriser: bool, detail: str) -> Dict[str, Any]:
+        """Ouvre la session d'un utilisateur DÉJÀ authentifié (mot de passe vérifié, ou connexion rapide du lot 484) : groupe, droits, jeton signé."""
         q_groupe, q_suppr = al.sql_colonne_utilisateur(espace, "groupe", login), al.sql_colonne_utilisateur(espace, "supprimer", login)
         groupe_v, suppr_v = await asyncio.gather(_executer(appareil, q_groupe, tolerant=True) if q_groupe else _vide(), _executer(appareil, q_suppr, tolerant=True) if q_suppr else _vide())
         groupe = str((groupe_v.get("lignes") or [[""]])[0][0] or "").strip()
@@ -192,7 +196,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         d = al.droits(espace, login, groupe, autoriser, peut_supprimer, profil=appareil.get("profil") or "agent")
         secret = await sl.secret_client(db, appareil["client_code"], creer=True)
         session = sl.creer_session(secret, appareil["id"], login, groupe, d)
-        await _journal(appareil, login, "connexion", "réussie", "ok")
+        await _journal(appareil, login, "connexion", detail, "ok")
         return {"session": session, "expire_dans_s": sl.SESSION_TTL_H * 3600, "utilisateur": {"login": login, "groupe": groupe, "espace": espace["nom"]}, "droits": d,
                 "appareil": {"zone": appareil["zone"], "base": appareil.get("base", ""), "client": appareil["client_code"]}}
 
@@ -354,3 +358,8 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         fiche = await db.settings.find_one({"_id": ID_JOURNAL}) or {}
         lignes = list(reversed(fiche.get("lignes") or []))[:max(1, min(limite, MAX_JOURNAL))]
         return {"lignes": lignes, "total": len(fiche.get("lignes") or [])}
+
+    # ------------------------------------------------------------------------------------------------------------------ connexion rapide (lot 484)
+    from routes.connexion_rapide import attacher_connexion_rapide
+    attacher_connexion_rapide(db=db, api=api, get_current_user=get_current_user, appareil_dep=_appareil, session_dep=_session, journal=_journal,
+                              emettre=_emettre, executer=_executer, interne=_interne)

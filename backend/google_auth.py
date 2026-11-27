@@ -34,8 +34,8 @@ def _b64_inverse(texte: str) -> bytes:
 
 
 def signer_etat(cible: str, lier_user_id: str | None, secret: str, maintenant: float | None = None) -> str:
-    """État signé (HMAC-SHA256) : cible « web » ou « app », compte à lier (ou None pour une connexion), échéance, nonce."""
-    corps = {"c": "app" if cible == "app" else "web", "l": lier_user_id, "e": int((maintenant or time.time()) + VALIDITE_ETAT_S), "n": secrets.token_hex(8)}
+    """État signé (HMAC-SHA256) : cible « web », « app » ou « sonde » (application Sonde Réseau, lot 485), compte à lier (ou None pour une connexion), échéance, nonce."""
+    corps = {"c": cible if cible in ("app", "sonde") else "web", "l": lier_user_id, "e": int((maintenant or time.time()) + VALIDITE_ETAT_S), "n": secrets.token_hex(8)}
     brut = _b64(json.dumps(corps, separators=(",", ":")).encode())
     return f"{brut}.{_b64(hmac.new(secret.encode(), brut.encode(), hashlib.sha256).digest())}"
 

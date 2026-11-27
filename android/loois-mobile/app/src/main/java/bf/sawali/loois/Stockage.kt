@@ -58,6 +58,19 @@ class Stockage(contexte: Context) {
         get() = prefs.getString("dernier_statut", "") ?: ""
         set(v) = prefs.edit().putString("dernier_statut", v).apply()
 
+    // ---------------------------------------------------------------- mémorisation PAR ZONE (lot M4) : jamais de mot de passe
+    /** Ce qui est mémorisé pour cette zone (dernier identifiant, méthodes rapides, réglages réseau). */
+    fun profil(zone: String): ProfilZone = profilDepuisJson(prefs.getString("zone_" + cleZone(zone), null))
+    fun enregistrerProfil(zone: String, p: ProfilZone) = prefs.edit().putString("zone_" + cleZone(zone), profilVersJson(p)).apply()
+    fun modifierProfil(zone: String, f: (ProfilZone) -> ProfilZone) = enregistrerProfil(zone, f(profil(zone)))
+
+    /** Secret biométrique (déjà chiffré par une clé que seule l'empreinte déverrouille) d'un identifiant de cette zone. */
+    fun secretBiometrique(zone: String, login: String): String? = prefs.getString("bio_${cleZone(zone)}_${login.uppercase()}", null)
+    fun ecrireSecretBiometrique(zone: String, login: String, v: String?) {
+        val cle = "bio_${cleZone(zone)}_${login.uppercase()}"
+        if (v == null) prefs.edit().remove(cle).apply() else prefs.edit().putString(cle, v).apply()
+    }
+
     fun oublierAppareil() { prefs.edit().remove("jeton").remove("appareil_id").remove("secret_ticket_local").remove("serveurs_locaux").remove("dernier_statut").apply() }
 
     // ---------------------------------------------------------------- secrets chiffrés (AES-GCM, clé dans le Keystore Android)

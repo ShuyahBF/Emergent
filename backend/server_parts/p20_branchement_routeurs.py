@@ -239,6 +239,8 @@ _setup_appareils_android(db=db, api=api, get_current_user=get_current_user)
 # Lot 470 — Sonde réseau : mesures de débit / stabilité de la connexion envoyées par la page des Paramètres (administrateur seul)
 from routes.sonde_reseau import setup_sonde_reseau_routes as _setup_sonde_reseau  # noqa: E402
 _setup_sonde_reseau(db=db, api=api, get_current_user=get_current_user)
+from routes.sonde_communaute import setup_sonde_communaute_routes as _setup_sonde_communaute  # noqa: E402  (lot 485 : espace commun de la sonde)
+_setup_sonde_communaute(db=db, api=api, get_current_user=get_current_user)
 # Lot 475 — « Loois mobile » : connexion de l'utilisateur, Historique de Caisse, détail d'un reçu, Corrections de reçus (lecture seule) par la file « SQL à distance »
 from routes.android_loois import setup_android_loois_routes as _setup_android_loois  # noqa: E402
 _setup_android_loois(db=db, api=api, get_current_user=get_current_user)
@@ -1683,3 +1685,6 @@ _attach_formulaire_automates(
         "fonction_active_pour_compte": _fonction_active_pour_compte,
     },
 )
+# Lot 484 — fichier public /.well-known/assetlinks.json (clés d'accès de « Loois mobile » : Digital Asset Links)
+from routes.connexion_rapide import attacher_assetlinks as _attacher_assetlinks  # noqa: E402
+_attacher_assetlinks(app)

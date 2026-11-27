@@ -145,6 +145,10 @@ function AppelsLents() {
           Depuis {quand(d.depuis)} : <b>{nombre(d.appels)}</b> appels sur <b>{d.routes}</b> routes, dont <b className="text-orange-700">{nombre(d.lents)}</b> de plus d'{objectif / 1000} s et <b className="text-red-700">{nombre(d.erreurs)}</b> en erreur serveur.
           Objectif : toute route d'affichage répond en moins d'{objectif / 1000} s ; c'est la route la plus lente qu'on corrige, jamais au hasard. « Requêtes base / appel » : chaque requête à MongoDB coûte environ 10 ms d'aller-retour (serveur à Francfort, Atlas à Paris) : une route à 25 requêtes ou plus (en rouge) est à corriger en priorité ; le temps base est cumulé (il peut dépasser la durée de l'appel si les requêtes se chevauchent).
         </p>)}
+      {d?.boucle && d.boucle.mesures > 0 && (
+        <p className={`text-xs ${d.boucle.retard_max_ms >= 500 ? "text-red-700 font-semibold" : d.boucle.blocages_100ms > 0 ? "text-orange-700" : "text-slate-600"}`} data-testid="reactivite-serveur">
+          Réactivité du serveur : retard moyen <b>{nombre(d.boucle.retard_moy_ms)} ms</b>, maximum <b>{nombre(d.boucle.retard_max_ms)} ms</b>, <b>{nombre(d.boucle.blocages_100ms)}</b> blocage(s) de plus de 100 ms
+          sur {nombre(d.boucle.mesures)} relevés. Près de zéro : tout va bien ; plusieurs centaines de ms : un calcul bloque le serveur et ralentit TOUTES les routes en même temps.</p>)}
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <button type="button" onClick={() => charger(true)} disabled={enCours} data-testid="appels-actualiser" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm disabled:opacity-50"><RefreshCw className="w-4 h-4" /> Actualiser</button>
         <button type="button" onClick={remettre} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm"><Eraser className="w-4 h-4" /> Remettre à zéro</button>

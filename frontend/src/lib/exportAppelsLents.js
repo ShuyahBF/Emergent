@@ -32,6 +32,7 @@ export function appelsEnJson(appels, memoire, exporteLe) {
     objectif_ms: appels.objectif_ms,
     totaux: { routes: appels.routes, appels: appels.appels, appels_de_plus_d_1_s: appels.lents, erreurs_5xx: appels.erreurs },
     memoire: memoire && memoire.lisible ? { utilise_mo: memoire.utilise_mo, limite_mo: memoire.limite_mo, pourcentage: memoire.pourcentage, processus_mo: memoire.processus_mo ?? null } : null,
+    boucle: appels.boucle || null,               // réactivité du serveur : retard de la boucle d'événements (près de zéro = tout va bien)
     champs: CHAMPS_APPELS,
     classement: appels.classement || [],         // toutes les routes, de la plus lente (moyenne) à la plus rapide
   }, null, 2);

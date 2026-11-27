@@ -44,3 +44,40 @@ def test_une_valeur_vide_ou_nulle_est_bien_mise_en_cache():
     c = CacheCourt(duree_s=45, horloge=Horloge())
     c.ecrire("zero", 0); c.ecrire("vide", {})
     assert c.lire("zero") == 0 and c.lire("vide") == {}     # 0 et {} sont des valeurs, pas des « absents » (seul None signifie « pas en cache »)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# Lot 474 — cache d'objets (fichiers du stockage externe) à budget de mémoire borné
+# ---------------------------------------------------------------------------------------------------------------------------------------
+from cache_court import CacheOctets  # noqa: E402
+
+
+def test_cache_d_objets_garde_les_petits_et_refuse_les_gros():
+    h = Horloge(); c = CacheOctets(duree_s=600, max_total=100, max_objet=40, horloge=h)
+    assert c.ecrire("petit", b"x" * 30, "image/png") is True
+    assert c.lire("petit") == (b"x" * 30, "image/png")
+    assert c.ecrire("gros", b"x" * 41, "image/png") is False            # plus gros que la limite par objet : jamais gardé
+    assert c.lire("gros") is None and c.total == 30
+
+
+def test_cache_d_objets_respecte_le_budget_total_en_retirant_les_plus_anciens():
+    h = Horloge(); c = CacheOctets(duree_s=600, max_total=100, max_objet=60, horloge=h)
+    for cle in ("a", "b", "c"):
+        h.t += 1; assert c.ecrire(cle, b"x" * 40, "t")                   # a (40) + b (40) = 80 ; c (40) ne tient pas : a est retiré
+    assert c.lire("a") is None and c.lire("b") is not None and c.lire("c") is not None
+    assert c.total == 80 <= 100
+
+
+def test_cache_d_objets_expire_et_se_vide():
+    h = Horloge(); c = CacheOctets(duree_s=600, max_total=1000, max_objet=500, horloge=h)
+    c.ecrire("x", b"abc", "t")
+    h.t += 599; assert c.lire("x") is not None
+    h.t += 2; assert c.lire("x") is None and c.total == 0                # expiré : retiré, la mémoire est rendue
+    c.ecrire("y", b"abc", "t"); c.invalider()
+    assert len(c) == 0 and c.total == 0
+
+
+def test_reecrire_la_meme_cle_ne_double_pas_la_memoire():
+    c = CacheOctets(duree_s=600, max_total=100, max_objet=60, horloge=Horloge())
+    c.ecrire("k", b"x" * 50, "t"); c.ecrire("k", b"y" * 30, "t")
+    assert c.total == 30 and c.lire("k") == (b"y" * 30, "t")

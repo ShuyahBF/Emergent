@@ -1590,6 +1590,8 @@ async def serve_file(request: Request, file_id: str):
     common_headers = {
         "Accept-Ranges": "bytes",
         "Content-Type": content_type,
+        # Lot 474 : un fichier a un identifiant unique et ne change pas : le navigateur (et Meta) le gardent 1 heure au lieu de le redemander à chaque affichage
+        "Cache-Control": "public, max-age=3600",
     }
     if is_inline_media:
         common_headers["Content-Disposition"] = inline_disposition

@@ -74,10 +74,10 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             e["a_une_cle"] = bool((e.pop("secret", None) or "").strip())
     except Exception:  # noqa: BLE001
         emetteurs = []
-    for e in emetteurs:
+    async def _une_plateforme(e):
         code = e.get("code")
         if not code:
-            continue
+            return None
         base = {"emetteur": code, "date": periode}
         # Lot 72 — les 7 comptages de la plateforme en parallèle (au lieu de l'un après l'autre)
         envois, reussis, remis, lus, reponses, desinscriptions, incidents = await asyncio.gather(
@@ -90,7 +90,7 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
             _compter(db, "liluvine_incidents", {"emetteur": code, "date": periode}))
         quota = int(e.get("quota_jour") or 0)
         robots = await robots_plateforme(db, code, periode)    # lot 119 : visites de robots masquées
-        resultat.append({
+        return {
             "robots": robots,
             "code": code,
             "nom": e.get("nom") or code,
@@ -114,7 +114,9 @@ async def activite_plateformes(db, debut_iso: str, fin_iso: str, avec_interne: b
                 ("la clé (secret) de l'émetteur", not e.get("a_une_cle")),
                 ("l'activation de l'émetteur", not e.get("actif", True)),
             ) if absent],
-        })
+        }
+    # Lot 474 — toutes les plateformes EN MÊME TEMPS (avant : l'une après l'autre, 100 requêtes en file) ; l'ordre des émetteurs est conservé
+    resultat = [x for x in await asyncio.gather(*[_une_plateforme(e) for e in emetteurs]) if x is not None]
     # Lot 62 — statistiques internes de chaque plateforme (appels signés, en parallèle)
     if avec_interne and resultat:
         try:
@@ -178,6 +180,10 @@ def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
     return "\n".join(lignes)
 
 
+from cache_court import CacheCourt as _CacheCourtActivite  # noqa: E402
+_CACHE_ACTIVITE = _CacheCourtActivite(duree_s=45.0, max_entrees=40)
+
+
 def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:
     """Lot 61.1 — écran « Activité des plateformes » (administration → Synthèse Liluvine)."""
     from datetime import datetime, timedelta, timezone
@@ -195,11 +201,18 @@ def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs et superviseurs")
         if temps_reel and user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Page réservée à l'administrateur")
-        fin = datetime.now(timezone.utc)
-        debut = fin - timedelta(days=jours)
-        # Lot 72 — page d'administration : derniers chiffres tout de suite, rafraîchis en arrière-plan
-        items = await activite_plateformes(db, debut.isoformat(), fin.isoformat(),
-                                           cache_s=60 if temps_reel else 600, sans_attendre=True)
+        # Lot 474 — chaque appel refaisait ~100 requêtes (7 comptages + robots PAR plateforme) : le résultat est gardé 45 s par période (la page « temps réel » se
+        # rafraîchit chaque minute). Les statistiques internes gardent leur propre cache (lot 72).
+        cle = f"{jours}|{temps_reel}"
+        garde = _CACHE_ACTIVITE.lire(cle)
+        if garde is None:
+            fin = datetime.now(timezone.utc)
+            debut = fin - timedelta(days=jours)
+            # Lot 72 — page d'administration : derniers chiffres tout de suite, rafraîchis en arrière-plan
+            items = await activite_plateformes(db, debut.isoformat(), fin.isoformat(),
+                                               cache_s=60 if temps_reel else 600, sans_attendre=True)
+            garde = _CACHE_ACTIVITE.ecrire(cle, (debut, fin, items))
+        debut, fin, items = garde
         return {"debut": debut.isoformat(), "fin": fin.isoformat(), "jours": jours,
                 "items": items, "texte": bloc_plateformes(items)}
 

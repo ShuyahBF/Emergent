@@ -809,19 +809,21 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
 _ROADMAP_SYNCHRO: Dict[str, Any] = {}
 
 
-@api.get("/admin/roadmap-actions", tags=["Admin"])
-async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
-    """Liste toutes les actions de la roadmap triées par code croissant. Initialisée au 1er appel.
-    Iter34j: One-shot backfill of `status` for rows that pre-date the field.
-    Iter38f: Auto-syncs CHANGELOG.md entries on every call (idempotent)."""
-    # Lot 72 — la liste initiale et CHANGELOG.md ne changent qu'avec un déploiement : leur synchronisation
-    # (des centaines de lectures une par une, ~6 s) n'est faite qu'une fois par démarrage du serveur, ou quand
-    # CHANGELOG.md a changé (date de modification). Avant, elle était refaite à CHAQUE ouverture de la page.
+# Lot 474 — la synchronisation (366 lectures, 4 s) retardait la PREMIÈRE visite de la page après chaque redémarrage. Elle est maintenant aussi lancée au DÉMARRAGE du serveur,
+# en arrière-plan (voir p17) ; un verrou évite qu'elle tourne deux fois en même temps si la page est ouverte pendant ce temps.
+import asyncio as _asyncio_roadmap  # noqa: E402
+_ROADMAP_VERROU = _asyncio_roadmap.Lock()
+
+
+async def _roadmap_synchroniser() -> None:
+    """Initialise la liste et la synchronise avec CHANGELOG.md, une fois par version du fichier (voir le lot 72 ci-dessous)."""
     try:
         empreinte = _CHANGELOG_PATH.stat().st_mtime if _CHANGELOG_PATH.exists() else 0
     except OSError:
         empreinte = 0
-    if _ROADMAP_SYNCHRO.get("empreinte") != empreinte:
+    async with _ROADMAP_VERROU:
+        if _ROADMAP_SYNCHRO.get("empreinte") == empreinte:
+            return
         await _seed_roadmap_actions()
         # Iter38f — Auto-sync from /app/memory/CHANGELOG.md (best-effort, never blocks)
         try:
@@ -835,6 +837,16 @@ async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
         except Exception:
             pass
         _ROADMAP_SYNCHRO["empreinte"] = empreinte
+
+
+@api.get("/admin/roadmap-actions", tags=["Admin"])
+async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
+    """Liste toutes les actions de la roadmap triées par code croissant. Initialisée au 1er appel.
+    Iter34j: One-shot backfill of `status` for rows that pre-date the field.
+    Iter38f: Auto-syncs CHANGELOG.md entries on every call (idempotent)."""
+    # Lot 72 — la liste initiale et CHANGELOG.md ne changent qu'avec un déploiement : leur synchronisation n'est faite qu'une fois par démarrage du serveur
+    # (lot 474 : au démarrage, en arrière-plan), ou quand CHANGELOG.md a changé (date de modification).
+    await _roadmap_synchroniser()
     items = [r async for r in db.roadmap_actions.find({}, {"_id": 0}).sort("code", 1)]
     total_h = sum(float(r.get("duration_h") or 0) for r in items if r.get("done"))
     total_xof = sum(int(r.get("cost_xof") or 0) for r in items if r.get("done"))

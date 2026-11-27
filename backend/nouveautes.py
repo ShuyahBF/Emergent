@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "474", "date": "2026-11-27",
+        "titre": "🧭 Appels lents : fichiers, appels WhatsApp, plateformes et réactivité du serveur",
+        "description": "Les images du stockage externe restent 10 minutes en mémoire, les appels WhatsApp en cours et l'activité des plateformes font beaucoup moins de requêtes, la roadmap se synchronise au démarrage, et une nouvelle ligne « Réactivité du serveur » dit si un calcul bloque le serveur (ce qui ralentirait toutes les routes en même temps).",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "473", "date": "2026-11-27",
         "titre": "⚡ Moins de requêtes à la base : le portail s'allège",
         "description": "D'après l'export des appels lents : les compteurs de la barre latérale (25 % de toutes les requêtes du serveur), le non-lu WhatsApp, l'état de la sauvegarde, le diagnostic des données orphelines et la liste des modèles WhatsApp sont gardés quelques secondes au lieu d'être relus à chaque appel. Comparez dans le tableau « Appels les plus lents ».",

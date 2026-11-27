@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "485", "date": "2026-11-27",
+        "titre": "📶 Sonde réseau : quatre onglets et boutons en pictogrammes",
+        "description": "La page est rangée en onglets (Graphiques, Réglages, Mesures, Sauvegardes Et Envois) ; démarrer, mesurer, actualiser, rapport, export et effacement sont des pictogrammes colorés avec info-bulle au lieu de gros boutons.",
+        "rubrique": "📶 Sonde réseau — débit et stabilité de la connexion",
+    },
+    {
         "lot": "483", "date": "2026-11-27",
         "titre": "📱 Loois mobile : tableau de bord de suivi et profil « client »",
         "description": "Nouveau choix « Profil de l'appareil » (Agent ou Client) : le téléphone d'un responsable d'établissement ouvre un tableau de bord (reçus et montants du jour, par caissier, 7 derniers jours). L'administrateur de Loois y a aussi accès ; le laboratoire jamais.",

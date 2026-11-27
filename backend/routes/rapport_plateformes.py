@@ -28,10 +28,16 @@ def fenetre_plateformes(debut, fin) -> tuple:
     return debut.isoformat(), (fin + timedelta(days=1)).isoformat()
 
 
+# Lot 477 — au plus 8 comptages à la fois : 72 comptages lancés d'un coup occupaient toutes les connexions à la base et ralentissaient
+# aussi les routes légères (pics de 1,5 s constatés sur des routes à 1 requête).
+_FEU_COMPTAGES = asyncio.Semaphore(8)
+
+
 async def _compter(db, collection: str, filtre: Dict[str, Any]) -> int:
     """Nombre de documents (0 si la collection est absente ou en erreur)."""
     try:
-        return await db[collection].count_documents(filtre)
+        async with _FEU_COMPTAGES:
+            return await db[collection].count_documents(filtre)
     except Exception:  # noqa: BLE001
         return 0
 
@@ -181,7 +187,7 @@ def bloc_plateformes(plateformes: List[Dict[str, Any]]) -> str:
 
 
 from cache_court import CacheCourt as _CacheCourtActivite  # noqa: E402
-_CACHE_ACTIVITE = _CacheCourtActivite(duree_s=45.0, max_entrees=40)
+_CACHE_ACTIVITE = _CacheCourtActivite(duree_s=120.0, max_entrees=40)
 
 
 def setup_rapport_plateformes_routes(*, db, api, get_current_user) -> None:

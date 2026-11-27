@@ -67,6 +67,7 @@ LANG_CODES = {lang["code"] for lang in SUPPORTED_LANGS}
 import time as _time
 
 _DUREE_CACHE_TRADUCTIONS_S = 30.0
+_SEED_VERIFIE = {"fait": False}               # lot 477 : le jeu de départ n'est contrôlé qu'une fois par processus
 _CACHE_TRADUCTIONS: Dict[str, tuple] = {}      # langue -> (instant de création, réponse déjà prête)
 
 
@@ -416,12 +417,18 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             but present in the seed (so e.g. adding AR translations to the
             seed automatically fills rows that were missing AR).
         """
+        # Lot 477 — fin de la boucle N+1 : une SEULE lecture pour toutes les clés du jeu de départ (avant : une lecture par clé, ~190 requêtes
+        # à chaque expiration du cache), et le contrôle n'est refait qu'UNE fois par processus (l'administration vide le cache à chaque écriture).
+        if _SEED_VERIFIE["fait"]:
+            return
         try:
+            cles = [s["key"] for s in SEED_KEYS]
+            deja = {}
+            async for ligne in db.i18n_translations.find(
+                    {"key": {"$in": cles}}, {"_id": 0, "key": 1, "fr": 1, "en": 1, "ar": 1, "lg1": 1, "lg2": 1, "context": 1}):
+                deja[ligne["key"]] = ligne
             for s in SEED_KEYS:
-                existing = await db.i18n_translations.find_one(
-                    {"key": s["key"]},
-                    {"_id": 0, "key": 1, "fr": 1, "en": 1, "ar": 1, "lg1": 1, "lg2": 1, "context": 1},
-                )
+                existing = deja.get(s["key"])
                 if not existing:
                     doc = {
                         "key": s["key"],
@@ -451,6 +458,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                         {"key": s["key"]}, {"$set": patch},
                     )
                     _vider_cache_traductions()
+            _SEED_VERIFIE["fait"] = True      # succès complet : plus de relecture avant le prochain redémarrage
         except Exception as exc:  # noqa: BLE001
             logger.warning("[i18n] seed upsert failed: %s", exc)
 

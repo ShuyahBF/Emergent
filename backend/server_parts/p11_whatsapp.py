@@ -1974,7 +1974,7 @@ def _wa_attribute(ids: set, by_suffix: Dict[str, str], contact_id: Optional[str]
     return contact_id if contact_id in ids else by_suffix.get(_phone_suffix(phone))
 
 
-async def _wa_unread_summary_calcul(user: dict) -> Dict[str, Any]:
+async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
     """Non-lus WhatsApp du Centre de Messagerie — SOURCE UNIQUE pour la
     pastille de chaque contact, le total du badge de la sidebar et la cloche.
 
@@ -2024,17 +2024,23 @@ async def _wa_unread_summary_calcul(user: dict) -> Dict[str, Any]:
 
 
 # Lot 473 — la barre latérale demande ce résumé DEUX fois par cycle (/me/whatsapp/unread et /me/notifications/counts) : 9 requêtes à chaque fois. Gardé 5 s par
-# utilisateur ; tout « marquer comme lu » le vide aussitôt.
+# utilisateur ; tout « marquer comme lu » le vide aussitôt. Le cache est posé APRÈS la définition (la fonction d'origine reste telle quelle, ce qui laisse les tests
+# du Centre de Messagerie, qui l'extraient du fichier, la voir sans cache).
 from cache_court import CacheCourt as _CacheCourtWa  # noqa: E402
 _CACHE_RESUME_WA = _CacheCourtWa(duree_s=5.0, max_entrees=300)
 
 
-async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
-    cle = f"{user.get('id')}|{user.get('role')}"
-    garde = _CACHE_RESUME_WA.lire(cle)
-    if garde is not None:
-        return garde
-    return _CACHE_RESUME_WA.ecrire(cle, await _wa_unread_summary_calcul(user))
+def _avec_cache_resume_wa(calcul):
+    async def garde(user: dict) -> Dict[str, Any]:
+        cle = f"{user.get('id')}|{user.get('role')}"
+        garde_en_memoire = _CACHE_RESUME_WA.lire(cle)
+        if garde_en_memoire is not None:
+            return garde_en_memoire
+        return _CACHE_RESUME_WA.ecrire(cle, await calcul(user))
+    return garde
+
+
+_wa_unread_summary = _avec_cache_resume_wa(_wa_unread_summary)
 
 
 @api.post("/me/whatsapp/mark-all-read", tags=["Portail Client"])

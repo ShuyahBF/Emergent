@@ -23,7 +23,8 @@ pytest.importorskip("mongomock_motor")
 from mongomock_motor import AsyncMongoMockClient  # noqa: E402
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
-from _source_serveur import lire_source  # noqa: E402 — lot 28 : server.py découpé en server_parts/
+from _source_serveur import lire_source  # noqa: E402
+from cache_court import CacheCourt  # noqa: E402 — lot 28 : server.py découpé en server_parts/
 FUNCS = {"_phone_suffix", "_contact_phone_clauses", "_wa_unread_summary", "me_whatsapp_unread",
          "me_contact_messages_mark_read", "me_contact_messages", "me_list_contacts",
          # Lot 24
@@ -56,6 +57,8 @@ def _load(db) -> Dict[str, Any]:
         "datetime": datetime, "timedelta": timedelta, "timezone": timezone,
         "_now": lambda: datetime.now(timezone.utc).isoformat(),
         "WA_24H_WINDOW_SECONDS": 86400, "_wa_window_open": lambda ts: bool(ts),
+        # lot 473 : les gestionnaires « marquer comme lu » vident le cache du résumé ; ici un cache de durée nulle (il ne garde jamais rien)
+        "_CACHE_RESUME_WA": CacheCourt(duree_s=0),
     }
 
     async def _visible(user):

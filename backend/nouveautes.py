@@ -18,10 +18,13 @@
 
 NOUVEAUTES = [
     {
-        "lot": "485", "date": "2026-11-27",
+        "lot": "486", "date": "2026-11-27",
         "titre": "📶 Sonde réseau : quatre onglets et boutons en pictogrammes",
         "description": "La page est rangée en onglets (Graphiques, Réglages, Mesures, Sauvegardes Et Envois) ; démarrer, mesurer, actualiser, rapport, export et effacement sont des pictogrammes colorés avec info-bulle au lieu de gros boutons.",
         "rubrique": "📶 Sonde réseau — débit et stabilité de la connexion",
+    },
+    {
+        "lot": "485", "date": "2026-11-27",
         "titre": "🌍 Sonde réseau : espace commun des téléphones",
         "description": "L'application Sonde Réseau (compte Google obligatoire, consentement à la première utilisation) partage ses mesures : synthèse par lieu (zone de 2 km), Wi-Fi ou mobile et opérateur, liste des participants à gérer.",
         "rubrique": "🌍 Sonde réseau — espace commun des téléphones",

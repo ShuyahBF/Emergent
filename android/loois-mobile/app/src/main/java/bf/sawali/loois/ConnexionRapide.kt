@@ -68,7 +68,16 @@ object Biometrie {
     private suspend fun authentifier(activite: FragmentActivity, titre: String, sousTitre: String, chiffre: Cipher): Cipher = suspendCancellableCoroutine { suite ->
         val rappel = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(resultat: BiometricPrompt.AuthenticationResult) { resultat.cryptoObject?.cipher?.let { if (suite.isActive) suite.resume(it) } ?: suite.resumeWithException(ErreurRapide("Authentification biométrique incomplète.")) }
-            override fun onAuthenticationError(code: Int, message: CharSequence) { if (suite.isActive) suite.resumeWithException(ErreurRapide(if (code == BiometricPrompt.ERROR_USER_CANCELED || code == BiometricPrompt.ERROR_NEGATIVE_BUTTON || code == BiometricPrompt.ERROR_CANCELED) "Connexion biométrique annulée." else message.toString())) }
+            override fun onAuthenticationError(code: Int, message: CharSequence) {
+                // Le code d'Android est AFFICHÉ (entre crochets) : il distingue une fenêtre fermée (10), le bouton « mot de passe » (13), une lecture interrompue (5), un verrouillage (7, 9)…
+                val texte = when (code) {
+                    BiometricPrompt.ERROR_USER_CANCELED -> "Connexion biométrique annulée : la fenêtre a été fermée."
+                    BiometricPrompt.ERROR_NEGATIVE_BUTTON -> "Vous avez choisi le mot de passe."
+                    BiometricPrompt.ERROR_CANCELED -> "Android a interrompu la lecture de l'empreinte (capteur occupé ou écran quitté) : réessayez."
+                    else -> message.toString()
+                }
+                if (suite.isActive) suite.resumeWithException(ErreurRapide("$texte [$code]"))
+            }
         }
         val info = BiometricPrompt.PromptInfo.Builder().setTitle(titre).setSubtitle(sousTitre).setNegativeButtonText("Utiliser le mot de passe")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG).build()

@@ -14,6 +14,8 @@
 # (aucune écriture par requête) : ils repartent de zéro à chaque redémarrage ; le relevé horaire conserve le dernier classement.
 from __future__ import annotations
 
+import contextvars
+import inspect
 import logging
 import re
 import time
@@ -132,6 +134,73 @@ def normaliser_chemin(chemin: str) -> str:
     return "/".join(morceaux)[:200] or "/"
 
 
+# ----------------------------------------------------------------------------------------------------------------------- requêtes à la base
+# Lot 472 : combien de requêtes à MongoDB chaque appel fait-il, et combien de temps y passe-t-il ? Constat du 27/11/2026 : Atlas (Paris) et le serveur (Francfort)
+# sont à ~10 ms l'un de l'autre ; ces 10 ms se paient À CHAQUE requête : une route qui en fait 30 l'une après l'autre perd 300 ms, une route qui en fait 3 reste à 40 ms.
+# Pour savoir lesquelles corriger sans deviner, chaque requête à la base est comptée et chronométrée, PAR APPEL, grâce à un crochet posé sur la fonction par
+# laquelle Motor (le pilote MongoDB asynchrone) envoie TOUTE opération au fil de travail. Le compteur est celui de l'appel EN COURS (variable de contexte) :
+# les requêtes lancées en parallèle (asyncio.gather) sont toutes comptées ; le temps est CUMULÉ (il peut dépasser la durée de l'appel quand elles se chevauchent).
+COMPTEUR_BASE: "contextvars.ContextVar[Optional[CompteurBase]]" = contextvars.ContextVar("compteur_base", default=None)
+
+
+class CompteurBase:
+    """Durées (ms) des requêtes à la base faites pendant UN appel. `append` d'une liste est atomique : les fils de travail n'ont pas besoin de verrou."""
+
+    __slots__ = ("durees",)
+
+    def __init__(self) -> None:
+        self.durees: List[float] = []
+
+    @property
+    def ops(self) -> int:
+        return len(self.durees)
+
+    @property
+    def ms(self) -> float:
+        return float(sum(self.durees))
+
+
+_CROCHET_POSE = False
+
+
+def installer_mesure_base() -> bool:
+    """Pose le crochet de comptage sur `motor.frameworks.asyncio.run_on_executor`. Prudent : si Motor n'a pas la forme attendue, RIEN n'est modifié et le serveur
+    fonctionne comme avant (renvoie False). Idempotent. Aucun surcoût hors appel (compteur absent = appel direct à la fonction d'origine)."""
+    global _CROCHET_POSE
+    if _CROCHET_POSE:
+        return True
+    try:
+        import motor.frameworks.asyncio as cadre
+        origine = cadre.run_on_executor
+        if getattr(origine, "_mesure_base", False):
+            _CROCHET_POSE = True
+            return True
+        if list(inspect.signature(origine).parameters)[:2] != ["loop", "fn"]:
+            logger.warning("[performance] Motor : forme inattendue, comptage des requêtes à la base désactivé")
+            return False
+
+        def run_on_executor(loop, fn, *args, **kwargs):
+            compteur = COMPTEUR_BASE.get()                                   # compteur de l'appel en cours (lu dans le fil de la boucle d'événements)
+            if compteur is None:
+                return origine(loop, fn, *args, **kwargs)
+
+            def chronometree(*a, **k):                                       # exécutée dans le fil de travail : durée de la requête, réseau compris
+                debut = time.perf_counter()
+                try:
+                    return fn(*a, **k)
+                finally:
+                    compteur.durees.append((time.perf_counter() - debut) * 1000)
+            return origine(loop, chronometree, *args, **kwargs)
+
+        run_on_executor._mesure_base = True                                  # type: ignore[attr-defined]
+        cadre.run_on_executor = run_on_executor
+        _CROCHET_POSE = True
+        return True
+    except Exception:  # noqa: BLE001 — la mesure ne doit JAMAIS empêcher le serveur de démarrer
+        logger.warning("[performance] comptage des requêtes à la base non installé", exc_info=True)
+        return False
+
+
 class SuiviAppels:
     """Compteurs EN MÉMOIRE par route (aucune écriture en base par requête) : appels, durée moyenne, 5 derniers, dernier, maximum, lents, erreurs."""
 
@@ -140,7 +209,7 @@ class SuiviAppels:
         self.routes: Dict[str, Dict[str, Any]] = {}
         self.depuis = datetime.now(timezone.utc).isoformat()
 
-    def enregistrer(self, methode: str, route: str, duree_ms: float, statut: int) -> None:
+    def enregistrer(self, methode: str, route: str, duree_ms: float, statut: int, ops: int = 0, base_ms: float = 0.0) -> None:
         cle = f"{methode} {route}"
         fiche = self.routes.get(cle)
         if fiche is None:
@@ -149,7 +218,8 @@ class SuiviAppels:
                 fiche = self.routes.get(cle)
             if fiche is None:
                 fiche = {"methode": methode, "route": route if cle != f"{methode} autres" else "autres", "n": 0, "total": 0.0, "max": 0.0,
-                         "dernier": 0.0, "derniers": deque(maxlen=5), "lents": 0, "erreurs": 0}
+                         "dernier": 0.0, "derniers": deque(maxlen=5), "lents": 0, "erreurs": 0,
+                         "ops": 0, "ops_max": 0, "base_ms": 0.0}
                 self.routes[cle] = fiche
         fiche["n"] += 1
         fiche["total"] += duree_ms
@@ -158,11 +228,15 @@ class SuiviAppels:
         fiche["derniers"].append(round(duree_ms))
         fiche["lents"] += 1 if duree_ms >= SEUIL_LENT_MS else 0
         fiche["erreurs"] += 1 if statut >= 500 else 0
+        fiche["ops"] += ops                                                     # requêtes à la base (lot 472)
+        fiche["ops_max"] = max(fiche["ops_max"], ops)
+        fiche["base_ms"] += base_ms
 
     def classement(self, limite: int = 40, minimum: int = 1) -> List[Dict[str, Any]]:
         """Routes triées par durée MOYENNE décroissante (celles qui ont au moins `minimum` appels)."""
         lignes = [{"methode": f["methode"], "route": f["route"], "appels": f["n"], "moyenne_ms": round(f["total"] / f["n"]), "dernier_ms": round(f["dernier"]),
-                   "derniers_ms": list(f["derniers"]), "maximum_ms": round(f["max"]), "lents": f["lents"], "erreurs": f["erreurs"]}
+                   "derniers_ms": list(f["derniers"]), "maximum_ms": round(f["max"]), "lents": f["lents"], "erreurs": f["erreurs"],
+                   "ops_moy": round(f["ops"] / f["n"], 1), "ops_max": f["ops_max"], "base_ms_moy": round(f["base_ms"] / f["n"])}
                   for f in self.routes.values() if f["n"] >= minimum]
         lignes.sort(key=lambda x: (-x["moyenne_ms"], -x["appels"]))
         return lignes[:limite]
@@ -196,6 +270,8 @@ class MesureAppels:
             return
         debut = time.perf_counter()
         etat = {"statut": 0, "flux": False}
+        compteur = CompteurBase()
+        jeton = COMPTEUR_BASE.set(compteur)                                   # les requêtes à la base de CET appel s'y comptent (lot 472)
 
         async def envoyer(message):
             if message["type"] == "http.response.start":
@@ -209,9 +285,14 @@ class MesureAppels:
             await self.app(scope, receive, envoyer)
         finally:
             try:
+                COMPTEUR_BASE.reset(jeton)
+            except ValueError:                                                 # contexte différent : sans importance, la variable disparaît avec l'appel
+                pass
+            try:
                 if not etat["flux"]:
                     route = getattr(scope.get("route"), "path", None) or normaliser_chemin(chemin)   # route déclarée (« /api/x/{id} »), sinon chemin nettoyé
-                    self.suivi.enregistrer(scope.get("method") or "GET", route, (time.perf_counter() - debut) * 1000, etat["statut"] or 500)
+                    self.suivi.enregistrer(scope.get("method") or "GET", route, (time.perf_counter() - debut) * 1000, etat["statut"] or 500,
+                                          compteur.ops, compteur.ms)
             except Exception:  # noqa: BLE001 — la mesure ne doit JAMAIS casser un appel
                 logger.debug("[performance] appel non mesuré", exc_info=True)
 

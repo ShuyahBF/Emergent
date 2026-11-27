@@ -131,7 +131,7 @@ function AppelsLents() {
   };
   const lignes = (d?.classement || []).map((l) => ({ ...l, cle: `${l.methode} ${l.route}` }));
   const { lignes: triees, tri, basculer } = useTri(lignes, {
-    route: (l) => l.route, appels: (l) => l.appels, moyenne: (l) => l.moyenne_ms, dernier: (l) => l.dernier_ms, maximum: (l) => l.maximum_ms, lents: (l) => l.lents, erreurs: (l) => l.erreurs,
+    route: (l) => l.route, appels: (l) => l.appels, moyenne: (l) => l.moyenne_ms, ops: (l) => l.ops_moy, base: (l) => l.base_ms_moy, dernier: (l) => l.dernier_ms, maximum: (l) => l.maximum_ms, lents: (l) => l.lents, erreurs: (l) => l.erreurs,
   });
   const objectif = d?.objectif_ms || 1000;
   return (
@@ -143,7 +143,7 @@ function AppelsLents() {
           {d.source === "releve" ? <span className="text-amber-700">Le serveur vient de redémarrer : dernier relevé horaire du {quand(d.releve_le)} (mesure en direct dès les premiers appels). </span> : null}
           {d.source === "vide" ? "Aucun appel mesuré pour le moment. " : null}
           Depuis {quand(d.depuis)} : <b>{nombre(d.appels)}</b> appels sur <b>{d.routes}</b> routes, dont <b className="text-orange-700">{nombre(d.lents)}</b> de plus d'{objectif / 1000} s et <b className="text-red-700">{nombre(d.erreurs)}</b> en erreur serveur.
-          Objectif : toute route d'affichage répond en moins d'{objectif / 1000} s ; c'est la route la plus lente qu'on corrige, jamais au hasard.
+          Objectif : toute route d'affichage répond en moins d'{objectif / 1000} s ; c'est la route la plus lente qu'on corrige, jamais au hasard. « Requêtes base / appel » : chaque requête à MongoDB coûte environ 10 ms d'aller-retour (serveur à Francfort, Atlas à Paris) : une route à 25 requêtes ou plus (en rouge) est à corriger en priorité ; le temps base est cumulé (il peut dépasser la durée de l'appel si les requêtes se chevauchent).
         </p>)}
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <button type="button" onClick={() => charger(true)} disabled={enCours} data-testid="appels-actualiser" className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm disabled:opacity-50"><RefreshCw className="w-4 h-4" /> Actualiser</button>
@@ -158,6 +158,8 @@ function AppelsLents() {
               <ThTri cle="route" tri={tri} onTri={basculer}>Route</ThTri>
               <ThTri cle="appels" tri={tri} onTri={basculer} droite>Appels</ThTri>
               <ThTri cle="moyenne" tri={tri} onTri={basculer} droite>Moyenne (ms)</ThTri>
+              <ThTri cle="ops" tri={tri} onTri={basculer} droite>Requêtes base / appel</ThTri>
+              <ThTri cle="base" tri={tri} onTri={basculer} droite>Temps base (ms)</ThTri>
               <th className="p-2 text-right">5 derniers (ms)</th>
               <ThTri cle="dernier" tri={tri} onTri={basculer} droite>Dernier (ms)</ThTri>
               <ThTri cle="maximum" tri={tri} onTri={basculer} droite>Maximum (ms)</ThTri>
@@ -171,13 +173,16 @@ function AppelsLents() {
                 <td className="p-2 font-mono break-all"><span className="mr-1 font-semibold text-blue-700">{l.methode}</span>{l.route}</td>
                 <td className="p-2 text-right tabular-nums">{nombre(l.appels)}</td>
                 <td className={`p-2 text-right tabular-nums font-semibold ${l.moyenne_ms >= objectif ? "text-red-700" : l.moyenne_ms >= objectif / 2 ? "text-orange-700" : "text-emerald-700"}`}>{nombre(l.moyenne_ms)}</td>
+                {/* Lot 472 : nombre de requêtes à MongoDB par appel (chacune coûte ~10 ms d'aller-retour Francfort ↔ Paris) et temps cumulé passé dans la base */}
+                <td className={`p-2 text-right tabular-nums font-semibold ${l.ops_moy >= 25 ? "text-red-700" : l.ops_moy >= 10 ? "text-orange-700" : "text-slate-700"}`} data-testid="cellule-ops">{nombre(l.ops_moy)}</td>
+                <td className="p-2 text-right tabular-nums text-slate-700">{nombre(l.base_ms_moy)}</td>
                 <td className="p-2 text-right tabular-nums text-slate-600">{(l.derniers_ms || []).join(" · ")}</td>
                 <td className="p-2 text-right tabular-nums">{nombre(l.dernier_ms)}</td>
                 <td className="p-2 text-right tabular-nums">{nombre(l.maximum_ms)}</td>
                 <td className="p-2 text-right tabular-nums">{l.lents ? <span className="font-semibold text-orange-700">{nombre(l.lents)}</span> : "0"}</td>
                 <td className="p-2 text-right tabular-nums">{l.erreurs ? <span className="font-semibold text-red-700">{nombre(l.erreurs)}</span> : "0"}</td>
               </tr>))}
-            {triees.length === 0 && <tr><td colSpan={8} className="p-2 text-slate-500">Aucune route mesurée.</td></tr>}
+            {triees.length === 0 && <tr><td colSpan={10} className="p-2 text-slate-500">Aucune route mesurée.</td></tr>}
           </tbody>
         </table>
       </div>

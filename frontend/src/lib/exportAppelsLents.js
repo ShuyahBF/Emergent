@@ -16,6 +16,9 @@ export const CHAMPS_APPELS = {
   maximum_ms: "Durée du plus lent des appels, en millisecondes",
   lents: "Nombre d'appels de plus d'1 seconde (objectif : zéro)",
   erreurs: "Nombre d'erreurs serveur (code 5xx)",
+  ops_moy: "Nombre moyen de requêtes à la base MongoDB par appel (chacune coûte ~10 ms d'aller-retour Francfort ↔ Paris) : 25 ou plus = route à corriger en priorité",
+  ops_max: "Plus grand nombre de requêtes à la base faites par un seul appel",
+  base_ms_moy: "Temps moyen CUMULÉ passé dans la base par appel, en millisecondes (peut dépasser la durée de l'appel quand les requêtes se chevauchent)",
 };
 
 // Document JSON : `appels` = réponse de GET /admin/performance/appels, `memoire` = réponse de GET /admin/performance/memoire (facultative)
@@ -36,8 +39,8 @@ export function appelsEnJson(appels, memoire, exporteLe) {
 
 // Document CSV : une ligne par route
 export function appelsEnCsv(appels) {
-  const entetes = ["Méthode", "Route", "Appels", "Moyenne ms", "5 derniers ms", "Dernier ms", "Maximum ms", "Appels > 1 s", "Erreurs 5xx"];
+  const entetes = ["Méthode", "Route", "Appels", "Moyenne ms", "5 derniers ms", "Dernier ms", "Maximum ms", "Appels > 1 s", "Erreurs 5xx", "Requêtes base / appel", "Requêtes base max", "Temps base ms"];
   const protege = (c) => { const t = c == null ? "" : String(c); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-  const lignes = (appels.classement || []).map((l) => [l.methode, l.route, l.appels, l.moyenne_ms, (l.derniers_ms || []).join(" "), l.dernier_ms, l.maximum_ms, l.lents, l.erreurs]);
+  const lignes = (appels.classement || []).map((l) => [l.methode, l.route, l.appels, l.moyenne_ms, (l.derniers_ms || []).join(" "), l.dernier_ms, l.maximum_ms, l.lents, l.erreurs, l.ops_moy, l.ops_max, l.base_ms_moy]);
   return [entetes, ...lignes].map((l) => l.map(protege).join(";")).join("\r\n");
 }

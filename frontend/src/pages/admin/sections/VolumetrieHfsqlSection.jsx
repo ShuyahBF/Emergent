@@ -88,7 +88,8 @@ export default function VolumetrieHfsqlSection() {
   return (
     <div className="space-y-3" data-testid="volumetrie">
       <p className="text-sm text-slate-600">Combien de lignes, et quelle place dans Atlas pour un cache d'une semaine ? Comptages en <b>lecture seule</b> chez le client choisi (une machine de ce client doit être en ligne). Le cache estimé = lignes des N derniers jours × taille d'un document Atlas ; comparez-le à la jauge « Base Atlas ».</p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Mise en page (27/11/2026, propriétaire : « durée du cache plus petite, liste des tables 4 à 5 fois plus large ») : client, plateforme et durée gardent une largeur fixe, la liste des tables prend TOUTE la place restante */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[11rem_13rem_6.5rem_minmax(0,1fr)]">
         <label className="text-sm font-semibold text-slate-700">Client
           <select value={client} onChange={(e) => setClient(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal" data-testid="volu-client">
             <option value="">Choisir un client…</option>
@@ -96,9 +97,9 @@ export default function VolumetrieHfsqlSection() {
         <label className="text-sm font-semibold text-slate-700">Plateforme
           <select value={plateforme} onChange={(e) => setPlateforme(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal" data-testid="volu-plateforme">
             {plateformes.map((p) => <option key={p.cle} value={p.cle}>{p.libelle} ({p.tables} tables)</option>)}</select></label>
-        <label className="text-sm font-semibold text-slate-700">Durée du cache (jours)
+        <label className="text-sm font-semibold text-slate-700" title="Durée du cache en jours">Cache <span className="font-normal text-slate-500">(jours)</span>
           <input type="number" min={1} max={60} value={jours} onChange={(e) => setJours(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal" data-testid="volu-jours" /></label>
-        <div className="text-sm font-semibold text-slate-700">Tables <span className="font-normal text-slate-500">({choisies.length})</span>
+        <div className="min-w-0 text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-1">Tables <span className="font-normal text-slate-500">({choisies.length})</span>
           <div className="mt-1 font-normal"><ListeMultiChoix options={options} valeur={choisies} onChange={setChoisies} vide="Cocher des tables…" pluriel="tables choisies" testid="volu-tables" /></div></div>
       </div>
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">

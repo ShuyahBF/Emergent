@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "482", "date": "2026-11-27",
+        "titre": "📊 Volumétrie des tables HFSQL (cache Atlas)",
+        "description": "Choisissez un client en ligne (ex. CMC), une plateforme (Biolog, Aizenta, e-Kol) et des tables : SAWALI compte leurs lignes en lecture seule (total et derniers jours) et estime la place d'un cache Atlas d'une semaine, avec totaux et export CSV.",
+        "rubrique": "📊 Volumétrie des tables HFSQL — cache Atlas",
+    },
+    {
         "lot": "481", "date": "2026-11-27",
         "titre": "📱 Appareils Android : nettoyer les appareils « Nouveau »",
         "description": "Un bouton supprime en une fois les appareils interdits et jamais renseignés (par exemple des faux appareils de test), après aperçu et confirmation ; les appareils autorisés ou déjà renseignés ne sont jamais touchés. Loois Mobile 1.1 travaille aussi sans Internet par le réseau local.",

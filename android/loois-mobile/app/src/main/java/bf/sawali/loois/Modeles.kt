@@ -22,7 +22,13 @@ data class Recu(val reference: String, val dateVente: String, val heure: String,
 data class LigneRecu(val codeProduit: String, val designation: String, val domaine: String, val medecin: String, val quantite: Double, val prixUnitaire: Double, val montant: Double,
                      val joursValiditePropre: Int?, val joursValiditeEffective: Int, val necessiteCorrection: Boolean, val dateExpiration: String)
 
-data class DetailRecu(val recu: Recu, val lignes: List<LigneRecu>, val total: Double, val validiteClinique: Int?, val aCorriger: Boolean)
+/** Informations de caisse d'un reçu (lot M5) : VID = code du vendeur ; réglé / visé : `null` = inconnu (jamais affiché « non » à tort). */
+data class InfosRecu(val vid: String = "", val regle: Boolean? = null, val vise: Boolean? = null, val montantRegle: Double? = null)
+
+data class DetailRecu(val recu: Recu, val lignes: List<LigneRecu>, val total: Double, val validiteClinique: Int?, val aCorriger: Boolean, val infos: InfosRecu = InfosRecu())
+
+/** Résultat de la recherche d'un reçu par son numéro : un seul reçu = on l'ouvre tout de suite ; plusieurs (fin de numéro) = on les propose. */
+data class ResultatRecherche(val numero: String, val recus: List<Recu>)
 
 // ============================================================================ connexion rapide et mémorisation par zone (lot M4)
 /** Ce que le téléphone mémorise pour UNE zone (jamais de mot de passe) : dernier identifiant, méthodes de connexion rapide activées, méthode préférée, réglages réseau. */
@@ -99,7 +105,15 @@ private fun <T> JSONArray?.liste(f: (JSONObject) -> T): List<T> = if (this == nu
 fun lireListeRecus(j: JSONObject) = ListeRecus(j.texte("date"), j.optJSONArray("recus").liste(::lireRecu), j.optDouble("total_montant", 0.0), j.optBoolean("tronque"), j.texte("portee"),
     j.optInt("nombre_a_corriger", 0), j.optBoolean("consultation_seule"))
 
-fun lireDetail(j: JSONObject) = DetailRecu(lireRecu(j.getJSONObject("recu")), j.optJSONArray("lignes").liste(::lireLigne), j.optDouble("total", 0.0), j.entierOuNul("validite_clinique"), j.optBoolean("a_corriger"))
+/** Booléen facultatif : absent ou null = inconnu (null). */
+private fun JSONObject.booleenOuNul(cle: String): Boolean? = if (has(cle) && !isNull(cle)) optBoolean(cle) else null
+
+fun lireInfos(j: JSONObject?) = if (j == null) InfosRecu() else InfosRecu(j.texte("vid"), j.booleenOuNul("regle"), j.booleenOuNul("vise"), if (j.has("montant_regle") && !j.isNull("montant_regle")) j.optDouble("montant_regle") else null)
+
+fun lireDetail(j: JSONObject) = DetailRecu(lireRecu(j.getJSONObject("recu")), j.optJSONArray("lignes").liste(::lireLigne), j.optDouble("total", 0.0), j.entierOuNul("validite_clinique"), j.optBoolean("a_corriger"),
+    lireInfos(j.optJSONObject("infos")))
+
+fun lireRecherche(j: JSONObject) = ResultatRecherche(j.texte("numero"), j.optJSONArray("recus").liste(::lireRecu))
 
 fun lireTableau(j: JSONObject) = TableauJour(j.texte("date"), j.optInt("nombre"), j.optDouble("total_montant", 0.0), j.optDouble("panier_moyen", 0.0),
     j.optJSONArray("par_caissier").liste { LigneCaissier(it.texte("caissier"), it.optInt("nombre"), it.optDouble("montant", 0.0)) })

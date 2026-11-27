@@ -156,6 +156,41 @@ def sql_entete_recu(reference: str) -> str:
     return f"SELECT {COLONNES_RECU} FROM VenteClinique WHERE Référence = '{echapper(reference)}'"
 
 
+def sql_infos_recu(reference: str) -> str:
+    """Informations d'un reçu en plus de son entête (lot 490) : VID (code du vendeur), Réglé, Visée, montant réglé. Lues À PART : si cette lecture échoue, le reste du reçu s'affiche quand même."""
+    return f"SELECT [Code Vendeur], [Réglé], [Visée], MontantRéglé FROM VenteClinique WHERE Référence = '{echapper(reference)}'"
+
+
+def lire_infos_recu(lignes: List[List[Any]]) -> Dict[str, Any]:
+    """Résultat de `sql_infos_recu` → {vid, regle, vise, montant_regle} (lecture PAR POSITION). Aucune ligne : champs vides (None = « inconnu », jamais « non »)."""
+    if not lignes:
+        return {"vid": "", "regle": None, "vise": None, "montant_regle": None}
+    l = lignes[0]
+    return {"vid": _cellule(l, 0), "regle": vrai(_cellule(l, 1)) if _cellule(l, 1) != "" else None, "vise": vrai(_cellule(l, 2)) if _cellule(l, 2) != "" else None,
+            "montant_regle": nombre(_cellule(l, 3)) if _cellule(l, 3) != "" else None}
+
+
+_RE_NUMERO = re.compile(r"^(?:R-?)?\s*([0-9]{3,20})$", re.IGNORECASE)
+MAX_RESULTATS_RECHERCHE = 8
+
+
+def numero_recherche(saisie: str) -> Optional[Dict[str, str]]:
+    """Ce que l'utilisateur tape pour retrouver un reçu : « R-202630889 », « 202630889 » ou seulement la fin « 30889 » (3 chiffres au moins).
+    Rend la référence EXACTE possible (« R-… ») et les chiffres pour une recherche par fin de numéro ; None si la saisie n'est pas un numéro de reçu."""
+    t = re.sub(r"\s+", "", (saisie or "")).upper()
+    m = _RE_NUMERO.match(t)
+    if not m:
+        return None
+    chiffres = m.group(1)
+    return {"chiffres": chiffres, "reference": PREFIXE_RECU + chiffres}
+
+
+def sql_recherche_recu(chiffres: str) -> str:
+    """Reçus (non supprimés) dont le numéro est exactement « R-<chiffres> » OU se termine par ces chiffres : du plus récent au plus ancien, 8 au plus. `chiffres` ne contient que des chiffres (contrôlé)."""
+    return (f"SELECT TOP {MAX_RESULTATS_RECHERCHE} {COLONNES_RECU} FROM VenteClinique WHERE Référence LIKE '{PREFIXE_RECU}%{echapper(chiffres)}' AND (Mag <> 'SUP' OR Mag IS NULL) "
+            f"ORDER BY [Date Vente] DESC, Référence DESC")
+
+
 def sql_lignes_recu(reference: str) -> str:
     return f"SELECT [Code Produit], Realisé_par, Domaine, [Qte Livrée], [Prix Cession] FROM A_Acheté WHERE Référence = '{echapper(reference)}'"
 

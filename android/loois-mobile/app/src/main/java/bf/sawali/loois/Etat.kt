@@ -35,6 +35,8 @@ data class UiEtat(
     val corrections: ListeRecus? = null,
     val seulementACorriger: Boolean = true,
     val detail: DetailRecu? = null,
+    val recherche: String = "",                       // numéro de reçu tapé (lot M5)
+    val resultatsRecherche: List<Recu>? = null,       // plusieurs reçus finissent par ces chiffres : on les propose
     val tableau: TableauJour? = null,                 // tableau de bord du jour
     val semaine: Semaine? = null,                     // 7 derniers jours (chargés à part : le jour s'affiche d'abord)
     val semaineEnCours: Boolean = false,
@@ -356,6 +358,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun changerJour(jour: String) = maj { it.copy(jour = jour) }
     fun changerCaissier(c: String) = maj { it.copy(caissierFiltre = c) }
+    fun changerRecherche(t: String) = maj { it.copy(recherche = t, resultatsRecherche = null) }
+
+    /** Lot M5 — retrouve un reçu par son numéro (complet ou fin du numéro). Un seul reçu : il s'ouvre ; plusieurs : liste à choisir ; aucun : message clair. */
+    fun rechercherRecu() {
+        val saisie = _etat.value.recherche.trim()
+        if (_etat.value.enCours) return                                     // jamais deux lectures en même temps
+        if (saisie.length < 3) { maj { it.copy(message = "Tapez le numéro du reçu : au moins 3 chiffres (ex. 202630889 ou R-202630889).") }; return }
+        viewModelScope.launch {
+            maj { it.copy(enCours = true, message = "Patientez… recherche du reçu $saisie en cours") }
+            try {
+                val r = lireRecherche(appel { base -> api.appeler(base, "/api/android/caisse/recu/recherche", JSONObject().put("numero", saisie)) })
+                when (r.recus.size) {
+                    0 -> maj { it.copy(resultatsRecherche = emptyList(), message = "Aucun reçu ne porte le numéro ${r.numero}${if (_etat.value.droits?.voirTousLesRecus == true) "" else " parmi les vôtres"}.") }
+                    1 -> { maj { it.copy(resultatsRecherche = null, message = null) }; ouvrirRecu(r.recus[0].reference, Ecran.HISTORIQUE) }
+                    else -> maj { it.copy(resultatsRecherche = r.recus, message = "${r.recus.size} reçus correspondent : choisissez-en un.") }
+                }
+            } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
+        }
+    }
     fun basculerTriColonne(c: ColonneTri) = maj { it.copy(tri = basculerTri(it.tri, c)) }
     fun filtrerACorriger(v: Boolean) = maj { it.copy(seulementACorriger = v) }
 

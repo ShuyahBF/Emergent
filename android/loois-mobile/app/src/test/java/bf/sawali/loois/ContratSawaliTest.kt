@@ -48,6 +48,19 @@ class ContratSawaliTest {
         assertNull(cons.joursValiditePropre); assertFalse(cons.necessiteCorrection); assertEquals(30, cons.joursValiditeEffective); assertEquals(5000.0, cons.montant, 0.001); assertEquals(2.0, cons.quantite, 0.001)
     }
 
+    @Test fun vidReglEtViseDuRecu() {
+        // Lot M5 : caissier, VID (vendeur), réglé et visé viennent du serveur ; un champ absent reste « inconnu » (null), jamais « non »
+        val d = lireDetail(charger("recu"))
+        assertEquals("TASSEMBH", d.recu.caissier); assertEquals("ASI01", d.infos.vid); assertEquals(true, d.infos.regle); assertEquals(false, d.infos.vise); assertEquals(15000.0, d.infos.montantRegle!!, 0.001)
+        val ancien = lireDetail(JSONObject(charger("recu").toString()).apply { remove("infos") })
+        assertEquals("", ancien.infos.vid); assertNull(ancien.infos.regle); assertNull(ancien.infos.vise); assertNull(ancien.infos.montantRegle)
+    }
+
+    @Test fun rechercheDUnRecuParSonNumero() {
+        val r = lireRecherche(charger("recherche"))
+        assertEquals("R-0003", r.numero); assertEquals(listOf("R-0003"), r.recus.map { it.reference }); assertEquals("TASSEMBH", r.recus[0].caissier)
+    }
+
     @Test fun correctionsDeRecus() {
         val l = lireListeRecus(charger("corrections"))
         assertEquals(1, l.nombreACorriger); assertEquals(listOf("R-0003", "R-0001"), l.recus.map { it.reference })

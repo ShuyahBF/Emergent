@@ -268,6 +268,19 @@ fun EcranListe(e: UiEtat, vm: AppViewModel, corrections: Boolean) {
                 BoutonAction("Afficher", Icons.Filled.Search, !e.enCours) { if (corrections) vm.chargerCorrections() else vm.chargerHistorique() }
             }
             if (voirTous) OutlinedTextField(e.caissierFiltre, { vm.changerCaissier(it) }, label = { Text("Caissier (vide = tous)") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Person, null) }, modifier = Modifier.fillMaxWidth())
+            // Lot M5 — retrouver un reçu par son numéro (complet ou fin du numéro) puis l'ouvrir
+            if (!corrections) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                OutlinedTextField(e.recherche, { vm.changerRecherche(it) }, label = { Text("Numéro du reçu (ex. R-202630889)") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, null) }, modifier = Modifier.weight(1f),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { vm.rechercherRecu() }))
+                Spacer(Modifier.width(8.dp))
+                BoutonAction("Ouvrir", Icons.Filled.Search, !e.enCours && e.recherche.trim().length >= 3) { vm.rechercherRecu() }
+            }
+            e.resultatsRecherche?.takeIf { it.isNotEmpty() }?.let { trouves ->
+                Text("Reçus trouvés (touchez pour ouvrir) :", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                trouves.forEach { r -> LigneListe(r, e.selection == r.reference, false) { vm.ouvrirRecu(r.reference, Ecran.HISTORIQUE) } }
+            }
             if (corrections) {
                 if (liste?.consultationSeule == true) Text("Consultation seule (laboratoire).", color = Couleurs.Gris, fontSize = 12.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) { Switch(e.seulementACorriger, { vm.filtrerACorriger(it) }); Spacer(Modifier.width(8.dp)); Text("Reçus à corriger seulement") }
@@ -318,6 +331,21 @@ fun LigneListe(r: Recu, selectionnee: Boolean, corrections: Boolean, onClick: ()
 }
 
 // ================================================================================================================ détail d'un reçu
+/** Réglé / Visé : « Oui » (vert, coche) / « Non » (rouge, croix) / « — » (inconnu) : l'état est TOUJOURS écrit, la couleur ne suffit jamais. */
+@Composable
+fun EtatOuiNon(libelle: String, valeur: Boolean?) {
+    val (texte, couleur, icone) = when (valeur) {
+        true -> Triple("Oui", Couleurs.Vert, Icons.Filled.CheckCircle)
+        false -> Triple("Non", Color(0xFFB91C1C), Icons.Filled.Cancel)
+        null -> Triple("—", Couleurs.Gris, Icons.Filled.Info)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("$libelle : ", fontWeight = FontWeight.SemiBold)
+        Icon(icone, null, tint = couleur, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+        Text(texte, color = couleur, fontWeight = FontWeight.Bold)
+    }
+}
+
 @Composable
 fun EcranDetail(e: UiEtat, vm: AppViewModel) {
     val d = e.detail
@@ -329,9 +357,17 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
             item {
                 Column(Modifier.padding(12.dp)) {
                     Text(r.patient.ifBlank { "—" }, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    Text("${jourFr(r.dateVente)} à ${r.heure} · caissier ${r.caissier} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
+                    Text("${jourFr(r.dateVente)} à ${r.heure} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
                     Spacer(Modifier.height(6.dp))
-                    Row { Text("Réglé : ", fontWeight = FontWeight.SemiBold); Text(formaterMontant(r.montant), color = Couleurs.Vert, fontWeight = FontWeight.Bold) }
+                    // Lot M5 — caissier, VID (vendeur), réglé et visé : écrits en toutes lettres (jamais la couleur seule)
+                    Text("Caissier : ${r.caissier.ifBlank { "—" }}  ·  VID : ${d.infos.vid.ifBlank { "—" }}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        EtatOuiNon("Réglé", d.infos.regle)
+                        EtatOuiNon("Visé", d.infos.vise)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row { Text("Montant : ", fontWeight = FontWeight.SemiBold); Text(formaterMontant(r.montant), color = Couleurs.Vert, fontWeight = FontWeight.Bold) }
+                    d.infos.montantRegle?.let { Text("Montant réglé : ${formaterMontant(it)}", fontSize = 12.sp) }
                     if (r.partAssure > 0 || r.partAssureur > 0) Text("Part assuré ${formaterMontant(r.partAssure)} · part assureur ${formaterMontant(r.partAssureur)}", fontSize = 12.sp)
                     if (d.aCorriger) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce); Spacer(Modifier.width(6.dp))

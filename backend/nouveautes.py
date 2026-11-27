@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "488", "date": "2026-11-27",
+        "titre": "🌍 Sonde Réseau 1.7 : lieu approximatif permanent (consentement version 2)",
+        "description": "L'application Sonde Réseau 1.7 partage le lieu approximatif (zone de 2 km) en permanence : la case reste visible mais non modifiable, et le texte d'accord (version 2) le dit. Les applications 1.5 et 1.6 (version 1) restent acceptées pendant la transition.",
+        "rubrique": "🌍 Sonde réseau — espace commun des téléphones",
+    },
+    {
         "lot": "487", "date": "2026-11-27",
         "titre": "📶 Sonde réseau : le tableau des mesures a son propre onglet",
         "description": "Cinq onglets : Graphiques (courbes), Réglages, Mesures (verdict et cartes), Tableau (liste triable avec totaux) et Sauvegardes Et Envois ; la période et le poste restent visibles au-dessus.",

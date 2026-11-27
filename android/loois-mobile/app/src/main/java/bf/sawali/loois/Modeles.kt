@@ -11,7 +11,8 @@ import java.time.format.DateTimeFormatter
 data class StatutAppareil(val etat: String, val autorise: Boolean, val nomUtilisateur: String, val zone: String, val base: String, val client: String, val message: String,
                           val serveursLocaux: List<String> = emptyList(), val ticketLocal: String = "")
 
-data class Droits(val administrateur: Boolean, val laboratoire: Boolean, val voirTousLesRecus: Boolean, val caisse: Boolean, val corrections: Boolean, val consultationSeule: Boolean)
+data class Droits(val administrateur: Boolean, val laboratoire: Boolean, val voirTousLesRecus: Boolean, val caisse: Boolean, val corrections: Boolean, val consultationSeule: Boolean,
+                  val tableauDeBord: Boolean = false)
 
 data class Utilisateur(val login: String, val groupe: String, val espace: String)
 
@@ -22,6 +23,11 @@ data class LigneRecu(val codeProduit: String, val designation: String, val domai
                      val joursValiditePropre: Int?, val joursValiditeEffective: Int, val necessiteCorrection: Boolean, val dateExpiration: String)
 
 data class DetailRecu(val recu: Recu, val lignes: List<LigneRecu>, val total: Double, val validiteClinique: Int?, val aCorriger: Boolean)
+
+data class LigneCaissier(val caissier: String, val nombre: Int, val montant: Double)
+data class TableauJour(val date: String, val nombre: Int, val total: Double, val panierMoyen: Double, val parCaissier: List<LigneCaissier>)
+data class JourSemaine(val date: String, val nombre: Int, val montant: Double)
+data class Semaine(val fin: String, val jours: List<JourSemaine>, val total: Double, val nombre: Int)
 
 data class ListeRecus(val date: String, val recus: List<Recu>, val total: Double, val tronque: Boolean, val portee: String, val nombreACorriger: Int = 0, val consultationSeule: Boolean = false)
 
@@ -53,7 +59,7 @@ fun expirationTicket(ticket: String?): Long? = try {
 fun dateHeureDepuisSecondes(s: Long): String = java.time.LocalDateTime.ofEpochSecond(s, 0, ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
 
 fun lireDroits(j: JSONObject) = Droits(j.optBoolean("administrateur"), j.optBoolean("laboratoire"), j.optBoolean("voir_tous_les_recus"), j.optBoolean("caisse"), j.optBoolean("corrections"),
-    j.optBoolean("consultation_seule"))
+    j.optBoolean("consultation_seule"), j.optBoolean("tableau_de_bord"))
 
 fun lireRecu(j: JSONObject) = Recu(j.texte("reference"), j.texte("date_vente"), j.texte("heure"), j.texte("date_heure_iso"), j.texte("code_client"), j.texte("patient"), j.optDouble("montant", 0.0),
     j.texte("caissier"), j.optDouble("ppc", 0.0), j.optDouble("part_assure", 0.0), j.optDouble("part_assureur", 0.0), j.optInt("lignes_a_corriger", 0), j.optBoolean("a_corriger"))
@@ -67,6 +73,11 @@ fun lireListeRecus(j: JSONObject) = ListeRecus(j.texte("date"), j.optJSONArray("
     j.optInt("nombre_a_corriger", 0), j.optBoolean("consultation_seule"))
 
 fun lireDetail(j: JSONObject) = DetailRecu(lireRecu(j.getJSONObject("recu")), j.optJSONArray("lignes").liste(::lireLigne), j.optDouble("total", 0.0), j.entierOuNul("validite_clinique"), j.optBoolean("a_corriger"))
+
+fun lireTableau(j: JSONObject) = TableauJour(j.texte("date"), j.optInt("nombre"), j.optDouble("total_montant", 0.0), j.optDouble("panier_moyen", 0.0),
+    j.optJSONArray("par_caissier").liste { LigneCaissier(it.texte("caissier"), it.optInt("nombre"), it.optDouble("montant", 0.0)) })
+
+fun lireSemaine(j: JSONObject) = Semaine(j.texte("fin"), j.optJSONArray("jours").liste { JourSemaine(it.texte("date"), it.optInt("nombre"), it.optDouble("montant", 0.0)) }, j.optDouble("total_montant", 0.0), j.optInt("nombre"))
 
 // ============================================================================ formats (français, heure du Burkina Faso = UTC)
 
@@ -82,6 +93,16 @@ fun formaterMontant(v: Double, avecDevise: Boolean = true): String {
 
 /** Quantité sans décimale inutile : 2.0 → « 2 », 1.5 → « 1,5 ». */
 fun formaterQuantite(q: Double): String = if (q == Math.floor(q)) q.toLong().toString() else q.toString().replace(".", ",")
+
+/** Montant court pour les graphiques : 25 600 → « 25,6 k », 1 250 000 → « 1,3 M », 800 → « 800 ». */
+fun formaterMontantCourt(v: Double): String = when {
+    Math.abs(v) >= 1_000_000 -> String.format(java.util.Locale.FRANCE, "%.1f", v / 1_000_000).replace(",0", "") + " M"
+    Math.abs(v) >= 1_000 -> String.format(java.util.Locale.FRANCE, "%.1f", v / 1_000).replace(",0", "") + " k"
+    else -> v.toLong().toString()
+}
+
+/** « 2026-11-26 » → « 26/11 » (axe des graphiques). */
+fun jourCourt(iso: String): String = try { LocalDate.parse(iso).format(DateTimeFormatter.ofPattern("dd/MM")) } catch (e: Exception) { iso }
 
 private val FORMAT_JOUR = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 

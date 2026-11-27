@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Écrans de l'application. */
-enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, PARAMETRES }
+enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, TABLEAU, PARAMETRES }
 
 /** Tout ce que l'interface affiche (un seul objet : l'écran se redessine quand il change). */
 data class UiEtat(
@@ -34,6 +34,9 @@ data class UiEtat(
     val corrections: ListeRecus? = null,
     val seulementACorriger: Boolean = true,
     val detail: DetailRecu? = null,
+    val tableau: TableauJour? = null,                 // tableau de bord du jour
+    val semaine: Semaine? = null,                     // 7 derniers jours (chargés à part : le jour s'affiche d'abord)
+    val semaineEnCours: Boolean = false,
     val retourDetail: Ecran = Ecran.HISTORIQUE,
     val selection: String? = null,                // reçu sélectionné (orange, règle 3)
     val tri: Tri = Tri(),
@@ -217,12 +220,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun deconnecter() { api.session = null; maj { it.copy(ecran = Ecran.CONNEXION, utilisateur = null, droits = null, historique = null, corrections = null, detail = null, selection = null, message = "Déconnecté.") } }
+    fun deconnecter() { api.session = null; maj { it.copy(ecran = Ecran.CONNEXION, utilisateur = null, droits = null, historique = null, corrections = null, detail = null, tableau = null, semaine = null, selection = null, message = "Déconnecté.") } }
 
     // ------------------------------------------------------------------------------------------------------------ navigation
     fun aller(e: Ecran) = maj { it.copy(ecran = e) }
     fun retour() = maj {
-        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
+        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
     }
     fun changerJour(jour: String) = maj { it.copy(jour = jour) }
     fun changerCaissier(c: String) = maj { it.copy(caissierFiltre = c) }
@@ -259,6 +262,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val r = lireListeRecus(appel { base -> api.appeler(base, "/api/android/corrections/liste", corpsJour()) })
                 maj { it.copy(corrections = r, message = "${r.nombreACorriger} reçu(s) à corriger sur ${r.recus.size}") }
             } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
+        }
+    }
+
+    /** Tableau de bord : le JOUR s'affiche d'abord (une requête), puis les 7 derniers jours se chargent à part (7 comptages) sans bloquer l'écran. */
+    fun chargerTableau() {
+        viewModelScope.launch {
+            maj { it.copy(enCours = true, message = "Patientez… lecture du tableau de bord en cours") }
+            try {
+                val t = lireTableau(appel { base -> api.appeler(base, "/api/android/tableau-de-bord", corpsJour()) })
+                maj { it.copy(tableau = t, enCours = false, message = "${t.nombre} reçu(s) — ${formaterMontant(t.total)}") }
+            } catch (e: Exception) { maj { it.copy(enCours = false) }; gerer(e); return@launch }
+            maj { it.copy(semaineEnCours = true) }
+            try {
+                val w = lireSemaine(appel { base -> api.appeler(base, "/api/android/tableau-de-bord/semaine", JSONObject().put("date", _etat.value.jour)) })
+                maj { it.copy(semaine = w) }
+            } catch (e: Exception) { gerer(e) } finally { maj { it.copy(semaineEnCours = false) } }
         }
     }
 

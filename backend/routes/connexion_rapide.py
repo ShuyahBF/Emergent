@@ -38,7 +38,7 @@ from routes.liluvine_partage import est_admin
 logger = logging.getLogger("sawali.connexion_rapide")
 TYPE_DEFI = "loois_cle_defi"
 DUREE_DEFI_S = 180
-RP_PAR_DEFAUT = "api.sawalismartsystems.com"          # le fichier assetlinks.json est servi par ce domaine (le serveur d'API)
+RP_PAR_DEFAUT = "sawalismartsystems.com"              # domaine principal (comme les clés d'accès du site, qui fonctionnent) ; son assetlinks.json est dans frontend/public/.well-known (le serveur d'API sert aussi le sien)
 TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
 
 

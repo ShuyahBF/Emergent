@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "relation": [
+      "delegate_permission/common.get_login_creds",
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "bf.sawali.loois.mobile",
+      "sha256_cert_fingerprints": [
+        "A9:0A:62:E8:F5:0C:6B:AE:BE:81:BD:8D:FF:C4:A6:EF:DA:82:4F:84:E7:AA:E0:80:1C:BF:B1:23:AD:AF:C4:9C"
+      ]
+    }
+  }
+]

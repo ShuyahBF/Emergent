@@ -7,11 +7,12 @@
 // Backend : POST/GET/DELETE /api/sonde-reseau/mesures, GET /api/sonde-reseau/rapport (administrateur seul). Moteur : lib/sondeReseau.js.
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Download, Eraser, Eye, EyeOff, FileDown, KeyRound, Play, RefreshCw, Square, TriangleAlert, Wifi } from "lucide-react";
+import { Activity, BarChart3, CloudUpload, Download, Eraser, Eye, EyeOff, FileDown, KeyRound, Play, RefreshCw, SlidersHorizontal, Square, Table2, TriangleAlert, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { API, apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { executerCycle } from "@/lib/sondeReseau";
 import { messageAlerte, viderFile } from "@/lib/sondeEnvoi";
 import { COULEUR_NIVEAU, doitMesurerDebit, enCsv, heureProchaine, niveauDebit, niveauPerte, pctPerte, SEUIL_PERTE_ATTENTION } from "@/lib/sondeReseauCalculs";
@@ -47,6 +48,13 @@ function Carte({ titre, valeur, detail, niveau }) {
       {detail && <p className="text-[11px] text-slate-500">{detail}</p>}
     </div>);
 }
+
+// Boutons d'action = PICTOGRAMMES (règle du propriétaire, 27/11/2026) : ronds, colorés, avec info-bulle et libellé d'accessibilité (zone tactile de 44 px)
+const pico = "inline-flex h-11 w-11 items-center justify-center rounded-full border-2 disabled:opacity-50";
+const COULEURS = { vert: "border-emerald-500 text-emerald-700 hover:bg-emerald-50", rouge: "border-red-400 text-red-700 hover:bg-red-50", bleu: "border-sky-500 text-sky-700 hover:bg-sky-50",
+  orange: "border-amber-500 text-amber-700 hover:bg-amber-50", violet: "border-violet-400 text-violet-700 hover:bg-violet-50", gris: "border-slate-400 text-slate-700 hover:bg-slate-50" };
+const Pico = ({ onClick, disabled, titre, couleur, id, children }) => (
+  <button type="button" onClick={onClick} disabled={disabled} title={titre} aria-label={titre} data-testid={id} className={`${pico} ${COULEURS[couleur]}`}>{children}</button>);
 
 export default function SondeReseauSection() {
   // Réglages de CE navigateur (retenus d'une visite à l'autre)
@@ -206,64 +214,34 @@ export default function SondeReseauSection() {
   const totalEssais = triees.reduce((a, m) => a + (m.essais || 0), 0);
   const totalPerdus = triees.reduce((a, m) => a + (m.perdus || 0), 0);
   const bandeau = { ok: "bg-emerald-50 text-emerald-800 border-emerald-200", attention: "bg-amber-50 text-amber-800 border-amber-200", critique: "bg-red-50 text-red-800 border-red-200", inconnu: "bg-slate-50 text-slate-700 border-slate-200" };
-  const bouton = "inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1 text-sm disabled:opacity-50";
+  const onglet = "rounded-md px-3 py-1.5 text-sm font-semibold data-[state=active]:bg-sky-700 data-[state=active]:text-white";
 
   return (
     <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4" data-testid="rubrique-sonde-reseau">
-      <p className="flex items-start gap-2 text-xs text-slate-600">
-        <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>Laissez cette page <b>ouverte</b> sur le PC branché à la box (ou sur un téléphone) : elle mesure la latence et la perte toutes les {intervalle} minutes, puis une fois par heure les débits (≈ 12 Mo de données)
-          et la lecture d'une vidéo, vers Cloudflare. Rien n'est installé et SAWALI n'est pas sollicité. Un navigateur ne peut pas faire de vrai « ping » : la perte est estimée par les requêtes sans réponse en 2 secondes.
-          Sur un téléphone en données mobiles, préférez un intervalle de 60 minutes.</span>
-      </p>
-
-      {/* Réglages de ce poste : listes déroulantes (valeurs finies) */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <label className="block text-xs"><span className="font-semibold text-slate-700">Nom de ce poste</span>
-          <input value={poste} maxLength={40} disabled={enMarche} onChange={(e) => { setPoste(e.target.value); ecrire("sonde.poste", e.target.value); }}
-                 className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-poste" /></label>
-        <label className="block text-xs"><span className="font-semibold text-slate-700">Type de connexion</span>
-          <select value={type} disabled={enMarche} onChange={(e) => { setType(e.target.value); ecrire("sonde.type", e.target.value); }}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-type">
-            <option value="pc">PC (box / Wi-Fi / câble)</option><option value="mobile">Mobile (données ou partage de connexion)</option></select></label>
-        <label className="block text-xs"><span className="font-semibold text-slate-700">Une mesure toutes les</span>
-          <select value={intervalle} disabled={enMarche} onChange={(e) => { setIntervalle(Number(e.target.value)); ecrire("sonde.intervalle", e.target.value); }}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-intervalle">
-            {INTERVALLES.map((m) => <option key={m} value={m}>{m} minutes</option>)}</select></label>
-      </div>
-
-      {/* Lot 471 — clé de la sonde (œil afficher / masquer) et état sur le serveur */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2" data-testid="sonde-cle-bloc">
-        <label className="block text-xs"><span className="flex items-center gap-1 font-semibold text-slate-700"><KeyRound className="h-3.5 w-3.5" /> Clé de la sonde (pour un envoi sans session)</span>
-          <span className="mt-1 flex items-center gap-2">
-            <input type={cleVisible ? "text" : "password"} value={cle} autoComplete="off" placeholder="Collez ici la valeur de SONDE_RESEAU_CLE" data-testid="sonde-cle"
-                   onChange={(e) => { setCle(e.target.value); ecrire("sonde.cle", e.target.value); }}
-                   className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" />
-            <button type="button" onClick={() => setCleVisible((v) => !v)} aria-label={cleVisible ? "Masquer la saisie" : "Afficher la saisie"} title={cleVisible ? "Masquer la saisie" : "Afficher la saisie"}
-                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded border border-slate-300 bg-white" data-testid="sonde-cle-oeil">
-              {cleVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
-          </span></label>
-        <p className="text-[11px] text-slate-600">
-          {cleServeur === true && <span className="font-semibold text-emerald-700">Clé configurée sur le serveur. </span>}
-          {cleServeur === false && <span className="font-semibold text-orange-700">Clé non configurée sur le serveur : dans Render → sawali-backend → Environment, ajoutez la variable SONDE_RESEAU_CLE (une longue valeur de votre choix), puis saisissez la même ici. </span>}
-          Avec la clé, la page continue d'envoyer ses mesures même après l'expiration de votre session (12 h ou inactivité) ; elle reste dans ce navigateur et n'est jamais affichée par SAWALI.</p>
+      {/* Barre d'actions toujours visible : démarrer / arrêter, mesurer, actualiser (pictogrammes) + état */}
+      <div className="flex flex-wrap items-center gap-2 boutons-distincts" data-testid="sonde-actions">
+        {!enMarche
+          ? <Pico onClick={demarrer} titre="Démarrer la sonde" couleur="vert" id="sonde-demarrer"><Play className="h-5 w-5" /></Pico>
+          : <Pico onClick={arreter} titre="Arrêter la sonde" couleur="rouge" id="sonde-arreter"><Square className="h-5 w-5" /></Pico>}
+        <Pico onClick={() => mesurer(true)} disabled={occupe} titre={occupe ? "Mesure en cours…" : "Mesurer maintenant"} couleur="bleu" id="sonde-mesurer"><Activity className={`h-5 w-5 ${occupe ? "animate-pulse" : ""}`} /></Pico>
+        <Pico onClick={() => charger(true)} disabled={chargement} titre="Actualiser" couleur="violet" id="sonde-actualiser"><RefreshCw className={`h-5 w-5 ${chargement ? "animate-spin" : ""}`} /></Pico>
+        {(enMarche || etat) && <p className="text-xs text-slate-600" data-testid="sonde-etat" aria-live="polite">{enMarche && <span className="mr-2 inline-block rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">En marche</span>}{etat}</p>}
       </div>
       {alerteEnvoi && (
         <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800" data-testid="sonde-alerte-envoi">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {alerteEnvoi}</div>)}
 
-      <div className="flex flex-wrap items-center gap-2 boutons-distincts">
-        {!enMarche
-          ? <button type="button" onClick={demarrer} className={bouton} data-testid="sonde-demarrer"><Play className="h-4 w-4" /> Démarrer la sonde</button>
-          : <button type="button" onClick={arreter} className={bouton} data-testid="sonde-arreter"><Square className="h-4 w-4" /> Arrêter la sonde</button>}
-        <button type="button" onClick={() => mesurer(true)} disabled={occupe} className={bouton} data-testid="sonde-mesurer"><Activity className="h-4 w-4" /> {occupe ? "Mesure en cours…" : "Mesurer maintenant"}</button>
-        <button type="button" onClick={() => charger(true)} disabled={chargement} className={bouton} data-testid="sonde-actualiser"><RefreshCw className="h-4 w-4" /> Actualiser</button>
-        <button type="button" onClick={rapport} className={bouton} data-testid="sonde-rapport"><FileDown className="h-4 w-4" /> Rapport HTML à partager</button>
-        <button type="button" onClick={exporterCsv} disabled={!(d?.mesures || []).length} className={bouton} data-testid="sonde-csv"><Download className="h-4 w-4" /> Export CSV</button>
-        <button type="button" onClick={effacer} className={bouton} data-testid="sonde-effacer"><Eraser className="h-4 w-4" /> Effacer les mesures</button>
-      </div>
-      {(enMarche || etat) && <p className="text-xs text-slate-600" data-testid="sonde-etat" aria-live="polite">{enMarche && <span className="mr-2 inline-block rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">En marche</span>}{etat}</p>}
 
+      <Tabs defaultValue={lire("sonde.onglet", "graphiques")} onValueChange={(v) => ecrire("sonde.onglet", v)} data-testid="sonde-onglets">
+        <TabsList className="h-auto flex-wrap gap-1 bg-slate-100 p-1">
+          <TabsTrigger value="graphiques" className={onglet} data-testid="onglet-graphiques"><BarChart3 className="mr-1 h-4 w-4" /> Graphiques</TabsTrigger>
+          <TabsTrigger value="reglages" className={onglet} data-testid="onglet-reglages"><SlidersHorizontal className="mr-1 h-4 w-4" /> Réglages</TabsTrigger>
+          <TabsTrigger value="mesures" className={onglet} data-testid="onglet-mesures"><Table2 className="mr-1 h-4 w-4" /> Mesures</TabsTrigger>
+          <TabsTrigger value="envois" className={onglet} data-testid="onglet-envois"><CloudUpload className="mr-1 h-4 w-4" /> Sauvegardes Et Envois</TabsTrigger>
+        </TabsList>
+
+        {/* Onglet 1 : synthèse colorée et courbes */}
+        <TabsContent value="graphiques" className="space-y-4">
       {/* Période et poste affichés */}
       <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-3">
         <label className="text-xs"><span className="mr-2 font-semibold text-slate-700">Période</span>
@@ -292,6 +270,45 @@ export default function SondeReseauSection() {
           </div>
         </>)}
 
+          {!r && <p className="text-sm text-slate-500">Aucune synthèse pour l'instant : lancez une mesure (pictogramme bleu) ou démarrez la sonde.</p>}
+        </TabsContent>
+
+        {/* Onglet 2 : réglages des mesures, de la surveillance et des tests */}
+        <TabsContent value="reglages" className="space-y-4">
+      <p className="flex items-start gap-2 text-xs text-slate-600">
+        <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>Laissez cette page <b>ouverte</b> sur le PC branché à la box (ou sur un téléphone) : elle mesure la latence et la perte toutes les {intervalle} minutes, puis une fois par heure les débits (≈ 12 Mo de données)
+          et la lecture d'une vidéo, vers Cloudflare. Rien n'est installé et SAWALI n'est pas sollicité. Un navigateur ne peut pas faire de vrai « ping » : la perte est estimée par les requêtes sans réponse en 2 secondes.
+          Sur un téléphone en données mobiles, préférez un intervalle de 60 minutes.</span>
+      </p>
+
+      {/* Réglages de ce poste : listes déroulantes (valeurs finies) */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block text-xs"><span className="font-semibold text-slate-700">Nom de ce poste</span>
+          <input value={poste} maxLength={40} disabled={enMarche} onChange={(e) => { setPoste(e.target.value); ecrire("sonde.poste", e.target.value); }}
+                 className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-poste" /></label>
+        <label className="block text-xs"><span className="font-semibold text-slate-700">Type de connexion</span>
+          <select value={type} disabled={enMarche} onChange={(e) => { setType(e.target.value); ecrire("sonde.type", e.target.value); }}
+                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-type">
+            <option value="pc">PC (box / Wi-Fi / câble)</option><option value="mobile">Mobile (données ou partage de connexion)</option></select></label>
+        <label className="block text-xs"><span className="font-semibold text-slate-700">Une mesure toutes les</span>
+          <select value={intervalle} disabled={enMarche} onChange={(e) => { setIntervalle(Number(e.target.value)); ecrire("sonde.intervalle", e.target.value); }}
+                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" data-testid="sonde-intervalle">
+            {INTERVALLES.map((m) => <option key={m} value={m}>{m} minutes</option>)}</select></label>
+      </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-700">Surveillance et tests :</span>
+            {!enMarche
+              ? <Pico onClick={demarrer} titre="Démarrer la sonde" couleur="vert" id="sonde-demarrer-reglages"><Play className="h-5 w-5" /></Pico>
+              : <Pico onClick={arreter} titre="Arrêter la sonde" couleur="rouge" id="sonde-arreter-reglages"><Square className="h-5 w-5" /></Pico>}
+            <Pico onClick={() => mesurer(true)} disabled={occupe} titre="Lancer un test maintenant" couleur="bleu" id="sonde-test"><Activity className="h-5 w-5" /></Pico>
+            <span>{enMarche ? "La sonde tourne : arrêtez-la pour modifier le poste, le type ou l'intervalle." : "Réglez le poste, le type et l'intervalle, puis démarrez la sonde."}</span>
+          </div>
+        </TabsContent>
+
+        {/* Onglet 3 : tableau des mesures */}
+        <TabsContent value="mesures" className="space-y-4">
       {/* Tableau : colonnes triables, nombres à droite, ligne de totaux collée dessous (plus de 30 lignes : le défilement est automatique) */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs" data-testid="table-sonde">
@@ -336,6 +353,34 @@ export default function SondeReseauSection() {
             </tfoot>)}
         </table>
       </div>
+        </TabsContent>
+
+        {/* Onglet 4 : tout ce qui est sauvegardé, exporté ou envoyé à SAWALI */}
+        <TabsContent value="envois" className="space-y-4">
+      {/* Lot 471 — clé de la sonde (œil afficher / masquer) et état sur le serveur */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2" data-testid="sonde-cle-bloc">
+        <label className="block text-xs"><span className="flex items-center gap-1 font-semibold text-slate-700"><KeyRound className="h-3.5 w-3.5" /> Clé de la sonde (pour un envoi sans session)</span>
+          <span className="mt-1 flex items-center gap-2">
+            <input type={cleVisible ? "text" : "password"} value={cle} autoComplete="off" placeholder="Collez ici la valeur de SONDE_RESEAU_CLE" data-testid="sonde-cle"
+                   onChange={(e) => { setCle(e.target.value); ecrire("sonde.cle", e.target.value); }}
+                   className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" />
+            <button type="button" onClick={() => setCleVisible((v) => !v)} aria-label={cleVisible ? "Masquer la saisie" : "Afficher la saisie"} title={cleVisible ? "Masquer la saisie" : "Afficher la saisie"}
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded border border-slate-300 bg-white" data-testid="sonde-cle-oeil">
+              {cleVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+          </span></label>
+        <p className="text-[11px] text-slate-600">
+          {cleServeur === true && <span className="font-semibold text-emerald-700">Clé configurée sur le serveur. </span>}
+          {cleServeur === false && <span className="font-semibold text-orange-700">Clé non configurée sur le serveur : dans Render → sawali-backend → Environment, ajoutez la variable SONDE_RESEAU_CLE (une longue valeur de votre choix), puis saisissez la même ici. </span>}
+          Avec la clé, la page continue d'envoyer ses mesures même après l'expiration de votre session (12 h ou inactivité) ; elle reste dans ce navigateur et n'est jamais affichée par SAWALI.</p>
+      </div>
+          <div className="flex flex-wrap items-center gap-2 boutons-distincts">
+            <Pico onClick={rapport} titre="Rapport HTML à partager" couleur="orange" id="sonde-rapport"><FileDown className="h-5 w-5" /></Pico>
+            <Pico onClick={exporterCsv} disabled={!(d?.mesures || []).length} titre="Export CSV" couleur="vert" id="sonde-csv"><Download className="h-5 w-5" /></Pico>
+            <Pico onClick={effacer} titre="Effacer les mesures" couleur="rouge" id="sonde-effacer"><Eraser className="h-5 w-5" /></Pico>
+            <span className="text-xs text-slate-500">Rapport HTML à partager · Export CSV · Effacer les mesures</span>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

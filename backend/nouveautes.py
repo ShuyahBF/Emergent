@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "479", "date": "2026-11-27",
+        "titre": "⚡ Routes très fréquentes : postes Loois, chat et briefing d'accueil",
+        "description": "Les postes Loois (interrogation toutes les 5 s) coûtent 2 requêtes de moins par appel grâce à un cache de 10 s des clés reconnues (révocation immédiate), le décompte des messages non lus du chat se fait en parallèle et le briefing d'accueil est gardé 30 s.",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "478", "date": "2026-11-27",
         "titre": "📱 Loois Mobile : l'application Android est disponible",
         "description": "L'application Android « Loois Mobile » (connexion, Historique de Caisse, Corrections de reçus) est publiée sur ShuyahStore. Chaque téléphone ou tablette apparaît ici « Interdit » : renseignez-le puis autorisez-le.",

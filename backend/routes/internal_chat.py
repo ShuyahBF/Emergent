@@ -738,20 +738,14 @@ def make_router(*, db, get_current_user, decode_token):
     @router.get("/me/chat/unread-count")
     async def me_chat_unread_count(user: dict = Depends(get_current_user)):
         clients = await _user_visible_clients(user)
-        total = 0
-        per_client: Dict[str, int] = {}
-        for c in clients:
+
+        async def _non_lus(c: dict) -> int:
+            """Messages non lus d'UN espace (même règle qu'avant, un seul comptage)."""
             # Lot 57.12.1 — « Support Loois » : messages des postes non lus par cet administrateur
             if c["id"] == support_loois.ESPACE_ID:
-                n = await db.internal_chat_messages.count_documents(support_loois.requete_non_lus(user["id"]))
-                per_client[c["id"]] = int(n)
-                total += int(n)
-                continue
+                return int(await db.internal_chat_messages.count_documents(support_loois.requete_non_lus(user["id"])))
             if support_plateformes.est_espace(c["id"]):   # lot 90 : messages des utilisateurs non lus par cet agent
-                n = await db.internal_chat_messages.count_documents(support_plateformes.requete_non_lus(c["id"], user["id"]))
-                per_client[c["id"]] = int(n)
-                total += int(n)
-                continue
+                return int(await db.internal_chat_messages.count_documents(support_plateformes.requete_non_lus(c["id"], user["id"])))
             # General messages not from me + DM messages addressed to me, not yet read
             q = {
                 "client_id": c["id"],
@@ -761,9 +755,12 @@ def make_router(*, db, get_current_user, decode_token):
                     {"recipient_id": user["id"]},
                 ],
             }
-            n = await db.internal_chat_messages.count_documents(q)
-            per_client[c["id"]] = int(n)
-            total += int(n)
+            return int(await db.internal_chat_messages.count_documents(q))
+
+        # Lot 479 — règle 7 : les comptages de tous les espaces partent EN MÊME TEMPS (avant : l'un après l'autre, ~11 allers-retours en file)
+        comptes = await asyncio.gather(*[_non_lus(c) for c in clients])
+        per_client: Dict[str, int] = {c["id"]: n for c, n in zip(clients, comptes)}
+        total = sum(comptes)
         return {"total": total, "per_client": per_client}
 
     # --------------------------------------------------------------

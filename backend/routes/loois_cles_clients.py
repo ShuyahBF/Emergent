@@ -293,6 +293,10 @@ def fiche_publique(fiche: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Vérification (avec la base) : utilisée par la synchro, la présence et le support
 # ---------------------------------------------------------------------------
+from cache_court import CacheCourt as _CacheCourtCles  # noqa: E402
+_CACHE_CLES = _CacheCourtCles(duree_s=10.0, max_entrees=500)    # lot 479 : clés clients reconnues, 10 s
+
+
 async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Identifie l'émetteur d'une clé Loois.
 
@@ -308,6 +312,13 @@ async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str]
         return None
     sans_surveillance = cle.startswith(PREFIXE_CLE_SS)
     if cle.startswith(PREFIXE_CLE) or sans_surveillance:
+        # Lot 479 — les postes Loois interrogent le serveur toutes les 5 s avec leur clé (1 559 appels à l'heure sur le seul contrôle à distance) :
+        # une clé reconnue est gardée 10 s en mémoire (2 requêtes à la base en moins par appel). Une clé révoquée reste donc valable 10 s au plus ;
+        # un échec (clé inconnue ou révoquée) n'est JAMAIS gardé, une clé nouvellement créée marche tout de suite.
+        cle_cache = (id(db), cle)
+        reconnue = _CACHE_CLES.lire(cle_cache)
+        if reconnue is not None:
+            return dict(reconnue)
         try:
             for empreinte in empreintes_candidates(cle):
                 # Clé « LK- » : empreinte principale ; clé « LKS- » : empreinte sans surveillance (active séparément)
@@ -324,13 +335,23 @@ async def identifier_cle(db, cle_recue: Optional[str], *, machine: Optional[str]
                     {"id": fiche["id"], "$or": [{"derniere_utilisation": None}, {"derniere_utilisation": {"$lt": seuil}}]},
                     {"$set": {"derniere_utilisation": maintenant.isoformat(),
                               "derniere_machine": (str(machine or "").strip()[:80] or fiche.get("derniere_machine"))}})
-                return {"type": "client", "id": fiche["id"], "code": fiche["code"], "libelle": fiche.get("libelle") or fiche["code"],
-                        "applications": fiche.get("applications") or [], "sans_surveillance": sans_surveillance}
+                identite = {"type": "client", "id": fiche["id"], "code": fiche["code"], "libelle": fiche.get("libelle") or fiche["code"],
+                            "applications": fiche.get("applications") or [], "sans_surveillance": sans_surveillance}
+                _CACHE_CLES.ecrire(cle_cache, identite)
+                return dict(identite)
         except Exception:  # noqa: BLE001 — base indisponible : la clé client ne peut pas être vérifiée
             pass
     if cle_commune_valide(cle):
         return {"type": "commune"}
     return None
+
+
+async def _maj_cle(db, filtre, modif, **options):
+    """Lot 479 — écriture d'administration sur une clé (révocation, régénération, activation…) : le cache des clés reconnues est vidé TOUT DE SUITE,
+    une révocation ne reste donc jamais valable 10 s pour les postes qui venaient d'être reconnus."""
+    res = await db.loois_cles_clients.update_one(filtre, modif, **options)
+    _CACHE_CLES._valeurs.clear()
+    return res
 
 
 async def lire_reglages(db) -> Dict[str, Any]:
@@ -451,7 +472,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
                 raise HTTPException(status_code=422, detail="compte client introuvable")
             propre["client_nom"] = (compte.get("company") or compte.get("full_name") or compte.get("email") or "")[:160] or None
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {**propre, "maj_le": maintenant, "maj_par": auteur(user)},
             "$push": {"historique": {"action": "modification", "le": maintenant, "par": auteur(user)}}})
         return {"ok": True, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}
@@ -464,7 +485,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         fiche = await fiche_ou_404(id_fiche)
         nouvelle = nouvelle_empreinte()
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {**nouvelle["champs"], "actif": True, "revoquee_le": None, "regeneree_le": maintenant,
                      "derniere_utilisation": None, "derniere_machine": None},
             "$push": {"historique": {"action": "regeneration", "le": maintenant, "par": auteur(user),
@@ -478,7 +499,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         admin(user)
         await fiche_ou_404(id_fiche)
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {"actif": False, "revoquee_le": maintenant},
             "$push": {"historique": {"action": "revocation", "le": maintenant, "par": auteur(user)}}})
         await rafraichir_etat(db)
@@ -490,7 +511,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         admin(user)
         await fiche_ou_404(id_fiche)
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {"actif": True, "revoquee_le": None},
             "$push": {"historique": {"action": "reactivation", "le": maintenant, "par": auteur(user)}}})
         ETAT["clients_actifs"] = True
@@ -525,7 +546,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         if not cle:
             raise HTTPException(status_code=409, detail="Clé illisible (le secret de chiffrement a changé depuis sa création) : régénérez-la.")
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {"$push": {"historique": {
+        await _maj_cle(db, {"id": id_fiche}, {"$push": {"historique": {
             "action": "affichage_cle_sans_surveillance" if sans else "affichage_cle", "le": maintenant, "par": auteur(user),
             "prefixe": fiche.get("ss_prefixe") if sans else fiche.get("prefixe")}}})
         return Response(content=json.dumps({"ok": True, "cle": cle, "code": fiche.get("code")}), media_type="application/json",
@@ -549,7 +570,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
             await db.loois_cles_clients.create_index("ss_cle_hash", sparse=True)
         except Exception:  # noqa: BLE001
             pass
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {"ss_cle_hash": hacher_cle(cle, p), "ss_cle_poivree": bool(p), "ss_prefixe": prefixe_affiche(cle), "ss_cle_chiffree": chiffrer_cle(cle),
                      "ss_actif": True, "ss_cree_le": maintenant, "ss_cree_par": auteur(user), "ss_revoquee_le": None},
             "$push": {"historique": {"action": "sans_surveillance_generation", "le": maintenant, "par": auteur(user),
@@ -562,7 +583,7 @@ def setup_loois_cles_clients_routes(*, db, api, get_current_user) -> None:
         admin(user)
         await fiche_ou_404(id_fiche)
         maintenant = _maintenant().isoformat()
-        await db.loois_cles_clients.update_one({"id": id_fiche}, {
+        await _maj_cle(db, {"id": id_fiche}, {
             "$set": {"ss_actif": False, "ss_revoquee_le": maintenant},
             "$push": {"historique": {"action": "sans_surveillance_revocation", "le": maintenant, "par": auteur(user)}}})
         return {"ok": True, "fiche": fiche_publique(await fiche_ou_404(id_fiche))}

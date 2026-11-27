@@ -24,11 +24,25 @@ async def _build_prospects_publicite(user, visible_scope, last_seen_at):
         return None
 
 
+# Lot 479 — le briefing d'accueil (36 requêtes à la suite, 0,7 s) est gardé 30 s par utilisateur et par « dernière visite » : il est affiché à
+# l'ouverture de session, une ouverture répétée (rechargement, deuxième onglet) ne refait pas tous les calculs.
+from cache_court import CacheCourt as _CacheCourtBriefing  # noqa: E402
+_CACHE_BRIEFING = _CacheCourtBriefing(duree_s=30.0, max_entrees=200)
+
+
 @api.get("/me/welcome-briefing", tags=["Portail Client"])
 async def me_welcome_briefing(
     last_seen_at: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
+    cle = f"{user.get('id')}|{last_seen_at or ''}"
+    garde = _CACHE_BRIEFING.lire(cle)
+    if garde is not None:
+        return garde
+    return _CACHE_BRIEFING.ecrire(cle, await _calculer_briefing_accueil(last_seen_at, user))
+
+
+async def _calculer_briefing_accueil(last_seen_at: Optional[str], user: dict):
     s = await db.settings.find_one({"_id": "global"}) or {}
     notes_days = int(s.get("welcome_modal_notes_days") or 3)
     since_notes = (datetime.now(timezone.utc) - timedelta(days=notes_days)).isoformat()

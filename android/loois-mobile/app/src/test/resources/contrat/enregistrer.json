@@ -1,0 +1,11 @@
+{
+ "appareil_id": "1277c9edfac54dbb",
+ "jeton": "JETON-DE-TEST",
+ "etat": "interdit",
+ "autorise": false,
+ "nom_utilisateur": "",
+ "zone": "",
+ "base": "",
+ "client_code": "",
+ "message": "Accès interdit : cet appareil n'est pas encore autorisé par l'administrateur SAWALI."
+}

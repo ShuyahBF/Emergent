@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.LooisMobile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#0A1E3D</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowBackground">#F8FAFC</item>
+    </style>
+</resources>

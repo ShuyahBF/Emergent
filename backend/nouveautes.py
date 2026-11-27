@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "478", "date": "2026-11-27",
+        "titre": "📱 Loois Mobile : l'application Android est disponible",
+        "description": "L'application Android « Loois Mobile » (connexion, Historique de Caisse, Corrections de reçus) est publiée sur ShuyahStore. Chaque téléphone ou tablette apparaît ici « Interdit » : renseignez-le puis autorisez-le.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "477", "date": "2026-11-27",
         "titre": "🧮 Routes lourdes allégées : traductions, sauvegarde complète, activité des plateformes",
         "description": "Les traductions se lisent en une requête au lieu de ~190, l'état de la sauvegarde complète utilise les compteurs de métadonnées (6 s en moins pour 289 collections) et les comptages des plateformes ne saturent plus la base (moins de pics de 1,5 s sur les routes légères).",

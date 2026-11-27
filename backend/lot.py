@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "477"
-LOT_LIBELLE = "Routes lourdes : traductions en une lecture (190 requêtes en moins), état de la sauvegarde par compteurs de métadonnées, comptages des plateformes bornés à 8 en parallèle"
+LOT = "478"
+LOT_LIBELLE = "Loois mobile : application Android publiée sur ShuyahStore (code source dans android/loois-mobile). Lot 477 : Routes lourdes : traductions en une lecture (190 requêtes en moins), état de la sauvegarde par compteurs de métadonnées, comptages des plateformes bornés à 8 en parallèle"

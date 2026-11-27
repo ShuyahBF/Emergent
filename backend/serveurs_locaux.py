@@ -46,10 +46,10 @@ def cle_ticket(secret: str) -> str:
     return hashlib.sha256(f"loois-android-ticket|{secret}".encode()).hexdigest()
 
 
-def creer_ticket(secret: str, appareil_id: str, client: str, zone: str, base: str, maintenant: Optional[datetime] = None) -> str:
-    """Ticket local : appareil autorisé pour ce client, cette zone et cette base, 72 h."""
+def creer_ticket(secret: str, appareil_id: str, client: str, zone: str, base: str, maintenant: Optional[datetime] = None, profil: str = "agent") -> str:
+    """Ticket local : appareil autorisé pour ce client, cette zone et cette base, 72 h ; porte le PROFIL de l'appareil (la passerelle en déduit l'accès au tableau de bord)."""
     t = maintenant or datetime.now(timezone.utc)
-    return jwt.encode({"typ": "ticket", "aid": appareil_id, "client": client, "zone": zone, "base": base, "exp": t + timedelta(hours=TICKET_TTL_H)}, cle_ticket(secret), algorithm="HS256")
+    return jwt.encode({"typ": "ticket", "aid": appareil_id, "client": client, "zone": zone, "base": base, "profil": profil, "exp": t + timedelta(hours=TICKET_TTL_H)}, cle_ticket(secret), algorithm="HS256")
 
 
 def lire_ticket(secret: str, ticket: str) -> Optional[Dict[str, Any]]:

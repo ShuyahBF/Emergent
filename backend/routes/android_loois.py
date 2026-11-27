@@ -189,7 +189,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         groupe_v, suppr_v = await asyncio.gather(_executer(appareil, q_groupe, tolerant=True) if q_groupe else _vide(), _executer(appareil, q_suppr, tolerant=True) if q_suppr else _vide())
         groupe = str((groupe_v.get("lignes") or [[""]])[0][0] or "").strip()
         peut_supprimer = al.vrai((suppr_v.get("lignes") or [[""]])[0][0])
-        d = al.droits(espace, login, groupe, autoriser, peut_supprimer)
+        d = al.droits(espace, login, groupe, autoriser, peut_supprimer, profil=appareil.get("profil") or "agent")
         secret = await sl.secret_client(db, appareil["client_code"], creer=True)
         session = sl.creer_session(secret, appareil["id"], login, groupe, d)
         await _journal(appareil, login, "connexion", "réussie", "ok")
@@ -300,6 +300,51 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         a_corriger = [r for r in enrichis if r["a_corriger"]]
         return {"date": jour.isoformat(), "nombre": len(enrichis), "nombre_a_corriger": len(a_corriger), "validite_clinique": clinique, "consultation_seule": bool(s["d"].get("consultation_seule")),
                 "tronque": tronque, "recus": sorted(enrichis, key=lambda r: (not r["a_corriger"], r["date_heure_iso"]), reverse=False)}
+
+    # ------------------------------------------------------------------------------------------------------------------ Tableau de bord de suivi (lot 483)
+    cache_tdb: Dict[str, Tuple[float, Any]] = {}
+
+    def _droit_tdb(s: Dict[str, Any]) -> None:
+        if not s["d"].get("tableau_de_bord"):
+            raise HTTPException(status_code=403, detail="Le tableau de bord est réservé à l'administrateur et aux téléphones « client ».")
+
+    async def _gardee(cle: str, duree_s: float, calcul):
+        """Résultat gardé quelques instants (règle 7) : plusieurs ouvertures du tableau de bord ne relancent pas les mêmes totaux."""
+        t = time.monotonic()
+        if cle in cache_tdb and cache_tdb[cle][0] > t:
+            return cache_tdb[cle][1]
+        valeur = await calcul()
+        cache_tdb[cle] = (t + duree_s, valeur)
+        return valeur
+
+    @api.post("/android/tableau-de-bord", tags=["Loois mobile (Android)"])
+    async def tableau_de_bord(corps: DemandeJour = Body(default_factory=DemandeJour), s: Dict[str, Any] = Depends(_session)):
+        """Un jour : nombre de reçus, montant, panier moyen et détail par caissier (totaux calculés par la base)."""
+        _droit_tdb(s)
+        jour = _jour(corps)
+        a = s["appareil"]
+        await _client_en_ligne(a)
+        vue = await _gardee(f"{a['client_code']}|jour|{jour}", 60, lambda: _executer(a, al.sql_agregat_par_caissier(jour)))
+        par_caissier = al.lire_par_caissier(vue.get("lignes") or [])
+        nombre_recus, total = sum(c["nombre"] for c in par_caissier), round(sum(c["montant"] for c in par_caissier), 2)
+        await _journal(a, s["login"], "tableau_de_bord", str(jour), "ok")
+        return {"date": jour.isoformat(), "nombre": nombre_recus, "total_montant": total, "panier_moyen": round(total / nombre_recus, 2) if nombre_recus else 0.0, "par_caissier": par_caissier}
+
+    @api.post("/android/tableau-de-bord/semaine", tags=["Loois mobile (Android)"])
+    async def tableau_de_bord_semaine(corps: DemandeJour = Body(default_factory=DemandeJour), s: Dict[str, Any] = Depends(_session)):
+        """Les 7 derniers jours jusqu'à la date donnée : une ligne par jour (nombre, montant) — chargée à part pour ne pas retarder le tableau du jour."""
+        _droit_tdb(s)
+        fin = _jour(corps)
+        a = s["appareil"]
+        await _client_en_ligne(a)
+        jours = [fin - timedelta(days=i) for i in range(6, -1, -1)]
+
+        async def calcul():
+            vues = await asyncio.gather(*[_executer(a, al.sql_agregat_jour(j)) for j in jours])
+            return [{"date": j.isoformat(), "nombre": n, "montant": m} for j, (n, m) in zip(jours, [al.lire_agregat_jour(v.get("lignes") or []) for v in vues])]
+        semaine = await _gardee(f"{a['client_code']}|semaine|{fin}", 120, calcul)
+        await _journal(a, s["login"], "tableau_de_bord_semaine", str(fin), "ok")
+        return {"fin": fin.isoformat(), "jours": semaine, "total_montant": round(sum(j["montant"] for j in semaine), 2), "nombre": sum(j["nombre"] for j in semaine)}
 
     # ------------------------------------------------------------------------------------------------------------------ journal (administrateur)
     @api.get("/admin/android-journal", tags=["Loois mobile (Android)"])

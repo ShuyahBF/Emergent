@@ -55,8 +55,8 @@ export default function AppareilsAndroidSection() {
   const enregistrer = async () => {
     setEnCours(true); toast("Enregistrement en cours…");
     try {
-      const { nom_utilisateur, zone, base, client_code, etat, notes } = edition;
-      await apiClient.put(`/admin/android-appareils/${edition.id}`, { nom_utilisateur, zone, base, client_code, etat, notes });
+      const { nom_utilisateur, zone, base, client_code, etat, notes, profil } = edition;
+      await apiClient.put(`/admin/android-appareils/${edition.id}`, { nom_utilisateur, zone, base, client_code, etat, notes, profil: profil || "agent" });
       toast.success("Appareil enregistré."); setEdition(null); await charger(false);
     } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); }
     finally { setEnCours(false); }
@@ -137,7 +137,7 @@ export default function AppareilsAndroidSection() {
             {lignes.map((a) => (
               <tr key={a.id} className="cursor-pointer border-t align-top" onClick={() => ouvrir(a)} data-testid={`appareil-${a.id}`}>
                 <td className="p-2 font-semibold text-sky-800">{a.nom_utilisateur || <span className="italic text-slate-400">à renseigner</span>}{a.nouveau && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-bold text-amber-900">NOUVEAU</span>}</td>
-                <td className="p-2"><span className="flex items-center gap-1"><Smartphone className="h-4 w-4 text-slate-500" />{a.modele || "—"}</span><span className="text-[11px] text-slate-500">v{a.version_app || "?"} · {a.id}</span></td>
+                <td className="p-2"><span className="flex items-center gap-1"><Smartphone className="h-4 w-4 text-slate-500" />{a.modele || "—"}</span><span className="text-[11px] text-slate-500">v{a.version_app || "?"} · {a.id}{a.profil === "client" && <span className="ml-1 rounded bg-sky-100 px-1 font-bold text-sky-800">CLIENT</span>}</span></td>
                 <td className="p-2"><Etat etat={a.etat} /></td>
                 <td className="p-2">{a.zone ? <code>/{a.zone}</code> : "—"}</td>
                 <td className="p-2 font-medium text-indigo-800">{a.base || "—"}</td>
@@ -205,6 +205,9 @@ export default function AppareilsAndroidSection() {
               <label className="block font-semibold text-slate-700">État de l'accès
                 <select value={edition.etat} onChange={(e) => setEdition({ ...edition, etat: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal" data-testid="appareil-etat">
                   <option value="interdit">Interdit</option><option value="autorise">Autorisé</option></select></label>
+              <label className="block font-semibold text-slate-700">Profil de l'appareil
+                <select value={edition.profil || "agent"} onChange={(e) => setEdition({ ...edition, profil: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal" data-testid="appareil-profil">
+                  <option value="agent">Agent — caisse et corrections selon les droits Loois</option><option value="client">Client — tableau de bord de suivi (responsable d'établissement)</option></select></label>
               <label className="block font-semibold text-slate-700">Zone de lancement
                 <select value={autreZone ? AUTRE : (edition.zone || "")} onChange={(e) => choisirZone(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal" data-testid="appareil-zone">
                   <option value="">— Aucune —</option>

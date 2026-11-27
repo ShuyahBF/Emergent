@@ -95,6 +95,18 @@ export default function AppareilsAndroidSection() {
     try { await apiClient.post(`/admin/serveurs-locaux/${code}/regenerer`); toast.success("Nouveau secret créé."); chargerLocaux(false); }
     catch (e) { toast.error(e?.response?.data?.detail || "Régénération impossible"); }
   };
+  // Nettoyage : supprime les appareils « Nouveau » (interdits, jamais renseignés) — jamais un appareil autorisé ou déjà renseigné. Aperçu et confirmation d'abord.
+  const nettoyerNouveaux = async () => {
+    try {
+      const a = await apiClient.post("/admin/android-appareils/nettoyer", { apercu: true });
+      if (!a.data.nombre) { toast("Aucun appareil « Nouveau » à nettoyer."); return; }
+      if (!window.confirm(`Supprimer ${a.data.nombre} appareil(s) « Nouveau » (interdits, jamais renseignés) ?\n\nModèles : ${a.data.modeles.join(", ")}\n\nUn vrai appareil supprimé se ré-enregistrera tout seul à son prochain lancement. Les appareils autorisés ou renseignés ne sont jamais touchés.`)) return;
+      toast("Nettoyage en cours…");
+      const r = await apiClient.post("/admin/android-appareils/nettoyer", {});
+      toast.success(`${r.data.supprimes} appareil(s) supprimé(s).`); charger(false);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Nettoyage impossible"); }
+  };
+
   const nouveaux = useMemo(() => (liste || []).filter((a) => a.nouveau).length, [liste]);
 
   return (
@@ -105,6 +117,7 @@ export default function AppareilsAndroidSection() {
       </p>
       <div className="flex flex-wrap items-center gap-2 boutons-distincts">
         <button type="button" onClick={() => charger(true)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold" data-testid="appareils-actualiser"><RefreshCw className="h-4 w-4" /> Actualiser</button>
+        {nouveaux > 0 && <button type="button" onClick={nettoyerNouveaux} className="inline-flex items-center gap-1 rounded-full border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-800" data-testid="appareils-nettoyer"><Trash2 className="h-4 w-4" /> Nettoyer les nouveaux</button>}
         {nouveaux > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900" data-testid="appareils-nouveaux">{nouveaux} nouvel(le)(s) appareil(s) à renseigner</span>}
       </div>
 

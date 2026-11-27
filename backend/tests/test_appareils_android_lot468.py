@@ -123,3 +123,25 @@ def test_droits_administrateur_et_suppression(client_http):
     assert c.delete(f"/api/admin/android-appareils/{d['appareil_id']}").status_code == 200
     assert c.get("/api/admin/android-appareils").json()["appareils"] == []
     assert c.post("/api/android/appareil/statut", json={}, headers={"Authorization": f"Bearer {d['jeton']}"}).status_code == 401   # appareil supprimé : jeton mort
+
+
+def test_nettoyage_des_appareils_nouveaux_seulement(client_http):
+    # Lot 481 : des tests automatiques avaient enregistré de faux appareils « robolectric » ; le bouton « Nettoyer » ne supprime que les appareils NOUVEAUX (interdits, jamais renseignés)
+    c, etat, db, ra = client_http
+    faux = [c.post("/api/android/appareil/enregistrer", json={"android_id": f"LM-TEST-{i:08d}", "modele": "robolectric robolectric", "version_app": "1.0"}).json() for i in range(3)]
+    vrai = c.post("/api/android/appareil/enregistrer", json={"android_id": "ANDROID-ID-VRAI-1", "modele": "Samsung A54", "version_app": "1.1"}).json()
+    suivi = c.post("/api/android/appareil/enregistrer", json={"android_id": "ANDROID-ID-VRAI-2", "modele": "robolectric robolectric", "version_app": "1.1"}).json()
+    c.put(f"/api/admin/android-appareils/{suivi['appareil_id']}", json={"nom_utilisateur": "Awa"})                                  # renseigné : jamais supprimé, même d'un modèle de test
+    ap = c.post("/api/admin/android-appareils/nettoyer", json={"modele": "ROBOLECTRIC", "apercu": True}).json()
+    assert ap == {"apercu": True, "nombre": 3, "modeles": ["robolectric robolectric"]}                                              # casse indifférente ; l'aperçu ne supprime rien
+    assert len(c.get("/api/admin/android-appareils").json()["appareils"]) == 5
+    r = c.post("/api/admin/android-appareils/nettoyer", json={"modele": "robolectric"}).json()
+    assert r["supprimes"] == 3
+    restants = {a["modele"] for a in c.get("/api/admin/android-appareils").json()["appareils"]}
+    assert restants == {"Samsung A54", "robolectric robolectric"} and len(c.get("/api/admin/android-appareils").json()["appareils"]) == 2   # le vrai appareil et l'appareil renseigné restent
+    assert c.post("/api/android/appareil/statut", json={}, headers={"Authorization": f"Bearer {faux[0]['jeton']}"}).status_code == 401  # un appareil supprimé se ré-enregistrera seul
+    # tous les « Nouveau » sans filtre ; autorisé : jamais touché
+    c.put(f"/api/admin/android-appareils/{vrai['appareil_id']}", json={"etat": "autorise"})
+    assert c.post("/api/admin/android-appareils/nettoyer", json={}).json()["supprimes"] == 0
+    etat["user"] = {"id": "u2", "role": "client"}
+    assert c.post("/api/admin/android-appareils/nettoyer", json={}).status_code == 403

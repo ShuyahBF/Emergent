@@ -43,7 +43,22 @@ class Stockage(contexte: Context) {
         get() = lireSecret("jeton")
         set(v) { if (v == null) prefs.edit().remove("jeton").apply() else ecrireSecret("jeton", v) }
 
-    fun oublierAppareil() { prefs.edit().remove("jeton").remove("appareil_id").apply() }
+    /** Adresses des passerelles locales du client, reçues de SAWALI dans le statut (une par ligne) : l'utilisateur n'a rien à saisir. */
+    var serveursLocaux: List<String>
+        get() = (prefs.getString("serveurs_locaux", "") ?: "").split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        set(v) = prefs.edit().putString("serveurs_locaux", v.joinToString("\n")).apply()
+
+    /** Ticket local de l'appareil (72 h, signé par SAWALI) : prouve à la passerelle, sans Internet, que l'appareil est autorisé. Chiffré comme le jeton. */
+    var ticketLocal: String?
+        get() = lireSecret("ticket_local")
+        set(v) { if (v.isNullOrBlank()) prefs.edit().remove("secret_ticket_local").apply() else ecrireSecret("ticket_local", v) }
+
+    /** Dernier statut connu (zone, base, utilisateur — rien de secret) : permet de se connecter sans Internet. */
+    var dernierStatut: String
+        get() = prefs.getString("dernier_statut", "") ?: ""
+        set(v) = prefs.edit().putString("dernier_statut", v).apply()
+
+    fun oublierAppareil() { prefs.edit().remove("jeton").remove("appareil_id").remove("secret_ticket_local").remove("serveurs_locaux").remove("dernier_statut").apply() }
 
     // ---------------------------------------------------------------- secrets chiffrés (AES-GCM, clé dans le Keystore Android)
     private fun cle(): SecretKey {

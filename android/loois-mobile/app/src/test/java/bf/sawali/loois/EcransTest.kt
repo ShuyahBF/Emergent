@@ -19,6 +19,9 @@ import org.robolectric.annotation.Config
 class EcransTest {
     @get:Rule val rule = createComposeRule()
 
+    // Aucun test ne doit parler à SAWALI : sans cela chaque écran de test enregistrerait un faux appareil « robolectric » dans le registre de production
+    @org.junit.Before fun sansReseau() { AppViewModel.sansDemarrageReseau = true }
+
     private val statut = StatutAppareil("autorise", true, "BADINI Awa", "docx=CMC", "myAurora-CMC", "CMC", "")
     private val droitsCaissier = Droits(false, false, false, true, true, false)
     private val recus = listOf(
@@ -93,6 +96,18 @@ class EcransTest {
         rule.onNodeWithText("Consultation pédiatrique").assertIsDisplayed()
         rule.onNodeWithText("expire le 24/01/2027 23:59", substring = true).assertIsDisplayed()
         rule.onNodeWithText("2 ligne(s)").assertIsDisplayed()
+    }
+
+    @Test fun parametresMontrentLesServeursLocauxRecusDeSawali() {
+        afficher(UiEtat(ecran = Ecran.PARAMETRES, urlSawali = "https://api.sawalismartsystems.com", mode = "auto", serveursLocaux = listOf("http://192.168.1.10:8750"), ticketExpire = "30/11/2026 14:05"))
+        rule.onNodeWithText("Serveurs locaux reçus de SAWALI").assertIsDisplayed()
+        rule.onNodeWithText("http://192.168.1.10:8750").assertIsDisplayed()
+        rule.onNodeWithText("Accès sans Internet valable jusqu'au 30/11/2026 14:05", substring = true).assertIsDisplayed()
+    }
+
+    @Test fun parametresSansServeurLocalExpliquentPourquoi() {
+        afficher(UiEtat(ecran = Ecran.PARAMETRES, urlSawali = "https://api.sawalismartsystems.com", mode = "auto"))
+        rule.onNodeWithText("Aucun pour l'instant", substring = true).assertIsDisplayed()
     }
 
     @Test fun parametresAvecModeDeConnexion() {

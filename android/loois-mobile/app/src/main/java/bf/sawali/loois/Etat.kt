@@ -40,6 +40,8 @@ data class UiEtat(
     val urlSawali: String = "",
     val urlLocale: String = "",
     val mode: String = "auto",
+    val serveursLocaux: List<String> = emptyList(),   // passerelles locales du client, reçues de SAWALI (rien à saisir)
+    val ticketExpire: String = "",                    // « 30/11/2026 14:05 » : fin de l'accès sans Internet
 )
 
 /**
@@ -49,10 +51,16 @@ data class UiEtat(
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val stockage = Stockage(app)
     private val api = ClientApi(stockage)
-    private val _etat = MutableStateFlow(UiEtat(urlSawali = stockage.urlSawali, urlLocale = stockage.urlLocale, mode = stockage.mode, appareilId = stockage.appareilId))
+    private val _etat = MutableStateFlow(UiEtat(urlSawali = stockage.urlSawali, urlLocale = stockage.urlLocale, mode = stockage.mode, appareilId = stockage.appareilId,
+        serveursLocaux = stockage.serveursLocaux, ticketExpire = expirationTicket(stockage.ticketLocal)?.let { dateHeureDepuisSecondes(it) } ?: ""))
     val etat: StateFlow<UiEtat> = _etat.asStateFlow()
 
-    init { demarrer() }
+    companion object {
+        /** Tests de l'interface : empêche tout appel réseau au démarrage (sinon chaque test s'enregistrerait auprès de SAWALI). Jamais modifié par l'application. */
+        @JvmStatic internal var sansDemarrageReseau = false
+    }
+
+    init { if (!sansDemarrageReseau) demarrer() }
 
     private fun maj(f: (UiEtat) -> UiEtat) = _etat.update(f)
 
@@ -62,32 +70,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun dire(m: String) = maj { it.copy(message = m) }
 
     // ------------------------------------------------------------------------------------------------------------ réseau : Internet ou serveur local
-    /** Adresses à essayer, dans l'ordre, selon le mode choisi et la connexion détectée. */
+    /** Adresses des passerelles locales à essayer : celle saisie à la main (Paramètres), puis celles reçues de SAWALI ; sans doublon. */
+    private fun basesLocales(): List<String> = (listOf(stockage.urlLocale) + stockage.serveursLocaux).map { it.trim().trimEnd('/') }.filter { it.isNotEmpty() && urlAutorisee(it) }.distinct()
+
+    /** Adresses à essayer, dans l'ordre, selon le mode choisi et la connexion détectée : Internet (SAWALI, SQL distantes) si Internet est détecté, sinon les passerelles locales. */
     private fun bases(): List<String> {
         val internet = stockage.urlSawali
-        val local = stockage.urlLocale
+        val locales = basesLocales()
         return when (stockage.mode) {
             "internet" -> listOf(internet)
-            "local" -> if (local.isBlank()) throw ErreurReseau("Adresse du serveur local non définie (Paramètres).") else listOf(local)
-            else -> if (internetDisponible(getApplication())) listOfNotNull(internet, local.ifBlank { null }) else listOfNotNull(local.ifBlank { null }, internet)
+            "local" -> if (locales.isEmpty()) throw ErreurReseau("Aucun serveur local connu (SAWALI les fournit quand l'appareil est autorisé ; ou saisissez-en un dans les Paramètres).") else locales
+            else -> if (internetDisponible(getApplication())) listOf(internet) + locales else locales + internet
         }
     }
+
+    private fun etiquetteMode(base: String): String =
+        if (api.estServeurLocal(base)) "Réseau local · ${base.removePrefix("http://").removePrefix("https://")}" else "Internet · SQL distantes"
 
     private suspend fun <T> appel(bloc: suspend (String) -> T): T {
         var derniere: Exception? = null
         for (base in bases()) {
             try {
                 val r = bloc(base)
-                maj { it.copy(modeAffiche = if (base == stockage.urlLocale && base != stockage.urlSawali) "Réseau local · $base" else "Internet · SQL distantes") }
+                maj { it.copy(modeAffiche = etiquetteMode(base)) }
                 return r
             } catch (e: ErreurReseau) { derniere = e }      // réseau en panne : on tente l'adresse suivante ; les erreurs du serveur (ErreurApi) remontent telles quelles
         }
         throw derniere ?: ErreurReseau("Serveur injoignable.")
     }
 
+    /** Fonctions réservées à SAWALI (enregistrement, statut) : jamais envoyées à une passerelle locale. */
+    private suspend fun <T> appelSawali(bloc: suspend (String) -> T): T {
+        val r = bloc(stockage.urlSawali)
+        maj { it.copy(modeAffiche = etiquetteMode(stockage.urlSawali)) }
+        return r
+    }
+
     /** Traduit une erreur en message pour l'utilisateur ; une session expirée ramène à la connexion, un appareil interdit à l'écran d'attente. */
     private fun gerer(e: Exception) {
         when {
+            e is ErreurApi && e.code == 401 && (e.message ?: "").contains("Ticket local", true) -> { api.session = null; maj { it.copy(ecran = Ecran.ATTENTE_AUTORISATION, utilisateur = null, droits = null, messageAttente = e.message ?: "", message = e.message) } }   // ticket de 72 h expiré : Internet requis une fois
             e is ErreurApi && e.code == 401 && api.session != null -> { api.session = null; maj { it.copy(ecran = Ecran.CONNEXION, utilisateur = null, droits = null, message = "Session expirée : reconnectez-vous.") } }
             e is ErreurApi && e.code == 403 && (e.message ?: "").contains("interdit", true) -> { api.session = null; maj { it.copy(ecran = Ecran.ATTENTE_AUTORISATION, messageAttente = e.message ?: "", message = e.message) } }
             else -> dire(e.message ?: "Erreur inattendue.")
@@ -108,7 +130,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             maj { it.copy(serveur = "verification") }
             val debut = System.currentTimeMillis()
             try {
-                appel { base -> api.appeler(base, "/api/version", methode = "GET", avecSession = false, delaiConnexionMs = 6_000, delaiLectureMs = 8_000) }
+                // SAWALI : /api/version ; passerelle locale : /api/android/ping
+                appel { base -> api.appeler(base, if (api.estServeurLocal(base)) "/api/android/ping" else "/api/version", methode = "GET", avecSession = false, delaiConnexionMs = 6_000, delaiLectureMs = 8_000) }
                 val ms = System.currentTimeMillis() - debut
                 maj { it.copy(serveur = if (ms > 2500) "lent" else "actif") }
             } catch (e: Exception) { maj { it.copy(serveur = "injoignable") } }
@@ -126,7 +149,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             maj { it.copy(enCours = true) }
             try {
                 val corps = JSONObject().put("android_id", identifiantAndroid()).put("modele", "${Build.MANUFACTURER} ${Build.MODEL}".take(80)).put("version_app", BuildConfig.VERSION_NAME)
-                val r = appel { base -> api.appeler(base, "/api/android/appareil/enregistrer", corps, avecSession = false) }
+                val r = appelSawali { base -> api.appeler(base, "/api/android/appareil/enregistrer", corps, avecSession = false) }
                 stockage.jeton = r.getString("jeton")
                 stockage.appareilId = r.optString("appareil_id")
                 appliquerStatut(lireStatut(r), r.optString("appareil_id"))
@@ -141,17 +164,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             maj { it.copy(enCours = true) }
             try {
-                val r = appel { base -> api.appeler(base, "/api/android/appareil/statut", JSONObject().put("version_app", BuildConfig.VERSION_NAME), avecSession = false) }
+                val r = appelSawali { base -> api.appeler(base, "/api/android/appareil/statut", JSONObject().put("version_app", BuildConfig.VERSION_NAME), avecSession = false) }
                 appliquerStatut(lireStatut(r), stockage.appareilId)
             } catch (e: ErreurApi) {
                 if (e.code == 401) { stockage.oublierAppareil(); enregistrer() } else maj { it.copy(ecran = Ecran.ATTENTE_AUTORISATION, messageAttente = e.message ?: "", message = e.message) }
+            } catch (e: ErreurReseau) {
+                // Pas de SAWALI joignable : si l'appareil a déjà été autorisé et connaît une passerelle locale (ticket de 72 h), on continue SANS Internet
+                if (!demarrerHorsInternet()) gererDemarrage(e)
             } catch (e: Exception) { gererDemarrage(e) } finally { maj { it.copy(enCours = false) } }
         }
     }
 
+    /** Démarre avec le dernier statut connu quand SAWALI est injoignable. Rend faux si ce n'est pas possible (jamais autorisé, ticket absent ou expiré, aucune passerelle connue). */
+    private fun demarrerHorsInternet(): Boolean {
+        val s = statutDepuisJson(stockage.dernierStatut)
+        val exp = expirationTicket(stockage.ticketLocal)
+        if (s == null || !s.autorise || exp == null || exp * 1000 <= System.currentTimeMillis() || basesLocales().isEmpty()) return false
+        maj { it.copy(statut = s, ecran = if (it.ecran == Ecran.DEMARRAGE || it.ecran == Ecran.ATTENTE_AUTORISATION) Ecran.CONNEXION else it.ecran, messageAttente = "",
+            message = "Sans Internet : accès par le réseau local (ticket valable jusqu'au ${dateHeureDepuisSecondes(exp)}).") }
+        verifierServeur()
+        return true
+    }
+
     private fun gererDemarrage(e: Exception) = maj { it.copy(ecran = if (it.ecran == Ecran.DEMARRAGE) Ecran.ATTENTE_AUTORISATION else it.ecran, messageAttente = e.message ?: "", message = e.message) }
 
-    private fun appliquerStatut(s: StatutAppareil, id: String) = maj {
+    private fun appliquerStatut(s: StatutAppareil, id: String) {
+        // Mémorise de quoi travailler sans Internet : adresses des passerelles locales, ticket local (chiffré) et dernier statut (zone, base) ; un appareil interdit n'en garde rien
+        stockage.serveursLocaux = if (s.autorise) s.serveursLocaux else emptyList()
+        stockage.ticketLocal = if (s.autorise) s.ticketLocal else null
+        stockage.dernierStatut = statutVersJson(s)
+        maj { it.copy(serveursLocaux = stockage.serveursLocaux, ticketExpire = expirationTicket(stockage.ticketLocal)?.let { x -> dateHeureDepuisSecondes(x) } ?: "") }
+        mettreAJourStatut(s, id)
+    }
+
+    private fun mettreAJourStatut(s: StatutAppareil, id: String) = maj {
         it.copy(statut = s, appareilId = id, messageAttente = s.message,
             ecran = if (s.autorise) (if (it.ecran == Ecran.DEMARRAGE || it.ecran == Ecran.ATTENTE_AUTORISATION) Ecran.CONNEXION else it.ecran) else Ecran.ATTENTE_AUTORISATION)
     }

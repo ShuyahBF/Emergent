@@ -1,0 +1,23 @@
+{
+ "etat": "autorise",
+ "autorise": true,
+ "nom_utilisateur": "Awa",
+ "zone": "docx=CMC",
+ "base": "myAurora-CMC",
+ "client_code": "CMC",
+ "message": "",
+ "serveurs_locaux": [
+  {
+   "url": "http://192.168.1.11:8750",
+   "poste": "PC-CMC-2",
+   "serveur_hfsql": "jSHUYAH:4900"
+  },
+  {
+   "url": "http://192.168.1.10:8750",
+   "poste": "PC-CMC-1",
+   "serveur_hfsql": "jSHUYAH:4900"
+  }
+ ],
+ "ticket_local": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJ0aWNrZXQiLCJhaWQiOiJhMWIyYzNkNGU1ZjYwMDAxIiwiY2xpZW50IjoiQ01DIiwiem9uZSI6ImRvY3g9Q01DIiwiYmFzZSI6Im15QXVyb3JhLUNNQyIsImV4cCI6NDEwMjQ0NDgwMH0.9u92qX5wpb32PMD8-FOTBFXZryf615Qw9lQ0xp7WlCA",
+ "ticket_local_h": 72
+}

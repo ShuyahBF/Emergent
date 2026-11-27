@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "475", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : connexion, Historique de Caisse et Corrections de reçus",
+        "description": "Côté serveur de l'application Android : connexion de l'utilisateur avec ses identifiants Loois (mot de passe jamais gardé), Historique de Caisse, détail d'un reçu, reçus à corriger (lecture seule), le tout par la file SQL à distance, et un journal d'activité des appareils.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "474", "date": "2026-11-27",
         "titre": "🧭 Appels lents : fichiers, appels WhatsApp, plateformes et réactivité du serveur",
         "description": "Les images du stockage externe restent 10 minutes en mémoire, les appels WhatsApp en cours et l'activité des plateformes font beaucoup moins de requêtes, la roadmap se synchronise au démarrage, et une nouvelle ligne « Réactivité du serveur » dit si un calcul bloque le serveur (ce qui ralentirait toutes les routes en même temps).",

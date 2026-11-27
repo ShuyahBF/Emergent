@@ -74,6 +74,15 @@ export default function AppareilsAndroidSection() {
   const basculerEtat = (e, a) => { e.stopPropagation(); apiClient.put(`/admin/android-appareils/${a.id}`, { etat: a.etat === "autorise" ? "interdit" : "autorise" })
     .then(() => { toast.success(a.etat === "autorise" ? "Appareil interdit." : "Appareil autorisé."); charger(false); }).catch((x) => toast.error(x?.response?.data?.detail || "Modification impossible")); };
 
+  // Journal d'audit des actions faites depuis les appareils (connexion, historique, détail d'un reçu, corrections) : lecture seule
+  const [journal, setJournal] = useState(null);
+  const chargerJournal = useCallback(async (avecToast) => {
+    if (avecToast) toast("Lecture du journal en cours…");
+    try { const r = await apiClient.get("/admin/android-journal", { params: { limite: 200 } }); setJournal(r.data.lignes || []); if (avecToast) toast.success(`${(r.data.lignes || []).length} ligne(s) du journal lue(s).`); }
+    catch (e) { setJournal([]); if (avecToast) toast.error(e?.response?.data?.detail || "Lecture du journal impossible"); }
+  }, []);
+  const { lignes: journalTrie, tri: triJ, basculer: basculerJ } = useTri(journal || [], { quand: (j) => j.quand, login: (j) => j.login, action: (j) => j.action, detail: (j) => j.detail, resultat: (j) => j.resultat, ip: (j) => j.ip });
+
   const nouveaux = useMemo(() => (liste || []).filter((a) => a.nouveau).length, [liste]);
 
   return (
@@ -123,6 +132,23 @@ export default function AppareilsAndroidSection() {
           </tbody>
         </table>
       </div>
+
+      {/* Journal d'activité (audit) : qui a fait quoi depuis quel appareil — jamais de mot de passe */}
+      <details className="rounded-lg border border-slate-200 p-3" onToggle={(e) => { if (e.currentTarget.open && journal === null) chargerJournal(false); }} data-testid="appareils-journal">
+        <summary className="cursor-pointer font-semibold text-slate-800">Journal d'activité des appareils</summary>
+        <div className="mt-2 space-y-2">
+          <button type="button" onClick={() => chargerJournal(true)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" /> Actualiser le journal</button>
+          <div className="max-h-80 overflow-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-sm"><thead className="sticky top-0 bg-slate-50"><tr className="text-left text-slate-600">
+              <ThTri cle="quand" tri={triJ} onTri={basculerJ}>Date et heure</ThTri><ThTri cle="login" tri={triJ} onTri={basculerJ}>Utilisateur</ThTri><ThTri cle="action" tri={triJ} onTri={basculerJ}>Action</ThTri>
+              <ThTri cle="detail" tri={triJ} onTri={basculerJ}>Détail</ThTri><ThTri cle="resultat" tri={triJ} onTri={basculerJ}>Résultat</ThTri><ThTri cle="ip" tri={triJ} onTri={basculerJ}>IP</ThTri></tr></thead>
+              <tbody>{journalTrie.map((j, i) => (
+                <tr key={i} className="border-t"><td className="whitespace-nowrap p-2 tabular-nums">{quand(j.quand)}</td><td className="p-2 font-semibold text-sky-800">{j.login || "—"}</td><td className="p-2">{j.action}</td><td className="p-2">{j.detail}</td>
+                  <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${j.resultat === "ok" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>{j.resultat === "ok" ? "✔ ok" : `✖ ${j.resultat}`}</span></td><td className="whitespace-nowrap p-2 tabular-nums">{j.ip || "—"}</td></tr>))}
+                {journal !== null && journalTrie.length === 0 && <tr><td colSpan={6} className="p-3 text-slate-500">Aucune activité enregistrée.</td></tr>}</tbody></table>
+          </div>
+        </div>
+      </details>
 
       {/* Fenêtre modale d'édition (règle 20) */}
       <Dialog open={!!edition} onOpenChange={(ouvert) => { if (!ouvert) setEdition(null); }}>

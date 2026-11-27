@@ -1,0 +1,46 @@
+{
+ "recu": {
+  "reference": "R-0003",
+  "date_vente": "2026-11-26",
+  "heure": "10:15",
+  "date_heure_iso": "2026-11-26T10:15:00",
+  "code_client": "C1",
+  "patient": "Awa BADINI",
+  "montant": 15000.0,
+  "caissier": "TASSEMBH",
+  "ppc": 0.0,
+  "part_assure": 15000.0,
+  "part_assureur": 0.0
+ },
+ "lignes": [
+  {
+   "code_produit": "P1",
+   "designation": "Consultation pédiatrique",
+   "domaine": "PEDIATRIE",
+   "medecin": "OUEDRAOGO Paul",
+   "quantite": 1.0,
+   "prix_unitaire": 10000.0,
+   "montant": 10000.0,
+   "jours_validite_propre": 60,
+   "jours_validite_effective": 60,
+   "necessite_correction": true,
+   "date_expiration": "2027-01-24 23:59:59"
+  },
+  {
+   "code_produit": "P2",
+   "designation": "Consultation",
+   "domaine": "CONSULT",
+   "medecin": "OUEDRAOGO Paul",
+   "quantite": 2.0,
+   "prix_unitaire": 2500.0,
+   "montant": 5000.0,
+   "jours_validite_propre": null,
+   "jours_validite_effective": 30,
+   "necessite_correction": false,
+   "date_expiration": "2026-12-25 23:59:59"
+  }
+ ],
+ "total": 15000.0,
+ "validite_clinique": 30,
+ "a_corriger": true
+}

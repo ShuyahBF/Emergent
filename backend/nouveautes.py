@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "477", "date": "2026-11-27",
+        "titre": "📱 Loois Mobile : l'application Android est disponible",
+        "description": "L'application Android « Loois Mobile » (connexion, Historique de Caisse, Corrections de reçus) est publiée sur ShuyahStore. Chaque téléphone ou tablette apparaît ici « Interdit » : renseignez-le puis autorisez-le.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "476", "date": "2026-11-27",
         "titre": "🔥 Préchauffage au démarrage : fin du gel de 3 à 4 secondes",
         "description": "Après un redémarrage, les modules lourds de l'agenda de Liluvine se chargent dans un fil à part : le serveur continue de répondre. La ligne « Réactivité du serveur » le confirme.",

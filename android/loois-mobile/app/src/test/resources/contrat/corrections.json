@@ -1,0 +1,40 @@
+{
+ "date": "2026-11-26",
+ "nombre": 2,
+ "nombre_a_corriger": 1,
+ "validite_clinique": 30,
+ "consultation_seule": false,
+ "tronque": false,
+ "recus": [
+  {
+   "reference": "R-0003",
+   "date_vente": "2026-11-26",
+   "heure": "10:15",
+   "date_heure_iso": "2026-11-26T10:15:00",
+   "code_client": "C1",
+   "patient": "Awa BADINI",
+   "montant": 15000.0,
+   "caissier": "TASSEMBH",
+   "ppc": 0.0,
+   "part_assure": 15000.0,
+   "part_assureur": 0.0,
+   "lignes_a_corriger": 1,
+   "a_corriger": true
+  },
+  {
+   "reference": "R-0001",
+   "date_vente": "2026-11-26",
+   "heure": "08:00",
+   "date_heure_iso": "2026-11-26T08:00:00",
+   "code_client": "C3",
+   "patient": "Fatim Sawadogo",
+   "montant": 2000.0,
+   "caissier": "TASSEMBH",
+   "ppc": 0.0,
+   "part_assure": 2000.0,
+   "part_assureur": 0.0,
+   "lignes_a_corriger": 0,
+   "a_corriger": false
+  }
+ ]
+}

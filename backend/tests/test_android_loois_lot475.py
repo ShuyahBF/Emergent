@@ -65,8 +65,8 @@ RECUS = [  # Référence, Date Vente, Code Client, Libellé, MontantRéglé, Mac
 LIGNES = {"R-0003": [["P1", "M1", "PEDIATRIE", "1", "10000"], ["P2", "M1", "CONSULT", "2", "2500"]], "R-0002": [["P3", "M2", "CONSULT", "1", "8500,5"]], "R-0001": [["P2", "", "CONSULT", "1", "2000"]]}
 
 
-@pytest.fixture()
-def banc():
+def construire_banc():
+    """Banc d'essai complet (application FastAPI, file SQL simulée, appareil autorisé) : utilisé par les tests ET par le script qui produit les exemples de réponses pour l'application Android."""
     from fastapi import APIRouter, FastAPI
     from fastapi.testclient import TestClient
     import routes.android_loois as ra
@@ -135,6 +135,9 @@ def banc():
     async def utilisateur():
         return admin["user"]
     ra.setup_android_loois_routes(db=db, api=api, get_current_user=utilisateur)
+    import routes.appareils_android as rap                                   # enregistrement et statut de l'appareil (lot 468)
+    rap._limites.clear()
+    rap.setup_appareils_android_routes(db=db, api=api, get_current_user=utilisateur)
     app.include_router(api)
     from fastapi.testclient import TestClient
     c = TestClient(app)
@@ -142,6 +145,11 @@ def banc():
     fiche.update(etat="autorise", zone="docx=CMC", base="myAurora-CMC", client_code="CMC", nom_utilisateur="Awa")
     run(aa.creer(db, fiche))
     return c, {"jeton": jeton, "fiche": fiche, "db": db, "etat": etat, "envoyees": envoyees, "admin": admin}
+
+
+@pytest.fixture()
+def banc():
+    return construire_banc()
 
 
 def entetes(b, session=None):

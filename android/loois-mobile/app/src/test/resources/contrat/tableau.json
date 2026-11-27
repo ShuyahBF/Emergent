@@ -1,0 +1,23 @@
+{
+ "date": "2026-11-26",
+ "nombre": 4,
+ "total_montant": 25600.5,
+ "panier_moyen": 6400.12,
+ "par_caissier": [
+  {
+   "caissier": "TASSEMBH",
+   "nombre": 2,
+   "montant": 17000.0
+  },
+  {
+   "caissier": "ASI2020",
+   "nombre": 1,
+   "montant": 8500.5
+  },
+  {
+   "caissier": "(sans caissier)",
+   "nombre": 1,
+   "montant": 100.0
+  }
+ ]
+}

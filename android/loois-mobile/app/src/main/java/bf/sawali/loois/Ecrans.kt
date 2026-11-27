@@ -47,7 +47,7 @@ fun Racine(vm: AppViewModel) {
     val e by vm.etat.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(e.message) { e.message?.let { snack.showSnackbar(it); vm.messageAffiche() } }
-    BackHandler(enabled = e.ecran in setOf(Ecran.HISTORIQUE, Ecran.DETAIL, Ecran.CORRECTIONS, Ecran.PARAMETRES)) { vm.retour() }
+    BackHandler(enabled = e.ecran in setOf(Ecran.HISTORIQUE, Ecran.DETAIL, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.PARAMETRES)) { vm.retour() }
     Scaffold(snackbarHost = { SnackbarHost(snack) }, containerColor = Couleurs.Fond) { marge ->
         Box(Modifier.padding(marge).fillMaxSize()) {
             when (e.ecran) {
@@ -57,6 +57,7 @@ fun Racine(vm: AppViewModel) {
                 Ecran.MENU -> EcranMenu(e, vm)
                 Ecran.HISTORIQUE -> EcranListe(e, vm, corrections = false)
                 Ecran.CORRECTIONS -> EcranListe(e, vm, corrections = true)
+                Ecran.TABLEAU -> EcranTableau(e, vm)
                 Ecran.DETAIL -> EcranDetail(e, vm)
                 Ecran.PARAMETRES -> EcranParametres(e, vm)
             }
@@ -182,13 +183,16 @@ fun EcranMenu(e: UiEtat, vm: AppViewModel) {
                     Text("${e.utilisateur?.espace ?: ""} · base ${e.statut?.base ?: ""}${if (e.droits?.administrateur == true) " · administrateur" else if (e.droits?.laboratoire == true) " · laboratoire (consultation)" else ""}", color = Couleurs.Gris, fontSize = 12.sp) }
             }
             PastilleServeur(e.serveur, e.modeAffiche)
+            if (e.droits?.tableauDeBord == true) {
+                TuileMenu("Tableau de Bord", "Reçus et montants du jour, par caissier, 7 derniers jours", Icons.Filled.Dashboard, Couleurs.Vert) { vm.aller(Ecran.TABLEAU); if (e.tableau == null) vm.chargerTableau() }
+            }
             if (e.droits?.caisse == true) {
                 TuileMenu("Historique de Caisse", "Reçus du jour, détail et totaux", Icons.Filled.Receipt, Couleurs.BleuCiel) { vm.aller(Ecran.HISTORIQUE); if (e.historique == null) vm.chargerHistorique() }
             }
             if (e.droits?.corrections == true) {
                 TuileMenu("Corrections de Reçus", "Reçus dont la validité est à corriger", Icons.Filled.FactCheck, Couleurs.OrangeFonce) { vm.aller(Ecran.CORRECTIONS); if (e.corrections == null) vm.chargerCorrections() }
             }
-            if (e.droits?.caisse != true) Text("La caisse n'est pas disponible pour cette zone (${e.utilisateur?.espace ?: ""}).", color = Couleurs.Gris)
+            if (e.droits?.caisse != true && e.droits?.tableauDeBord != true) Text("La caisse n'est pas disponible pour cette zone (${e.utilisateur?.espace ?: ""}).", color = Couleurs.Gris)
             TuileMenu("Paramètres", "Adresses du serveur et mode de connexion", Icons.Filled.Settings, Couleurs.Gris) { vm.aller(Ecran.PARAMETRES) }
         }
         PiedVersion()
@@ -372,6 +376,86 @@ fun EcranParametres(e: UiEtat, vm: AppViewModel) {
             }
             PastilleServeur(e.serveur, e.modeAffiche)
             if (e.appareilId.isNotBlank()) Text("Identifiant de l'appareil : ${e.appareilId}", color = Couleurs.BleuCiel, fontSize = 12.sp)
+        }
+        PiedVersion()
+    }
+}
+
+// ================================================================================================================ tableau de bord de suivi
+/** Une barre : hauteur proportionnelle à `part` (0 à 1) ; le meilleur jour est en vert, les autres en bleu ciel. */
+@Composable
+fun BarreGraphique(part: Float, meilleur: Boolean, hauteurMax: Int = 110) {
+    Box(Modifier.width(26.dp).height((hauteurMax * part.coerceIn(0.03f, 1f)).dp).background(if (meilleur) Couleurs.Vert else Couleurs.BleuCiel, RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)))
+}
+
+@Composable
+fun CarteIndicateur(titre: String, valeur: String, couleur: Color, modifier: Modifier = Modifier) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFE2E8F0)), modifier = modifier) {
+        Column(Modifier.padding(12.dp)) { Text(titre, color = Couleurs.Gris, fontSize = 12.sp); Text(valeur, color = couleur, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+    }
+}
+
+@Composable
+fun EcranTableau(e: UiEtat, vm: AppViewModel) {
+    val t = e.tableau
+    Column(Modifier.fillMaxSize()) {
+        BarreHaut("Tableau De Bord", { vm.retour() }) { IconButton(onClick = { vm.chargerTableau() }, enabled = !e.enCours) { Icon(Icons.Filled.Refresh, "Actualiser", tint = Color.White) } }
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            SelecteurJour(e.jour) { vm.changerJour(it) }
+            Spacer(Modifier.weight(1f))
+            BoutonAction("Afficher", Icons.Filled.Search, !e.enCours) { vm.chargerTableau() }
+        }
+        if (t == null) { Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) { Text(if (e.enCours) "Patientez…" else "Touchez « Afficher » pour lire le tableau de bord.", color = Couleurs.Gris) }; PiedVersion(); return }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    CarteIndicateur("Reçus", t.nombre.toString(), Couleurs.BleuCiel, Modifier.weight(1f))
+                    CarteIndicateur("Montant réglé", formaterMontant(t.total), Couleurs.Vert, Modifier.weight(1.4f))
+                    CarteIndicateur("Panier moyen", formaterMontant(t.panierMoyen), Couleurs.BleuNuit, Modifier.weight(1.2f))
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Par caissier", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(Modifier.height(4.dp))
+            }
+            if (t.parCaissier.isEmpty()) item { Text("Aucun reçu ce jour-là.", color = Couleurs.Gris, modifier = Modifier.padding(vertical = 8.dp)) }
+            items(t.parCaissier) { c ->
+                val part = if (t.total > 0) (c.montant / t.total).toFloat() else 0f
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(c.caissier, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); Text("${c.nombre} reçu(s)", color = Couleurs.Gris, fontSize = 12.sp)
+                        Spacer(Modifier.width(10.dp)); Text(formaterMontant(c.montant), color = Couleurs.Vert, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                    }
+                    Box(Modifier.fillMaxWidth().height(6.dp).background(Color(0xFFE2E8F0), RoundedCornerShape(3.dp))) { Box(Modifier.fillMaxWidth(part.coerceIn(0f, 1f)).height(6.dp).background(Couleurs.BleuCiel, RoundedCornerShape(3.dp))) }
+                }
+            }
+            item {
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("7 derniers jours", fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                    if (e.semaineEnCours) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Couleurs.Orange); Spacer(Modifier.width(6.dp)); Text("Chargement…", color = Couleurs.Gris, fontSize = 12.sp) }
+                }
+                val w = e.semaine
+                if (w == null) { if (!e.semaineEnCours) Text("Non disponible.", color = Couleurs.Gris, fontSize = 12.sp) }
+                else {
+                    val maxi = (w.jours.maxOfOrNull { it.montant } ?: 0.0).coerceAtLeast(1.0)
+                    val meilleur = w.jours.maxByOrNull { it.montant }?.date
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
+                        w.jours.forEach { j ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(formaterMontantCourt(j.montant), fontSize = 10.sp, color = Couleurs.Gris)
+                                BarreGraphique((j.montant / maxi).toFloat(), j.date == meilleur && j.montant > 0)
+                                Text(jourCourt(j.date), fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        // Totaux collés sous la liste (règle 25) : jour, puis 7 jours
+        Column(Modifier.fillMaxWidth().background(Color(0xFFE0F2FE)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row { Text("${t.parCaissier.size} caissier(s) · ${t.nombre} reçu(s)", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(formaterMontant(t.total), fontWeight = FontWeight.Bold, color = Couleurs.Vert, textAlign = TextAlign.End) }
+            e.semaine?.let { w -> Row { Text("7 jours · ${w.nombre} reçu(s)", color = Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.weight(1f)); Text(formaterMontant(w.total), color = Couleurs.Vert, fontSize = 12.sp, textAlign = TextAlign.End) } }
         }
         PiedVersion()
     }

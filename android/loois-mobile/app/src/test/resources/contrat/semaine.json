@@ -1,0 +1,42 @@
+{
+ "fin": "2026-11-26",
+ "jours": [
+  {
+   "date": "2026-11-20",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-21",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-22",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-23",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-24",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-25",
+   "nombre": 0,
+   "montant": 0.0
+  },
+  {
+   "date": "2026-11-26",
+   "nombre": 4,
+   "montant": 25600.5
+  }
+ ],
+ "total_montant": 25600.5,
+ "nombre": 4
+}

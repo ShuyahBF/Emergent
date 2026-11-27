@@ -1,0 +1,24 @@
+{
+ "session": "JETON-DE-SESSION-DE-TEST",
+ "expire_dans_s": 28800,
+ "utilisateur": {
+  "login": "tassembh",
+  "groupe": "",
+  "espace": "Biolog"
+ },
+ "droits": {
+  "administrateur": false,
+  "laboratoire": false,
+  "voir_tous_les_recus": false,
+  "caisse": true,
+  "corrections": true,
+  "consultation_seule": false,
+  "supprimer_recu": false,
+  "tableau_de_bord": true
+ },
+ "appareil": {
+  "zone": "docx=CMC",
+  "base": "myAurora-CMC",
+  "client": "CMC"
+ }
+}

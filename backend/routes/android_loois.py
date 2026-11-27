@@ -67,6 +67,7 @@ class DemandeModifRecu(BaseModel):
     vise: Optional[bool] = None             # nouvelle valeur de « Visée » (None = inchangé)
     part_assure: Optional[float] = None     # lot 493 : nouvelle part assuré (la part assureur est DÉDUITE du total si elle n'est pas donnée)
     part_assureur: Optional[float] = None   # nouvelle part assureur (la part assuré est DÉDUITE du total si elle n'est pas donnée)
+    date_vente: Optional[str] = Field(default=None, max_length=10)     # lot 494 : nouvelle date de vente « AAAA-MM-JJ » (l'heure est gardée), jamais après la date système
 
 
 class DemandeRecherche(BaseModel):
@@ -317,7 +318,7 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         if not d.get("administrateur") or d.get("consultation_seule"):
             await _journal(a, s["login"], "modifier_recu", reference, "refuse")
             raise HTTPException(status_code=403, detail="Seul le superviseur peut modifier « Réglé » et « Visé ».")
-        if corps.regle is None and corps.vise is None and corps.part_assure is None and corps.part_assureur is None:
+        if corps.regle is None and corps.vise is None and corps.part_assure is None and corps.part_assureur is None and corps.date_vente is None:
             raise HTTPException(status_code=422, detail="Rien à modifier : choisissez « Réglé », « Visé » et / ou une part.")
         await _client_en_ligne(a)
         entete, avant_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_infos_recu(reference)))
@@ -335,18 +336,32 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
                 raise HTTPException(status_code=422, detail=str(e))
             if abs(parts[0] - recu_avant["part_assure"]) < 0.005 and abs(parts[1] - recu_avant["part_assureur"]) < 0.005:
                 parts = None                                                                              # mêmes parts qu'avant : rien à écrire pour elles
+        # Date de vente : jamais après la date système ; l'HEURE d'origine est conservée ; même jour = rien à écrire
+        nouvelle_date = None
+        if corps.date_vente is not None:
+            try:
+                jour = al.date_vente_valide(corps.date_vente, datetime.now(timezone.utc).date())
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            origine = datetime.strptime(recu_avant["date_heure_iso"], "%Y-%m-%dT%H:%M:%S") if recu_avant["date_heure_iso"] else None
+            if origine is None:
+                raise HTTPException(status_code=422, detail="La date de vente actuelle est illisible : impossible de la modifier.")
+            if jour != origine.date():
+                nouvelle_date = datetime.combine(jour, origine.time())
         nouveau_regle = avant["regle"] if corps.regle is None else corps.regle
         nouveau_vise = avant["vise"] if corps.vise is None else corps.vise
         regle_change = corps.regle is not None and corps.regle != avant["regle"]
         vise_change = corps.vise is not None and corps.vise != avant["vise"]
-        if not regle_change and not vise_change and parts is None:
+        if not regle_change and not vise_change and parts is None and nouvelle_date is None:
             raise HTTPException(status_code=422, detail="Aucun changement : ces valeurs sont déjà enregistrées.")
         detail = f"{reference} réglé {avant['regle']}→{nouveau_regle} visé {avant['vise']}→{nouveau_vise}"
         if parts is not None:
             detail += f" assuré {recu_avant['part_assure']:g}→{parts[0]:g} assureur {recu_avant['part_assureur']:g}→{parts[1]:g} (total {avant['montant_total']:g})"
+        if nouvelle_date is not None:
+            detail += f" date {recu_avant['date_vente']}→{nouvelle_date.date().isoformat()}"
         try:
             await _executer(a, al.sql_modifier_recu(reference, corps.regle if regle_change else None, corps.vise if vise_change else None,
-                                                    parts[0] if parts else None, parts[1] if parts else None))
+                                                    parts[0] if parts else None, parts[1] if parts else None, nouvelle_date))
         except HTTPException as e:
             await _journal(a, s["login"], "modifier_recu", detail, f"erreur {e.status_code}")
             raise
@@ -358,6 +373,8 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         confirme = apres["regle"] == nouveau_regle and apres["vise"] == nouveau_vise
         if parts is not None:
             confirme = confirme and abs(recu_apres["part_assure"] - parts[0]) < 0.01 and abs(recu_apres["part_assureur"] - parts[1]) < 0.01
+        if nouvelle_date is not None:
+            confirme = confirme and recu_apres["date_vente"] == nouvelle_date.date().isoformat()
         await _journal(a, s["login"], "modifier_recu", detail, "ok" if confirme else "non confirmé")
         if not confirme:
             raise HTTPException(status_code=502, detail="La modification a été envoyée mais la base ne la confirme pas : rouvrez le reçu pour vérifier.")

@@ -233,8 +233,19 @@ def parts_deduites(total: float, part_assure: Optional[float], part_assureur: Op
     return round(total - part_assureur, 2), round(part_assureur, 2)
 
 
-def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool], part_assure: Optional[float] = None, part_assureur: Optional[float] = None) -> str:
-    """Lot 492-493 — UNIQUEMENT « Réglé », « Visée » et les deux parts (« PArtAssuré », « PArtAssureur ») d'UN reçu (WHERE sur sa référence exacte, contrôlée) ; jamais le montant total ni une autre colonne.
+def date_vente_valide(jour: str, aujourdhui: date) -> date:
+    """Lot 494 — nouvelle date de vente d'un reçu : « AAAA-MM-JJ », jamais APRÈS la date système (la date du jour du serveur). Lève ValueError avec un message clair."""
+    j = jour_valide(jour)
+    if j is None:
+        raise ValueError("Date invalide : AAAA-MM-JJ.")
+    if j > aujourdhui:
+        raise ValueError(f"La date de vente ne peut pas dépasser la date du jour ({aujourdhui.strftime('%d/%m/%Y')}).")
+    return j
+
+
+def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool], part_assure: Optional[float] = None, part_assureur: Optional[float] = None,
+                      date_vente: Optional[datetime] = None) -> str:
+    """Lots 492-494 — UNIQUEMENT « Réglé », « Visée », les deux parts (« PArtAssuré », « PArtAssureur ») et la date de vente (« Date Vente », jamais dans le futur) d'UN reçu (WHERE sur sa référence exacte, contrôlée) ; jamais le montant total ni une autre colonne.
     Au moins une valeur doit être donnée (sinon ValueError) ; les booléens HFSQL s'écrivent 1 / 0 ; les deux parts sont toujours écrites ENSEMBLE (déjà équilibrées par `parts_deduites`)."""
     morceaux = []
     if regle is not None:
@@ -246,6 +257,8 @@ def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool
     if part_assure is not None:
         morceaux.append(f"[PArtAssuré] = {_decimal_sql(part_assure)}")
         morceaux.append(f"[PArtAssureur] = {_decimal_sql(part_assureur)}")
+    if date_vente is not None:
+        morceaux.append(f"[Date Vente] = '{date_vente.strftime('%Y%m%d%H%M%S')}000'")                      # même format que la lecture : AAAAMMJJHHMMSSmmm (l'HEURE de la vente est gardée)
     if not morceaux:
         raise ValueError("aucune modification")
     return f"UPDATE VenteClinique SET {', '.join(morceaux)} WHERE Référence = '{echapper(reference)}'"

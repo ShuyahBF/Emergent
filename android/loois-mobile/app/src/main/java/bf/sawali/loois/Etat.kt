@@ -37,6 +37,7 @@ data class UiEtat(
     val detail: DetailRecu? = null,
     val editRegle: Boolean? = null,                   // lot M6 : « Réglé » modifié à l'écran, non enregistré (null = inchangé)
     val editVise: Boolean? = null,                    // « Visé » modifié à l'écran, non enregistré
+    val editDate: String? = null,                    // lot M8 : nouvelle date de vente « AAAA-MM-JJ », non enregistrée (jamais après aujourd'hui)
     val editPartAssure: String? = null,               // lot M7 : part assuré saisie (texte), non enregistrée ; la part assureur en est DÉDUITE (total − part)
     val editPartAssureur: String? = null,
     val confirmerModif: Boolean = false,              // fenêtre de confirmation avant d'écrire dans la base du client
@@ -369,8 +370,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         e.copy(editRegle = if (nouveau == d.infos.regle) null else nouveau) }
     fun basculerVise() = maj { e -> val d = e.detail ?: return@maj e; val actuel = e.editVise ?: d.infos.vise ?: false; val nouveau = !actuel
         e.copy(editVise = if (nouveau == d.infos.vise) null else nouveau) }
-    fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, editPartAssure = null, editPartAssureur = null, confirmerModif = false) }
+    fun annulerModifs() = maj { it.copy(editRegle = null, editVise = null, editDate = null, editPartAssure = null, editPartAssureur = null, confirmerModif = false) }
     /** Lot M7 — la personne tape UNE part ; l'autre est calculée tout de suite (total − part). Revenir aux parts d'origine annule le changement. */
+    /** Lot M8 — nouvelle date de vente : JAMAIS après la date du jour (le serveur le contrôle aussi) ; remettre la date d'origine annule le changement. */
+    fun changerDateVente(jour: String) = maj { e ->
+        val d = e.detail ?: return@maj e
+        if (jour > aujourdhui()) e.copy(message = "La date de vente ne peut pas dépasser la date du jour (${jourFr(aujourdhui())}).")
+        else e.copy(editDate = if (jour == d.recu.dateVente) null else jour)
+    }
     fun changerPartAssure(t: String) = maj { e -> partsModifiees(e, t, true) }
     fun changerPartAssureur(t: String) = maj { e -> partsModifiees(e, t, false) }
     private fun partsModifiees(e: UiEtat, texte: String, assure: Boolean): UiEtat {
@@ -386,7 +393,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val parts = it.editPartAssure != null
         val valides = !parts || (lireNombreSaisi(it.editPartAssure) != null && lireNombreSaisi(it.editPartAssureur) != null)
         if (!valides) it.copy(message = "Part invalide : tapez un nombre compris entre 0 et le montant total.")
-        else if (it.editRegle != null || it.editVise != null || parts) it.copy(confirmerModif = true) else it
+        else if (it.editRegle != null || it.editVise != null || it.editDate != null || parts) it.copy(confirmerModif = true) else it
     }
     fun fermerConfirmationModif() = maj { it.copy(confirmerModif = false) }
 
@@ -395,18 +402,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val d = _etat.value.detail ?: return
         val regle = _etat.value.editRegle; val vise = _etat.value.editVise
         val partA = _etat.value.editPartAssure?.let { lireNombreSaisi(it) }; val partR = _etat.value.editPartAssureur?.let { lireNombreSaisi(it) }
-        if (_etat.value.enCours || (regle == null && vise == null && partA == null)) return
+        val date = _etat.value.editDate
+        if (_etat.value.enCours || (regle == null && vise == null && partA == null && date == null)) return
         viewModelScope.launch {
             maj { it.copy(confirmerModif = false, enCours = true, message = "Patientez… enregistrement dans la base du client en cours") }
             try {
                 val corps = JSONObject().put("reference", d.recu.reference)
                 if (regle != null) corps.put("regle", regle)
                 if (vise != null) corps.put("vise", vise)
+                if (date != null) corps.put("date_vente", date)
                 if (partA != null && partR != null) { corps.put("part_assure", partA); corps.put("part_assureur", partR) }      // les deux parts : le serveur vérifie qu'elles font le total
                 val r = appel { base -> api.appeler(base, "/api/android/caisse/recu/modifier", corps) }
                 val infos = lireInfos(r.optJSONObject("infos"))
                 val recuRelu = r.optJSONObject("recu")?.let { lireRecu(it) }
-                maj { it.copy(detail = it.detail?.copy(infos = infos, recu = recuRelu ?: it.detail.recu), editRegle = null, editVise = null, editPartAssure = null, editPartAssureur = null, message = "✔ Enregistré dans la base du client : réglé ${if (infos.regle == true) "oui" else "non"}, visé ${if (infos.vise == true) "oui" else "non"}${if (partA != null) " ; parts ${formaterMontant(recuRelu?.partAssure ?: 0.0)} / ${formaterMontant(recuRelu?.partAssureur ?: 0.0)}" else ""}.") }
+                maj { it.copy(detail = it.detail?.copy(infos = infos, recu = recuRelu ?: it.detail.recu), editRegle = null, editVise = null, editDate = null, editPartAssure = null, editPartAssureur = null, message = "✔ Enregistré dans la base du client : réglé ${if (infos.regle == true) "oui" else "non"}, visé ${if (infos.vise == true) "oui" else "non"}${if (date != null) " ; date ${jourFr(recuRelu?.dateVente ?: date)}" else ""}${if (partA != null) " ; parts ${formaterMontant(recuRelu?.partAssure ?: 0.0)} / ${formaterMontant(recuRelu?.partAssureur ?: 0.0)}" else ""}.") }
             } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
         }
     }

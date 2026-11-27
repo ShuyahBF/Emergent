@@ -99,6 +99,10 @@ def construire_banc():
             if not etat["refuser_maj"] and ref in etat["infos"]:
                 for col, val in re.findall(r"\[(Réglé|Visée)\] = ([01])", S):
                     etat["infos"][ref][1 if col == "Réglé" else 2] = val
+                for val in re.findall(r"\[Date Vente\] = '(\d{17})'", S):
+                    for r in RECUS + FACTURES:
+                        if r[0] == ref:
+                            r[1] = val
                 for col, val in re.findall(r"\[(PArtAssuré|PArtAssureur)\] = ([0-9.]+)", S):
                     for r in RECUS + FACTURES:
                         if r[0] == ref:
@@ -489,4 +493,47 @@ def test_un_caissier_ne_peut_pas_changer_les_parts(banc):
     c, b = banc
     s = se_connecter(c, b).json()["session"]
     assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "part_assureur": 1000}, headers=entetes(b, s)).status_code == 403
+    assert not any(sql.startswith("UPDATE") for sql, _ in b["envoyees"])
+
+
+# ------------------------------------------------------------------------------------------------------------------ lot 494 : date de vente (jamais après la date système)
+def test_date_de_vente_valide():
+    from datetime import date
+    auj = date(2026, 11, 27)
+    assert al.date_vente_valide("2026-11-27", auj) == auj and al.date_vente_valide("2026-01-05", auj) == date(2026, 1, 5)
+    for mauvais in ("2026-11-28", "2027-01-01", "27/11/2026", "2026-13-01", "", "2026-02-30"):
+        with pytest.raises(ValueError):
+            al.date_vente_valide(mauvais, auj)
+    from datetime import datetime
+    sql = al.sql_modifier_recu("0461/2026", None, None, None, None, datetime(2026, 11, 20, 11, 0, 0))
+    assert sql == "UPDATE VenteClinique SET [Date Vente] = '20261120110000000' WHERE Référence = '0461/2026'"            # même format que la lecture, heure gardée
+
+
+def test_le_superviseur_change_la_date_de_vente_heure_gardee_jamais_dans_le_futur(banc):
+    from datetime import datetime, timedelta, timezone
+    c, b = banc
+    s = session_superviseur(c, b)
+    h = entetes(b, s)
+    r = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "date_vente": "2026-11-20"}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["recu"]["date_vente"] == "2026-11-20" and r.json()["recu"]["heure"] == "11:00"                      # l'heure d'origine est conservée
+    assert [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1] == "UPDATE VenteClinique SET [Date Vente] = '20261120110000000' WHERE Référence = '0461/2026'"
+    journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
+    assert "date 2026-11-26→2026-11-20" in [l for l in journal["lignes"] if l["action"] == "modifier_recu"][-1]["detail"]
+    demain = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    aujourdhui = datetime.now(timezone.utc).date().isoformat()
+    n = len([1 for sql, _ in b["envoyees"] if sql.startswith("UPDATE")])
+    rf = c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "date_vente": demain}, headers=h)
+    assert rf.status_code == 422 and "dépasser la date du jour" in rf.json()["detail"]                                   # jamais après la date système
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "date_vente": "20/11/2026"}, headers=h).status_code == 422
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "date_vente": "2026-11-20"}, headers=h).status_code == 422   # déjà cette date
+    assert len([1 for sql, _ in b["envoyees"] if sql.startswith("UPDATE")]) == n                                         # aucune écriture pour les refus
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "0461/2026", "date_vente": aujourdhui, "regle": True}, headers=h).status_code == 200   # aujourd'hui : permis, avec « Réglé » dans la même écriture
+    assert [sql for sql, _ in b["envoyees"] if sql.startswith("UPDATE")][-1].startswith("UPDATE VenteClinique SET [Réglé] = 1, [Date Vente] = '")
+
+
+def test_un_caissier_ne_peut_pas_changer_la_date(banc):
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]
+    assert c.post("/api/android/caisse/recu/modifier", json={"reference": "R-0003", "date_vente": "2026-11-01"}, headers=entetes(b, s)).status_code == 403
     assert not any(sql.startswith("UPDATE") for sql, _ in b["envoyees"])

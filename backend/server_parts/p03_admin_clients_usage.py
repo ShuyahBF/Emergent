@@ -1291,12 +1291,20 @@ async def admin_user_activity_heatmap(
 
 
 
+# Lot 473 — le diagnostic (77 requêtes) est gardé 60 s ; la migration le vide aussitôt.
+from cache_court import CacheCourt as _CacheCourtOrph  # noqa: E402
+_CACHE_ORPHELINES = _CacheCourtOrph(duree_s=60.0, max_entrees=2)
+
+
 @api.get("/admin/migrate-orphan-data", tags=["Admin"])
 async def admin_inspect_orphan_data(_: dict = Depends(get_current_admin)):
     """Inspecte ce que la migration iter28 des données orphelines FERAIT (sans écritures).
     Returns per-user and per-collection counts. Use the POST variant below to
     actually apply the migration."""
-    return await _migrate_orphan_client_data(dry_run=True)
+    garde = _CACHE_ORPHELINES.lire("diagnostic")
+    if garde is not None:
+        return garde
+    return _CACHE_ORPHELINES.ecrire("diagnostic", await _migrate_orphan_client_data(dry_run=True))
 
 
 @api.post("/admin/migrate-orphan-data", tags=["Admin"])
@@ -1304,4 +1312,6 @@ async def admin_run_orphan_data_migration(_: dict = Depends(get_current_admin)):
     """Applique la migration iter28 des données orphelines. Idempotent — relancer ne
     re-migrate already-migrated rows (guarded by `client_id_legacy` presence).
     """
-    return await _migrate_orphan_client_data(dry_run=False)
+    resultat = await _migrate_orphan_client_data(dry_run=False)
+    _CACHE_ORPHELINES.invalider()            # lot 473 : le diagnostic doit refléter la migration qui vient d'être faite
+    return resultat

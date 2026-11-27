@@ -2023,6 +2023,26 @@ async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
             "older": older, "max_age_days": WA_UNREAD_MAX_AGE_DAYS, "blocked": blocked}
 
 
+# Lot 473 — la barre latérale demande ce résumé DEUX fois par cycle (/me/whatsapp/unread et /me/notifications/counts) : 9 requêtes à chaque fois. Gardé 5 s par
+# utilisateur ; tout « marquer comme lu » le vide aussitôt. Le cache est posé APRÈS la définition (la fonction d'origine reste telle quelle, ce qui laisse les tests
+# du Centre de Messagerie, qui l'extraient du fichier, la voir sans cache).
+from cache_court import CacheCourt as _CacheCourtWa  # noqa: E402
+_CACHE_RESUME_WA = _CacheCourtWa(duree_s=5.0, max_entrees=300)
+
+
+def _avec_cache_resume_wa(calcul):
+    async def garde(user: dict) -> Dict[str, Any]:
+        cle = f"{user.get('id')}|{user.get('role')}"
+        garde_en_memoire = _CACHE_RESUME_WA.lire(cle)
+        if garde_en_memoire is not None:
+            return garde_en_memoire
+        return _CACHE_RESUME_WA.ecrire(cle, await calcul(user))
+    return garde
+
+
+_wa_unread_summary = _avec_cache_resume_wa(_wa_unread_summary)
+
+
 @api.post("/me/whatsapp/mark-all-read", tags=["Portail Client"])
 async def me_whatsapp_mark_all_read(user: dict = Depends(get_current_user)):
     """Lot 24 — « Tout marquer comme lu » dans le Centre de Messagerie : tous
@@ -2045,6 +2065,7 @@ async def me_whatsapp_mark_all_read(user: dict = Depends(get_current_user)):
             {"$set": {"read_by_us_at": now, "read_by_us_id": user["id"]}},
         )
         updated += int(getattr(res, "modified_count", 0) or 0)
+    _CACHE_RESUME_WA.invalider()            # lot 473 : la pastille doit se mettre à jour tout de suite
     return {"ok": True, "updated": updated}
 
 
@@ -2080,4 +2101,5 @@ async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_curre
         {"client_id": {"$in": visible_scope}, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
         {"$set": {"read_by_us_at": _now(), "read_by_us_id": user["id"]}},
     )
+    _CACHE_RESUME_WA.invalider()            # lot 473 : la pastille doit se mettre à jour tout de suite
     return {"ok": True, "updated": int(getattr(res, "modified_count", 0) or 0)}

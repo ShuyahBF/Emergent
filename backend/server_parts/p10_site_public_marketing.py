@@ -745,9 +745,35 @@ async def me_recent_activity(
     }
 
 
+# Lot 473 — compteurs de la barre latérale : 31 requêtes à la base PAR APPEL, relus toutes les 30 s par chaque page ouverte (25 % de toutes les requêtes du serveur,
+# export du 27/11/2026). Les compteurs de modules, des demandes de profil et du registre des erreurs sont gardés 45 s par utilisateur ; « marquer comme vu » les
+# invalide aussitôt (l'utilisateur voit tout de suite l'effet de son action). Le non-lu WhatsApp, lui, est TOUJOURS recalculé : il doit rester immédiat.
+from cache_court import CacheCourt  # noqa: E402
+_CACHE_COMPTEURS = CacheCourt(duree_s=45.0, max_entrees=300)
+
+
+def _invalider_compteurs(user_id: str) -> None:
+    """À appeler quand une action de CET utilisateur change ses compteurs (marquer un module comme vu)."""
+    _CACHE_COMPTEURS.invalider(f"{user_id}|")
+
+
+async def _wa_non_lus_de(user: dict) -> int:
+    """WhatsApp entrant non lu (basé sur read_by_us_at, pas sur la dernière visite) — jamais mis en cache."""
+    try:
+        return (await _wa_unread_summary(user))["total"]
+    except Exception:
+        return 0
+
+
 @api.get("/me/notifications/counts", tags=["Portail Client"])
 async def me_notifications_counts(user: dict = Depends(get_current_user)):
     """Return the count of new items per module since the user last visited that module."""
+    cle_cache = f"{user['id']}|{user.get('role')}"
+    en_cache = _CACHE_COMPTEURS.lire(cle_cache)
+    if en_cache is not None:                                    # compteurs de modules encore frais : seul le non-lu WhatsApp est relu
+        compteurs = dict(en_cache)
+        compteurs["contacts_unread"] = await _wa_non_lus_de(user)
+        return {"counts": compteurs, "generated_at": _now()}
     now = datetime.now(timezone.utc)
     # Default lookback window: 30 days for modules the user has never visited
     default_since = (now - timedelta(days=30)).isoformat()
@@ -789,14 +815,6 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
     # d'être enchaînées l'une après l'autre. Mesuré en production le 26/11/2026 : cette route (appelée par chaque page ouverte) prenait
     # 448 ms en moyenne et jusqu'à 2,5 s ; elle ne dure plus que le temps de sa lecture la plus lente.
     import asyncio
-
-    async def _wa_non_lus() -> int:
-        # WhatsApp entrant non lu (basé sur read_by_us_at, pas sur la dernière visite).
-        # Lot 23 — MÊME calcul que les pastilles du Centre de Messagerie (_wa_unread_summary).
-        try:
-            return (await _wa_unread_summary(user))["total"]
-        except Exception:
-            return 0
 
     async def _profils_en_attente() -> int:
         # Iter34l — réservé à l'admin : demandes de mise à jour de profil en attente (pilotées par le statut, pas par la visite).
@@ -851,13 +869,14 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
     cles = list(MODULE_COUNT_QUERIES.keys())
     resultats = await asyncio.gather(
         *[_count(k, MODULE_COUNT_QUERIES[k]) for k in cles],
-        _wa_non_lus(), _profils_en_attente(), _compteurs_erreurs(),
+        _wa_non_lus_de(user), _profils_en_attente(), _compteurs_erreurs(),
     )
     n = len(cles)
     counts.update(zip(cles, resultats[:n]))
     counts["contacts_unread"] = resultats[n]
     counts["admin_profile_requests"] = resultats[n + 1]
     counts.update(resultats[n + 2])
+    _CACHE_COMPTEURS.ecrire(cle_cache, {k: v for k, v in counts.items() if k != "contacts_unread"})     # lot 473 : tout sauf le non-lu WhatsApp
     return {"counts": counts, "generated_at": _now()}
 
 

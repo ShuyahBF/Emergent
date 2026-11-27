@@ -333,6 +333,12 @@ async def admin_integration_health_history(
 
 
 
+# Lot 473 — la liste des modèles vient de Meta (appel externe, 1,1 s à chaque ouverture de page, règle 7). La réponse de Meta est gardée 60 s ; les notes de
+# l'administrateur (base) restent lues à chaque appel ; créer ou supprimer un modèle vide le cache.
+from cache_court import CacheCourt as _CacheCourtModeles  # noqa: E402
+_CACHE_MODELES_META = _CacheCourtModeles(duree_s=60.0, max_entrees=4)
+
+
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
 async def admin_list_wa_templates(carrousels: bool = False, _: dict = Depends(get_current_admin)):
     """Liste tous les modèles du WABA configuré + fusionne les notes admin (description + disponibilité).
@@ -345,11 +351,16 @@ async def admin_list_wa_templates(carrousels: bool = False, _: dict = Depends(ge
         return {"configured": False, "items": []}
     url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates?limit=100"
     try:
-        async with httpx.AsyncClient(timeout=10) as http:
-            r = await http.get(url, headers={"Authorization": f"Bearer {access_token}"})
-            if r.status_code >= 300:
-                return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
-            d = r.json()
+        d = _CACHE_MODELES_META.lire(f"modeles|{waba_id}")
+        if d is None:
+            async with httpx.AsyncClient(timeout=10) as http:
+                r = await http.get(url, headers={"Authorization": f"Bearer {access_token}"})
+                if r.status_code >= 300:
+                    return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
+                d = _CACHE_MODELES_META.ecrire(f"modeles|{waba_id}", r.json())
+        if True:      # (bloc conservé tel quel : la lecture des notes et la fusion se font avec ou sans cache)
+            import copy as _copy
+            d = _copy.deepcopy(d)                           # la fusion ci-dessous modifie les modèles : jamais sur l'exemplaire gardé
             notes_map = await _load_template_notes_map()
             items = []
             for t in (d.get("data") or []):
@@ -855,6 +866,7 @@ def _count_body_vars(body: str) -> int:
 
 @api.post("/admin/whatsapp/templates", tags=["Admin"])
 async def admin_create_wa_template(payload: WaTemplateCreate, _: dict = Depends(get_current_admin)):
+    _CACHE_MODELES_META.invalider()        # lot 473 : la liste gardée 60 s ne doit pas survivre à la création / suppression d'un modèle
     """Submit a new template to Meta for approval.
     Per Meta: name must be lowercase letters/digits/underscores, body is mandatory,
     {{1}}…{{N}} placeholders need example values."""
@@ -933,6 +945,7 @@ async def admin_create_wa_template(payload: WaTemplateCreate, _: dict = Depends(
 
 @api.delete("/admin/whatsapp/templates/{name}", tags=["Admin"])
 async def admin_delete_wa_template(name: str, _: dict = Depends(get_current_admin)):
+    _CACHE_MODELES_META.invalider()        # lot 473 : la liste gardée 60 s ne doit pas survivre à la création / suppression d'un modèle
     """Supprime un modèle par nom (supprime TOUTES les langues de ce nom sur le WABA)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")

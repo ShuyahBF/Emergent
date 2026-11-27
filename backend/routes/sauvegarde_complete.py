@@ -918,12 +918,17 @@ class DemandeRestaurationR2(BaseModel):
     mot_de_passe: str = ""
 
 
+# Lot 473 — l'AFFICHAGE de l'état (289 requêtes, une par collection) est gardé 20 s ; l'import « base vide », lui, appelle etat_base() directement : toujours à jour.
+from cache_court import CacheCourt  # noqa: E402
+_CACHE_ETAT = CacheCourt(duree_s=20.0, max_entrees=4)
+
+
 @router.get("/etat")
 async def route_etat(_: dict = Depends(get_current_admin)):
     await _marquer_orphelines()
     await _purger_exports()
     taches = [_vue_tache(t) async for t in db[SUIVI].find({"type": {"$exists": True}}).sort("cree_le", -1).limit(10)]
-    base = await etat_base()
+    base = _CACHE_ETAT.lire("base") or _CACHE_ETAT.ecrire("base", await etat_base())
     return {"auto": await etat_auto(), "taches": taches, "base": base, "signature_possible": _cle_signature() is not None,
             "exclues": sorted(EXCLUES), "phrase_min": sf.PHRASE_MIN, "duree_fichier_min": DUREE_FICHIER // 60,
             "import_vide_possible": _refus_base_non_vide(base, COMPTES_TOLERES_IMPORT) is None}

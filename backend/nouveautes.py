@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "473", "date": "2026-11-27",
+        "titre": "⚡ Moins de requêtes à la base : le portail s'allège",
+        "description": "D'après l'export des appels lents : les compteurs de la barre latérale (25 % de toutes les requêtes du serveur), le non-lu WhatsApp, l'état de la sauvegarde, le diagnostic des données orphelines et la liste des modèles WhatsApp sont gardés quelques secondes au lieu d'être relus à chaque appel. Comparez dans le tableau « Appels les plus lents ».",
+        "rubrique": "⏱️ Performance du serveur — mémoire et appels lents",
+    },
+    {
         "lot": "472", "date": "2026-11-27",
         "titre": "🔎 Appels lents : combien de requêtes à la base par route",
         "description": "Le tableau « Appels les plus lents » montre maintenant, pour chaque route, le nombre de requêtes à la base et le temps passé dedans (en rouge au-delà de 25 requêtes) : on voit tout de suite quelles routes corriger. Les deux colonnes sont aussi dans l'export JSON et CSV.",

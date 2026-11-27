@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "481", "date": "2026-11-27",
+        "titre": "📱 Appareils Android : nettoyer les appareils « Nouveau »",
+        "description": "Un bouton supprime en une fois les appareils interdits et jamais renseignés (par exemple des faux appareils de test), après aperçu et confirmation ; les appareils autorisés ou déjà renseignés ne sont jamais touchés. Loois Mobile 1.1 travaille aussi sans Internet par le réseau local.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "480", "date": "2026-11-27",
         "titre": "📱 Loois mobile : serveurs locaux remontés par Loois",
         "description": "Le service Windows Loois signale à SAWALI l'adresse de sa passerelle locale (jamais de mot de passe) : les téléphones autorisés la reçoivent seuls, avec un ticket de 72 h pour travailler sans Internet. Liste et régénération du secret ici.",

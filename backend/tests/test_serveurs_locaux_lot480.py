@@ -55,8 +55,8 @@ def test_urls_locales_recentes_sans_doublon():
     assert [u["url"] for u in urls] == ["http://192.168.1.10:8750", "http://10.0.0.9:8750"] and urls[0]["poste"] == "PC2"               # la plus récente d'abord ; machine de 8 jours écartée
 
 
-@pytest.fixture()
-def banc():
+def construire_banc():
+    """Banc d'essai (application FastAPI, Mongo simulé) : utilisé par les tests et par le script qui produit les exemples de réponses de l'application Android."""
     from fastapi import APIRouter, FastAPI
     from fastapi.testclient import TestClient
     import routes.appareils_android as ra
@@ -76,6 +76,11 @@ def banc():
     rs.setup_serveurs_locaux_routes(db=db, api=api, get_current_user=utilisateur, identifier_cle=identifier)
     app.include_router(api)
     return TestClient(app), etat, db
+
+
+@pytest.fixture()
+def banc():
+    return construire_banc()
 
 
 H = {"X-Loois-Cle": "LK-bonne", "X-Loois-Poste": "PC-CMC-1", "X-Loois-Base": "CMC"}

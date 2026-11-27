@@ -8,7 +8,8 @@ import java.time.format.DateTimeFormatter
 
 // ============================================================================ modèles (réponses de SAWALI)
 
-data class StatutAppareil(val etat: String, val autorise: Boolean, val nomUtilisateur: String, val zone: String, val base: String, val client: String, val message: String)
+data class StatutAppareil(val etat: String, val autorise: Boolean, val nomUtilisateur: String, val zone: String, val base: String, val client: String, val message: String,
+                          val serveursLocaux: List<String> = emptyList(), val ticketLocal: String = "")
 
 data class Droits(val administrateur: Boolean, val laboratoire: Boolean, val voirTousLesRecus: Boolean, val caisse: Boolean, val corrections: Boolean, val consultationSeule: Boolean)
 
@@ -29,7 +30,27 @@ data class ListeRecus(val date: String, val recus: List<Recu>, val total: Double
 private fun JSONObject.texte(cle: String) = optString(cle, "")
 private fun JSONObject.entierOuNul(cle: String): Int? = if (isNull(cle) || !has(cle)) null else optInt(cle)
 
-fun lireStatut(j: JSONObject) = StatutAppareil(j.texte("etat"), j.optBoolean("autorise"), j.texte("nom_utilisateur"), j.texte("zone"), j.texte("base"), j.texte("client_code"), j.texte("message"))
+fun lireStatut(j: JSONObject) = StatutAppareil(j.texte("etat"), j.optBoolean("autorise"), j.texte("nom_utilisateur"), j.texte("zone"), j.texte("base"), j.texte("client_code"), j.texte("message"),
+    adressesLocales(j.optJSONArray("serveurs_locaux")), j.texte("ticket_local"))
+
+/** Adresses des passerelles locales : le statut de SAWALI donne des objets {url, poste, serveur_hfsql} ; on ne garde que les adresses autorisées (https, ou http sur réseau local), sans doublon. */
+fun adressesLocales(a: JSONArray?): List<String> =
+    if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("url")?.trim()?.trimEnd('/') }.filter { urlAutorisee(it) }.distinct()
+
+/** Dernier statut gardé sur le téléphone (rien de secret : pas de ticket) et sa relecture. */
+fun statutVersJson(s: StatutAppareil): String = JSONObject().put("etat", s.etat).put("autorise", s.autorise).put("nom_utilisateur", s.nomUtilisateur).put("zone", s.zone).put("base", s.base)
+    .put("client_code", s.client).put("message", s.message).toString()
+
+fun statutDepuisJson(texte: String): StatutAppareil? = try { if (texte.isBlank()) null else lireStatut(JSONObject(texte)) } catch (e: Exception) { null }
+
+/** Instant d'expiration (secondes Unix) d'un ticket local, lu dans son contenu SANS vérifier la signature (la passerelle la vérifie) ; null si illisible. Sert seulement à l'affichage. */
+fun expirationTicket(ticket: String?): Long? = try {
+    val morceaux = (ticket ?: "").split(".")
+    if (morceaux.size != 3) null else JSONObject(String(java.util.Base64.getUrlDecoder().decode(morceaux[1]), Charsets.UTF_8)).optLong("exp", 0L).takeIf { it > 0 }
+} catch (e: Exception) { null }
+
+/** « 30/11/2026 14:05 » (heure du Burkina Faso = UTC) à partir de secondes Unix. */
+fun dateHeureDepuisSecondes(s: Long): String = java.time.LocalDateTime.ofEpochSecond(s, 0, ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
 
 fun lireDroits(j: JSONObject) = Droits(j.optBoolean("administrateur"), j.optBoolean("laboratoire"), j.optBoolean("voir_tous_les_recus"), j.optBoolean("caisse"), j.optBoolean("corrections"),
     j.optBoolean("consultation_seule"))

@@ -118,6 +118,15 @@ def setup_appareils_android_routes(*, db, api, get_current_user) -> None:
         fiches = sorted((aa.vue_admin(f) for f in (await aa.lire_tous(db)).values()), key=lambda f: f.get("derniere_connexion") or f.get("cree_le") or "", reverse=True)
         return {"appareils": fiches, "zones": aa.ZONES, "maximum": aa.MAX_APPAREILS}
 
+    @api.post("/admin/android-appareils/nettoyer", tags=["Loois mobile (appareils Android)"])
+    async def nettoyer(corps: Dict[str, Any] = Body(default_factory=dict), _: dict = Depends(_admin)):
+        """Supprime les appareils « Nouveau » (interdits, jamais renseignés) — tous, ou seulement d'un modèle (« modele »). `apercu` vrai = compte sans supprimer."""
+        cibles = aa.candidats_nettoyage(await aa.lire_tous(db), str(corps.get("modele") or ""))
+        modeles = sorted({str(c.get("modele") or "—") for c in cibles})
+        if corps.get("apercu"):
+            return {"apercu": True, "nombre": len(cibles), "modeles": modeles}
+        return {"apercu": False, "supprimes": await aa.supprimer_plusieurs(db, [c["id"] for c in cibles]), "modeles": modeles}
+
     @api.put("/admin/android-appareils/{appareil_id}", tags=["Loois mobile (appareils Android)"])
     async def modifier(appareil_id: str, donnees: Dict[str, Any] = Body(...), _: dict = Depends(_admin)):
         if await aa.lire_un(db, appareil_id) is None:

@@ -361,6 +361,11 @@ fun EcranParametres(e: UiEtat, vm: AppViewModel) {
             OutlinedTextField(locale, { locale = it }, label = { Text("Adresse du serveur local (ex. http://192.168.1.10:8750)") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Dns, null) },
                 modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
             Text("Le serveur local doit exposer la passerelle Loois (même API). https:// est obligatoire pour Internet ; http:// n'est accepté que pour une adresse du réseau local.", color = Couleurs.Gris, fontSize = 12.sp)
+            // Passerelles locales reçues de SAWALI quand l'appareil est autorisé : rien à saisir (la saisie ci-dessus reste possible pour une adresse particulière)
+            Text("Serveurs locaux reçus de SAWALI", fontWeight = FontWeight.SemiBold)
+            if (e.serveursLocaux.isEmpty()) Text("Aucun pour l'instant : ils arrivent quand l'appareil est autorisé et qu'un service Loois à jour s'est signalé à SAWALI.", color = Couleurs.Gris, fontSize = 12.sp)
+            else e.serveursLocaux.forEach { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Dns, null, tint = Couleurs.BleuCiel, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(it, fontSize = 13.sp) } }
+            if (e.ticketExpire.isNotBlank()) Text("Accès sans Internet valable jusqu'au ${e.ticketExpire} (renouvelé à chaque connexion à Internet).", color = Couleurs.Gris, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BoutonAction("Enregistrer", Icons.Filled.Save) { vm.sauverParametres(sawali, locale, mode) }
                 BoutonAction("Tester Le Serveur", Icons.Filled.Refresh, plein = false) { vm.verifierServeur() }

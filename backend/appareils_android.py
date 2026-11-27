@@ -169,3 +169,17 @@ async def supprimer(db, appareil_id: str) -> bool:
         return False
     await db.settings.update_one({"_id": ID_FICHE}, {"$unset": {f"appareils.{appareil_id}": ""}})
     return True
+
+
+def candidats_nettoyage(fiches: Dict[str, Dict[str, Any]], modele: str = "") -> List[Dict[str, Any]]:
+    """Appareils à nettoyer : INTERDITS et jamais renseignés (badge « Nouveau » : ni utilisateur ni zone), éventuellement d'un modèle donné (« robolectric » = tests). Un appareil autorisé ou déjà renseigné n'est JAMAIS candidat."""
+    m = (modele or "").strip().lower()
+    return [vue_admin(f) for f in fiches.values() if vue_admin(f)["nouveau"] and (not m or m in str(f.get("modele") or "").lower())]
+
+
+async def supprimer_plusieurs(db, ids: List[str]) -> int:
+    """Supprime plusieurs fiches en une seule écriture ; rend le nombre de fiches réellement présentes."""
+    existants = [i for i in ids if await lire_un(db, i)]
+    if existants:
+        await db.settings.update_one({"_id": ID_FICHE}, {"$unset": {f"appareils.{i}": "" for i in existants}})
+    return len(existants)

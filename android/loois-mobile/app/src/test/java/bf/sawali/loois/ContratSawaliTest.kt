@@ -53,4 +53,27 @@ class ContratSawaliTest {
         assertEquals(1, l.nombreACorriger); assertEquals(listOf("R-0003", "R-0001"), l.recus.map { it.reference })
         assertTrue(l.recus[0].aCorriger); assertEquals(1, l.recus[0].lignesACorriger); assertFalse(l.recus[1].aCorriger)
     }
+
+    @Test fun statutAvecServeursLocauxEtTicket() {
+        val s = lireStatut(charger("statut_local"))
+        assertTrue(s.autorise)
+        assertEquals(listOf("http://192.168.1.11:8750", "http://192.168.1.10:8750"), s.serveursLocaux)                       // adresses de passerelle remontées par Loois, la plus récente d'abord
+        assertTrue(s.ticketLocal.startsWith("eyJ"))
+        assertEquals(4102444800L, expirationTicket(s.ticketLocal))                                                           // échéance lue dans le ticket (affichage seulement)
+        assertEquals("01/01/2100 00:00", dateHeureDepuisSecondes(4102444800L))
+        // le statut gardé sur le téléphone ne contient JAMAIS le ticket
+        val garde = statutVersJson(s)
+        assertFalse(garde.contains("ticket")); val relu = statutDepuisJson(garde)!!
+        assertEquals("myAurora-CMC", relu.base); assertEquals("docx=CMC", relu.zone); assertEquals("", relu.ticketLocal); assertTrue(relu.autorise)
+    }
+
+    @Test fun adressesLocalesFiltreesEtTicketIllisible() {
+        val a = org.json.JSONArray("""[{"url":"http://192.168.1.10:8750/"},{"url":"http://8.8.8.8:8750"},{"url":"http://192.168.1.10:8750"},{"url":"https://passerelle.exemple.bf"},{"poste":"sans url"}]""")
+        assertEquals(listOf("http://192.168.1.10:8750", "https://passerelle.exemple.bf"), adressesLocales(a))                  // publique refusée, doublon et barre finale nettoyés
+        assertEquals(emptyList<String>(), adressesLocales(null))
+        assertNull(expirationTicket(null)); assertNull(expirationTicket("pas.un.ticket")); assertNull(expirationTicket("a.b.c")); assertNull(statutDepuisJson("pas du json")); assertNull(statutDepuisJson(""))
+        // un statut sans accès local (aucun service Loois ne s'est signalé) : aucune adresse, aucun ticket
+        val sans = lireStatut(charger("statut"))
+        assertEquals(emptyList<String>(), sans.serveursLocaux); assertEquals("", sans.ticketLocal)
+    }
 }

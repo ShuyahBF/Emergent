@@ -42,14 +42,16 @@ class ClientApi(private val stockage: Stockage) {
     suspend fun appeler(base: String, chemin: String, corps: JSONObject? = null, methode: String = "POST", avecSession: Boolean = true,
                         delaiConnexionMs: Int = 15_000, delaiLectureMs: Int = 60_000): JSONObject = withContext(Dispatchers.IO) {
         if (!urlAutorisee(base)) throw ErreurReseau("Adresse refusée : utilisez https://, ou http:// seulement pour une adresse du réseau local.")
+        val local = estServeurLocal(base)
         val cx = try { URL(base.trimEnd('/') + chemin).openConnection() as HttpURLConnection } catch (e: Exception) { throw ErreurReseau("Adresse du serveur invalide.") }
         try {
             cx.requestMethod = methode
-            cx.connectTimeout = delaiConnexionMs
+            cx.connectTimeout = if (local) minOf(delaiConnexionMs, 4_000) else delaiConnexionMs      // une passerelle locale absente se voit vite : 4 s au plus
             cx.readTimeout = delaiLectureMs
             cx.setRequestProperty("Accept", "application/json")
             cx.setRequestProperty("User-Agent", "LooisMobile/${BuildConfig.VERSION_NAME}")
-            stockage.jeton?.let { cx.setRequestProperty("Authorization", "Bearer $it") }
+            // SAWALI reçoit le jeton de l'appareil ; une passerelle LOCALE (http sur le réseau de l'entreprise) reçoit seulement le ticket local : le jeton secret ne circule jamais en clair sur le réseau local
+            if (estServeurLocal(base)) stockage.ticketLocal?.let { cx.setRequestProperty("X-Ticket-Local", it) } else stockage.jeton?.let { cx.setRequestProperty("Authorization", "Bearer $it") }
             if (avecSession) session?.let { cx.setRequestProperty("X-Session", it) }
             if (corps != null) {
                 cx.doOutput = true
@@ -67,6 +69,9 @@ class ClientApi(private val stockage: Stockage) {
         } catch (e: IOException) { throw ErreurReseau("Serveur injoignable : vérifiez la connexion.")
         } finally { cx.disconnect() }
     }
+
+    /** Vrai pour une adresse qui n'est pas celle de SAWALI (passerelle du réseau local). */
+    fun estServeurLocal(base: String): Boolean = base.trim().trimEnd('/') != stockage.urlSawali.trim().trimEnd('/')
 
     /** Message lisible d'une réponse d'erreur : champ « detail » (texte), ou message générique. */
     fun extraireMessage(code: Int, texte: String): String = messageErreur(code, texte)

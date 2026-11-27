@@ -79,6 +79,10 @@ def construire_banc():
 
     def repondre(sql: str):
         S = sql
+        if S.startswith("SELECT Machine, COUNT(*), SUM(MontantRéglé)"):
+            return [["TASSEMBH", "2", "17000"], ["ASI2020", "1", "8500,5"], ["", "1", "100"]]
+        if S.startswith("SELECT COUNT(*), SUM(MontantRéglé)"):
+            return [["4", "25 600,5"]] if ">= '20261126'" in S else [["0", ""]]
         if S.startswith("SELECT [Login], [AutoriserCorrectionReçu] FROM [UtilisateurBlg]"):
             return [["tassembh", etat["autoriser"]]] if etat["mdp_ok"] else []
         if S.startswith("SELECT [GroupeLogin]"):
@@ -273,3 +277,41 @@ def test_delai_depasse_et_journal_admin(banc):
     assert j.status_code == 200 and j.json()["lignes"][0]["action"] == "connexion" and j.json()["total"] >= 1
     b["admin"]["user"] = {"id": "u2", "role": "client"}
     assert c.get("/api/admin/android-journal").status_code == 403
+
+
+def test_tableau_de_bord_droits_jour_et_semaine(banc):
+    # Lot 483 : le tableau de bord est réservé à l'administrateur et aux appareils de profil « client » ; jamais à un caissier ou au laboratoire
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]
+    assert c.post("/api/android/tableau-de-bord", json={"date": "2026-11-26"}, headers=entetes(b, s)).status_code == 403                 # caissier : refusé
+    run(aa.modifier(b["db"], b["fiche"]["id"], {"profil": "client"}))
+    cx = se_connecter(c, b).json()
+    assert cx["droits"]["tableau_de_bord"] is True
+    s = cx["session"]
+    r = c.post("/api/android/tableau-de-bord", json={"date": "2026-11-26"}, headers=entetes(b, s))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["nombre"] == 4 and d["total_montant"] == 25600.5 and d["panier_moyen"] == 6400.12
+    assert [x["caissier"] for x in d["par_caissier"]] == ["TASSEMBH", "ASI2020", "(sans caissier)"] and d["par_caissier"][0]["montant"] == 17000          # les plus gros montants d'abord
+    assert "GROUP BY Machine" in b["envoyees"][-1][0] and "(Mag <> 'SUP' OR Mag IS NULL)" in b["envoyees"][-1][0]
+    w = c.post("/api/android/tableau-de-bord/semaine", json={"date": "2026-11-26"}, headers=entetes(b, s)).json()
+    assert [j["date"] for j in w["jours"]] == ["2026-11-20", "2026-11-21", "2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26"]
+    assert w["jours"][-1] == {"date": "2026-11-26", "nombre": 4, "montant": 25600.5} and w["jours"][0]["nombre"] == 0 and w["total_montant"] == 25600.5
+    # les totaux sont gardés une minute : une 2e ouverture ne relance aucune requête
+    avant = len(b["envoyees"])
+    c.post("/api/android/tableau-de-bord", json={"date": "2026-11-26"}, headers=entetes(b, s))
+    assert len(b["envoyees"]) == avant
+    # administrateur (SUPERVISEU) sans profil client : accès ; laboratoire : jamais
+    run(aa.modifier(b["db"], b["fiche"]["id"], {"profil": "agent"}))
+    assert al.droits(al.ESPACES["biolog"], "SUPERVISEU", "", False, False)["tableau_de_bord"] is True
+    assert al.droits(al.ESPACES["biolog"], "LAB1", "LABO", False, False, profil="client")["tableau_de_bord"] is False
+    assert al.droits(al.ESPACES["aizenta"], "AIZ", "", False, False, profil="client")["tableau_de_bord"] is False                   # Aizenta : pas de caisse
+    assert c.post("/api/android/tableau-de-bord", json={"date": "pas une date"}, headers=entetes(b, s)).status_code == 422
+
+
+def test_lecture_des_agregats():
+    assert al.lire_par_caissier([["A", "1", "100"], ["B", "3", "1 000,5"]]) == [{"caissier": "B", "nombre": 3, "montant": 1000.5}, {"caissier": "A", "nombre": 1, "montant": 100.0}]
+    assert al.lire_agregat_jour([["4", "25 600,5"]]) == (4, 25600.5) and al.lire_agregat_jour([]) == (0, 0.0) and al.lire_agregat_jour([["0", ""]]) == (0, 0.0)
+    from datetime import date
+    s = al.sql_agregat_par_caissier(date(2026, 11, 26))
+    assert "'20261126'" in s and "'20261127'" in s and s.endswith("GROUP BY Machine")

@@ -28,6 +28,7 @@ ID_FICHE = "android_appareils"
 MAX_APPAREILS = 500
 MAX_JOURNAL = 20                      # dernières connexions gardées par appareil
 ETATS = ("interdit", "autorise")
+PROFILS = ("agent", "client")          # « client » : le responsable d'un établissement ; son téléphone ouvre le TABLEAU DE BORD de suivi (lot 483)
 
 # Zones de lancement connues (règle d'accès HFSQL de Loois : /docx= → Biolog, /doc= → Aizenta, /ekol → e-Kol) et la base qu'elles ouvrent. Liste FINIE → liste déroulante
 # dans l'écran, avec « Autre… » en fin de liste (règle 10) : une zone ou une base hors liste reste possible.
@@ -75,7 +76,7 @@ def nouvelle_fiche(android_id: str, modele: str, version_app: str, ip: str, main
     quand = maintenant or maintenant_iso()
     jeton = secrets.token_urlsafe(32)
     fiche = {"id": uuid.uuid4().hex[:16], "android_id_hash": hash_secret(android_id), "jeton_hash": hash_secret(jeton), "modele": nettoyer(modele, 80),
-             "version_app": nettoyer(version_app, 30), "nom_utilisateur": "", "zone": "", "base": "", "client_code": "", "etat": "interdit", "notes": "",
+             "version_app": nettoyer(version_app, 30), "nom_utilisateur": "", "zone": "", "base": "", "client_code": "", "etat": "interdit", "profil": "agent", "notes": "",
              "cree_le": quand, "derniere_connexion": None, "ip_derniere": nettoyer(ip, 64), "ip_premiere": nettoyer(ip, 64), "journal": []}
     return fiche, jeton
 
@@ -93,6 +94,10 @@ def valider_modifications(donnees: Dict[str, Any]) -> Tuple[Dict[str, Any], str]
         sortie["nom_utilisateur"] = nettoyer(donnees["nom_utilisateur"], 120)
     if "notes" in donnees:
         sortie["notes"] = nettoyer(donnees["notes"], 500)
+    if "profil" in donnees:
+        if donnees["profil"] not in PROFILS:
+            return {}, "Profil invalide : « agent » ou « client »."
+        sortie["profil"] = donnees["profil"]
     if "etat" in donnees:
         if donnees["etat"] not in ETATS:
             return {}, "État invalide : « autorise » ou « interdit »."
@@ -118,7 +123,7 @@ def valider_modifications(donnees: Dict[str, Any]) -> Tuple[Dict[str, Any], str]
 def reponse_statut(fiche: Dict[str, Any]) -> Dict[str, Any]:
     """Ce que l'APK reçoit de son statut : de quoi se lancer (zone, base, utilisateur) ou le motif du refus. Jamais d'empreinte ni d'IP."""
     autorise = fiche.get("etat") == "autorise"
-    return {"etat": fiche.get("etat"), "autorise": autorise, "nom_utilisateur": fiche.get("nom_utilisateur") or "",
+    return {"etat": fiche.get("etat"), "autorise": autorise, "profil": fiche.get("profil") or "agent", "nom_utilisateur": fiche.get("nom_utilisateur") or "",
             "zone": fiche.get("zone") if autorise else "", "base": fiche.get("base") if autorise else "", "client_code": fiche.get("client_code") if autorise else "",
             "message": "" if autorise else "Accès interdit : cet appareil n'est pas encore autorisé par l'administrateur SAWALI."}
 

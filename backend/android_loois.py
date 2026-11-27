@@ -131,6 +131,21 @@ def sql_recus_du_jour(jour: date, caissier: Optional[str]) -> str:
             f"{filtre_caissier}AND [Date Vente] >= '{debut}' AND [Date Vente] < '{fin}' ORDER BY [Date Vente] DESC, Référence DESC")
 
 
+_FILTRE_RECUS = "Référence LIKE '" + PREFIXE_RECU + "%' AND (Mag <> 'SUP' OR Mag IS NULL)"
+
+
+def sql_agregat_par_caissier(jour: date) -> str:
+    """Tableau de bord : nombre de reçus et montant réglé PAR CAISSIER pour un jour (totaux calculés par la base, jamais 200 lignes à additionner)."""
+    debut, fin = jour.strftime("%Y%m%d"), (jour + timedelta(days=1)).strftime("%Y%m%d")
+    return f"SELECT Machine, COUNT(*), SUM(MontantRéglé) FROM VenteClinique WHERE {_FILTRE_RECUS} AND [Date Vente] >= '{debut}' AND [Date Vente] < '{fin}' GROUP BY Machine"
+
+
+def sql_agregat_jour(jour: date) -> str:
+    """Nombre de reçus et montant réglé d'un jour (courbe des 7 derniers jours)."""
+    debut, fin = jour.strftime("%Y%m%d"), (jour + timedelta(days=1)).strftime("%Y%m%d")
+    return f"SELECT COUNT(*), SUM(MontantRéglé) FROM VenteClinique WHERE {_FILTRE_RECUS} AND [Date Vente] >= '{debut}' AND [Date Vente] < '{fin}'"
+
+
 def sql_entete_recu(reference: str) -> str:
     return f"SELECT {COLONNES_RECU} FROM VenteClinique WHERE Référence = '{echapper(reference)}'"
 
@@ -237,13 +252,28 @@ def recus_a_corriger(recus: List[Dict[str, Any]], domaines: List[List[Any]], pre
     return [{**r, "lignes_a_corriger": par_reference.get(r["reference"], 0), "a_corriger": par_reference.get(r["reference"], 0) > 0} for r in recus]
 
 
+def lire_par_caissier(lignes: List[List[Any]]) -> List[Dict[str, Any]]:
+    """Lignes (Machine, COUNT, SUM) → [{caissier, nombre, montant}], les plus gros montants d'abord ; un caissier vide devient « (sans caissier) »."""
+    sortie = [{"caissier": _cellule(l, 0) or "(sans caissier)", "nombre": int(nombre(_cellule(l, 1))), "montant": round(nombre(_cellule(l, 2)), 2)} for l in lignes]
+    return sorted(sortie, key=lambda x: (-x["montant"], x["caissier"].lower()))
+
+
+def lire_agregat_jour(lignes: List[List[Any]]) -> Tuple[int, float]:
+    """Ligne (COUNT, SUM) → (nombre, montant) ; (0, 0) si la base ne rend rien."""
+    if not lignes:
+        return 0, 0.0
+    return int(nombre(_cellule(lignes[0], 0))), round(nombre(_cellule(lignes[0], 1)), 2)
+
+
 # ------------------------------------------------------------------------------------------------------------------------ droits
-def droits(espace: Dict[str, Any], login: str, groupe: str, autoriser_correction: bool, peut_supprimer: bool) -> Dict[str, Any]:
+def droits(espace: Dict[str, Any], login: str, groupe: str, autoriser_correction: bool, peut_supprimer: bool, profil: str = "agent") -> Dict[str, Any]:
     """Droits de l'utilisateur (règles de Loois) : administrateur = login attendu pour l'espace ; laboratoire = groupe LABO (consultation seule, tous les reçus)."""
     admin = (login or "").strip().upper() == espace["admin"]
     labo = (groupe or "").strip().upper() == "LABO"
     return {"administrateur": admin, "laboratoire": labo, "voir_tous_les_recus": admin or labo, "caisse": bool(espace.get("caisse")),
-            "corrections": bool(espace.get("caisse")) and (admin or labo or autoriser_correction), "consultation_seule": labo, "supprimer_recu": peut_supprimer and not labo}
+            "corrections": bool(espace.get("caisse")) and (admin or labo or autoriser_correction), "consultation_seule": labo, "supprimer_recu": peut_supprimer and not labo,
+            # Lot 483 : tableau de bord de suivi = l'administrateur, ou le téléphone d'un responsable d'établissement (profil « client » choisi par l'administrateur de SAWALI) ; jamais le laboratoire
+            "tableau_de_bord": bool(espace.get("caisse")) and not labo and (admin or profil == "client")}
 
 
 # ------------------------------------------------------------------------------------------------------------------------ essais de connexion

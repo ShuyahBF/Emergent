@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "483", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : tableau de bord de suivi et profil « client »",
+        "description": "Nouveau choix « Profil de l'appareil » (Agent ou Client) : le téléphone d'un responsable d'établissement ouvre un tableau de bord (reçus et montants du jour, par caissier, 7 derniers jours). L'administrateur de Loois y a aussi accès ; le laboratoire jamais.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "482", "date": "2026-11-27",
         "titre": "📊 Volumétrie des tables HFSQL (cache Atlas)",
         "description": "Choisissez un client en ligne (ex. CMC), une plateforme (Biolog, Aizenta, e-Kol) et des tables : SAWALI compte leurs lignes en lecture seule (total et derniers jours) et estime la place d'un cache Atlas d'une semaine, avec totaux et export CSV.",

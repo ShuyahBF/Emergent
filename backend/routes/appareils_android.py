@@ -75,7 +75,7 @@ def setup_appareils_android_routes(*, db, api, get_current_user) -> None:
             secret = await sl.secret_client(db, fiche["client_code"])
             if not urls or not secret:
                 return {**vide, "serveurs_locaux": urls}
-            return {"serveurs_locaux": urls, "ticket_local": sl.creer_ticket(secret, fiche["id"], fiche["client_code"], fiche.get("zone", ""), fiche.get("base", "")), "ticket_local_h": sl.TICKET_TTL_H}
+            return {"serveurs_locaux": urls, "ticket_local": sl.creer_ticket(secret, fiche["id"], fiche["client_code"], fiche.get("zone", ""), fiche.get("base", ""), profil=fiche.get("profil") or "agent"), "ticket_local_h": sl.TICKET_TTL_H}
         except Exception:  # noqa: BLE001
             return vide                                   # jamais d'échec du statut à cause du mode hors ligne
 

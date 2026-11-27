@@ -95,4 +95,15 @@ class ContratSawaliTest {
         assertEquals("800", formaterMontantCourt(800.0)); assertEquals("25,6 k", formaterMontantCourt(25600.0)); assertEquals("1,3 M", formaterMontantCourt(1250000.0))
         assertEquals("26/11", jourCourt("2026-11-26"))
     }
+
+    @Test fun connexionRapideConfigListeEtSession() {
+        val cfg = lireConfigRapide(charger("rapide_config"))
+        assertTrue(cfg.google); assertEquals("cid.apps.googleusercontent.com", cfg.googleClientId); assertEquals("api.sawalismartsystems.com", cfg.rpId)
+        val l = lireLiaisons(charger("rapide_liste"))
+        assertEquals(setOf("google", "biometrie"), l.map { it.methode }.toSet())
+        assertEquals("a***@gmail.com", l.first { it.methode == "google" }.detail)
+        // La connexion rapide rend la MÊME réponse que la connexion par mot de passe
+        val r = charger("rapide_connexion")
+        assertTrue(r.getString("session").isNotBlank()); assertEquals("tassembh", r.getJSONObject("utilisateur").getString("login")); assertTrue(lireDroits(r.getJSONObject("droits")).caisse)
+    }
 }

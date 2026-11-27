@@ -24,6 +24,33 @@ data class LigneRecu(val codeProduit: String, val designation: String, val domai
 
 data class DetailRecu(val recu: Recu, val lignes: List<LigneRecu>, val total: Double, val validiteClinique: Int?, val aCorriger: Boolean)
 
+// ============================================================================ connexion rapide et mémorisation par zone (lot M4)
+/** Ce que le téléphone mémorise pour UNE zone (jamais de mot de passe) : dernier identifiant, méthodes de connexion rapide activées, méthode préférée, réglages réseau. */
+data class ProfilZone(val login: String = "", val methodes: Set<String> = emptySet(), val preferee: String = "", val mode: String = "", val urlLocale: String = "")
+
+val METHODES_RAPIDES = listOf("biometrie", "google", "cle")
+fun libelleMethode(m: String) = when (m) { "biometrie" -> "Empreinte / visage"; "google" -> "Compte Google"; "cle" -> "Clé d'accès"; else -> m }
+
+/** Clé stable d'une zone dans les préférences (« docx=CMC » → « docx_cmc »). */
+fun cleZone(zone: String): String = zone.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+
+fun profilVersJson(p: ProfilZone): String = JSONObject().put("login", p.login).put("methodes", org.json.JSONArray(p.methodes.sorted())).put("preferee", p.preferee).put("mode", p.mode).put("url_locale", p.urlLocale).toString()
+
+fun profilDepuisJson(texte: String?): ProfilZone {
+    if (texte.isNullOrBlank()) return ProfilZone()
+    return try {
+        val j = JSONObject(texte)
+        ProfilZone(j.optString("login"), (j.optJSONArray("methodes")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()).filter { it in METHODES_RAPIDES }.toSet(), j.optString("preferee"), j.optString("mode"), j.optString("url_locale"))
+    } catch (e: Exception) { ProfilZone() }
+}
+
+/** Une connexion rapide activée, telle que SAWALI la liste. */
+data class LiaisonRapide(val id: String, val methode: String, val detail: String, val creeLe: String, val dernierUsage: String)
+data class ConfigRapide(val google: Boolean, val googleClientId: String, val rpId: String)
+
+fun lireConfigRapide(j: JSONObject) = ConfigRapide(j.optBoolean("google"), j.optString("google_client_id"), j.optString("rp_id"))
+fun lireLiaisons(j: JSONObject): List<LiaisonRapide> = j.optJSONArray("liaisons").liste { LiaisonRapide(it.texte("id"), it.texte("methode"), it.texte("detail"), it.texte("cree_le"), it.texte("dernier_usage")) }
+
 data class LigneCaissier(val caissier: String, val nombre: Int, val montant: Double)
 data class TableauJour(val date: String, val nombre: Int, val total: Double, val panierMoyen: Double, val parCaissier: List<LigneCaissier>)
 data class JourSemaine(val date: String, val nombre: Int, val montant: Double)

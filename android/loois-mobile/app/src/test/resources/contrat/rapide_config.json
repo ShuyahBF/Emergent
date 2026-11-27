@@ -1,0 +1,7 @@
+{
+ "biometrie": true,
+ "google": true,
+ "google_client_id": "cid.apps.googleusercontent.com",
+ "cle_acces": true,
+ "rp_id": "api.sawalismartsystems.com"
+}

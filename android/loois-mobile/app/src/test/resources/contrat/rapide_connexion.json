@@ -1,0 +1,24 @@
+{
+ "session": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJzZXNzaW9uIiwiYWlkIjoiYTgzN2VlNjBiYWMwNGNjZSIsImxvZ2luIjoidGFzc2VtYmgiLCJncm91cGUiOiIiLCJkIjp7ImFkbWluaXN0cmF0ZXVyIjpmYWxzZSwibGFib3JhdG9pcmUiOmZhbHNlLCJ2b2lyX3RvdXNfbGVzX3JlY3VzIjpmYWxzZSwiY2Fpc3NlIjp0cnVlLCJjb3JyZWN0aW9ucyI6dHJ1ZSwiY29uc3VsdGF0aW9uX3NldWxlIjpmYWxzZSwic3VwcHJpbWVyX3JlY3UiOmZhbHNlLCJ0YWJsZWF1X2RlX2JvcmQiOmZhbHNlfSwiZXhwIjoxNzk1Nzc3OTAyfQ.qyAXjsHVBrt4vF0jGVQermzebtQMkd62-N2zfkZ1Lzk",
+ "expire_dans_s": 28800,
+ "utilisateur": {
+  "login": "tassembh",
+  "groupe": "",
+  "espace": "Biolog"
+ },
+ "droits": {
+  "administrateur": false,
+  "laboratoire": false,
+  "voir_tous_les_recus": false,
+  "caisse": true,
+  "corrections": true,
+  "consultation_seule": false,
+  "supprimer_recu": false,
+  "tableau_de_bord": false
+ },
+ "appareil": {
+  "zone": "docx=CMC",
+  "base": "myAurora-CMC",
+  "client": "CMC"
+ }
+}

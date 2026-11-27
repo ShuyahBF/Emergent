@@ -3,6 +3,7 @@ package bf.sawali.loois
 import android.app.Application
 import android.os.Build
 import android.provider.Settings
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +15,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Écrans de l'application. */
-enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, TABLEAU, PARAMETRES }
+enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, TABLEAU, RAPIDE, PARAMETRES }
 
 /** Tout ce que l'interface affiche (un seul objet : l'écran se redessine quand il change). */
 data class UiEtat(
@@ -37,6 +38,9 @@ data class UiEtat(
     val tableau: TableauJour? = null,                 // tableau de bord du jour
     val semaine: Semaine? = null,                     // 7 derniers jours (chargés à part : le jour s'affiche d'abord)
     val semaineEnCours: Boolean = false,
+    val profil: ProfilZone = ProfilZone(),            // mémorisé pour la zone de l'appareil : identifiant, méthodes rapides, méthode préférée (jamais de mot de passe)
+    val rapide: List<LiaisonRapide> = emptyList(),    // connexions rapides activées (liste de SAWALI)
+    val configRapide: ConfigRapide? = null,
     val retourDetail: Ecran = Ecran.HISTORIQUE,
     val selection: String? = null,                // reçu sélectionné (orange, règle 3)
     val tri: Tri = Tri(),
@@ -183,7 +187,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val s = statutDepuisJson(stockage.dernierStatut)
         val exp = expirationTicket(stockage.ticketLocal)
         if (s == null || !s.autorise || exp == null || exp * 1000 <= System.currentTimeMillis() || basesLocales().isEmpty()) return false
-        maj { it.copy(statut = s, ecran = if (it.ecran == Ecran.DEMARRAGE || it.ecran == Ecran.ATTENTE_AUTORISATION) Ecran.CONNEXION else it.ecran, messageAttente = "",
+        maj { it.copy(statut = s, profil = stockage.profil(s.zone), ecran = if (it.ecran == Ecran.DEMARRAGE || it.ecran == Ecran.ATTENTE_AUTORISATION) Ecran.CONNEXION else it.ecran, messageAttente = "",
             message = "Sans Internet : accès par le réseau local (ticket valable jusqu'au ${dateHeureDepuisSecondes(exp)}).") }
         verifierServeur()
         return true
@@ -196,6 +200,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         stockage.serveursLocaux = if (s.autorise) s.serveursLocaux else emptyList()
         stockage.ticketLocal = if (s.autorise) s.ticketLocal else null
         stockage.dernierStatut = statutVersJson(s)
+        // Mémorisation PAR ZONE : dès que la zone est connue, on retrouve son identifiant, ses méthodes rapides et ses réglages réseau
+        if (s.autorise && s.zone.isNotBlank()) {
+            val p = stockage.profil(s.zone)
+            if (p.mode.isNotBlank()) stockage.mode = p.mode
+            if (p.urlLocale.isNotBlank()) stockage.urlLocale = p.urlLocale
+            maj { it.copy(profil = p, mode = stockage.mode, urlLocale = stockage.urlLocale) }
+        }
         maj { it.copy(serveursLocaux = stockage.serveursLocaux, ticketExpire = expirationTicket(stockage.ticketLocal)?.let { x -> dateHeureDepuisSecondes(x) } ?: "") }
         mettreAJourStatut(s, id)
     }
@@ -206,18 +217,134 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------------------------------------------------ connexion de l'utilisateur
-    fun connecter(login: String, motDePasse: String) {
+    fun connecter(login: String, motDePasse: String, memoriser: Boolean = true) {
         if (login.isBlank() || motDePasse.isEmpty()) { dire("Saisissez l'identifiant et le mot de passe."); return }
         viewModelScope.launch {
             maj { it.copy(enCours = true, message = "Patientez… vérification de l'identifiant en cours") }
             try {
                 val r = appel { base -> api.appeler(base, "/api/android/connexion", JSONObject().put("login", login.trim()).put("mot_de_passe", motDePasse), avecSession = false) }
-                api.session = r.getString("session")
-                val u = r.getJSONObject("utilisateur")
-                maj { it.copy(ecran = Ecran.MENU, utilisateur = Utilisateur(u.optString("login"), u.optString("groupe"), u.optString("espace")), droits = lireDroits(r.getJSONObject("droits")),
-                    message = "Connecté : ${u.optString("login")}", historique = null, corrections = null, detail = null, selection = null) }
+                ouvrirSession(r, "Connecté : ${r.getJSONObject("utilisateur").optString("login")}")
+                // Mémorisation PAR ZONE : seul l'identifiant est gardé (jamais le mot de passe) ; case décochée = on l'oublie
+                val zone = zone()
+                if (zone.isNotBlank()) { stockage.modifierProfil(zone) { it.copy(login = if (memoriser) login.trim() else "") }; maj { it.copy(profil = stockage.profil(zone)) } }
             } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
         }
+    }
+
+    /** Ouvre la session à partir de la réponse du serveur (mot de passe ou connexion rapide : même réponse). */
+    private fun ouvrirSession(r: JSONObject, message: String) {
+        api.session = r.getString("session")
+        val u = r.getJSONObject("utilisateur")
+        maj { it.copy(ecran = Ecran.MENU, utilisateur = Utilisateur(u.optString("login"), u.optString("groupe"), u.optString("espace")), droits = lireDroits(r.getJSONObject("droits")),
+            message = message, historique = null, corrections = null, detail = null, selection = null, tableau = null, semaine = null, rapide = emptyList()) }
+    }
+
+    private fun zone(): String = _etat.value.statut?.zone ?: ""
+
+    // ------------------------------------------------------------------------------------------------------------ connexion rapide (biométrie, Google, clé d'accès)
+    private suspend fun configRapide(): ConfigRapide {
+        _etat.value.configRapide?.let { return it }
+        val c = lireConfigRapide(appelSawali { base -> api.appeler(base, "/api/android/rapide/config", null, "GET", avecSession = false) })
+        maj { it.copy(configRapide = c) }
+        return c
+    }
+
+    /** Exécute une opération de connexion rapide : toast « Patientez… », annulation = simple message, erreur serveur traduite. */
+    private fun rapideOperation(attente: String, bloc: suspend () -> Unit) {
+        viewModelScope.launch {
+            maj { it.copy(enCours = true, message = "Patientez… $attente") }
+            try { bloc() } catch (e: ErreurRapide) { dire(e.message ?: "Opération annulée.") } catch (e: Exception) { gerer(e) } finally { maj { it.copy(enCours = false) } }
+        }
+    }
+
+    /** CONNEXION RAPIDE depuis l'écran de connexion (Internet requis : SAWALI vérifie la preuve). */
+    fun connecterRapide(methode: String, activite: FragmentActivity) {
+        val zone = zone(); val p = stockage.profil(zone)
+        rapideOperation("connexion rapide en cours") {
+            val corps = JSONObject().put("methode", methode).put("login", p.login)
+            when (methode) {
+                "biometrie" -> corps.put("secret", Biometrie.dechiffrer(activite, zone, p.login, stockage.secretBiometrique(zone, p.login) ?: throw ErreurRapide("Connexion biométrique non activée sur ce téléphone.")))
+                "google" -> corps.put("id_token", Identites.jetonGoogle(activite, configRapide().googleClientId.ifBlank { throw ErreurRapide("La connexion par Google n'est pas configurée sur SAWALI.") }))
+                "cle" -> {
+                    val o = appelSawali { b -> api.appeler(b, "/api/android/rapide/cle/options-connexion", JSONObject().put("login", p.login), avecSession = false) }
+                    val rep = Identites.signerCle(activite, o.getJSONObject("options").toString())
+                    corps.put("challenge_id", o.getString("challenge_id")).put("credential", JSONObject(rep))
+                }
+                else -> throw ErreurRapide("Méthode inconnue.")
+            }
+            val r = appelSawali { b -> api.appeler(b, "/api/android/rapide/connexion", corps, avecSession = false) }
+            ouvrirSession(r, "Connecté (${libelleMethode(methode)}) : ${r.getJSONObject("utilisateur").optString("login")}")
+            stockage.modifierProfil(zone) { it.copy(preferee = methode) }
+            maj { it.copy(profil = stockage.profil(zone)) }
+        }
+    }
+
+    /** Liste des connexions rapides activées + ce que SAWALI propose (Google configuré ?). */
+    fun chargerRapide() = rapideOperation("lecture des connexions rapides") {
+        val liste = lireLiaisons(appelSawali { b -> api.appeler(b, "/api/android/rapide/liste", null, "GET") })
+        configRapide()
+        maj { it.copy(rapide = liste, message = null) }
+    }
+
+    private fun apresActivation(zone: String, methode: String, message: String) {
+        stockage.modifierProfil(zone) { it.copy(login = _etat.value.utilisateur?.login ?: it.login, methodes = it.methodes + methode, preferee = it.preferee.ifBlank { methode }) }
+        maj { it.copy(profil = stockage.profil(zone), message = message) }
+    }
+
+    fun activerBiometrie(activite: FragmentActivity) {
+        if (!Biometrie.disponible(activite)) { dire("Aucune empreinte ni aucun visage n'est enregistré sur ce téléphone (Réglages Android → Sécurité)."); return }
+        val zone = zone(); val login = _etat.value.utilisateur?.login ?: return
+        rapideOperation("activation de la connexion biométrique") {
+            val r = appelSawali { b -> api.appeler(b, "/api/android/rapide/biometrie/activer", JSONObject()) }
+            try { stockage.ecrireSecretBiometrique(zone, login, Biometrie.chiffrer(activite, zone, login, r.getString("secret"))) }
+            catch (e: Exception) { try { appelSawali { b -> api.appeler(b, "/api/android/rapide/${r.getString("id")}", null, "DELETE") } } catch (_: Exception) { }; throw e }     // annulé : rien ne reste chez SAWALI
+            apresActivation(zone, "biometrie", "Connexion biométrique activée.")
+            chargerRapide()
+        }
+    }
+
+    fun activerGoogle(activite: FragmentActivity) {
+        val zone = zone()
+        rapideOperation("liaison du compte Google") {
+            val cfg = configRapide()
+            if (!cfg.google || cfg.googleClientId.isBlank()) throw ErreurRapide("La connexion par Google n'est pas encore configurée sur SAWALI (l'administrateur doit saisir le client Google).")
+            val jeton = Identites.jetonGoogle(activite, cfg.googleClientId)
+            val r = appelSawali { b -> api.appeler(b, "/api/android/rapide/google/activer", JSONObject().put("id_token", jeton)) }
+            apresActivation(zone, "google", "Compte Google lié : ${r.optString("detail")}")
+            chargerRapide()
+        }
+    }
+
+    fun activerCle(activite: FragmentActivity) {
+        val zone = zone()
+        rapideOperation("création de la clé d'accès") {
+            val o = appelSawali { b -> api.appeler(b, "/api/android/rapide/cle/options", JSONObject()) }
+            val rep = Identites.creerCle(activite, o.getJSONObject("options").toString())
+            appelSawali { b -> api.appeler(b, "/api/android/rapide/cle/activer", JSONObject().put("challenge_id", o.getString("challenge_id")).put("credential", JSONObject(rep)).put("nom", android.os.Build.MODEL ?: "")) }
+            apresActivation(zone, "cle", "Clé d'accès enregistrée.")
+            chargerRapide()
+        }
+    }
+
+    /** Retire une connexion rapide (chez SAWALI et sur ce téléphone). */
+    fun retirerRapide(l: LiaisonRapide) {
+        val zone = zone(); val login = _etat.value.utilisateur?.login ?: ""
+        rapideOperation("retrait de la connexion rapide") {
+            appelSawali { b -> api.appeler(b, "/api/android/rapide/${l.id}", null, "DELETE") }
+            if (l.methode == "biometrie") { Biometrie.oublier(zone, login); stockage.ecrireSecretBiometrique(zone, login, null) }
+            stockage.modifierProfil(zone) { it.copy(methodes = it.methodes - l.methode, preferee = if (it.preferee == l.methode) "" else it.preferee) }
+            maj { it.copy(profil = stockage.profil(zone), message = "Connexion rapide retirée.") }
+            chargerRapide()
+        }
+    }
+
+    /** Oublie tout ce que le téléphone a mémorisé pour la zone (identifiant, méthodes, réglages réseau) ; les liaisons chez SAWALI se retirent dans « Connexion Rapide ». */
+    fun oublierProfil() {
+        val zone = zone(); if (zone.isBlank()) return
+        val p = stockage.profil(zone)
+        if (p.login.isNotBlank()) { Biometrie.oublier(zone, p.login); stockage.ecrireSecretBiometrique(zone, p.login, null) }
+        stockage.enregistrerProfil(zone, ProfilZone())
+        maj { it.copy(profil = ProfilZone(), message = "Mémorisation de la zone /$zone effacée.") }
     }
 
     fun deconnecter() { api.session = null; maj { it.copy(ecran = Ecran.CONNEXION, utilisateur = null, droits = null, historique = null, corrections = null, detail = null, tableau = null, semaine = null, selection = null, message = "Déconnecté.") } }
@@ -225,7 +352,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------------------------------------------------ navigation
     fun aller(e: Ecran) = maj { it.copy(ecran = e) }
     fun retour() = maj {
-        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
+        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.RAPIDE, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
     }
     fun changerJour(jour: String) = maj { it.copy(jour = jour) }
     fun changerCaissier(c: String) = maj { it.copy(caissierFiltre = c) }
@@ -289,7 +416,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         stockage.urlSawali = urlSawali.ifBlank { BuildConfig.URL_SAWALI_PAR_DEFAUT }
         stockage.urlLocale = urlLocale
         stockage.mode = mode
-        maj { it.copy(urlSawali = stockage.urlSawali, urlLocale = stockage.urlLocale, mode = stockage.mode, message = "Paramètres enregistrés.") }
+        zone().takeIf { it.isNotBlank() }?.let { z -> stockage.modifierProfil(z) { it.copy(mode = mode, urlLocale = urlLocale) } }      // mémorisés pour la zone
+        maj { it.copy(urlSawali = stockage.urlSawali, urlLocale = stockage.urlLocale, mode = stockage.mode, profil = stockage.profil(zone()), message = "Paramètres enregistrés.") }
         verifierServeur()
     }
 }

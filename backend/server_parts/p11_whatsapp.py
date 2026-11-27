@@ -1974,7 +1974,7 @@ def _wa_attribute(ids: set, by_suffix: Dict[str, str], contact_id: Optional[str]
     return contact_id if contact_id in ids else by_suffix.get(_phone_suffix(phone))
 
 
-async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
+async def _wa_unread_summary_calcul(user: dict) -> Dict[str, Any]:
     """Non-lus WhatsApp du Centre de Messagerie — SOURCE UNIQUE pour la
     pastille de chaque contact, le total du badge de la sidebar et la cloche.
 
@@ -2023,6 +2023,20 @@ async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
             "older": older, "max_age_days": WA_UNREAD_MAX_AGE_DAYS, "blocked": blocked}
 
 
+# Lot 473 — la barre latérale demande ce résumé DEUX fois par cycle (/me/whatsapp/unread et /me/notifications/counts) : 9 requêtes à chaque fois. Gardé 5 s par
+# utilisateur ; tout « marquer comme lu » le vide aussitôt.
+from cache_court import CacheCourt as _CacheCourtWa  # noqa: E402
+_CACHE_RESUME_WA = _CacheCourtWa(duree_s=5.0, max_entrees=300)
+
+
+async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
+    cle = f"{user.get('id')}|{user.get('role')}"
+    garde = _CACHE_RESUME_WA.lire(cle)
+    if garde is not None:
+        return garde
+    return _CACHE_RESUME_WA.ecrire(cle, await _wa_unread_summary_calcul(user))
+
+
 @api.post("/me/whatsapp/mark-all-read", tags=["Portail Client"])
 async def me_whatsapp_mark_all_read(user: dict = Depends(get_current_user)):
     """Lot 24 — « Tout marquer comme lu » dans le Centre de Messagerie : tous
@@ -2045,6 +2059,7 @@ async def me_whatsapp_mark_all_read(user: dict = Depends(get_current_user)):
             {"$set": {"read_by_us_at": now, "read_by_us_id": user["id"]}},
         )
         updated += int(getattr(res, "modified_count", 0) or 0)
+    _CACHE_RESUME_WA.invalider()            # lot 473 : la pastille doit se mettre à jour tout de suite
     return {"ok": True, "updated": updated}
 
 
@@ -2080,4 +2095,5 @@ async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_curre
         {"client_id": {"$in": visible_scope}, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
         {"$set": {"read_by_us_at": _now(), "read_by_us_id": user["id"]}},
     )
+    _CACHE_RESUME_WA.invalider()            # lot 473 : la pastille doit se mettre à jour tout de suite
     return {"ok": True, "updated": int(getattr(res, "modified_count", 0) or 0)}

@@ -803,4 +803,5 @@ async def me_notifications_mark_seen(payload: MarkSeenRequest, user: dict = Depe
         {"$set": {"last_visited_at": _now()}},
         upsert=True,
     )
+    _invalider_compteurs(user["id"])        # lot 473 : le badge de ce module doit tomber à zéro tout de suite
     return {"ok": True}

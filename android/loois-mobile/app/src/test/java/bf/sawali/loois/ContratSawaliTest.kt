@@ -57,11 +57,25 @@ class ContratSawaliTest {
     }
 
     @Test fun modificationDeRegleEtVisePuisRelecture() {
-        // Lot M6 : la réponse du serveur après l'écriture dans HFSQL est la RELECTURE de la base (jamais la valeur envoyée)
+        // Lots M6-M7 : après l'écriture dans HFSQL, la réponse du serveur est la RELECTURE de la base (reçu et infos), jamais les valeurs envoyées
         val m = charger("modifier")
-        assertEquals("R-0003", m.getString("reference"))
-        val i = lireInfos(m.getJSONObject("infos"))
-        assertEquals("ASI01", i.vid); assertEquals(false, i.regle); assertEquals(true, i.vise)
+        assertEquals("0461/2026", m.getString("reference"))
+        val i = lireInfos(m.getJSONObject("infos")); val r = lireRecu(m.getJSONObject("recu"))
+        assertEquals("MED07", i.vid); assertEquals(40000.0, i.montantTotal!!, 0.001)
+        assertEquals(15000.0, r.partAssure, 0.001); assertEquals(25000.0, r.partAssureur, 0.001)                 // 40 000 − 25 000 = 15 000 : contrepartie déduite
+    }
+
+    @Test fun factureAssureeMontantPpcEtParts() {
+        val d = lireDetail(charger("recu_assure"))
+        assertEquals("0461/2026", d.recu.reference); assertEquals(80.0, d.recu.ppc, 0.001); assertEquals(8000.0, d.recu.partAssure, 0.001); assertEquals(32000.0, d.recu.partAssureur, 0.001)
+        assertEquals(40000.0, d.infos.montantTotal!!, 0.001)
+        assertEquals(d.infos.montantTotal!!, d.recu.partAssure + d.recu.partAssureur, 0.001)                      // total = part assuré + part assureur
+    }
+
+    @Test fun saisieDesPartsEtDeduction() {
+        assertEquals(12000.5, lireNombreSaisi("12 000,5")!!, 0.001); assertEquals(0.0, lireNombreSaisi("0")!!, 0.001)
+        assertNull(lireNombreSaisi("")); assertNull(lireNombreSaisi("abc")); assertNull(lireNombreSaisi("-5")); assertNull(lireNombreSaisi("1e999"))
+        assertEquals("15000", formaterNombreSaisi(15000.0)); assertEquals("12000.50", formaterNombreSaisi(12000.5)); assertEquals("0", formaterNombreSaisi(40000.0 - 40000.0))
     }
 
     @Test fun rechercheDUnRecuParSonNumero() {

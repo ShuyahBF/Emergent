@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "493", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : montant, PPC et parts assuré / assureur",
+        "description": "Le détail d'un reçu ou d'une facture (Loois mobile 1.6.0) montre le montant total, le PPC et les parts assuré / assureur. Le superviseur change une part : l'autre est déduite du total, les deux sont écrites ensemble dans HFSQL, relues et journalisées. Le total n'est jamais modifié.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "492", "date": "2026-11-27",
         "titre": "📱 Loois mobile : le superviseur modifie Réglé et Visé",
         "description": "Dans le détail d'un reçu ou d'une facture (Loois mobile 1.5.0), le superviseur touche « Réglé » ou « Visé », confirme, et la modification est écrite dans la base HFSQL du client, relue pour confirmation et notée dans le journal (action « modifier_recu »). Les autres utilisateurs ne peuvent que lire.",

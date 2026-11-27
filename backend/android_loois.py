@@ -165,16 +165,17 @@ def sql_entete_recu(reference: str) -> str:
 
 def sql_infos_recu(reference: str) -> str:
     """Informations d'un reçu en plus de son entête (lot 490) : VID (code du vendeur), Réglé, Visée, montant réglé. Lues À PART : si cette lecture échoue, le reste du reçu s'affiche quand même."""
-    return f"SELECT [Code Vendeur], [Réglé], [Visée], MontantRéglé FROM VenteClinique WHERE Référence = '{echapper(reference)}'"
+    return f"SELECT [Code Vendeur], [Réglé], [Visée], MontantRéglé, Montant FROM VenteClinique WHERE Référence = '{echapper(reference)}'"
 
 
 def lire_infos_recu(lignes: List[List[Any]]) -> Dict[str, Any]:
     """Résultat de `sql_infos_recu` → {vid, regle, vise, montant_regle} (lecture PAR POSITION). Aucune ligne : champs vides (None = « inconnu », jamais « non »)."""
     if not lignes:
-        return {"vid": "", "regle": None, "vise": None, "montant_regle": None}
+        return {"vid": "", "regle": None, "vise": None, "montant_regle": None, "montant_total": None}
     l = lignes[0]
     return {"vid": _cellule(l, 0), "regle": vrai(_cellule(l, 1)) if _cellule(l, 1) != "" else None, "vise": vrai(_cellule(l, 2)) if _cellule(l, 2) != "" else None,
-            "montant_regle": nombre(_cellule(l, 3)) if _cellule(l, 3) != "" else None}
+            "montant_regle": nombre(_cellule(l, 3)) if _cellule(l, 3) != "" else None,
+            "montant_total": nombre(_cellule(l, 4)) if _cellule(l, 4) != "" else None}      # Montant = TOTAL du reçu = part assuré + part assureur
 
 
 _RE_NUMERO = re.compile(r"^(?:R-?)?\s*([0-9]{3,20})$", re.IGNORECASE)
@@ -208,14 +209,43 @@ def sql_recherche_recu(chiffres: str) -> str:
             f"ORDER BY [Date Vente] DESC, Référence DESC")
 
 
-def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool]) -> str:
-    """Lot 492 — UNIQUEMENT les deux cases « Réglé » et « Visée » d'UN reçu (WHERE sur sa référence exacte, contrôlée) ; jamais un montant ni une autre colonne.
-    Au moins une des deux valeurs doit être donnée (sinon ValueError) ; les booléens HFSQL s'écrivent 1 / 0."""
+def _decimal_sql(v: float) -> str:
+    """Nombre écrit pour HFSQL : point décimal, 2 décimales, jamais de notation scientifique (le nombre est contrôlé avant)."""
+    return f"{round(float(v), 2):.2f}"
+
+
+def parts_deduites(total: float, part_assure: Optional[float], part_assureur: Optional[float]) -> Tuple[float, float]:
+    """Lot 493 — parts d'un reçu pris en charge : TOTAL = part assuré + part assureur. Une seule part donnée : l'autre est DÉDUITE (total − part donnée) ; les deux données : leur somme doit
+    faire le total (à 1 centime près). Chaque part est comprise entre 0 et le total. Lève ValueError (message clair) sinon."""
+    if part_assure is None and part_assureur is None:
+        raise ValueError("aucune part")
+    if total is None or total < 0:
+        raise ValueError("Le montant total du reçu est inconnu : impossible de répartir les parts.")
+    for nom, v in (("part assuré", part_assure), ("part assureur", part_assureur)):
+        if v is not None and (v != v or v < 0 or v > total + 0.005):
+            raise ValueError(f"La {nom} doit être comprise entre 0 et le montant total ({total:g}).")
+    if part_assure is not None and part_assureur is not None:
+        if abs(part_assure + part_assureur - total) > 0.01:
+            raise ValueError(f"Part assuré + part assureur doivent faire le montant total ({total:g}).")
+        return round(part_assure, 2), round(part_assureur, 2)
+    if part_assure is not None:
+        return round(part_assure, 2), round(total - part_assure, 2)
+    return round(total - part_assureur, 2), round(part_assureur, 2)
+
+
+def sql_modifier_recu(reference: str, regle: Optional[bool], vise: Optional[bool], part_assure: Optional[float] = None, part_assureur: Optional[float] = None) -> str:
+    """Lot 492-493 — UNIQUEMENT « Réglé », « Visée » et les deux parts (« PArtAssuré », « PArtAssureur ») d'UN reçu (WHERE sur sa référence exacte, contrôlée) ; jamais le montant total ni une autre colonne.
+    Au moins une valeur doit être donnée (sinon ValueError) ; les booléens HFSQL s'écrivent 1 / 0 ; les deux parts sont toujours écrites ENSEMBLE (déjà équilibrées par `parts_deduites`)."""
     morceaux = []
     if regle is not None:
         morceaux.append(f"[Réglé] = {1 if regle else 0}")
     if vise is not None:
         morceaux.append(f"[Visée] = {1 if vise else 0}")
+    if (part_assure is None) != (part_assureur is None):
+        raise ValueError("les deux parts doivent être données ensemble")
+    if part_assure is not None:
+        morceaux.append(f"[PArtAssuré] = {_decimal_sql(part_assure)}")
+        morceaux.append(f"[PArtAssureur] = {_decimal_sql(part_assureur)}")
     if not morceaux:
         raise ValueError("aucune modification")
     return f"UPDATE VenteClinique SET {', '.join(morceaux)} WHERE Référence = '{echapper(reference)}'"

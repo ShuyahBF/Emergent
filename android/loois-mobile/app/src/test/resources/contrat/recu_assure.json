@@ -1,0 +1,40 @@
+{
+ "recu": {
+  "reference": "0461/2026",
+  "date_vente": "2026-11-26",
+  "heure": "11:00",
+  "date_heure_iso": "2026-11-26T11:00:00",
+  "code_client": "C9",
+  "patient": "Paul KABORE",
+  "montant": 8000.0,
+  "caissier": "ASI2020",
+  "ppc": 80.0,
+  "part_assure": 8000.0,
+  "part_assureur": 32000.0
+ },
+ "lignes": [
+  {
+   "code_produit": "P2",
+   "designation": "Consultation",
+   "domaine": "CONSULT",
+   "medecin": "",
+   "quantite": 1.0,
+   "prix_unitaire": 40000.0,
+   "montant": 40000.0,
+   "jours_validite_propre": null,
+   "jours_validite_effective": 30,
+   "necessite_correction": false,
+   "date_expiration": "2026-12-25 23:59:59"
+  }
+ ],
+ "total": 40000.0,
+ "validite_clinique": 30,
+ "a_corriger": false,
+ "infos": {
+  "vid": "MED07",
+  "regle": false,
+  "vise": true,
+  "montant_regle": 0.0,
+  "montant_total": 40000.0
+ }
+}

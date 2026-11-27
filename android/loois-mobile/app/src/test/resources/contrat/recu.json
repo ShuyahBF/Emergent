@@ -47,6 +47,7 @@
   "vid": "ASI01",
   "regle": true,
   "vise": false,
-  "montant_regle": 15000.0
+  "montant_regle": 15000.0,
+  "montant_total": 15000.0
  }
 }

@@ -361,7 +361,8 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
             icon = { Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce) },
             title = { Text("Écrire dans la base du client ?") },
             text = { Text("Reçu ${r.reference}\n" + (e.editRegle?.let { "Réglé : ${if (d.infos.regle == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
-                (e.editVise?.let { "Visé : ${if (d.infos.vise == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") + "\nLa modification sera enregistrée dans HFSQL et notée dans le journal.") },
+                (e.editVise?.let { "Visé : ${if (d.infos.vise == true) "oui" else "non"} → ${if (it) "oui" else "non"}\n" } ?: "") +
+                (if (e.editPartAssure != null) "Part assuré : ${formaterMontant(r.partAssure)} → ${formaterMontant(lireNombreSaisi(e.editPartAssure) ?: 0.0)}\nPart assureur : ${formaterMontant(r.partAssureur)} → ${formaterMontant(lireNombreSaisi(e.editPartAssureur) ?: 0.0)}\n(montant total ${formaterMontant(d.infos.montantTotal ?: 0.0)}, inchangé)\n" else "") + "\nLa modification sera enregistrée dans HFSQL et notée dans le journal.") },
             confirmButton = { Button(onClick = { vm.enregistrerModifs() }) { Icon(Icons.Filled.Save, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Confirmer l'enregistrement") } },
             dismissButton = { OutlinedButton(onClick = { vm.fermerConfirmationModif() }) { Icon(Icons.Filled.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Annuler") } })
         LazyColumn(Modifier.weight(1f)) {
@@ -370,10 +371,10 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
                     Text(r.patient.ifBlank { "—" }, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     Text("${jourFr(r.dateVente)} à ${r.heure} · client ${r.codeClient}", color = Couleurs.Gris, fontSize = 12.sp)
                     Spacer(Modifier.height(6.dp))
+                    val peutModifier = e.droits?.administrateur == true && e.droits?.consultationSeule == false
                     // Lot M5 — caissier, VID (vendeur), réglé et visé : écrits en toutes lettres (jamais la couleur seule)
                     Text("Caissier : ${r.caissier.ifBlank { "—" }}  ·  VID : ${d.infos.vid.ifBlank { "—" }}", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     // Lot M6 : le SUPERVISEUR touche « Réglé » / « Visé » pour changer la valeur, puis « Enregistrer » (avec confirmation) ; les autres utilisateurs ne font que lire
-                    val peutModifier = e.droits?.administrateur == true && e.droits?.consultationSeule == false
                     val regleAffiche = e.editRegle ?: d.infos.regle
                     val viseAffiche = e.editVise ?: d.infos.vise
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 4.dp)) {
@@ -381,17 +382,35 @@ fun EcranDetail(e: UiEtat, vm: AppViewModel) {
                         EtatOuiNon("Visé", viseAffiche, if (peutModifier) ({ vm.basculerVise() }) else null, e.editVise != null)
                     }
                     if (peutModifier) {
-                        val modifie = e.editRegle != null || e.editVise != null
-                        Text(if (modifie) "✏ Modifié, non enregistré" else "Touchez « Réglé » ou « Visé » pour le changer (superviseur).", color = if (modifie) Couleurs.OrangeFonce else Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        val modifie = e.editRegle != null || e.editVise != null || e.editPartAssure != null
+                        Text(if (modifie) "✏ Modifié, non enregistré" else "Superviseur : touchez « Réglé » ou « Visé », ou changez une part, puis « Enregistrer ».", color = if (modifie) Couleurs.OrangeFonce else Couleurs.Gris, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                         if (modifie) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                             BoutonAction("Enregistrer", Icons.Filled.Save, !e.enCours) { vm.demanderConfirmationModif() }
                             BoutonAction("Annuler", Icons.Filled.Close, !e.enCours, plein = false) { vm.annulerModifs() }
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Row { Text("Montant : ", fontWeight = FontWeight.SemiBold); Text(formaterMontant(r.montant), color = Couleurs.Vert, fontWeight = FontWeight.Bold) }
+                    // Lot M7 — montant total, PPC et parts assuré / assureur (patient assuré) : le superviseur tape UNE part, l'autre est calculée (total − part)
+                    val total = d.infos.montantTotal ?: (r.partAssure + r.partAssureur).takeIf { it > 0 } ?: r.montant
+                    Row { Text("Montant total : ", fontWeight = FontWeight.SemiBold); Text(formaterMontant(total), color = Couleurs.Vert, fontWeight = FontWeight.Bold) }
                     d.infos.montantRegle?.let { Text("Montant réglé : ${formaterMontant(it)}", fontSize = 12.sp) }
-                    if (r.partAssure > 0 || r.partAssureur > 0) Text("Part assuré ${formaterMontant(r.partAssure)} · part assureur ${formaterMontant(r.partAssureur)}", fontSize = 12.sp)
+                    if (r.ppc > 0 || r.partAssure > 0 || r.partAssureur > 0) {
+                        Text("Prise en charge (PPC) : ${formaterNombreSaisi(r.ppc)} %", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+                        val partsModifiees = e.editPartAssure != null
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                            if (peutModifier) {
+                                OutlinedTextField(e.editPartAssure ?: formaterNombreSaisi(r.partAssure), { vm.changerPartAssure(it) }, label = { Text("Part assuré") }, singleLine = true,
+                                    modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+                                OutlinedTextField(e.editPartAssureur ?: formaterNombreSaisi(r.partAssureur), { vm.changerPartAssureur(it) }, label = { Text("Part assureur") }, singleLine = true,
+                                    modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+                            } else {
+                                Column(Modifier.weight(1f)) { Text("Part assuré", fontSize = 11.sp, color = Couleurs.Gris); Text(formaterMontant(r.partAssure), fontWeight = FontWeight.Bold) }
+                                Column(Modifier.weight(1f)) { Text("Part assureur", fontSize = 11.sp, color = Couleurs.Gris); Text(formaterMontant(r.partAssureur), fontWeight = FontWeight.Bold) }
+                            }
+                        }
+                        if (peutModifier) Text(if (partsModifiees) "✏ L'autre part est calculée : assuré + assureur = ${formaterMontant(total)}" else "Changez une part : l'autre est calculée (assuré + assureur = montant total).",
+                            fontSize = 11.sp, color = if (partsModifiees) Couleurs.OrangeFonce else Couleurs.Gris)
+                    }
                     if (d.aCorriger) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Warning, null, tint = Couleurs.OrangeFonce); Spacer(Modifier.width(6.dp))
                         Text("Une ou plusieurs lignes ont une validité propre différente de celle de la clinique${d.validiteClinique?.let { " ($it jours)" } ?: ""}.", color = Couleurs.OrangeFonce, fontSize = 13.sp)

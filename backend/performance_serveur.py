@@ -14,6 +14,7 @@
 # (aucune écriture par requête) : ils repartent de zéro à chaque redémarrage ; le relevé horaire conserve le dernier classement.
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import inspect
 import logging
@@ -252,6 +253,54 @@ class SuiviAppels:
 
 
 SUIVI = SuiviAppels()                      # un seul suivi par serveur
+
+
+# ----------------------------------------------------------------------------------------------------------------------- réactivité du serveur
+# Lot 474 : le serveur répond à toutes les requêtes avec UNE seule boucle d'événements. Si un calcul ou une lecture la bloque ne serait-ce que 2 secondes, TOUTES les routes
+# prennent 2 secondes de plus en même temps (constat du 27/11/2026 : sept routes de l'écran des carrousels à ~2,4 s chacune alors qu'elles font 1 à 12 requêtes rapides).
+# Un petit relevé mesure donc, toutes les 0,5 s, de combien la boucle est EN RETARD sur l'heure prévue : près de zéro = tout va bien ; plusieurs centaines de ms = quelque chose la bloque.
+class RetardBoucle:
+    """Retard de la boucle d'événements depuis le dernier démarrage ou la dernière remise à zéro (en mémoire, aucune écriture)."""
+
+    def __init__(self) -> None:
+        self.reinitialiser()
+
+    def reinitialiser(self) -> None:
+        self.n = 0
+        self.total = 0.0
+        self.max = 0.0
+        self.blocages = 0                                   # relevés où le retard a dépassé 100 ms
+        self.depuis = datetime.now(timezone.utc).isoformat()
+
+    def noter(self, retard_ms: float) -> None:
+        self.n += 1
+        self.total += retard_ms
+        self.max = max(self.max, retard_ms)
+        self.blocages += 1 if retard_ms >= 100 else 0
+
+    def resume(self) -> Dict[str, Any]:
+        return {"depuis": self.depuis, "mesures": self.n, "retard_moy_ms": round(self.total / self.n, 1) if self.n else None,
+                "retard_max_ms": round(self.max), "blocages_100ms": self.blocages}
+
+
+RETARD = RetardBoucle()
+_SURVEILLANCE_BOUCLE = {"tache": None}
+
+
+async def _surveiller_boucle(retard: RetardBoucle, pas_s: float = 0.5) -> None:
+    """Dort `pas_s` secondes et note de combien le réveil est en retard : ce retard est le temps pendant lequel la boucle était occupée à autre chose."""
+    while True:
+        debut = time.perf_counter()
+        await asyncio.sleep(pas_s)
+        retard.noter(max(0.0, (time.perf_counter() - debut - pas_s) * 1000))
+
+
+def demarrer_surveillance_boucle(pas_s: float = 0.5) -> bool:
+    """Lance le relevé dans la boucle en cours (une seule fois). À appeler depuis le démarrage du serveur."""
+    if _SURVEILLANCE_BOUCLE["tache"] is not None and not _SURVEILLANCE_BOUCLE["tache"].done():
+        return False
+    _SURVEILLANCE_BOUCLE["tache"] = asyncio.get_running_loop().create_task(_surveiller_boucle(RETARD, pas_s))
+    return True
 IGNORES = ("/api/health",)                 # sondes de Render (toutes les quelques secondes) : sans intérêt
 
 
@@ -345,9 +394,9 @@ async def appels(db, limite: int = 40) -> Dict[str, Any]:
     """Classement EN DIRECT ; juste après un redémarrage (rien de mesuré), le dernier relevé horaire gardé avant l'arrêt est rendu, clairement signalé."""
     direct = SUIVI.classement(limite)
     if direct:
-        return {"source": "direct", **SUIVI.resume(), "classement": direct, "objectif_ms": SEUIL_LENT_MS}
+        return {"source": "direct", **SUIVI.resume(), "classement": direct, "objectif_ms": SEUIL_LENT_MS, "boucle": RETARD.resume()}
     releve = (await _fiche(db)).get("releve_appels") or {}
     if releve:
         return {"source": "releve", "depuis": releve.get("depuis"), "releve_le": releve.get("le"), "routes": releve.get("routes", 0), "appels": releve.get("appels", 0),
                 "lents": releve.get("lents", 0), "erreurs": releve.get("erreurs", 0), "classement": (releve.get("classement") or [])[:limite], "objectif_ms": SEUIL_LENT_MS}
-    return {"source": "vide", **SUIVI.resume(), "classement": [], "objectif_ms": SEUIL_LENT_MS}
+    return {"source": "vide", **SUIVI.resume(), "classement": [], "objectif_ms": SEUIL_LENT_MS, "boucle": RETARD.resume()}

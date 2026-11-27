@@ -47,3 +47,47 @@ class CacheCourt:
 
     def __len__(self) -> int:
         return len(self._valeurs)
+
+
+class CacheOctets:
+    """Cache d'OBJETS (octets + type) pour les fichiers lus dans le stockage externe : durée courte ET budget de mémoire borné, car chaque lecture coûte ~1,8 s (téléchargement
+    complet) et la mémoire du serveur est comptée (512 Mo). Un objet plus gros que `max_objet` n'est jamais gardé ; au-delà de `max_total` octets, les plus anciens sont retirés."""
+
+    def __init__(self, duree_s: float, max_total: int, max_objet: int, horloge: Callable[[], float] = time.monotonic) -> None:
+        self.duree_s, self.max_total, self.max_objet = duree_s, max_total, max_objet
+        self._horloge = horloge
+        self._valeurs: Dict[str, Tuple[float, bytes, str]] = {}
+        self.total = 0
+
+    def lire(self, cle: str) -> Optional[Tuple[bytes, str]]:
+        trouve = self._valeurs.get(cle)
+        if trouve is None:
+            return None
+        if self._horloge() - trouve[0] >= self.duree_s:
+            self._retirer(cle)
+            return None
+        return trouve[1], trouve[2]
+
+    def ecrire(self, cle: str, octets: bytes, type_contenu: str) -> bool:
+        """Garde l'objet si sa taille le permet ; rend True s'il est gardé."""
+        taille = len(octets)
+        if taille > self.max_objet or taille > self.max_total:
+            return False
+        self._retirer(cle)
+        while self.total + taille > self.max_total and self._valeurs:          # on libère de la place en retirant les plus anciens
+            self._retirer(min(self._valeurs, key=lambda c: self._valeurs[c][0]))
+        self._valeurs[cle] = (self._horloge(), octets, type_contenu)
+        self.total += taille
+        return True
+
+    def _retirer(self, cle: str) -> None:
+        ancien = self._valeurs.pop(cle, None)
+        if ancien is not None:
+            self.total -= len(ancien[1])
+
+    def invalider(self) -> None:
+        self._valeurs.clear()
+        self.total = 0
+
+    def __len__(self) -> int:
+        return len(self._valeurs)

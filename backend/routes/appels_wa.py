@@ -260,6 +260,22 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
     async def _reglages() -> Dict[str, Any]:
         return await db.settings.find_one({"_id": "global"}) or {}
 
+    # Lot 474 — /me/wa-appels/en-cours (150 appels) et /non-repondus (30) refont à CHAQUE appel les mêmes 5 lectures (réglages, périmètre, visibilité des lignes) avant leur
+    # requête utile : 7 requêtes au lieu de 2. Ce contexte ne change qu'avec les droits ou les réglages : gardé 15 s par utilisateur.
+    from cache_court import CacheCourt as _CacheCourt
+    _cache_contexte = _CacheCourt(duree_s=15.0, max_entrees=300)
+
+    async def _contexte(user: dict):
+        """(réglages, périmètre visible, visibilité des lignes) de l'utilisateur, gardés 15 s."""
+        cle = f"{user.get('id')}|{user.get('role')}"
+        garde = _cache_contexte.lire(cle)
+        if garde is not None:
+            return garde
+        s = await _reglages()
+        perimetre = await resolve_visible_client_ids(user)
+        vis = await VisibiliteLignes.charger(db, user, s)
+        return _cache_contexte.ecrire(cle, (s, perimetre, vis))
+
     async def _graph(numero_id: str, corps: Dict[str, Any], s: Dict[str, Any],
                      chemin: str = "calls") -> Dict[str, Any]:
         """Appel à l'API Graph de Meta pour le numéro donné (jeton global du compte WhatsApp)."""
@@ -324,10 +340,8 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
     @api.get("/me/wa-appels/en-cours", tags=["Portail Client — Appels WhatsApp"])
     async def appels_en_cours(user: dict = Depends(get_current_user)):
         """Appels qui sonnent (visibles par l'utilisateur) + son appel en cours éventuel."""
-        s = await _reglages()
+        s, perimetre, vis = await _contexte(user)
         limite = (datetime.now(timezone.utc) - timedelta(seconds=SONNERIE_MAX_S)).isoformat()
-        perimetre = await resolve_visible_client_ids(user)
-        vis = await VisibiliteLignes.charger(db, user, s)
         sonnent = []
         async for a in db.wa_appels.find({"statut": "sonne", "created_at": {"$gte": limite}}, {"_id": 0}):
             if await _visible(user, a, vis, perimetre):
@@ -341,10 +355,8 @@ def setup_appels_wa_routes(*, db, api, get_current_user, resolve_visible_client_
         """Lot 64.2 — appels entrants manqués (visibles par l'utilisateur) des N derniers jours
         qui n'ont pas encore été « rattrapés » : aucun appel ABOUTI ensuite avec ce même numéro
         (rappel du client ou rappel par SAWALI). Sert au titre de l'onglet du navigateur."""
-        s = await _reglages()
+        s, perimetre, vis = await _contexte(user)
         depuis = (datetime.now(timezone.utc) - timedelta(days=jours)).isoformat()
-        perimetre = await resolve_visible_client_ids(user)
-        vis = await VisibiliteLignes.charger(db, user, s)
         # Dernier appel abouti par numéro (8 derniers chiffres) sur la période
         aboutis: Dict[str, str] = {}
         async for a in db.wa_appels.find({"created_at": {"$gte": depuis}, "statut": {"$in": ["termine", "en_cours"]}},

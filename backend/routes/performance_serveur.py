@@ -30,4 +30,5 @@ def setup_performance_serveur_routes(*, db, api, get_current_user) -> None:
     async def reinitialiser(user: dict = Depends(get_current_user)):
         _admin(user)
         ps.SUIVI.reinitialiser()
+        ps.RETARD.reinitialiser()               # lot 474 : le relevé de réactivité repart aussi de zéro
         return {"ok": True, **ps.SUIVI.resume()}

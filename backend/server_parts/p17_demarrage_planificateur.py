@@ -267,6 +267,20 @@ async def on_startup():
             except Exception as _exc:  # noqa: BLE001
                 logger.warning("[lot29] index %s non créé : %s", name, _exc)
     asyncio.create_task(_lot29_perf_indexes())
+
+    # Lot 474 — la roadmap se synchronise au démarrage, EN ARRIÈRE-PLAN (avant : la première visite de la page attendait 4 s et 366 requêtes) ;
+    # et on mesure le retard de la boucle d'événements (si elle est bloquée par un calcul, TOUTES les routes ralentissent en même temps)
+    async def _tache_roadmap():
+        try:
+            await _roadmap_synchroniser()
+        except Exception as _exc:  # noqa: BLE001 — jamais bloquant
+            logger.warning("[roadmap] synchronisation au démarrage impossible : %s", _exc)
+    asyncio.create_task(_tache_roadmap())
+    try:
+        from performance_serveur import demarrer_surveillance_boucle
+        demarrer_surveillance_boucle()
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("[performance] surveillance de la boucle non démarrée : %s", _exc)
     await db.sms_schedules.create_index("status")
     await db.sms_schedules.create_index("scheduled_at")
     await db.sms_schedules.create_index([("client_id", 1), ("status", 1)])

@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "489.2", "date": "2026-11-27",
+        "titre": "📊 Volumétrie HFSQL : panneau des tables très large",
+        "description": "Dans « Volumétrie des tables HFSQL — cache Atlas », la liste déroulante des tables s'ouvre maintenant sur une très grande largeur (jusqu'à 70 rem) : les noms de tables ne sont plus coupés.",
+        "rubrique": "📊 Volumétrie des tables HFSQL — cache Atlas",
+    },
+    {
         "lot": "489.1", "date": "2026-11-27",
         "titre": "📊 Volumétrie HFSQL : liste des tables plus large",
         "description": "Dans « Volumétrie des tables HFSQL — cache Atlas », la durée du cache est réduite à un petit champ et la liste des tables occupe toute la largeur restante (4 à 5 fois plus large).",

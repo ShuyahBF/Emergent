@@ -8,7 +8,10 @@ import React, { useMemo, useState } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-export default function ListeMultiChoix({ options, valeur, onChange, vide = "Aucun choisi", pluriel = "choisis", disabled = false, testid = "liste-multi" }) {
+// Largeurs réglables (lot 489.2, propriétaire 27/11/2026 : « la liste ne s'affiche pas bien, augmente considérablement sa largeur ») : par défaut le bouton fait 20 rem et le panneau 24 rem ;
+// `classeBouton`, `classePanneau`, `alignement` et `classeListe` permettent à un écran (ex. Volumétrie HFSQL : 800 noms de tables) de les élargir sans toucher aux autres usages.
+export default function ListeMultiChoix({ options, valeur, onChange, vide = "Aucun choisi", pluriel = "choisis", disabled = false, testid = "liste-multi",
+  classeBouton = "sm:w-80", classePanneau = "w-96 max-w-[92vw]", alignement = "start", classeListe = "max-h-64" }) {
   const [ouvert, setOuvert] = useState(false);
   const [q, setQ] = useState("");
   const coches = useMemo(() => new Set(valeur || []), [valeur]);
@@ -22,14 +25,14 @@ export default function ListeMultiChoix({ options, valeur, onChange, vide = "Auc
   return (
     <Popover open={ouvert} onOpenChange={setOuvert}>
       <PopoverTrigger asChild>
-        <button type="button" disabled={disabled} data-testid={testid} className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm disabled:opacity-50 sm:w-80">
+        <button type="button" disabled={disabled} data-testid={testid} className={`inline-flex w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm disabled:opacity-50 ${classeBouton}`}>
           <span className="truncate">{resume}</span><ChevronDown className="h-4 w-4 shrink-0" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 max-w-[92vw] space-y-2 p-3">
+      <PopoverContent align={alignement} className={`${classePanneau} space-y-2 p-3`}>
         <label className="flex items-center gap-1 rounded border border-slate-300 px-2"><Search className="h-4 w-4 text-slate-500" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher" className="w-full p-1 text-sm outline-none" data-testid={`${testid}-recherche`} /></label>
-        <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+        <ul className={`${classeListe} space-y-1 overflow-y-auto text-sm`}>
           {filtres.map((o) => (
             <li key={o.id}>
               <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-slate-100">

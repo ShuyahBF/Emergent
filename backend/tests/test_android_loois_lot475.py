@@ -62,7 +62,8 @@ RECUS = [  # Référence, Date Vente, Code Client, Libellé, MontantRéglé, Mac
     ["R-0002", "20261126093000000", "C2", "Ben Kaboré", "8 500,50", "ASI2020", "0", "8500,5", "0"],
     ["R-0001", "20261126080000000", "C3", "Fatim Sawadogo", "2 000", "TASSEMBH", "0", "2000", "0"],
 ]
-LIGNES = {"R-0003": [["P1", "M1", "PEDIATRIE", "1", "10000"], ["P2", "M1", "CONSULT", "2", "2500"]], "R-0002": [["P3", "M2", "CONSULT", "1", "8500,5"]], "R-0001": [["P2", "", "CONSULT", "1", "2000"]]}
+FACTURES = [["0461/2026", "20261126110000000", "C9", "Paul KABORE", "40 000", "ASI2020", "0", "40000", "0"]]     # lot 491 : facture d'hospitalisation (Caisse FCT), faite par un AUTRE caissier
+LIGNES = {"0461/2026": [["P2", "", "CONSULT", "1", "40000"]], "R-0003": [["P1", "M1", "PEDIATRIE", "1", "10000"], ["P2", "M1", "CONSULT", "2", "2500"]], "R-0002": [["P3", "M2", "CONSULT", "1", "8500,5"]], "R-0001": [["P2", "", "CONSULT", "1", "2000"]]}
 
 
 def construire_banc():
@@ -91,7 +92,7 @@ def construire_banc():
             return [[etat["suppr"]]]
         if S.startswith("SELECT [Code Vendeur], [Réglé], [Visée]"):                       # lot 490 : VID, réglé, visé d'un reçu
             ref = S.split("Référence = '")[1].split("'")[0]
-            return {"R-0003": [["ASI01", "1", "0", "15 000"]], "R-0002": [["TASSEMBH", "0", "1", "0"]]}.get(ref, [])
+            return {"R-0003": [["ASI01", "1", "0", "15 000"]], "R-0002": [["TASSEMBH", "0", "1", "0"]], "0461/2026": [["MED07", "0", "1", "0"]]}.get(ref, [])
         if S.startswith("SELECT TOP 8") and "LIKE 'R-%" in S:                             # lot 490 : recherche par numéro (fin de numéro)
             fin = S.split("LIKE 'R-%")[1].split("'")[0]
             return [r for r in RECUS if r[0].endswith(fin)]
@@ -100,9 +101,11 @@ def construire_banc():
             if "Machine = 'TASSEMBH'" in S:
                 rows = [r for r in RECUS if r[5] == "TASSEMBH"]
             return rows
+        if S.startswith("SELECT TOP 8") and "Référence IN ('" in S:                       # lot 491 : recherche d'une facture d'hospitalisation
+            return [r for r in FACTURES if f"'{r[0]}'" in S]
         if "FROM VenteClinique WHERE Référence = " in S:
             ref = S.split("Référence = '")[1].split("'")[0]
-            return [r for r in RECUS if r[0] == ref]
+            return [r for r in RECUS + FACTURES if r[0] == ref]
         if "FROM A_Acheté WHERE Référence = " in S:
             return LIGNES.get(S.split("Référence = '")[1].split("'")[0], [])
         if "FROM A_Acheté WHERE Référence IN" in S:
@@ -347,3 +350,28 @@ def test_detail_porte_vid_regle_et_vise_et_la_recherche_trouve_le_recu(banc):
     assert c.post("/api/android/caisse/recu/recherche", json={"numero": "12"}, headers=entetes(b, s)).status_code == 422
     journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
     assert any(l["action"] == "recherche_recu" for l in journal["lignes"])
+
+
+# ------------------------------------------------------------------------------------------------------------------ lot 491 : facture d'hospitalisation « 0461/2026 »
+def test_numero_de_facture_d_hospitalisation():
+    assert al.reference_valide("0461/2026") and al.reference_valide("R-0003") and not al.reference_valide("461/26") and not al.reference_valide("0461/2026'; DROP")
+    assert al.est_facture_hospi("0461/2026") and not al.est_facture_hospi("R-0003")
+    n = al.numero_recherche(" 461 / 2026 ")
+    assert n["reference"] == "0461/2026" and n["sans_zero"] == "461/2026" and n["facture"] == "1"
+    assert al.numero_recherche("0461/2026")["reference"] == "0461/2026" and al.numero_recherche("0461/20") is None and al.numero_recherche("04/61/2026") is None
+    assert "IN ('0461/2026', '461/2026')" in al.sql_recherche_facture("0461/2026", "461/2026")
+
+
+def test_une_facture_d_hospitalisation_se_retrouve_et_s_ouvre_meme_si_un_autre_caissier_l_a_faite(banc):
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]                                   # TASSEMBH : la facture est à ASI2020
+    r = c.post("/api/android/caisse/recu/recherche", json={"numero": "0461/2026"}, headers=entetes(b, s)).json()
+    assert r["nombre"] == 1 and r["recus"][0]["reference"] == "0461/2026" and r["recus"][0]["montant"] == 40000
+    r2 = c.post("/api/android/caisse/recu/recherche", json={"numero": "461/2026"}, headers=entetes(b, s)).json()
+    assert r2["nombre"] == 1                                                   # sans le zéro de tête
+    d = c.post("/api/android/caisse/recu", json={"reference": "0461/2026"}, headers=entetes(b, s))
+    assert d.status_code == 200, d.text
+    d = d.json()
+    assert d["recu"]["caissier"] == "ASI2020" and d["infos"] == {"vid": "MED07", "regle": False, "vise": True, "montant_regle": 0.0} and len(d["lignes"]) == 1
+    # un reçu ordinaire d'un autre caissier reste refusé
+    assert c.post("/api/android/caisse/recu", json={"reference": "R-0002"}, headers=entetes(b, s)).status_code == 403

@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "490"
-LOT_LIBELLE = "Loois mobile : retrouver un reçu par son numéro, et voir caissier, VID, réglé et visé dans le détail du reçu."
+LOT = "491"
+LOT_LIBELLE = "Loois mobile : les factures d'hospitalisation (0461/2026) se retrouvent et s'ouvrent comme les reçus."

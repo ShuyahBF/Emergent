@@ -270,7 +270,7 @@ fun EcranListe(e: UiEtat, vm: AppViewModel, corrections: Boolean) {
             if (voirTous) OutlinedTextField(e.caissierFiltre, { vm.changerCaissier(it) }, label = { Text("Caissier (vide = tous)") }, singleLine = true, leadingIcon = { Icon(Icons.Filled.Person, null) }, modifier = Modifier.fillMaxWidth())
             // Lot M5 — retrouver un reçu par son numéro (complet ou fin du numéro) puis l'ouvrir
             if (!corrections) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                OutlinedTextField(e.recherche, { vm.changerRecherche(it) }, label = { Text("Numéro du reçu (ex. R-202630889)") }, singleLine = true,
+                OutlinedTextField(e.recherche, { vm.changerRecherche(it) }, label = { Text("Numéro du reçu ou de la facture (R-202630889, 0461/2026)") }, singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Search, null) }, modifier = Modifier.weight(1f),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { vm.rechercherRecu() }))

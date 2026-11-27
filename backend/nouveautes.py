@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "491", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : factures d'hospitalisation",
+        "description": "Dans Loois mobile, on peut taper le numéro d'une facture d'hospitalisation (ex. 0461/2026) comme celui d'un reçu : elle s'ouvre avec caissier, VID, réglé et visé, et reste visible de tout caissier.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "490", "date": "2026-11-27",
         "titre": "📱 Loois mobile : recherche d'un reçu par son numéro",
         "description": "Dans l'Historique de Caisse de Loois mobile (1.4.0), on tape le numéro du reçu (complet ou la fin) pour l'ouvrir ; le détail montre le caissier, le VID, réglé (oui/non) et visé (oui/non). Journal : action « recherche_recu ».",

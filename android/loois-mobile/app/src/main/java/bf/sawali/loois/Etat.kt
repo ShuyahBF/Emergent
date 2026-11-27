@@ -364,7 +364,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun rechercherRecu() {
         val saisie = _etat.value.recherche.trim()
         if (_etat.value.enCours) return                                     // jamais deux lectures en même temps
-        if (saisie.length < 3) { maj { it.copy(message = "Tapez le numéro du reçu : au moins 3 chiffres (ex. 202630889 ou R-202630889).") }; return }
+        if (saisie.length < 3) { maj { it.copy(message = "Tapez le numéro du reçu (au moins 3 chiffres, ex. R-202630889) ou d'une facture d'hospitalisation (ex. 0461/2026).") }; return }
         viewModelScope.launch {
             maj { it.copy(enCours = true, message = "Patientez… recherche du reçu $saisie en cours") }
             try {

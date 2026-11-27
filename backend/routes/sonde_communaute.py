@@ -91,7 +91,7 @@ def setup_sonde_communaute_routes(*, db, api, get_current_user) -> None:
         sans accord, pas de connexion."""
         if _limite_ip(ip_reelle(request)):
             raise HTTPException(status_code=429, detail="Trop d'essais depuis cette adresse")
-        if data.consentement_version != sc.CONSENTEMENT_VERSION:
+        if data.consentement_version not in sc.CONSENTEMENTS_ACCEPTES:
             raise HTTPException(status_code=422, detail=f"Consentement requis (version {sc.CONSENTEMENT_VERSION})")
         if not re.fullmatch(r"[0-9a-f]{16,64}", data.appareil):
             raise HTTPException(status_code=422, detail="Identifiant d'appareil invalide")
@@ -153,7 +153,7 @@ def setup_sonde_communaute_routes(*, db, api, get_current_user) -> None:
         """Additionne UNE mesure dans sa cellule. Contrôles : jeton valide, consentement de la version en vigueur, cohérence, une mesure toutes les 50 s par appareil,
         400 par jour et par participant. Le lieu est recalé sur la grille de 2 km (jamais gardé plus fin)."""
         pid, aid, fiche = await _authentifier(authorization)
-        if (fiche.get("consentement") or {}).get("version") != sc.CONSENTEMENT_VERSION:
+        if (fiche.get("consentement") or {}).get("version") not in sc.CONSENTEMENTS_ACCEPTES:
             raise HTTPException(status_code=403, detail="Consentement à renouveler : reconnectez-vous")
         if m.perdus > m.essais or m.https_ok > m.https_total:
             raise HTTPException(status_code=422, detail="Mesure incohérente (plus de pertes que d'essais)")

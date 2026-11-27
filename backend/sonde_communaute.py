@@ -18,7 +18,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 DOC_PARTICIPANTS = "sonde_participants"
 DOC_COMMUNAUTE = "sonde_communaute"
-CONSENTEMENT_VERSION = 1            # change quand le texte du consentement change : les téléphones le redemandent
+CONSENTEMENT_VERSION = 2            # change quand le texte du consentement change : les téléphones le redemandent
+# Version 2 (27/11/2026, décision du propriétaire) : le partage du lieu approximatif devient PERMANENT et non modifiable dans l'application (Sonde Réseau 1.7).
+# Transition : la version 1 (texte « vous pouvez le désactiver », applications 1.5 et 1.6) reste ACCEPTÉE pour ne pas couper les téléphones déjà inscrits ;
+# les nouvelles applications exigent la version 2. À retirer de CONSENTEMENTS_ACCEPTES quand plus aucune application 1.5 / 1.6 n'est utilisée.
+CONSENTEMENTS_ACCEPTES = (1, 2)
 PAS_ZONE = 0.02                     # degrés : ≈ 2,2 km de côté (grille fixe, identique sur le téléphone et sur le serveur)
 MAX_APPAREILS = 3                   # appareils actifs par participant (le plus ancien est remplacé)
 MAX_PARTICIPANTS = 3000

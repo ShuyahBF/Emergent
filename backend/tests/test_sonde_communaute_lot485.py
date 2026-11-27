@@ -244,3 +244,9 @@ def test_parcours_google_cible_sonde_cree_un_participant_pas_un_compte(env, monk
     # 4. …qui ne sert PAS à ouvrir une session SAWALI : refusé, et le code reste intact pour l'application
     assert env.client.post("/api/auth/google/echange", json={"code": code}, headers=h()).status_code == 401
     assert env.run(env.db.google_codes.count_documents({"sonde_pid": pid})) == 1
+
+
+def test_consentement_v2_exige_v1_transitoire_acceptee():
+    """Lot 488 : la version courante est 2 (lieu permanent) ; la 1 reste acceptée pendant la transition, les autres refusées."""
+    assert sc.CONSENTEMENT_VERSION == 2 and sc.CONSENTEMENTS_ACCEPTES == (1, 2)
+    assert 0 not in sc.CONSENTEMENTS_ACCEPTES and 3 not in sc.CONSENTEMENTS_ACCEPTES

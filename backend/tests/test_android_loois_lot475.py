@@ -89,6 +89,12 @@ def construire_banc():
             return [[etat["groupe"]]]
         if S.startswith("SELECT [PeutSupprimerRecu]"):
             return [[etat["suppr"]]]
+        if S.startswith("SELECT [Code Vendeur], [Réglé], [Visée]"):                       # lot 490 : VID, réglé, visé d'un reçu
+            ref = S.split("Référence = '")[1].split("'")[0]
+            return {"R-0003": [["ASI01", "1", "0", "15 000"]], "R-0002": [["TASSEMBH", "0", "1", "0"]]}.get(ref, [])
+        if S.startswith("SELECT TOP 8") and "LIKE 'R-%" in S:                             # lot 490 : recherche par numéro (fin de numéro)
+            fin = S.split("LIKE 'R-%")[1].split("'")[0]
+            return [r for r in RECUS if r[0].endswith(fin)]
         if "FROM VenteClinique WHERE Référence LIKE" in S:
             rows = RECUS
             if "Machine = 'TASSEMBH'" in S:
@@ -315,3 +321,29 @@ def test_lecture_des_agregats():
     from datetime import date
     s = al.sql_agregat_par_caissier(date(2026, 11, 26))
     assert "'20261126'" in s and "'20261127'" in s and s.endswith("GROUP BY Machine")
+
+
+# ------------------------------------------------------------------------------------------------------------------ lot 490 : VID / réglé / visé et recherche par numéro
+def test_numero_de_recherche_et_requetes_sans_injection():
+    assert al.numero_recherche("R-202630889") == {"chiffres": "202630889", "reference": "R-202630889"}
+    assert al.numero_recherche(" 30 889 ")["chiffres"] == "30889" and al.numero_recherche("r202630889")["reference"] == "R-202630889"
+    assert al.numero_recherche("12") is None and al.numero_recherche("R-1'; DROP") is None and al.numero_recherche("") is None and al.numero_recherche("abc") is None
+    sql = al.sql_recherche_recu("30889")
+    assert "LIKE 'R-%30889'" in sql and "TOP 8" in sql and "(Mag <> 'SUP' OR Mag IS NULL)" in sql
+    assert "[Code Vendeur]" in al.sql_infos_recu("R-1") and "[Visée]" in al.sql_infos_recu("R-1")
+    assert al.lire_infos_recu([["ASI01", "1", "0", "15 000"]]) == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000}
+    assert al.lire_infos_recu([]) == {"vid": "", "regle": None, "vise": None, "montant_regle": None}      # inconnu ≠ « non »
+
+
+def test_detail_porte_vid_regle_et_vise_et_la_recherche_trouve_le_recu(banc):
+    c, b = banc
+    s = se_connecter(c, b).json()["session"]
+    d = c.post("/api/android/caisse/recu", json={"reference": "R-0003"}, headers=entetes(b, s)).json()
+    assert d["infos"] == {"vid": "ASI01", "regle": True, "vise": False, "montant_regle": 15000} and d["recu"]["caissier"] == "TASSEMBH"
+    r = c.post("/api/android/caisse/recu/recherche", json={"numero": "0003"}, headers=entetes(b, s)).json()
+    assert r["nombre"] == 1 and r["recus"][0]["reference"] == "R-0003"
+    # un caissier (TASSEMBH) ne retrouve pas le reçu d'un autre caissier (R-0002 est à ASI2020)
+    assert c.post("/api/android/caisse/recu/recherche", json={"numero": "0002"}, headers=entetes(b, s)).json()["nombre"] == 0
+    assert c.post("/api/android/caisse/recu/recherche", json={"numero": "12"}, headers=entetes(b, s)).status_code == 422
+    journal = run(b["db"].settings.find_one({"_id": "android_journal"}))
+    assert any(l["action"] == "recherche_recu" for l in journal["lignes"])

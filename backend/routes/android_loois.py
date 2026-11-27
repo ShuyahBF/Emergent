@@ -5,7 +5,8 @@
 #   POST /api/android/connexion              identifiant + mot de passe Loois de l'utilisateur → session signée (8 h) + droits
 #   GET  /api/android/moi                    session en cours (droits, appareil, zone, base)
 #   POST /api/android/caisse/historique      Historique de Caisse : reçus d'un jour (un caissier ne voit que les siens)
-#   POST /api/android/caisse/recu            détail d'un reçu : lignes, médecin, validité, date d'expiration
+#   POST /api/android/caisse/recu            détail d'un reçu : lignes, médecin, validité, date d'expiration, VID, réglé, visé (lot 490)
+#   POST /api/android/caisse/recu/recherche  retrouver un reçu par son numéro (complet ou fin du numéro) (lot 490)
 #   POST /api/android/corrections/liste      Corrections de reçus : reçus du jour avec le nombre de lignes à corriger
 #   GET  /api/admin/android-journal          (administrateur) journal d'audit des actions des appareils
 # Les requêtes HFSQL sont exécutées par UNE machine du client (file « SQL à distance ») : la clé « SQL à distance » reste sur SAWALI. Aucune écriture dans la base du client : lecture seule.
@@ -57,6 +58,10 @@ class DemandeJour(BaseModel):
 
 class DemandeRecu(BaseModel):
     reference: str = Field(min_length=3, max_length=60)
+
+
+class DemandeRecherche(BaseModel):
+    numero: str = Field(min_length=1, max_length=30)        # lot 490 : « R-202630889 », « 202630889 » ou la fin du numéro
 
 
 def setup_android_loois_routes(*, db, api, get_current_user) -> None:
@@ -268,7 +273,8 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
             raise HTTPException(status_code=422, detail="Référence de reçu invalide (« R-… »).")
         a = s["appareil"]
         await _client_en_ligne(a)
-        entete, lignes, (clinique, prestations) = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_lignes_recu(reference)), _referentiel(a))
+        entete, lignes, (clinique, prestations), infos_v = await asyncio.gather(_executer(a, al.sql_entete_recu(reference)), _executer(a, al.sql_lignes_recu(reference)), _referentiel(a),
+                                                                                  _executer(a, al.sql_infos_recu(reference), tolerant=True))      # lot 490 : VID, réglé, visé (lecture tolérante)
         recus = al.lire_recus(entete.get("lignes") or [])
         if not recus:
             raise HTTPException(status_code=404, detail="Reçu introuvable.")
@@ -285,7 +291,27 @@ def setup_android_loois_routes(*, db, api, get_current_user) -> None:
         medecins = {str(l[0]).strip(): " ".join(x for x in (str(l[1]).strip(), str(l[2]).strip() if len(l) > 2 else "") if x) for l in (med_v.get("lignes") or [])}
         details = al.lire_lignes_recu(brutes, designations, medecins, prestations, clinique, al.date_vente(recu["date_heure_iso"].replace("T", " ")))
         await _journal(a, s["login"], "detail_recu", reference, "ok")
-        return {"recu": recu, "lignes": details, "total": round(sum(l["montant"] for l in details), 2), "validite_clinique": clinique, "a_corriger": any(l["necessite_correction"] for l in details)}
+        return {"recu": recu, "lignes": details, "total": round(sum(l["montant"] for l in details), 2), "validite_clinique": clinique, "a_corriger": any(l["necessite_correction"] for l in details),
+                "infos": al.lire_infos_recu(infos_v.get("lignes") or [])}
+
+    @api.post("/android/caisse/recu/recherche", tags=["Loois mobile (Android)"])
+    async def recherche_recu(corps: DemandeRecherche, s: Dict[str, Any] = Depends(_session)):
+        """Lot 490 — retrouver un reçu par son numéro (complet ou fin du numéro). Un caissier ne retrouve que SES reçus ; l'ouverture se fait ensuite par /android/caisse/recu."""
+        if not s["d"].get("caisse"):
+            raise HTTPException(status_code=403, detail="La caisse n'est pas disponible pour cette zone.")
+        n = al.numero_recherche(corps.numero)
+        if n is None:
+            raise HTTPException(status_code=422, detail="Tapez le numéro du reçu : « R-202630889 », « 202630889 » ou la fin du numéro (3 chiffres au moins).")
+        a = s["appareil"]
+        await _client_en_ligne(a)
+        vue = await _executer(a, al.sql_recherche_recu(n["chiffres"]))
+        recus = al.lire_recus(vue.get("lignes") or [])
+        if not s["d"].get("voir_tous_les_recus"):
+            recus = [r for r in recus if r["caissier"].strip().upper() == s["login"].upper()]
+        # Un numéro EXACT passe en premier : « 30889 » peut aussi finir d'autres numéros plus anciens
+        recus.sort(key=lambda r: r["reference"].upper() != n["reference"].upper())
+        await _journal(a, s["login"], "recherche_recu", n["reference"], "ok" if recus else "introuvable")
+        return {"numero": n["reference"], "nombre": len(recus), "recus": recus}
 
     # ------------------------------------------------------------------------------------------------------------------ Corrections de reçus (lecture seule)
     @api.post("/android/corrections/liste", tags=["Loois mobile (Android)"])

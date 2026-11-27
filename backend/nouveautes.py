@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "490", "date": "2026-11-27",
+        "titre": "📱 Loois mobile : recherche d'un reçu par son numéro",
+        "description": "Dans l'Historique de Caisse de Loois mobile (1.4.0), on tape le numéro du reçu (complet ou la fin) pour l'ouvrir ; le détail montre le caissier, le VID, réglé (oui/non) et visé (oui/non). Journal : action « recherche_recu ».",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "489.2", "date": "2026-11-27",
         "titre": "📊 Volumétrie HFSQL : panneau des tables très large",
         "description": "Dans « Volumétrie des tables HFSQL — cache Atlas », la liste déroulante des tables s'ouvre maintenant sur une très grande largeur (jusqu'à 70 rem) : les noms de tables ne sont plus coupés.",

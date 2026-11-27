@@ -42,5 +42,11 @@
  ],
  "total": 15000.0,
  "validite_clinique": 30,
- "a_corriger": true
+ "a_corriger": true,
+ "infos": {
+  "vid": "ASI01",
+  "regle": true,
+  "vise": false,
+  "montant_regle": 15000.0
+ }
 }

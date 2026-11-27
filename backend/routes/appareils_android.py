@@ -21,6 +21,7 @@ from fastapi import Body, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import appareils_android as aa
+import serveurs_locaux as sl
 from ip_client import ip_reelle
 from routes.liluvine_partage import est_admin
 
@@ -64,6 +65,20 @@ def setup_appareils_android_routes(*, db, api, get_current_user) -> None:
     def _jeton(autorisation: Optional[str]) -> str:
         return (autorisation or "").removeprefix("Bearer ").strip()
 
+    async def _acces_local(fiche: Dict[str, Any]) -> Dict[str, Any]:
+        """Lot 480 : de quoi travailler SANS Internet — adresses des passerelles locales du client (remontées par Loois) et TICKET LOCAL de l'appareil (72 h, vérifiable hors ligne). Rien pour un appareil interdit."""
+        vide = {"serveurs_locaux": [], "ticket_local": "", "ticket_local_h": sl.TICKET_TTL_H}
+        if fiche.get("etat") != "autorise" or not fiche.get("client_code"):
+            return vide
+        try:
+            urls = sl.urls_locales(await sl.lire_client(db, fiche["client_code"]))
+            secret = await sl.secret_client(db, fiche["client_code"])
+            if not urls or not secret:
+                return {**vide, "serveurs_locaux": urls}
+            return {"serveurs_locaux": urls, "ticket_local": sl.creer_ticket(secret, fiche["id"], fiche["client_code"], fiche.get("zone", ""), fiche.get("base", "")), "ticket_local_h": sl.TICKET_TTL_H}
+        except Exception:  # noqa: BLE001
+            return vide                                   # jamais d'échec du statut à cause du mode hors ligne
+
     # ------------------------------------------------------------------------------------------------------------------ côté appareil
     @api.post("/android/appareil/enregistrer", tags=["Loois mobile (appareils Android)"])
     async def enregistrer(corps: DemandeEnregistrement, request: Request):
@@ -95,7 +110,7 @@ def setup_appareils_android_routes(*, db, api, get_current_user) -> None:
             _depassee("faux", ip, LIMITE_JETON_FAUX)             # compte un jeton faux
             raise HTTPException(status_code=401, detail="Appareil non reconnu : enregistrez-le de nouveau.")
         await aa.noter_connexion(db, fiche["id"], ip, corps.version_app, "autorise" if fiche.get("etat") == "autorise" else "interdit")
-        return aa.reponse_statut(fiche)
+        return {**aa.reponse_statut(fiche), **(await _acces_local(fiche))}
 
     # ------------------------------------------------------------------------------------------------------------------ côté administrateur
     @api.get("/admin/android-appareils", tags=["Loois mobile (appareils Android)"])

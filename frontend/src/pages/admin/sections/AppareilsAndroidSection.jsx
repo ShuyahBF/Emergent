@@ -83,6 +83,18 @@ export default function AppareilsAndroidSection() {
   }, []);
   const { lignes: journalTrie, tri: triJ, basculer: basculerJ } = useTri(journal || [], { quand: (j) => j.quand, login: (j) => j.login, action: (j) => j.action, detail: (j) => j.detail, resultat: (j) => j.resultat, ip: (j) => j.ip });
 
+  // Serveurs locaux remontés par Loois (lot 480) : adresses des passerelles que les téléphones utilisent SANS Internet
+  const [locaux, setLocaux] = useState(null);
+  const chargerLocaux = useCallback(async (avecToast) => {
+    if (avecToast) toast("Lecture des serveurs locaux en cours…");
+    try { const r = await apiClient.get("/admin/serveurs-locaux"); setLocaux(r.data.clients || []); if (avecToast) toast.success(`${(r.data.clients || []).length} client(s) avec un serveur local.`); }
+    catch (e) { setLocaux([]); if (avecToast) toast.error(e?.response?.data?.detail || "Lecture des serveurs locaux impossible"); }
+  }, []);
+  const regenererSecret = async (code) => {
+    if (!window.confirm(`Créer un nouveau secret pour le client ${code} ?\n\nLes tickets et sessions des téléphones deviennent invalides : ils se reconnecteront (Internet requis une fois) ; les services Windows récupèrent le nouveau secret à leur prochain signalement.`)) return;
+    try { await apiClient.post(`/admin/serveurs-locaux/${code}/regenerer`); toast.success("Nouveau secret créé."); chargerLocaux(false); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Régénération impossible"); }
+  };
   const nouveaux = useMemo(() => (liste || []).filter((a) => a.nouveau).length, [liste]);
 
   return (
@@ -132,6 +144,24 @@ export default function AppareilsAndroidSection() {
           </tbody>
         </table>
       </div>
+
+      {/* Serveurs locaux remontés par Loois : le téléphone les reçoit tout seul dans son statut (rien à saisir) */}
+      <details className="rounded-lg border border-slate-200 p-3" onToggle={(e) => { if (e.currentTarget.open && locaux === null) chargerLocaux(false); }} data-testid="serveurs-locaux">
+        <summary className="cursor-pointer font-semibold text-slate-800">Serveurs locaux remontés par Loois (accès sans Internet)</summary>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-slate-600">Chaque service Windows Loois signale l'adresse de sa passerelle (réseau local), son serveur HFSQL, sa zone et sa base — jamais de mot de passe. Les téléphones autorisés reçoivent ces adresses avec un ticket valable 72 h.</p>
+          <button type="button" onClick={() => chargerLocaux(true)} className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" /> Actualiser les serveurs locaux</button>
+          {locaux !== null && locaux.length === 0 && <p className="text-sm text-slate-500">Aucun service Loois ne s'est encore signalé (la passerelle arrive avec la prochaine mise à jour de Loois).</p>}
+          {(locaux || []).map((c) => (
+            <div key={c.client} className="rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between bg-slate-50 px-3 py-2"><span className="font-bold text-sky-800">Client {c.client}</span>
+                <button type="button" onClick={() => regenererSecret(c.client)} className="inline-flex items-center gap-1 rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-900"><KeyRound className="h-3.5 w-3.5" /> Régénérer le secret</button></div>
+              <table className="min-w-full text-sm"><thead><tr className="text-left text-slate-600"><th className="p-2">Machine</th><th className="p-2">Adresse de la passerelle</th><th className="p-2">Serveur HFSQL</th><th className="p-2">Zone · base</th><th className="p-2">Vu le</th></tr></thead>
+                <tbody>{c.machines.map((m) => (<tr key={m.poste} className="border-t"><td className="p-2 font-semibold">{m.poste}</td><td className="p-2 tabular-nums text-indigo-800">{(m.ips || []).map((ip) => `${ip}:${m.port}`).join(" · ")}</td><td className="p-2">{m.serveur_hfsql || "—"}</td>
+                  <td className="p-2">{m.zone ? `/${m.zone}` : "—"} · {m.base || "—"}</td><td className="whitespace-nowrap p-2 tabular-nums">{quand(m.vu_le)}</td></tr>))}</tbody></table>
+            </div>))}
+        </div>
+      </details>
 
       {/* Journal d'activité (audit) : qui a fait quoi depuis quel appareil — jamais de mot de passe */}
       <details className="rounded-lg border border-slate-200 p-3" onToggle={(e) => { if (e.currentTarget.open && journal === null) chargerJournal(false); }} data-testid="appareils-journal">

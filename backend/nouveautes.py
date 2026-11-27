@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "487", "date": "2026-11-27",
+        "titre": "📶 Sonde réseau : le tableau des mesures a son propre onglet",
+        "description": "Cinq onglets : Graphiques (courbes), Réglages, Mesures (verdict et cartes), Tableau (liste triable avec totaux) et Sauvegardes Et Envois ; la période et le poste restent visibles au-dessus.",
+        "rubrique": "📶 Sonde réseau — débit et stabilité de la connexion",
+    },
+    {
         "lot": "486", "date": "2026-11-27",
         "titre": "📶 Sonde réseau : quatre onglets et boutons en pictogrammes",
         "description": "La page est rangée en onglets (Graphiques, Réglages, Mesures, Sauvegardes Et Envois) ; démarrer, mesurer, actualiser, rapport, export et effacement sont des pictogrammes colorés avec info-bulle au lieu de gros boutons.",

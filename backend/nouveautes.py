@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "497", "date": "2026-11-28",
+        "titre": "📱 Pointage par téléphone : tout lieu de commerce",
+        "description": "Officine, boutique, supermarché… : choisissez le lieu (client Loois, officine) ou déclarez-le (clé de suivi CS-… générée). Liste des produits en JSON d'Aizenta ou en CSV d'Excel ; export CSV avec une colonne par lieu, l'écart et la péremption.",
+        "rubrique": "📱 Pointage d'inventaire par téléphone",
+    },
+    {
         "lot": "496", "date": "2026-11-28",
         "titre": "📱 Pointage d'inventaire par téléphone",
         "description": "Fini la liste papier : les auxiliaires scannent un QR code et dictent « ligne 245, 12, mars 2027, suivant » ; le nom du produit s'affiche aussitôt, le comptage se suit en direct (lieux, auxiliaires, alertes) et le JSON complété se réimporte dans Aizenta.",

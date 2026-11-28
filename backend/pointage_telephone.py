@@ -4,15 +4,19 @@
 # numéro de ligne + quantité + date de péremption et disent "suivant" ; tu enregistres et attends la prochaine communication. »
 #
 # Déroulé (pour un développeur WinDev : c'est l'équivalent d'une saisie en table sur plusieurs postes, consolidée à la fin) :
-#   1. CRÉATION (administrateur, Paramètres) : structure = fiche « clé client » de SAWALI (clé de suivi), export JSON d'Aizenta
-#      (REQ_DétailInventaire), lieux de stockage. Chaque lieu est rattaché, au choix, à la colonne Aizenta « INV SV » (ISalle) ou
+#   1. CRÉATION (administrateur, Paramètres) : structure = tout lieu de commerce suivi par SAWALI (lot 497 : client Loois,
+#      officine, ou commerce déclaré avec sa clé de suivi « CS-… »), liste des produits (export JSON d'Aizenta
+#      REQ_DétailInventaire, ou fichier CSV d'un autre logiciel / d'Excel), lieux de stockage. Chaque lieu est rattaché, au choix, à la colonne Aizenta « INV SV » (ISalle) ou
 #      « INV Mag » (IMagasin) : Aizenta n'a que ces deux colonnes. SAWALI attribue un numéro (PT-0001…) et garde le code INVxxx.
 #   2. POINTAGE (téléphones) : QR code → page /pointage/<jeton> ; prénom + lieu ; chaque saisie = {ligne, quantité, péremption ?}.
 #      La même ligne saisie deux fois dans le même lieu S'ADDITIONNE (choix du propriétaire), avec une alerte.
-#   3. CLÔTURE : export JSON au format WinDev, réimportable dans Aizenta (IMagasin, ISalle, Peremption1, Diff recalculé).
+#   3. CLÔTURE : export JSON au format WinDev, réimportable dans Aizenta (IMagasin, ISalle, Peremption1, Diff recalculé),
+#      et export CSV (Excel) pour tout commerce : détail par lieu, total compté, écart, péremption.
 #
-# Stockage : UNE fiche de la collection `settings` par inventaire (`_id = "pointage_inv:<id>"`) — aucune nouvelle collection
-# (cluster MongoDB plein, règle 9). Les saisies sont gardées une à une (jamais de total écrasé) : les totaux sont recalculés.
+# Stockage (lot 497 : le propriétaire a changé de service MongoDB, les nouvelles collections sont permises) :
+#   pointage_inventaires (une fiche par inventaire, avec l'export d'origine), pointage_saisies (UNE fiche par saisie, index unique
+#   inventaire + uid : jamais de double comptage), pointage_structures (commerces déclarés). Les fonctions ci-dessous reçoivent
+#   l'inventaire avec la liste de ses saisies (`doc["saisies"]`) : jamais de total écrasé, tout est recalculé.
 from __future__ import annotations
 
 import re
@@ -20,8 +24,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-PREFIXE_ID = "pointage_inv:"          # _id des fiches d'inventaire dans `settings`
-ID_COMPTEUR = "pointage_inv_compteur"  # fiche du compteur des numéros PT-0001…
+PREFIXE_ID = "pointage_inv:"          # lot 496 : _id des anciennes fiches dans `settings` (reprises une fois par le lot 497)
+ID_COMPTEUR = "pointage_inv_compteur"  # fiche `settings` du compteur des numéros PT-0001…
+COL_INVENTAIRES, COL_SAISIES, COL_STRUCTURES = "pointage_inventaires", "pointage_saisies", "pointage_structures"
+# Types de commerce proposés dans la liste déroulante (règle 10) ; « Autre… » ouvre une saisie libre
+TYPES_COMMERCE = ["Officine / pharmacie", "Pharmacie de clinique", "Boutique", "Supermarché / alimentation", "Quincaillerie",
+                  "Cosmétiques", "Librairie / papeterie", "Restaurant / bar", "Dépôt / grossiste", "Station-service"]
 CLE_TABLE = "REQ_DétailInventaire"
 COLONNES = {"SV": "ISalle", "MG": "IMagasin"}   # colonne choisie pour un lieu → champ du JSON Aizenta
 MAX_LIGNES = 5000          # garde-fou : taille d'une fiche MongoDB (16 Mo)
@@ -94,21 +102,116 @@ def nouveau_jeton() -> Tuple[str, str]:
     return secrets.token_urlsafe(24), (maintenant() + timedelta(days=DUREE_JETON_JOURS)).isoformat()
 
 
+# ---------------------------------------------------------------------------
+# Liste des produits : JSON d'Aizenta ou CSV (Excel, autre logiciel de caisse)
+# ---------------------------------------------------------------------------
+_ENTETES = {   # en-têtes reconnus (sans accents ni majuscules) → champ interne
+    "chrono": ["n", "no", "num", "numero", "ordre", "n ordre", "numero d ordre", "chrono", "ligne", "rang"],
+    "code": ["code", "reference", "ref", "cip", "code barre", "code barres", "ean", "sku", "code produit"],
+    "libelle": ["libelle", "designation", "produit", "article", "nom", "description", "nom du produit"],
+    "mesure": ["mesure", "conditionnement", "cond", "unite", "format", "presentation"],
+    "stock": ["stock", "stock theorique", "quantite", "qte", "theorique", "stock actuel", "quantite en stock"],
+    "prix": ["prix", "prix public", "pv", "prix de vente", "prix unitaire", "pu"],
+}
+
+
+def _sans_accents(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    return re.sub(r"[^a-z0-9]+", " ", "".join(c for c in s if not unicodedata.combining(c)).lower()).strip()
+
+
+def _nombre(texte: Any) -> Optional[float]:
+    """« 1 234,50 » → 1234.5 ; vide ou illisible → None."""
+    t = re.sub(r"[\s\u00a0\u202f]", "", str(texte or "")).replace(",", ".")
+    try:
+        return float(t) if t else None
+    except ValueError:
+        return None
+
+
+def lignes_depuis_csv(texte: str) -> List[dict]:
+    """CSV (séparateur ; , ou tabulation, au choix d'Excel) → lignes au même format que l'export d'Aizenta.
+    Seul le libellé est obligatoire ; sans N° d'ordre entier et unique, les lignes sont numérotées 1, 2, 3… (le code reste affiché)."""
+    import csv
+    import io
+    premiere = texte.splitlines()[0] if texte.strip() else ""
+    separateur = max([";", ",", "\t"], key=premiere.count)
+    lecteur = list(csv.reader(io.StringIO(texte), delimiter=separateur))
+    if len(lecteur) < 2:
+        raise ValueError("CSV vide : une ligne d'en-têtes puis une ligne par produit")
+    entetes = [_sans_accents(e) for e in lecteur[0]]
+    colonnes = {}
+    for champ, noms in _ENTETES.items():
+        for i, e in enumerate(entetes):
+            if e in noms and i not in colonnes.values():
+                colonnes[champ] = i
+                break
+    if "libelle" not in colonnes:
+        raise ValueError("colonne du libellé introuvable (en-tête « Libellé », « Désignation », « Produit » ou « Article »)")
+    val = lambda r, c: (r[colonnes[c]].strip() if c in colonnes and colonnes[c] < len(r) else "")
+    brutes = [r for r in lecteur[1:] if val(r, "libelle")]
+    if not brutes:
+        raise ValueError("aucun produit dans le CSV")
+    numeros = [val(r, "chrono") for r in brutes]
+    numeros_valides = all(re.fullmatch(r"\d{1,7}", n) for n in numeros) and len(set(numeros)) == len(numeros)
+    lignes = []
+    for i, r in enumerate(brutes):
+        stock = int(round(_nombre(val(r, "stock")) or 0))
+        lignes.append({"Chrono": int(numeros[i]) if numeros_valides else i + 1,
+                       "Code": val(r, "code") or (numeros[i] if not numeros_valides else ""),
+                       "Libellé": val(r, "libelle")[:120], "Mesure": val(r, "mesure")[:40],
+                       "IPPublic": _nombre(val(r, "prix")) or 0, "IMagasin": 0, "ISalle": 0,
+                       "StockAvant_SV": 0, "StockAvant_MG": stock, "Peremption1": " ", "Diff": -stock})
+    return lignes
+
+
+def lire_liste_produits(contenu: str, nom_fichier: Optional[str]) -> Tuple[Dict[str, Any], str]:
+    """Texte du fichier déposé → (export au format Aizenta, « aizenta » ou « csv »). Lève ValueError (message clair)."""
+    import json
+    texte = (contenu or "").lstrip("\ufeff")
+    if texte.lstrip().startswith("{"):
+        try:
+            export = json.loads(texte)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON illisible : {e}")
+        valider_export(export)
+        return export, "aizenta"
+    lignes = lignes_depuis_csv(texte)
+    return {CLE_TABLE: lignes}, "csv"
+
+
+def generer_cle_suivi() -> str:
+    """Clé de suivi d'un commerce déclaré : « CS- » + 6 caractères lisibles (ni O/0 ni I/1). Identifiant, pas un secret."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "CS-" + "".join(secrets.choice(alphabet) for _ in range(6))
+
+
+def valider_commerce(corps: Any) -> Dict[str, Any]:
+    """Commerce déclaré depuis la fenêtre de création : nom (obligatoire), type (liste ou « Autre » libre), ville."""
+    nom = re.sub(r"\s+", " ", str((corps or {}).get("nom") or "")).strip()[:120]
+    type_ = re.sub(r"\s+", " ", str((corps or {}).get("type") or "")).strip()[:60]
+    if len(nom) < 2:
+        raise ValueError("nom du commerce attendu")
+    if not type_:
+        raise ValueError("type de commerce attendu")
+    return {"nom": nom, "type": type_, "ville": re.sub(r"\s+", " ", str((corps or {}).get("ville") or "")).strip()[:80] or None}
+
+
 def creer_inventaire(*, ident: str, numero: str, structure: Dict[str, Any], lieux: Any, export: Any,
-                     nom_fichier: Optional[str], par: str) -> Dict[str, Any]:
-    """Fiche complète d'un nouvel inventaire (prête à être insérée dans `settings`)."""
+                     nom_fichier: Optional[str], par: str, format_: str = "aizenta") -> Dict[str, Any]:
+    """Fiche complète d'un nouvel inventaire (sans ses saisies, rangées dans leur propre collection)."""
     lignes = valider_export(export)
     jeton, expire = nouveau_jeton()
     return {
-        "_id": PREFIXE_ID + ident, "id": ident, "numero": numero,
+        "_id": ident, "id": ident, "numero": numero, "format": format_,
         "code_inv": code_inventaire(nom_fichier), "base": code_base(nom_fichier), "nom_fichier": (nom_fichier or "")[:160],
-        "structure": {"id": structure.get("id"), "code": structure.get("code"), "libelle": structure.get("libelle")},
+        "structure": {k: structure.get(k) for k in ("source", "id", "code", "libelle", "type")},
         "lieux": valider_lieux(lieux), "etat": "ouvert",
         "jeton": jeton, "jeton_expire": expire,
         "cree_le": maintenant().isoformat(), "cree_par": par,
         "lignes_total": len(lignes),      # gardé à part : la liste des inventaires ne relit jamais l'export complet
         "export": export,                 # export d'origine, rendu complété à la clôture (jamais modifié)
-        "saisies": [],                    # une entrée par saisie validée au téléphone
     }
 
 
@@ -280,17 +383,39 @@ def exporter(doc: dict, *, quand: Optional[datetime] = None) -> Dict[str, Any]:
     return sortie
 
 
-def nom_export(doc: dict) -> str:
-    """Nom du fichier rendu : celui d'origine suivi de « .pointe.json » (l'export d'origine n'est jamais écrasé)."""
-    base = re.sub(r"\.json$", "", doc.get("nom_fichier") or "", flags=re.IGNORECASE) or f"Inventaire_{doc.get('numero')}"
-    return f"{base}.pointe.json"
+def exporter_csv(doc: dict) -> bytes:
+    """Export CSV pour Excel (séparateur « ; », UTF-8 avec BOM) : une ligne par produit, quantité par lieu, total, écart, péremption."""
+    import csv
+    import io
+    t = totaux_par_ligne(doc)
+    lieux = doc.get("lieux") or []
+    sortie = io.StringIO()
+    w = csv.writer(sortie, delimiter=";")
+    w.writerow(["N°", "Code", "Libellé", "Mesure", "Stock théorique", *[l["nom"] for l in lieux], "Total compté", "Écart",
+                "Péremption", "Compté par"])
+    for x in (doc.get("export") or {}).get(CLE_TABLE) or []:
+        tot = t.get(x["Chrono"])
+        avant = int(x.get("StockAvant_SV") or 0) + int(x.get("StockAvant_MG") or 0)
+        compte = (tot["SV"] + tot["MG"]) if tot else None
+        p = tot["peremption"] if tot else None
+        w.writerow([x["Chrono"], x.get("Code") or x.get("cip") or "", x.get("Libellé") or "", x.get("Mesure") or "", avant,
+                    *[(tot["par_lieu"].get(l["id"], "") if tot else "") for l in lieux],
+                    "" if compte is None else compte, "" if compte is None else compte - avant,
+                    f"{p[4:6]}/{p[:4]}" if p else "", ", ".join(sorted(tot["par"])) if tot else ""])
+    return ("\ufeff" + sortie.getvalue()).encode("utf-8")
+
+
+def nom_export(doc: dict, extension: str = "json") -> str:
+    """Nom du fichier rendu : celui d'origine suivi de « .pointe.json » ou « .pointe.csv » (l'original n'est jamais écrasé)."""
+    base = re.sub(r"\.(json|csv|txt)$", "", doc.get("nom_fichier") or "", flags=re.IGNORECASE) or f"Inventaire_{doc.get('numero')}"
+    return f"{base}.pointe.{extension}"
 
 
 def fiche_liste(doc: dict) -> Dict[str, Any]:
     """Résumé d'un inventaire pour la liste (sans l'export ni les saisies)."""
     total = doc.get("lignes_total") or len((doc.get("export") or {}).get(CLE_TABLE) or [])
     comptees = len({s["chrono"] for s in _actives(doc)})
-    return {k: doc.get(k) for k in ("id", "numero", "code_inv", "base", "structure", "lieux", "etat", "cree_le", "cree_par", "cloture_le", "jeton_expire")} | {
+    return {k: doc.get(k) for k in ("id", "numero", "format", "code_inv", "base", "structure", "lieux", "etat", "cree_le", "cree_par", "cloture_le", "jeton_expire")} | {
         "lignes_total": total, "lignes_comptees": comptees,
         "progression": round(100 * comptees / total, 1) if total else 0,
     }

@@ -68,11 +68,17 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
   d'icônes, d'onglets ou de pagination n'en ont pas besoin. Même principe sur toute autre plateforme.
 - Les écrans importants (alertes à traiter, encadrés d'action) se placent EN HAUT de la page, jamais enfouis dans une section.
 
+## Collections MongoDB : nouvelles collections PERMISES (propriétaire, 28/11/2026 : « Pour les collections MongoDB tu peux en créer des nouvelles. Depuis cette règle j'ai changé mon service MongoDB »)
+- L'ancienne contrainte « aucune nouvelle collection (cluster MongoDB plein) » est LEVÉE : le service MongoDB a changé. Une fonction qui a besoin de
+  ses propres données crée ses collections (avec leurs index : règle 7) au lieu de ranger des fiches dans `settings`.
+- Les mentions « aucune nouvelle collection » des lots plus anciens (ci-dessous) décrivent le choix fait à l'époque ; elles ne s'imposent plus aux nouveaux lots.
+- Premier lot concerné : 497 (pointage d'inventaire par téléphone : `pointage_inventaires`, `pointage_saisies`, `pointage_structures`).
+
 ## Outils de maintenance et d'analyse (règle 9, 17/10/2026 : « règle ultra importante »)
 Le propriétaire vient de WinDev : il ne maîtrise ni Python ni PowerShell et préfère les interfaces graphiques.
 - NE JAMAIS lui concevoir d'outil de maintenance ou d'analyse qui demande le moins du monde de manipuler Python, PowerShell ou Visual Studio.
 - Privilégier une INTERFACE GRAPHIQUE dans la plateforme : rubrique des Paramètres avec un bouton, puis tableau, graphiques et export CSV.
-  Calcul en arrière-plan (règle 7), lecture seule par défaut, aucune nouvelle collection (cluster MongoDB plein), accès réservé au bon rôle.
+  Calcul en arrière-plan (règle 7), lecture seule par défaut, accès réservé au bon rôle.
   Modèle : « Audit des collections MongoDB » (lot 225, `backend/routes/audit_collections_mongo.py`).
 - Si PowerShell est vraiment inévitable (action sur un poste Windows, sans interface possible) : TOUT dans UN SEUL fichier de commandes
   (.ps1) prêt à l'emploi, commenté bloc par bloc, accompagné d'un mode d'emploi détaillé (où l'enregistrer, comment le lancer,
@@ -336,3 +342,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Pages à nombreux blocs (ex. Sonde réseau) : les regrouper en **onglets** (Graphiques, Réglages, Mesures, Sauvegardes Et Envois) plutôt qu'une longue page. Modèle : `frontend/src/pages/admin/sections/SondeReseauSection.jsx` (lot 485).
 
 - Lot 489.1 (27/11/2026) : « Volumétrie des tables HFSQL — cache Atlas » (`VolumetrieHfsqlSection.jsx`) : client, plateforme et durée du cache gardent une largeur fixe (`lg:grid-cols-[11rem_13rem_6.5rem_minmax(0,1fr)]`), la liste des tables prend toute la largeur restante (4 à 5 fois plus large) ; libellé « Cache (jours) » sur une ligne pour garder les champs alignés.
+
+## Pointage d'inventaire par téléphone (lots 496 et 497, propriétaire 28/11/2026)
+- Paramètres → « 📱 Pointage d'inventaire par téléphone » (`PointageInventaireSection.jsx`, administrateur) ; page du téléphone `/pointage/<jeton>` (`pages/public/PointageTelephone.jsx`, sans compte, QR code expirant en 3 jours) ; analyseur de dictée sans IA `lib/dicteePointage.js`.
+- Structure = TOUT lieu de commerce (« une officine ou n'importe quel lieu de commerce ») : client Loois, officine, ou commerce déclaré (clé de suivi « CS-… », `pointage_structures`). Liste des produits : JSON d'Aizenta ou CSV (Excel). Lieux de stockage rattachés à INV SV / INV Mag (Aizenta n'a que ces deux colonnes, choix fait à la création).
+- Même ligne saisie deux fois dans le même lieu = quantités ADDITIONNÉES + alerte (choix du propriétaire) ; péremption : la plus proche est gardée ; export JSON WinDev (Aizenta) ou CSV.
+- Logique pure `backend/pointage_telephone.py`, routes `backend/routes/pointage_telephone.py`, tests `tests/test_pointage_telephone_lot496.py` et `tests/test_pointage_telephone_routes_lot496.py`.

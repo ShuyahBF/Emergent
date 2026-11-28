@@ -180,3 +180,32 @@ def test_blocage_apres_cinq_essais(client):
         assert client.post("/api/pointage-espace/connexion", json={"cle": a["acces"]["cle"], "mot_de_passe": "zzzz-zzzz"}).status_code == 401
     r = client.post("/api/pointage-espace/connexion", json={"cle": a["acces"]["cle"], "mot_de_passe": a["mot_de_passe"]})
     assert r.status_code == 429                                     # même le bon mot de passe attend la fin du blocage
+
+
+def test_pays_langue_anglais_et_fichier_fusionne(client):
+    """Lot 499 : commerce en anglais (alertes, CSV) ; un fichier fusionné garde le prénom de chaque saisie."""
+    com = client.post("/api/admin/pointage-structures", json={"nom": "Corner Shop", "type": "Boutique", "pays": "Ghana", "langue": "en"}).json()
+    assert (com["pays"], com["langue"]) == ("Ghana", "en")
+    inv = client.post("/api/admin/pointage-inventaires", json={"structure": {"source": "commerce", "id": com["id"]},
+                                                              "contenu": "Product;Stock\nSoap;4\nRice;50\n"}).json()
+    assert inv["langue"] == "en"
+    jeton = client.get(f"/api/admin/pointage-inventaires/{inv['id']}").json()["jeton"]
+    assert client.get(f"/api/public/pointage/{jeton}").json()["langue"] == "en"
+    tel = client.post(f"/api/public/pointage/{jeton}/acces", json={"mot_de_passe": com["mot_de_passe"]}).json()
+    h = {"X-Pointage-Telephone": tel["jeton_telephone"]}
+    # Envoi du responsable : saisies de deux téléphones fusionnées, chacune avec son prénom et son appareil
+    client.post(f"/api/public/pointage/{jeton}/saisies", headers=h, json={"prenom": "Kofi", "appareil": "appareil-resp1", "saisies": [
+        {"uid": "saisie-a001", "chrono": 2, "qte": 3, "lieu": "L1", "prenom": "Ama", "appareil": "appareil-ama1", "le": "2026-11-28T08:10:00+00:00"},
+        {"uid": "saisie-b001", "chrono": 2, "qte": 4, "lieu": "L2", "prenom": "Yaw", "appareil": "appareil-yaw1"}]})
+    d = client.get(f"/api/admin/pointage-inventaires/{inv['id']}").json()
+    assert {a["prenom"] for a in d["par_auxiliaire"]} == {"Ama", "Yaw"}
+    assert any(a["message"].startswith("large difference") for a in d["alertes"])
+    csv = client.get(f"/api/admin/pointage-inventaires/{inv['id']}/export", params={"format": "csv"}).content.decode("utf-8-sig")
+    assert csv.splitlines()[0].startswith("No.;Code;Product;Unit;Expected stock")
+    # Pays et langue modifiables
+    acces = client.get("/api/admin/pointage-acces").json()["acces"][0]
+    assert client.put(f"/api/admin/pointage-acces/{acces['id']}", json={"pays": "Togo", "langue": "fr"}).json()["langue"] == "fr"
+
+
+def test_langue_invalide_refusee(client):
+    assert client.post("/api/admin/pointage-structures", json={"nom": "X Shop", "type": "Boutique", "langue": "de"}).status_code == 422

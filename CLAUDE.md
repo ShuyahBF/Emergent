@@ -352,4 +352,12 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
   « Les deux » : Espace pointage du responsable (`/pointage-espace`, `pages/public/PointageEspace.jsx`, jeton 12 h en en-tête `X-Pointage-Jeton`, ne voit QUE son commerce) ET mot de passe sur chaque téléphone
   (`POST /public/pointage/{jeton}/acces` → en-tête `X-Pointage-Telephone`, lié à la version du mot de passe). 5 essais faux → 15 min de blocage ; 20 échecs par IP en 15 min → 429.
   C'est un SITE WEB (Chrome sur Android, iPhone aussi), pas une application Android.
+- Lot 499 : « Chaque client précise à la création son pays et choisit la langue de l'interface (anglais ou français) » : pays (liste + « Autre… ») et langue fr / en sur
+  `pointage_acces` (et `pointage_structures`), modifiables ; l'inventaire prend la langue du commerce. La langue s'applique à l'application Android, aux pages web du pointage
+  (`lib/i18nPointage.js` : le texte français est la clé, `traduire(langue, fr, vars)`), à la dictée (`lib/dicteePointage.js` comprend aussi l'anglais ; reconnaissance en-US / fr-FR)
+  et aux fichiers exportés (en-têtes CSV, alertes : `pointage_telephone.texte`). La rubrique d'administration reste en français.
+  Bouton « Télécharger l'application Android » → `https://shuyahstore.store/app/bf.sawali.loois.mobile` (Loois mobile). Une saisie envoyée peut porter son propre prénom, appareil et
+  heure de comptage (fichiers fusionnés par le responsable dans Loois mobile).
+- Pointage hors connexion dans LOOIS MOBILE (choix du propriétaire, lot M9) : chaque téléphone télécharge l'inventaire en ligne une fois (QR + mot de passe), pointe sans Internet,
+  exporte un fichier de pointage partagé (Bluetooth, WhatsApp, câble, Fichiers) ; le responsable importe, fusionne (sans doublon : uid) et envoie à SAWALI quand le réseau revient.
 - Logique pure `backend/pointage_telephone.py`, routes `backend/routes/pointage_telephone.py`, tests `tests/test_pointage_telephone_lot496.py` et `tests/test_pointage_telephone_routes_lot496.py`.

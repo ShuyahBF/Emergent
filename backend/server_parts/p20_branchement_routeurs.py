@@ -1688,3 +1688,6 @@ _attach_formulaire_automates(
 # Lot 484 — fichier public /.well-known/assetlinks.json (clés d'accès de « Loois mobile » : Digital Asset Links)
 from routes.connexion_rapide import attacher_assetlinks as _attacher_assetlinks  # noqa: E402
 _attacher_assetlinks(app)
+# Lot 496 — pointage d'inventaire par téléphone (QR code, dictée « ligne, quantité, péremption, suivant »)
+from routes.pointage_telephone import setup_pointage_telephone_routes as _setup_pointage_telephone  # noqa: E402
+_setup_pointage_telephone(db=db, api=api, get_current_user=get_current_user)

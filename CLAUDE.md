@@ -347,4 +347,9 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
 - Paramètres → « 📱 Pointage d'inventaire par téléphone » (`PointageInventaireSection.jsx`, administrateur) ; page du téléphone `/pointage/<jeton>` (`pages/public/PointageTelephone.jsx`, sans compte, QR code expirant en 3 jours) ; analyseur de dictée sans IA `lib/dicteePointage.js`.
 - Structure = TOUT lieu de commerce (« une officine ou n'importe quel lieu de commerce ») : client Loois, officine, ou commerce déclaré (clé de suivi « CS-… », `pointage_structures`). Liste des produits : JSON d'Aizenta ou CSV (Excel). Lieux de stockage rattachés à INV SV / INV Mag (Aizenta n'a que ces deux colonnes, choix fait à la création).
 - Même ligne saisie deux fois dans le même lieu = quantités ADDITIONNÉES + alerte (choix du propriétaire) ; péremption : la plus proche est gardée ; export JSON WinDev (Aizenta) ou CSV.
+- Lot 498 (« chaque commerce même nouveau doit avoir sa clé pour le pointage… et un mot de passe pour être autorisé ») : collection `pointage_acces`, clé « CP-… » + mot de passe (bcrypt, montré UNE fois,
+  « nouveau mot de passe » possible, révocation), générés UN À UN par l'administrateur pour un commerce connu, aussitôt pour un commerce déclaré. Sans clé active : ni création ni pointage.
+  « Les deux » : Espace pointage du responsable (`/pointage-espace`, `pages/public/PointageEspace.jsx`, jeton 12 h en en-tête `X-Pointage-Jeton`, ne voit QUE son commerce) ET mot de passe sur chaque téléphone
+  (`POST /public/pointage/{jeton}/acces` → en-tête `X-Pointage-Telephone`, lié à la version du mot de passe). 5 essais faux → 15 min de blocage ; 20 échecs par IP en 15 min → 429.
+  C'est un SITE WEB (Chrome sur Android, iPhone aussi), pas une application Android.
 - Logique pure `backend/pointage_telephone.py`, routes `backend/routes/pointage_telephone.py`, tests `tests/test_pointage_telephone_lot496.py` et `tests/test_pointage_telephone_routes_lot496.py`.

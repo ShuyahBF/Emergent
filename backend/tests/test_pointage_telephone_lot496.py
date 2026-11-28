@@ -192,3 +192,30 @@ def test_commerce_et_cle_de_suivi():
         pt.valider_commerce({"nom": "B", "type": "Boutique"})
     cle = pt.generer_cle_suivi()
     assert cle.startswith("CS-") and len(cle) == 9 and not set(cle[3:]) & set("O0I1")
+
+
+
+# ---------------------------------------------------------------------------- Lot 498 : clé de pointage et mot de passe
+def test_cle_et_mot_de_passe_lisibles():
+    cle, mdp = pt.generer_cle_pointage(), pt.generer_mot_de_passe()
+    assert cle.startswith("CP-") and len(cle) == 9 and not set(cle[3:]) & set("O0I1")
+    assert len(mdp) == 9 and mdp[4] == "-" and not set(mdp) & set("o0il1")
+    assert pt.normaliser_cle("cp k7mp2q") == "CP-K7MP2Q"
+    assert pt.normaliser_mot_de_passe(" K7MP 2QHX ") == "k7mp-2qhx"
+
+
+def test_blocage_au_cinquieme_essai():
+    quand = datetime(2026, 11, 28, 10, tzinfo=timezone.utc)
+    acces = {"echecs": 3}
+    assert pt.apres_echec(acces, quand=quand) == {"echecs": 4}
+    bloque = pt.apres_echec({"echecs": 4}, quand=quand)
+    assert bloque["echecs"] == 0 and pt.est_bloque(bloque, quand=quand) and not pt.est_bloque(bloque, quand=datetime(2026, 11, 28, 10, 16, tzinfo=timezone.utc))
+
+
+def test_jetons_signes():
+    inv = {"id": "i1", "jeton_expire": "2099-01-01T00:00:00+00:00"}
+    j = pt.jeton_telephone("secret", inv, {"id": "a1", "version": 2})
+    assert pt.lire_jeton("secret", j, "telephone")["v"] == 2
+    assert pt.lire_jeton("secret", j, "espace") is None             # un jeton de téléphone n'ouvre pas l'espace
+    assert pt.lire_jeton("autre", j, "telephone") is None           # signature vérifiée
+    assert pt.lire_jeton("secret", pt.jeton_espace("secret", {"id": "a1"}), "espace")["acces"] == "a1"

@@ -3,15 +3,18 @@
 // L'auxiliaire donne son prénom et son lieu (salle de vente, magasin…), puis dicte « ligne 245, 12, mars 2027, suivant »
 // ou tape les trois valeurs. Le NOM DU PRODUIT s'affiche aussitôt (garde-fou contre un mauvais numéro), « suivant » enregistre.
 // Hors connexion : les saisies attendent dans le téléphone (localStorage) et partent dès que le réseau revient, sans double comptage.
-// Backend : GET /api/public/pointage/{jeton}, POST …/saisies, POST …/annuler (routes/pointage_telephone.py).
+// Lot 498 : après le QR code, le MOT DE PASSE DU COMMERCE est demandé (POST …/acces) ; il donne la liste des produits et un jeton du
+// téléphone (en-tête X-Pointage-Telephone). Mot de passe changé ou clé révoquée → la page le redemande (réponse 401).
+// Backend : GET /api/public/pointage/{jeton}, POST …/acces, …/saisies, …/annuler (routes/pointage_telephone.py).
 // Parallèle WinDev : une fenêtre de saisie avec une file locale (fichier HFSQL Classic) synchronisée avec le serveur par un timer.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Check, CloudOff, Keyboard, Loader2, MapPin, Mic, PackageSearch, Undo2, Volume2, VolumeX, Wifi } from "lucide-react";
+import { Check, CloudOff, Keyboard, KeyRound, Loader2, MapPin, Mic, PackageSearch, Undo2, Volume2, VolumeX, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { analyserDictee } from "@/lib/dicteePointage";
+import PasswordInput from "@/components/PasswordInput";
 
 // --- Petits outils de stockage local (try/catch : navigation privée ou stockage plein ne doivent rien casser) ---------------
 const lire = (cle, defaut) => { try { const v = localStorage.getItem(cle); return v ? JSON.parse(v) : defaut; } catch { return defaut; } };
@@ -22,7 +25,10 @@ const Reconnaissance = typeof window !== "undefined" ? (window.SpeechRecognition
 export default function PointageTelephone() {
   const { jeton } = useParams();
   const cle = (k) => `pointage:${jeton}:${k}`;
-  const [inv, setInv] = useState(null);                 // inventaire ouvert (structure, lieux, lignes)
+  const [info, setInfo] = useState(null);               // avant le mot de passe : nom du commerce, numéro, clé de pointage
+  const [inv, setInv] = useState(null);                 // après le mot de passe : lieux et lignes (gardés pour le hors connexion)
+  const [mdp, setMdp] = useState("");
+  const [verif, setVerif] = useState(false);
   const [erreur, setErreur] = useState("");
   const [prenom, setPrenom] = useState(() => lire(`pointage:${jeton}:prenom`, ""));
   const [lieu, setLieu] = useState(() => lire(`pointage:${jeton}:lieu`, ""));
@@ -41,14 +47,31 @@ export default function PointageTelephone() {
 
   // --- Chargement de l'inventaire (gardé en mémoire locale : la page s'ouvre même sans réseau) -----------------------------
   useEffect(() => {
+    const garde = lire(cle("tel"), "") ? lire(cle("inv"), null) : null;   // déjà déverrouillé sur ce téléphone
     apiClient.get(`/public/pointage/${jeton}`)
-      .then(({ data }) => { setInv(data); ecrire(cle("inv"), data); })
+      .then(({ data }) => { setInfo(data); if (garde) setInv(garde); })
       .catch((e) => {
-        const garde = lire(cle("inv"), null);
         if (garde && !e.response) setInv(garde);            // hors connexion : dernière liste connue
         else setErreur(e.response?.data?.detail || "Inventaire inaccessible.");
       });
   }, [jeton]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mot de passe du commerce → jeton du téléphone + liste des produits
+  const deverrouiller = async () => {
+    setVerif(true);
+    try {
+      const { data } = await apiClient.post(`/public/pointage/${jeton}/acces`, { mot_de_passe: mdp });
+      ecrire(cle("tel"), data.jeton_telephone);
+      const reste = { ...data };
+      delete reste.jeton_telephone;                          // le jeton est rangé à part, jamais avec la liste des produits
+      ecrire(cle("inv"), reste); setInv(reste); setMdp("");
+      toast.success("Commerce reconnu : vous pouvez pointer.");
+    } catch (e) { toast.error(e.response?.data?.detail || "Vérification impossible sans réseau."); }
+    setVerif(false);
+  };
+  const entetes = () => ({ headers: { "X-Pointage-Telephone": lire(cle("tel"), "") } });
+  // 401 : mot de passe changé ou clé révoquée → retour à l'écran du mot de passe (la file d'attente est GARDÉE)
+  const verrouiller = () => { ecrire(cle("tel"), ""); setInv(null); toast.error("Mot de passe du commerce à ressaisir."); };
 
   const produits = useMemo(() => new Map((inv?.lignes || []).map((l) => [l.c, l])), [inv]);
   const produit = produits.get(Number(champs.chrono));
@@ -67,7 +90,7 @@ export default function PointageTelephone() {
     const attente = lire(cle("file"), []);
     if (!attente.length || !navigator.onLine) return;
     try {
-      const { data } = await apiClient.post(`/public/pointage/${jeton}/saisies`, { prenom, appareil, saisies: attente.slice(0, 200) });
+      const { data } = await apiClient.post(`/public/pointage/${jeton}/saisies`, { prenom, appareil, saisies: attente.slice(0, 200) }, entetes());
       const traitees = new Set([...data.acceptees, ...data.refusees.map((r) => r.uid)]);
       const reste = lire(cle("file"), []).filter((s) => !traitees.has(s.uid));
       ecrire(cle("file"), reste); setFile(reste);
@@ -81,7 +104,8 @@ export default function PointageTelephone() {
       data.doublons.forEach((d) => toast.warning(`Ligne ${d.chrono} déjà comptée dans ce lieu : quantités ADDITIONNÉES.`));
       data.refusees.forEach((r) => toast.error(`Saisie refusée : ${r.erreur}`));
     } catch (e) {
-      if (e.response?.status === 404) setErreur("QR code expiré ou inventaire clôturé : les saisies restantes ne peuvent plus être envoyées.");
+      if (e.response?.status === 401) verrouiller();
+      else if (e.response?.status === 404) setErreur("QR code expiré ou inventaire clôturé : les saisies restantes ne peuvent plus être envoyées.");
     }
   }, [jeton, prenom, appareil]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,8 +142,8 @@ export default function PointageTelephone() {
     const f = lire(cle("file"), []);
     if (f.some((s) => s.uid === derniere.uid)) { const reste = f.filter((s) => s.uid !== derniere.uid); ecrire(cle("file"), reste); setFile(reste); }
     else {
-      try { await apiClient.post(`/public/pointage/${jeton}/annuler`, { appareil, uid: derniere.uid }); }
-      catch { toast.error("Annulation impossible sans réseau : réessayez dans un instant."); return; }
+      try { await apiClient.post(`/public/pointage/${jeton}/annuler`, { appareil, uid: derniere.uid }, entetes()); }
+      catch (e) { if (e.response?.status === 401) verrouiller(); else toast.error("Annulation impossible sans réseau : réessayez dans un instant."); return; }
     }
     const nouv = h.map((x) => (x.uid === derniere.uid ? { ...x, etat: "annulee" } : x));
     ecrire(cle("histo"), nouv); setHistorique(nouv);
@@ -159,7 +183,27 @@ export default function PointageTelephone() {
 
   // ------------------------------------------------------------------------------------------------------------------------
   if (erreur && !inv) return <Ecran><p className="text-center text-red-700 font-semibold">{erreur}</p></Ecran>;
-  if (!inv) return <Ecran><Loader2 className="mx-auto h-10 w-10 animate-spin text-sky-600" aria-label="Patientez…" /></Ecran>;
+  if (!inv && !info) return <Ecran><Loader2 className="mx-auto h-10 w-10 animate-spin text-sky-600" aria-label="Patientez…" /></Ecran>;
+
+  // Écran 0 : mot de passe du commerce (lot 498)
+  if (!inv) {
+    return (
+      <Ecran titre={`${info.structure} · ${info.code_inv || info.numero}`}>
+        <div className="rounded-2xl border bg-white p-4">
+          <p className="flex items-center gap-2 font-semibold text-slate-800"><KeyRound className="h-5 w-5 text-violet-600" aria-hidden="true" />Mot de passe du commerce</p>
+          <p className="mt-1 text-sm text-slate-600">Clé de pointage <b className="text-sky-700">{info.cle_pointage}</b>. Demandez le mot de passe à votre responsable.</p>
+          <PasswordInput value={mdp} onChange={(e) => setMdp(e.target.value)} placeholder="abcd-1234" autoComplete="off"
+                         onKeyDown={(e) => { if (e.key === "Enter" && mdp.length >= 4) deverrouiller(); }}
+                         className="mt-3 w-full rounded-xl border px-4 py-3 text-lg tracking-wider" />
+          <button type="button" disabled={mdp.length < 4 || verif} onClick={deverrouiller}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-4 text-lg font-bold text-white disabled:opacity-40">
+            {verif ? <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> : <Check className="h-6 w-6" aria-hidden="true" />}Valider
+          </button>
+        </div>
+        {file.length > 0 && <p className="mt-3 text-center text-sm text-amber-700">{file.length} saisie(s) en attente : elles partiront après le mot de passe.</p>}
+      </Ecran>
+    );
+  }
 
   // Écran 1 : prénom et lieu
   if (!pret) {

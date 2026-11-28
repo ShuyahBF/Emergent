@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "497"
-LOT_LIBELLE = "Pointage par téléphone pour tout lieu de commerce (officine, boutique… avec clé de suivi), liste des produits en CSV, export CSV, collections MongoDB dédiées."
+LOT = "498"
+LOT_LIBELLE = "Pointage : clé de pointage et mot de passe pour chaque commerce, Espace pointage du responsable, mot de passe demandé sur chaque téléphone."

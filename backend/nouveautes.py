@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "496", "date": "2026-11-28",
+        "titre": "📱 Pointage d'inventaire par téléphone",
+        "description": "Fini la liste papier : les auxiliaires scannent un QR code et dictent « ligne 245, 12, mars 2027, suivant » ; le nom du produit s'affiche aussitôt, le comptage se suit en direct (lieux, auxiliaires, alertes) et le JSON complété se réimporte dans Aizenta.",
+        "rubrique": "📱 Pointage d'inventaire par téléphone",
+    },
+    {
         "lot": "495", "date": "2026-11-27",
         "titre": "📱 Loois mobile : plus de recalcul automatique des parts",
         "description": "Décision du propriétaire : les parts ne sont plus jamais recalculées pour le moment. Dans Loois mobile 1.7.1, le superviseur saisit lui-même la part assuré ET la part assureur ; leur somme doit faire le montant total (contrôle dans l'application et sur le serveur).",

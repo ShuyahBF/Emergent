@@ -63,6 +63,7 @@ import DisponibiliteSection from "@/pages/admin/sections/DisponibiliteSection"; 
 import FacebookAnimationSection from "@/pages/admin/sections/FacebookAnimationSection";   // Lot 96 : page Facebook animée par Liluvine
 import ConsommationIaSection from "@/pages/admin/sections/ConsommationIaSection";   // Lot 98 : synthèse des requêtes à l'IA
 import QuotaAtlasSection from "@/pages/admin/sections/QuotaAtlasSection";   // Lot 79.8 : jauge des collections Atlas
+import PointageInventaireSection from "@/pages/admin/sections/PointageInventaireSection";   // Lot 496 : pointage d'inventaire par téléphone (QR code, dictée)
 import VolumetrieHfsqlSection from "@/pages/admin/sections/VolumetrieHfsqlSection";   // Lot 482 : volumétrie des tables HFSQL (cache Atlas)
 import AppareilsAndroidSection from "@/pages/admin/sections/AppareilsAndroidSection";   // Lot 468 : registre des appareils Android (Loois mobile)
 import PerformanceServeurSection from "@/pages/admin/sections/PerformanceServeurSection";   // Lot 463 : mémoire du serveur et appels les plus lents
@@ -1118,6 +1119,13 @@ export default function AdminSettings() {
       <CartesNouveautes />
       {/* Lot 79.8 — jauge du nombre de collections du cluster Atlas (limite 500 sur Flex / M0) —
           lot 79.8.1 : affichée juste sous la carte « Nouveautés », en haut de la page */}
+      {/* Lot 496 — pointage d'inventaire par téléphone : QR code, dictée « ligne, quantité, péremption, suivant », export pour Aizenta */}
+      <Filterable title="📱 Pointage d'inventaire par téléphone" anchorId="s-pointage-inventaire" category="modules">
+        <Cadre title="📱 Pointage d'inventaire par téléphone">
+          <PointageInventaireSection />
+        </Cadre>
+      </Filterable>
+
       {/* Lot 482 — volumétrie des tables HFSQL : dimensionnement du cache Atlas */}
       <Filterable title="📊 Volumétrie des tables HFSQL — cache Atlas" anchorId="s-volumetrie-hfsql" category="diagnostics">
         <Cadre title="📊 Volumétrie des tables HFSQL — cache Atlas">

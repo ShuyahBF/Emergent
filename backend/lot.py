@@ -8,5 +8,5 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements) — même quand le changement ne touche que l'interface.
 # Règle (06/10/2026) : chaque nouveau lot ajoute AUSSI sa carte dans backend/nouveautes.py (test tests/test_regle_nouveautes.py).
-LOT = "495"
-LOT_LIBELLE = "Loois mobile : plus aucun recalcul automatique des parts (les deux parts sont saisies, leur somme doit faire le total)."
+LOT = "496"
+LOT_LIBELLE = "Pointage d'inventaire par téléphone : QR code, dictée « ligne, quantité, péremption, suivant », suivi en direct et export JSON pour Aizenta."

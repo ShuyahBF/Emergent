@@ -4,11 +4,14 @@
 // clé de suivi « CS-… »), dépose la liste des produits (JSON d'Aizenta ou CSV d'Excel / d'un autre logiciel), déclare les lieux de
 // stockage (rattachés à « INV SV » ou « INV Mag » pour Aizenta), affiche le QR code, suit le comptage en direct, puis exporte :
 // JSON WinDev (réimportable dans Aizenta) ou CSV (Excel, pour tout commerce).
+// Lot 498 : chaque commerce doit avoir sa CLÉ DE POINTAGE (CP-…) et son MOT DE PASSE (montré une seule fois) pour être autorisé ;
+// ce même composant sert l'ESPACE POINTAGE du responsable (page /pointage-espace, prop `espace`) : routes /api/pointage-espace/…,
+// structure imposée par la connexion, pas de gestion des clés.
 // Backend : /api/admin/pointage-inventaires (routes/pointage_telephone.py), administrateur seul.
 // ============================================================================
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
-import { AlertTriangle, Check, Copy, Download, Eye, FileSpreadsheet, Lock, LockOpen, Plus, QrCode, RefreshCw, Search, Store, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Copy, Download, Eye, FileSpreadsheet, KeyRound, Lock, LockOpen, Plus, QrCode, RefreshCw, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
@@ -21,6 +24,21 @@ const peremption = (p) => (p ? `${p.slice(4, 6)}/${p.slice(0, 4)}` : "");   // �
 const COLONNES = [{ v: "SV", l: "INV SV (salle de vente)" }, { v: "MG", l: "INV Mag (magasin)" }];
 const SOURCES = { commerce: "Commerce", loois: "Client Loois", officine: "Officine" };
 
+// Accès aux routes : administrateur (/admin/…, session SAWALI) ou Espace pointage (/pointage-espace/…, jeton du commerce en en-tête).
+// Parallèle WinDev : une variable globale de connexion partagée par toutes les fenêtres filles.
+const CtxPointage = createContext(null);
+function apiPour(espace) {
+  const h = espace ? { "X-Pointage-Jeton": espace.jeton } : {};
+  const avec = (o = {}) => ({ ...o, headers: { ...(o.headers || {}), ...h } });
+  const traiter401 = (e) => { if (espace && e.response?.status === 401) espace.onExpire?.(); throw e; };
+  return {
+    base: espace ? "/pointage-espace/inventaires" : "/admin/pointage-inventaires",
+    espace,
+    get: (u, o) => apiClient.get(u, avec(o)).catch(traiter401),
+    post: (u, b, o) => apiClient.post(u, b, avec(o)).catch(traiter401),
+  };
+}
+
 /** Bouton rond à pictogramme seul (règle du 27/11/2026) : info-bulle et libellé d'accessibilité. */
 function Picto({ titre, Icone, onClick, couleur = "bg-sky-600 text-white", disabled = false, testid }) {
   return (
@@ -31,21 +49,23 @@ function Picto({ titre, Icone, onClick, couleur = "bg-sky-600 text-white", disab
   );
 }
 
-export default function PointageInventaireSection() {
+export default function PointageInventaireSection({ espace = null }) {
+  const api = useMemo(() => apiPour(espace), [espace]);
   const [inventaires, setInventaires] = useState([]);
+  const [motDePasse, setMotDePasse] = useState(null);   // {cle, mot_de_passe, libelle} : affiché UNE fois
   const [creation, setCreation] = useState(false);
   const [ouvert, setOuvert] = useState(null);       // id de l'inventaire affiché dans la fenêtre de suivi
 
   const charger = useCallback(async (avecToast = false) => {
     const t = avecToast ? toast.loading("Actualisation en cours…") : null;
     try {
-      const { data } = await apiClient.get("/admin/pointage-inventaires");
+      const { data } = await api.get(api.base);
       setInventaires(data.inventaires || []);
       if (t) toast.success(`${data.inventaires.length} inventaire(s) relu(s).`, { id: t });
     } catch (e) {
       if (t) toast.error(e.response?.data?.detail || "Lecture impossible.", { id: t });
     }
-  }, []);
+  }, [api]);
   useEffect(() => { charger(); }, [charger]);
 
   const { lignes, tri, basculer } = useTri(inventaires, {
@@ -114,8 +134,115 @@ export default function PointageInventaireSection() {
           </tfoot>
         </table>
       </div>
-      {creation && <FenetreCreation onFermer={() => setCreation(false)} onCree={(inv) => { setCreation(false); charger(); setOuvert(inv.id); }} />}
-      {ouvert && <FenetreSuivi ident={ouvert} onFermer={() => { setOuvert(null); charger(); }} />}
+      {!espace && <CommercesAutorises onMotDePasse={setMotDePasse} />}
+      <CtxPointage.Provider value={api}>
+        {creation && <FenetreCreation onFermer={() => setCreation(false)} onMotDePasse={setMotDePasse}
+                                      onCree={(inv) => { setCreation(false); charger(); setOuvert(inv.id); }} />}
+        {ouvert && <FenetreSuivi ident={ouvert} onFermer={() => { setOuvert(null); charger(); }} />}
+      </CtxPointage.Provider>
+      {motDePasse && <FenetreMotDePasse info={motDePasse} onFermer={() => setMotDePasse(null)} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Lot 498 : clé de pointage et mot de passe — montrés UNE seule fois (SAWALI ne garde que l'empreinte du mot de passe)
+// ---------------------------------------------------------------------------------------------------------------------------
+function FenetreMotDePasse({ info, onFermer }) {
+  const espaceUrl = `${window.location.origin}/pointage-espace`;
+  const texte = `Pointage d'inventaire — ${info.libelle}\nClé de pointage : ${info.cle}\nMot de passe : ${info.mot_de_passe}\nEspace pointage : ${espaceUrl}`;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onFermer()}>
+      <DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto" data-testid="pointage-mot-de-passe">
+        <DialogHeader><DialogTitle>Accès au pointage : {info.libelle}</DialogTitle></DialogHeader>
+        <div className="space-y-2 rounded-xl border-2 border-violet-300 bg-violet-50 p-3 text-center">
+          <p className="text-sm text-slate-600">Clé de pointage</p>
+          <p className="text-2xl font-bold tracking-wider text-sky-700">{info.cle}</p>
+          <p className="text-sm text-slate-600">Mot de passe</p>
+          <p className="font-mono text-3xl font-bold tracking-widest text-violet-800" data-testid="pointage-mdp-affiche">{info.mot_de_passe}</p>
+        </div>
+        <p className="flex gap-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Notez-le et transmettez-le au responsable du commerce : il ne sera plus jamais affiché (un nouveau mot de passe reste possible).</p>
+        <p className="text-xs text-slate-500">Le responsable se connecte sur <b>{espaceUrl}</b> ; les auxiliaires saisissent le même mot de passe après le QR code.</p>
+        <div className="flex justify-end gap-2">
+          <Picto titre="Copier la clé, le mot de passe et l'adresse" Icone={Copy} couleur="bg-sky-100 text-sky-700"
+                 onClick={() => navigator.clipboard?.writeText(texte).then(() => toast.success("Accès copié."))} />
+          <Picto titre="Fermer" Icone={X} onClick={onFermer} couleur="bg-slate-100 text-slate-700" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Lot 498 : commerces autorisés au pointage (administrateur) — nouveau mot de passe, révocation, réactivation
+// ---------------------------------------------------------------------------------------------------------------------------
+function CommercesAutorises({ onMotDePasse }) {
+  const [acces, setAcces] = useState([]);
+  const charger = useCallback(async (avecToast = false) => {
+    const t = avecToast ? toast.loading("Actualisation en cours…") : null;
+    try {
+      const { data } = await apiClient.get("/admin/pointage-acces");
+      setAcces(data.acces || []);
+      if (t) toast.success(`${data.acces.length} commerce(s) autorisé(s).`, { id: t });
+    } catch (e) { if (t) toast.error(e.response?.data?.detail || "Lecture impossible.", { id: t }); }
+  }, []);
+  useEffect(() => { charger(); }, [charger]);
+  const { lignes, tri, basculer } = useTri(acces, {
+    commerce: (a) => a.structure?.libelle, type: (a) => a.structure?.type, cle: (a) => a.cle, etat: (a) => (a.actif ? 1 : 0), derniere: (a) => a.derniere_connexion,
+  });
+  const action = async (a, chemin) => {
+    const t = toast.loading("En cours…");
+    try {
+      const { data } = await apiClient.post(`/admin/pointage-acces/${a.id}/${chemin}`);
+      if (chemin === "mot-de-passe") { toast.success("Nouveau mot de passe créé : l'ancien ne marche plus.", { id: t }); onMotDePasse({ cle: a.cle, mot_de_passe: data.mot_de_passe, libelle: a.structure?.libelle }); }
+      else toast.success(chemin === "revoquer" ? "Clé révoquée : plus aucun pointage possible." : "Clé réactivée.", { id: t });
+      charger();
+    } catch (e) { toast.error(e.response?.data?.detail || "Action impossible.", { id: t }); }
+  };
+  return (
+    <div className="space-y-2 pt-3">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4 text-violet-600" aria-hidden="true" />Commerces autorisés au pointage</p>
+        <Picto titre="Actualiser les commerces autorisés" Icone={RefreshCw} onClick={() => charger(true)} couleur="bg-slate-100 text-slate-700" />
+      </div>
+      <p className="text-xs text-slate-500">Une clé se génère commerce par commerce depuis « Nouvel inventaire » (pictogramme clé à côté du commerce) ; un commerce déclaré reçoit la sienne aussitôt.</p>
+      <div className="overflow-x-auto rounded-xl border">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50"><tr>
+            <ThTri cle="commerce" tri={tri} onTri={basculer}>Commerce</ThTri>
+            <ThTri cle="type" tri={tri} onTri={basculer}>Type</ThTri>
+            <ThTri cle="cle" tri={tri} onTri={basculer}>Clé de pointage</ThTri>
+            <ThTri cle="etat" tri={tri} onTri={basculer}>État</ThTri>
+            <ThTri cle="derniere" tri={tri} onTri={basculer}>Dernière connexion</ThTri>
+            <th className="p-2">Actions</th>
+          </tr></thead>
+          <tbody>
+            {lignes.map((a) => (
+              <tr key={a.id} className="border-t">
+                <td className="p-2 font-semibold">{a.structure?.libelle}</td>
+                <td className="p-2">{a.structure?.type || SOURCES[a.structure?.source]}</td>
+                <td className="p-2 font-mono font-semibold text-sky-700">{a.cle}</td>
+                <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${a.actif ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{a.actif ? "✓ Autorisé" : "✕ Révoqué"}</span></td>
+                <td className="p-2 whitespace-nowrap">{dateCourte(a.derniere_connexion)}</td>
+                <td className="p-2">
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => action(a, "mot-de-passe")} title="Nouveau mot de passe" aria-label="Nouveau mot de passe"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-700"><KeyRound className="h-4 w-4" aria-hidden="true" /></button>
+                    {a.actif
+                      ? <button type="button" onClick={() => window.confirm(`Révoquer la clé de ${a.structure?.libelle} ? Les téléphones et l'Espace pointage seront coupés.`) && action(a, "revoquer")}
+                                title="Révoquer la clé" aria-label="Révoquer la clé" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-700"><Ban className="h-4 w-4" aria-hidden="true" /></button>
+                      : <button type="button" onClick={() => action(a, "reactiver")} title="Réactiver la clé" aria-label="Réactiver la clé"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><RotateCcw className="h-4 w-4" aria-hidden="true" /></button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!lignes.length && <tr><td colSpan={6} className="p-3 text-center text-slate-500">Aucun commerce autorisé pour l'instant.</td></tr>}
+          </tbody>
+          <tfoot className="border-t-2 bg-slate-50 font-semibold"><tr><td className="p-2" colSpan={6}>{lignes.length} commerce(s) · {lignes.filter((a) => a.actif).length} autorisé(s)</td></tr></tfoot>
+        </table>
+      </div>
     </div>
   );
 }
@@ -123,11 +250,13 @@ export default function PointageInventaireSection() {
 // ---------------------------------------------------------------------------------------------------------------------------
 // Création : structure (liste déroulante), fichier JSON d'Aizenta, lieux de stockage
 // ---------------------------------------------------------------------------------------------------------------------------
-function FenetreCreation({ onFermer, onCree }) {
+function FenetreCreation({ onFermer, onCree, onMotDePasse }) {
+  const api = useContext(CtxPointage);
+  const fixe = api.espace?.commerce?.structure;          // Espace pointage : le commerce est celui de la connexion
   const [q, setQ] = useState("");
   const [resultats, setResultats] = useState([]);
   const [types, setTypes] = useState([]);
-  const [structure, setStructure] = useState(null);   // {source, id, libelle, code, type}
+  const [structure, setStructure] = useState(fixe ? { ...fixe, acces: { cle: api.espace.commerce.cle, actif: true } } : null);   // {source, id, libelle, code, type, acces}
   const [nouveau, setNouveau] = useState(null);       // formulaire « déclarer un commerce » : {nom, type, autre, ville}
   const [fichier, setFichier] = useState(null);       // {nom, contenu, lignes, format}
   const [lieux, setLieux] = useState([{ nom: "Salle de vente", colonne: "SV" }, { nom: "Magasin", colonne: "MG" }]);
@@ -135,21 +264,34 @@ function FenetreCreation({ onFermer, onCree }) {
 
   // Recherche de la structure (clients Loois, officines, commerces déclarés), relancée 300 ms après la dernière frappe
   useEffect(() => {
+    if (fixe) return undefined;                          // pas de recherche dans l'Espace pointage
     const t = setTimeout(() => {
       apiClient.get("/admin/pointage-inventaires/structures", { params: { q } })
         .then(({ data }) => { setResultats(data.structures || []); setTypes(data.types_commerce || []); })
         .catch(() => toast.error("Recherche des structures impossible."));
     }, 300);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, fixe]);
+
+  // Lot 498 : génère la clé de pointage d'un commerce déjà connu (une à une), puis montre le mot de passe une seule fois
+  const genererCle = async (r) => {
+    const t = toast.loading(`Génération de la clé de ${r.libelle}…`);
+    try {
+      const { data } = await apiClient.post("/admin/pointage-acces", { source: r.source, id: r.id });
+      toast.success(`Clé ${data.cle} créée.`, { id: t });
+      setStructure({ ...r, acces: { cle: data.cle, actif: true } });
+      onMotDePasse({ cle: data.cle, mot_de_passe: data.mot_de_passe, libelle: r.libelle });
+    } catch (e) { toast.error(e.response?.data?.detail || "Génération impossible.", { id: t }); }
+  };
 
   const declarer = async () => {
     const t = toast.loading("Déclaration du commerce en cours…");
     try {
       const type = nouveau.type === "__autre" ? nouveau.autre : nouveau.type;
       const { data } = await apiClient.post("/admin/pointage-structures", { nom: nouveau.nom, type, ville: nouveau.ville || null });
-      toast.success(`${data.libelle} déclaré : clé de suivi ${data.code}.`, { id: t });
+      toast.success(`${data.libelle} déclaré, clé de pointage ${data.acces.cle}.`, { id: t });
       setStructure(data); setNouveau(null);
+      onMotDePasse({ cle: data.acces.cle, mot_de_passe: data.mot_de_passe, libelle: data.libelle });
     } catch (e) { toast.error(e.response?.data?.detail || "Déclaration impossible.", { id: t }); }
   };
 
@@ -174,8 +316,8 @@ function FenetreCreation({ onFermer, onCree }) {
     setEnvoi(true);
     const t = toast.loading("Création de l'inventaire en cours…");
     try {
-      const { data } = await apiClient.post("/admin/pointage-inventaires", {
-        structure: { source: structure.source, id: structure.id }, lieux, nom_fichier: fichier.nom, contenu: fichier.contenu });
+      const { data } = await api.post(api.base, {
+        structure: fixe ? null : { source: structure.source, id: structure.id }, lieux, nom_fichier: fichier.nom, contenu: fichier.contenu });
       toast.success(`Inventaire ${data.numero} créé (${data.lignes_total} lignes).`, { id: t });
       onCree(data);
     } catch (e) { toast.error(e.response?.data?.detail || "Création impossible.", { id: t }); setEnvoi(false); }
@@ -191,9 +333,13 @@ function FenetreCreation({ onFermer, onCree }) {
         {structure ? (
           <div className="flex items-center gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-50 p-2">
             <Store className="h-5 w-5 text-emerald-700" aria-hidden="true" />
-            <span className="min-w-0 flex-1 text-sm"><b>{structure.libelle}</b> <span className="text-slate-600">· {structure.type || SOURCES[structure.source]} · clé de suivi <b className="text-sky-700">{structure.code}</b></span></span>
-            <button type="button" onClick={() => setStructure(null)} title="Changer de lieu de commerce" aria-label="Changer de lieu de commerce"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700"><X className="h-4 w-4" aria-hidden="true" /></button>
+            <span className="min-w-0 flex-1 text-sm"><b>{structure.libelle}</b> <span className="text-slate-600">· {structure.type || SOURCES[structure.source]}</span>
+              {structure.acces?.actif
+                ? <span className="block text-emerald-800">✓ Clé de pointage <b className="font-mono">{structure.acces.cle}</b></span>
+                : <span className="block text-red-700">✕ {structure.acces ? "Clé de pointage révoquée" : "Pas encore de clé de pointage"} : pointage impossible</span>}</span>
+            {!fixe && !structure.acces && <Picto titre="Générer la clé de pointage et le mot de passe" Icone={KeyRound} onClick={() => genererCle(structure)} couleur="bg-violet-600 text-white" testid="pointage-generer-cle" />}
+            {!fixe && <button type="button" onClick={() => setStructure(null)} title="Changer de lieu de commerce" aria-label="Changer de lieu de commerce"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700"><X className="h-4 w-4" aria-hidden="true" /></button>}
           </div>
         ) : nouveau ? (
           <div className="space-y-2 rounded-xl border p-3">
@@ -228,7 +374,9 @@ function FenetreCreation({ onFermer, onCree }) {
                   <button type="button" onClick={() => setStructure(r)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-sky-50">
                     <Store className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
                     <span className="min-w-0 flex-1 truncate"><b>{r.libelle}</b>{r.ville ? ` · ${r.ville}` : ""}</span>
-                    <span className="shrink-0 text-xs text-slate-500">{r.type || SOURCES[r.source]} · {r.code}</span>
+                    <span className="shrink-0 text-xs text-slate-500">{r.type || SOURCES[r.source]}</span>
+                    <span className={`shrink-0 rounded px-1.5 text-xs font-semibold ${r.acces?.actif ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500"}`}
+                          title={r.acces?.actif ? "Autorisé au pointage" : "Sans clé de pointage"}>{r.acces?.actif ? `✓ ${r.acces.cle}` : "sans clé"}</span>
                   </button>
                 </li>
               ))}
@@ -275,7 +423,7 @@ function FenetreCreation({ onFermer, onCree }) {
         <div className="mt-4 flex justify-end gap-2">
           <Picto titre="Fermer" Icone={X} onClick={onFermer} couleur="bg-slate-100 text-slate-700" />
           <Picto titre="Créer l'inventaire" Icone={Plus} onClick={creer} couleur="bg-emerald-600 text-white" testid="pointage-creer"
-                 disabled={envoi || !structure || !fichier || lieux.some((l) => !l.nom.trim())} />
+                 disabled={envoi || !structure?.acces?.actif || !fichier || lieux.some((l) => !l.nom.trim())} />
         </div>
       </DialogContent>
     </Dialog>
@@ -286,6 +434,7 @@ function FenetreCreation({ onFermer, onCree }) {
 // Suivi : QR code, avancement par lieu et par auxiliaire, alertes, lignes ; export, clôture
 // ---------------------------------------------------------------------------------------------------------------------------
 function FenetreSuivi({ ident, onFermer }) {
+  const api = useContext(CtxPointage);
   const [d, setD] = useState(null);
   const [qr, setQr] = useState("");
   const [onglet, setOnglet] = useState("suivi");
@@ -295,23 +444,23 @@ function FenetreSuivi({ ident, onFermer }) {
   const charger = useCallback(async (avecToast = false) => {
     const t = avecToast ? toast.loading("Actualisation en cours…") : null;
     try {
-      const { data } = await apiClient.get(`/admin/pointage-inventaires/${ident}`);
+      const { data } = await api.get(`${api.base}/${ident}`);
       setD(data);
       if (t) toast.success(`${data.lignes_comptees} ligne(s) comptée(s) sur ${data.lignes_total}, ${data.alertes.length} alerte(s).`, { id: t });
     } catch (e) { if (t) toast.error(e.response?.data?.detail || "Lecture impossible.", { id: t }); }
-  }, [ident]);
+  }, [ident, api]);
   useEffect(() => { charger(); const x = setInterval(() => charger(), 15000); return () => clearInterval(x); }, [charger]);   // suivi en direct : relu toutes les 15 s
   useEffect(() => { if (lien) QRCode.toDataURL(lien, { errorCorrectionLevel: "M", width: 260, margin: 1 }).then(setQr); else setQr(""); }, [lien]);
 
   const action = async (chemin, message) => {
     const t = toast.loading("En cours…");
-    try { await apiClient.post(`/admin/pointage-inventaires/${ident}/${chemin}`); toast.success(message, { id: t }); charger(); }
+    try { await api.post(`${api.base}/${ident}/${chemin}`); toast.success(message, { id: t }); charger(); }
     catch (e) { toast.error(e.response?.data?.detail || "Action impossible.", { id: t }); }
   };
   const exporter = async (format) => {
     const t = toast.loading(format === "csv" ? "Préparation du fichier CSV…" : "Préparation du JSON complété…");
     try {
-      const r = await apiClient.get(`/admin/pointage-inventaires/${ident}/export`, { params: { format }, responseType: "blob" });
+      const r = await api.get(`${api.base}/${ident}/export`, { params: { format }, responseType: "blob" });
       const nom = /filename="([^"]+)"/.exec(r.headers["content-disposition"] || "")?.[1] || `inventaire.pointe.${format}`;
       const a = document.createElement("a"); a.href = URL.createObjectURL(r.data); a.download = nom; a.click(); URL.revokeObjectURL(a.href);
       toast.success(format === "csv" ? `${nom} téléchargé : à ouvrir avec Excel.` : `${nom} téléchargé : à réimporter dans Aizenta.`, { id: t });

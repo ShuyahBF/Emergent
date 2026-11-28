@@ -429,3 +429,103 @@ def jeton_valide(doc: Optional[dict], *, quand: Optional[datetime] = None) -> bo
         return datetime.fromisoformat(doc.get("jeton_expire")) > (quand or maintenant())
     except (TypeError, ValueError):
         return False
+
+
+# ---------------------------------------------------------------------------
+# Lot 498 : CLÉ DE POINTAGE + MOT DE PASSE de chaque commerce (« chaque commerce même nouveau doit avoir sa clé pour le pointage ;
+# les officines déjà connues de SAWALI doivent avoir aussi une clé générée et un mot de passe pour être autorisées »).
+#   - la clé « CP-XXXXXX » identifie le commerce (elle s'affiche, ce n'est pas un secret) ; le MOT DE PASSE est le secret :
+#     haché par bcrypt (comme les comptes SAWALI), montré UNE seule fois à sa création ;
+#   - sert au responsable (Espace pointage : clé + mot de passe) ET à chaque téléphone (mot de passe demandé après le QR code) ;
+#   - 5 essais faux → blocage 15 minutes (compté par commerce, et par adresse IP côté routes).
+# Parallèle WinDev : c'est le couple « utilisateur / mot de passe » du groupware, mais propre au commerce et non à la personne.
+# ---------------------------------------------------------------------------
+COL_ACCES = "pointage_acces"
+ESSAIS_MAX = 5
+BLOCAGE_MIN = 15
+DUREE_ESPACE_H = 12
+_LISIBLE_MAJ = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"     # ni O/0 ni I/1 : dictées au téléphone sans confusion
+_LISIBLE_MIN = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def generer_cle_pointage() -> str:
+    return "CP-" + "".join(secrets.choice(_LISIBLE_MAJ) for _ in range(6))
+
+
+def generer_mot_de_passe() -> str:
+    """8 caractères lisibles en deux groupes (« k7mp-2qhx ») : facile à transmettre par téléphone, 31^8 ≈ 850 milliards de possibilités."""
+    brut = "".join(secrets.choice(_LISIBLE_MIN) for _ in range(8))
+    return f"{brut[:4]}-{brut[4:]}"
+
+
+def normaliser_cle(cle: Any) -> str:
+    """« cp k7mp2q » / « CP-K7MP2Q » → « CP-K7MP2Q »."""
+    c = re.sub(r"[^A-Za-z0-9]", "", str(cle or "")).upper()
+    return f"CP-{c[2:]}" if c.startswith("CP") else c
+
+
+def normaliser_mot_de_passe(mdp: Any) -> str:
+    """Saisie tolérante : majuscules, espaces et tiret ignorés (« K7MP 2QHX » = « k7mp-2qhx »)."""
+    c = re.sub(r"[^a-z0-9]", "", str(mdp or "").lower())
+    return f"{c[:4]}-{c[4:]}" if len(c) == 8 else c
+
+
+def est_bloque(acces: Optional[dict], *, quand: Optional[datetime] = None) -> bool:
+    try:
+        return bool(acces and acces.get("bloque_jusqu") and datetime.fromisoformat(acces["bloque_jusqu"]) > (quand or maintenant()))
+    except (TypeError, ValueError):
+        return False
+
+
+def apres_echec(acces: dict, *, quand: Optional[datetime] = None) -> Dict[str, Any]:
+    """Modifications à écrire après un mot de passe faux : compteur, et blocage de 15 min au 5e essai."""
+    n = int(acces.get("echecs") or 0) + 1
+    if n >= ESSAIS_MAX:
+        return {"echecs": 0, "bloque_jusqu": ((quand or maintenant()) + timedelta(minutes=BLOCAGE_MIN)).isoformat()}
+    return {"echecs": n}
+
+
+def cle_signature(secret: str) -> str:
+    """Clé propre aux jetons du pointage, dérivée du secret des sessions (un jeton de pointage n'ouvre jamais une session SAWALI)."""
+    import hashlib
+    return hashlib.sha256(f"sawali-pointage|{secret}".encode()).hexdigest()
+
+
+def jeton_espace(secret: str, acces: dict, *, quand: Optional[datetime] = None) -> str:
+    import jwt
+    t = quand or maintenant()
+    return jwt.encode({"typ": "espace", "acces": acces["id"], "exp": t + timedelta(hours=DUREE_ESPACE_H)}, cle_signature(secret), algorithm="HS256")
+
+
+def jeton_telephone(secret: str, inventaire: dict, acces: dict) -> str:
+    """Jeton du téléphone : lié à CET inventaire et à la version du mot de passe (un nouveau mot de passe déconnecte les téléphones)."""
+    import jwt
+    exp = datetime.fromisoformat(inventaire["jeton_expire"])
+    return jwt.encode({"typ": "telephone", "inv": inventaire["id"], "acces": acces["id"], "v": acces.get("version", 1), "exp": exp},
+                      cle_signature(secret), algorithm="HS256")
+
+
+def lire_jeton(secret: str, jeton: Optional[str], typ: str) -> Optional[dict]:
+    """Contenu d'un jeton valide du type attendu, sinon None (expiré, falsifié, autre type)."""
+    import jwt
+    if not jeton:
+        return None
+    try:
+        d = jwt.decode(jeton, cle_signature(secret), algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    return d if d.get("typ") == typ else None
+
+
+def hacher_mot_de_passe(mdp: str) -> str:
+    """Empreinte bcrypt, comme les mots de passe des comptes SAWALI (auth.hash_password, sans dépendre de la base)."""
+    import bcrypt
+    return bcrypt.hashpw(normaliser_mot_de_passe(mdp).encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verifier_mot_de_passe(mdp: str, empreinte: Optional[str]) -> bool:
+    import bcrypt
+    try:
+        return bool(empreinte) and bcrypt.checkpw(normaliser_mot_de_passe(mdp).encode("utf-8"), empreinte.encode("utf-8"))
+    except ValueError:
+        return False

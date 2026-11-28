@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "498", "date": "2026-11-28",
+        "titre": "🔑 Pointage : clé et mot de passe par commerce, Espace pointage",
+        "description": "Chaque commerce doit avoir sa clé de pointage (CP-…) et son mot de passe (affiché une seule fois) : générés un à un pour les officines et clients connus, aussitôt pour un commerce déclaré. Le responsable gère ses inventaires sur /pointage-espace ; chaque téléphone saisit le mot de passe après le QR code (5 essais, puis 15 min de blocage).",
+        "rubrique": "📱 Pointage d'inventaire par téléphone",
+    },
+    {
         "lot": "497", "date": "2026-11-28",
         "titre": "📱 Pointage par téléphone : tout lieu de commerce",
         "description": "Officine, boutique, supermarché… : choisissez le lieu (client Loois, officine) ou déclarez-le (clé de suivi CS-… générée). Liste des produits en JSON d'Aizenta ou en CSV d'Excel ; export CSV avec une colonne par lieu, l'écart et la péremption.",

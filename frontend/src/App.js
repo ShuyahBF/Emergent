@@ -78,6 +78,7 @@ const Specialisations = paresseux(() => import("@/pages/public/Specialisations")
 const Catalogue = paresseux(() => import("@/pages/public/Catalogue"));
 const AccordWhatsApp = paresseux(() => import("@/pages/public/AccordWhatsApp"));   // Lot 164 : page d'accord WhatsApp (lien personnel)
 const PointageTelephone = paresseux(() => import("@/pages/public/PointageTelephone"));   // Lot 496 : pointage d'inventaire au téléphone (QR code)
+const PointageEspace = paresseux(() => import("@/pages/public/PointageEspace"));   // Lot 498 : Espace pointage du responsable (clé + mot de passe)
 const PresentationCarte = paresseux(() => import("@/pages/public/PresentationCarte"));   // Lot 94 : carte de carrousel sans lien
 const PresentationCarrousel = paresseux(() => import("@/pages/public/PresentationCarrousel"));   // Lot 111 : tout le carrousel, #carte-n
 const LienCarrousel = paresseux(() => import("@/pages/public/LienCarrousel"));   // Lot 117 : bouton des cartes de carrousel (/l/<code>)
@@ -356,6 +357,7 @@ export default function App() {
           <Route path="/feedback/:token" element={<Feedback />} />
           {/* Lot 496 — pointage d'inventaire au téléphone : page plein écran, sans l'en-tête du site */}
           <Route path="/pointage/:jeton" element={<PointageTelephone />} />
+          <Route path="/pointage-espace" element={<PointageEspace />} />
           <Route path="/uptime" element={<StatusPage />} />
           <Route path="/launch" element={<Launch />} />
           {/* 2026-02 fork (P3 recap) — Deep-link auto-login from médecin planning WA digest */}

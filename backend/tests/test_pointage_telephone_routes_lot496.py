@@ -29,6 +29,23 @@ def _export():
 BASE = {}
 
 
+def _souscrire(client, acces_id, formule="illimite"):
+    """Lot 500 : souscription enregistrée par l'administrateur (vérifiée aussitôt) — sans elle, aucun téléphone ne pointe."""
+    r = client.post("/api/admin/pointage-souscriptions", json={"acces_id": acces_id, "formule": formule})
+    assert r.status_code == 200 and r.json()["statut"] == "verifiee", r.text
+    return r.json()
+
+
+def _contrat_android(nom, donnees):
+    """Contrat avec Loois mobile (lot M9) : ECRIRE_CONTRAT_ANDROID=1 enregistre la VRAIE réponse du serveur dans les ressources de test de
+    l'application Android (android/loois-mobile/app/src/test/resources/contrat), relue par PointageTest.kt."""
+    if os.environ.get("ECRIRE_CONTRAT_ANDROID") != "1":
+        return
+    dossier = os.path.join(os.path.dirname(__file__), "..", "..", "android", "loois-mobile", "app", "src", "test", "resources", "contrat")
+    with open(os.path.join(dossier, f"{nom}.json"), "w", encoding="utf-8") as f:
+        json.dump(donnees, f, ensure_ascii=False, indent=2)
+
+
 @pytest.fixture
 def client():
     db = AsyncMongoMockClient()["test"]
@@ -52,6 +69,7 @@ def test_parcours_complet(client):
     acces = client.post("/api/admin/pointage-acces", json={"source": "loois", "id": "s1"}).json()
     assert acces["cle"].startswith("CP-") and len(acces["mot_de_passe"]) == 9
     assert client.post("/api/admin/pointage-acces", json={"source": "loois", "id": "s1"}).status_code == 409
+    _souscrire(client, acces["id"])
     r = client.post("/api/admin/pointage-inventaires", json={
         "structure": {"source": "loois", "id": "s1"}, "nom_fichier": "InventaireSélectionné_PPH_INV069.json", "contenu": json.dumps(_export()),
         "lieux": [{"nom": "Salle de vente", "colonne": "SV"}, {"nom": "Magasin", "colonne": "MG"}]})
@@ -114,6 +132,7 @@ def test_reserve_a_l_administrateur(client):
 def test_commerce_declare_et_csv(client):
     """Lot 497 : un commerce quelconque (pas d'Aizenta) — déclaré ici, liste des produits en CSV, export CSV."""
     com = client.post("/api/admin/pointage-structures", json={"nom": "Boutique Awa", "type": "Boutique", "ville": "Koudougou"}).json()
+    _souscrire(client, com["acces"]["id"])
     assert com["code"].startswith("CS-") and com["acces"]["cle"].startswith("CP-") and com["mot_de_passe"]
     trouves = client.get("/api/admin/pointage-inventaires/structures", params={"q": "awa"}).json()["structures"]
     assert [t["source"] for t in trouves] == ["commerce"]
@@ -156,7 +175,9 @@ def test_reprise_des_fiches_du_lot_496(client):
 def test_espace_pointage_et_etancheite(client):
     """Lot 498 : le responsable se connecte avec clé + mot de passe et ne voit QUE ses inventaires."""
     a = client.post("/api/admin/pointage-structures", json={"nom": "Boutique Awa", "type": "Boutique"}).json()
+    _souscrire(client, a["acces"]["id"])
     b = client.post("/api/admin/pointage-structures", json={"nom": "Quincaillerie Badini", "type": "Quincaillerie"}).json()
+    _souscrire(client, b["acces"]["id"])
     inv_b = client.post("/api/admin/pointage-inventaires", json={"structure": {"source": "commerce", "id": b["id"]}, "contenu": "Article\nMarteau\n"}).json()
     assert client.get("/api/pointage-espace/inventaires").status_code == 401
     cx = client.post("/api/pointage-espace/connexion", json={"cle": a["acces"]["cle"].lower().replace("-", " "), "mot_de_passe": a["mot_de_passe"]}).json()
@@ -176,6 +197,7 @@ def test_espace_pointage_et_etancheite(client):
 
 def test_blocage_apres_cinq_essais(client):
     a = client.post("/api/admin/pointage-structures", json={"nom": "Boutique Awa", "type": "Boutique"}).json()
+    _souscrire(client, a["acces"]["id"])
     for _ in range(5):
         assert client.post("/api/pointage-espace/connexion", json={"cle": a["acces"]["cle"], "mot_de_passe": "zzzz-zzzz"}).status_code == 401
     r = client.post("/api/pointage-espace/connexion", json={"cle": a["acces"]["cle"], "mot_de_passe": a["mot_de_passe"]})
@@ -185,6 +207,7 @@ def test_blocage_apres_cinq_essais(client):
 def test_pays_langue_anglais_et_fichier_fusionne(client):
     """Lot 499 : commerce en anglais (alertes, CSV) ; un fichier fusionné garde le prénom de chaque saisie."""
     com = client.post("/api/admin/pointage-structures", json={"nom": "Corner Shop", "type": "Boutique", "pays": "Ghana", "langue": "en"}).json()
+    _souscrire(client, com["acces"]["id"])
     assert (com["pays"], com["langue"]) == ("Ghana", "en")
     inv = client.post("/api/admin/pointage-inventaires", json={"structure": {"source": "commerce", "id": com["id"]},
                                                               "contenu": "Product;Stock\nSoap;4\nRice;50\n"}).json()
@@ -193,10 +216,13 @@ def test_pays_langue_anglais_et_fichier_fusionne(client):
     assert client.get(f"/api/public/pointage/{jeton}").json()["langue"] == "en"
     tel = client.post(f"/api/public/pointage/{jeton}/acces", json={"mot_de_passe": com["mot_de_passe"]}).json()
     h = {"X-Pointage-Telephone": tel["jeton_telephone"]}
+    _contrat_android("pointage_acces", tel | {"jeton_telephone": "JETON-TELEPHONE-DE-TEST"})
     # Envoi du responsable : saisies de deux téléphones fusionnées, chacune avec son prénom et son appareil
-    client.post(f"/api/public/pointage/{jeton}/saisies", headers=h, json={"prenom": "Kofi", "appareil": "appareil-resp1", "saisies": [
+    envoi = client.post(f"/api/public/pointage/{jeton}/saisies", headers=h, json={"prenom": "Kofi", "appareil": "appareil-resp1", "saisies": [
         {"uid": "saisie-a001", "chrono": 2, "qte": 3, "lieu": "L1", "prenom": "Ama", "appareil": "appareil-ama1", "le": "2026-11-28T08:10:00+00:00"},
-        {"uid": "saisie-b001", "chrono": 2, "qte": 4, "lieu": "L2", "prenom": "Yaw", "appareil": "appareil-yaw1"}]})
+        {"uid": "saisie-b001", "chrono": 2, "qte": 4, "lieu": "L2", "prenom": "Yaw", "appareil": "appareil-yaw1"}]}).json()
+    assert envoi["acceptees"] == ["saisie-a001", "saisie-b001"]
+    _contrat_android("pointage_saisies", envoi)
     d = client.get(f"/api/admin/pointage-inventaires/{inv['id']}").json()
     assert {a["prenom"] for a in d["par_auxiliaire"]} == {"Ama", "Yaw"}
     assert any(a["message"].startswith("large difference") for a in d["alertes"])

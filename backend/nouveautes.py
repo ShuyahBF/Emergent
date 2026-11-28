@@ -18,6 +18,18 @@
 
 NOUVEAUTES = [
     {
+        "lot": "500", "date": "2026-11-28",
+        "titre": "💳 Souscription au pointage : semaine, mois, année, illimité",
+        "description": "Le pointage (web et Loois Mobile) n'est ouvert qu'aux commerces dont la souscription est vérifiée : paiement mobile avec votre code marchand, référence rapprochée automatiquement du SMS de paiement, ou validation d'un clic. Prix et codes marchands à régler ici.",
+        "rubrique": "📱 Pointage d'inventaire par téléphone",
+    },
+    {
+        "lot": "500", "date": "2026-11-28",
+        "titre": "📱 Loois mobile 1.8.0 : pointage d'inventaire hors connexion",
+        "description": "Sans compte Loois : QR code + mot de passe du commerce une seule fois en ligne, puis comptage sans Internet (dictée ou clavier), export d'un fichier par téléphone, import et fusion sans doublon chez le responsable, envoi à SAWALI dès que le réseau revient.",
+        "rubrique": "📱 Appareils Android — Loois mobile",
+    },
+    {
         "lot": "499", "date": "2026-11-28",
         "titre": "🌍 Pointage : pays et langue de chaque commerce",
         "description": "À la création, chaque commerce précise son pays et sa langue (français ou anglais) : Espace pointage, téléphones, dictée (« line 245, twelve, March 2027, next ») et exports suivent sa langue. Bouton « Télécharger l'application Android » (Loois mobile, ShuyahStore).",

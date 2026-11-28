@@ -11,12 +11,13 @@
 // ============================================================================
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
-import { AlertTriangle, Ban, Smartphone, Pencil, Check, Copy, Download, Eye, FileSpreadsheet, KeyRound, Lock, LockOpen, Plus, QrCode, RefreshCw, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Ban, CreditCard, Smartphone, Pencil, Check, Copy, Download, Eye, FileSpreadsheet, KeyRound, Lock, LockOpen, Plus, QrCode, RefreshCw, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
 import ThTri from "@/components/ThTri";
 import { URL_APP_ANDROID, traducteur } from "@/lib/i18nPointage";
+import { FenetreSouscriptionManuelle, PastilleSouscription, SouscriptionsAdmin } from "@/pages/admin/sections/PointageSouscription";   // lot 500
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const nombre = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("fr-FR"));
@@ -164,6 +165,7 @@ export default function PointageInventaireSection({ espace = null }) {
         </table>
       </div>
       {!espace && <CommercesAutorises onMotDePasse={setMotDePasse} />}
+      {!espace && <SouscriptionsAdmin />}
       <CtxPointage.Provider value={api}>
         {creation && <FenetreCreation onFermer={() => setCreation(false)} onMotDePasse={setMotDePasse}
                                       onCree={(inv) => { setCreation(false); charger(); setOuvert(inv.id); }} />}
@@ -209,6 +211,7 @@ function FenetreMotDePasse({ info, onFermer }) {
 function CommercesAutorises({ onMotDePasse }) {
   const [acces, setAcces] = useState([]);
   const [edition, setEdition] = useState(null);       // {id, libelle, pays, langue} : fenêtre de modification
+  const [souscrire, setSouscrire] = useState(null);   // lot 500 : commerce dont on enregistre une souscription à la main
   const [listePays, setListePays] = useState(["Burkina Faso"]);
   useEffect(() => { apiClient.get("/admin/pointage-inventaires").then(({ data }) => data.pays?.length && setListePays(data.pays)).catch(() => {}); }, []);
   const enregistrer = async () => {
@@ -229,7 +232,8 @@ function CommercesAutorises({ onMotDePasse }) {
   }, []);
   useEffect(() => { charger(); }, [charger]);
   const { lignes, tri, basculer } = useTri(acces, {
-    commerce: (a) => a.structure?.libelle, type: (a) => a.structure?.type, cle: (a) => a.cle, pays: (a) => a.pays, langue: (a) => a.langue, etat: (a) => (a.actif ? 1 : 0), derniere: (a) => a.derniere_connexion,
+    commerce: (a) => a.structure?.libelle, type: (a) => a.structure?.type, cle: (a) => a.cle, pays: (a) => a.pays, langue: (a) => a.langue,
+    souscription: (a) => (a.souscription?.illimite ? "9999" : a.souscription?.fin || ""), etat: (a) => (a.actif ? 1 : 0), derniere: (a) => a.derniere_connexion,
   });
   const action = async (a, chemin) => {
     const t = toast.loading("En cours…");
@@ -255,6 +259,7 @@ function CommercesAutorises({ onMotDePasse }) {
             <ThTri cle="pays" tri={tri} onTri={basculer}>Pays</ThTri>
             <ThTri cle="langue" tri={tri} onTri={basculer}>Langue</ThTri>
             <ThTri cle="cle" tri={tri} onTri={basculer}>Clé de pointage</ThTri>
+            <ThTri cle="souscription" tri={tri} onTri={basculer}>Souscription</ThTri>
             <ThTri cle="etat" tri={tri} onTri={basculer}>État</ThTri>
             <ThTri cle="derniere" tri={tri} onTri={basculer}>Dernière connexion</ThTri>
             <th className="p-2">Actions</th>
@@ -267,6 +272,7 @@ function CommercesAutorises({ onMotDePasse }) {
                 <td className="p-2">{a.pays || "—"}</td>
                 <td className="p-2">{a.langue === "en" ? "English" : "Français"}</td>
                 <td className="p-2 font-mono font-semibold text-sky-700">{a.cle}</td>
+                <td className="p-2"><PastilleSouscription etat={a.souscription} /></td>
                 <td className="p-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${a.actif ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{a.actif ? "✓ Autorisé" : "✕ Révoqué"}</span></td>
                 <td className="p-2 whitespace-nowrap">{dateCourte(a.derniere_connexion)}</td>
                 <td className="p-2">
@@ -274,6 +280,8 @@ function CommercesAutorises({ onMotDePasse }) {
                     <button type="button" onClick={() => setEdition({ id: a.id, libelle: a.structure?.libelle, pays: a.pays || "Burkina Faso", langue: a.langue || "fr" })}
                             title="Modifier le pays et la langue" aria-label="Modifier le pays et la langue"
                             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-sky-700"><Pencil className="h-4 w-4" aria-hidden="true" /></button>
+                    <button type="button" onClick={() => setSouscrire(a)} title="Enregistrer une souscription (espèces, virement…)" aria-label="Enregistrer une souscription"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-800"><CreditCard className="h-4 w-4" aria-hidden="true" /></button>
                     <button type="button" onClick={() => action(a, "mot-de-passe")} title="Nouveau mot de passe" aria-label="Nouveau mot de passe"
                             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-700"><KeyRound className="h-4 w-4" aria-hidden="true" /></button>
                     {a.actif
@@ -285,11 +293,12 @@ function CommercesAutorises({ onMotDePasse }) {
                 </td>
               </tr>
             ))}
-            {!lignes.length && <tr><td colSpan={8} className="p-3 text-center text-slate-500">Aucun commerce autorisé pour l'instant.</td></tr>}
+            {!lignes.length && <tr><td colSpan={9} className="p-3 text-center text-slate-500">Aucun commerce autorisé pour l'instant.</td></tr>}
           </tbody>
-          <tfoot className="border-t-2 bg-slate-50 font-semibold"><tr><td className="p-2" colSpan={8}>{lignes.length} commerce(s) · {lignes.filter((a) => a.actif).length} autorisé(s)</td></tr></tfoot>
+          <tfoot className="border-t-2 bg-slate-50 font-semibold"><tr><td className="p-2" colSpan={9}>{lignes.length} commerce(s) · {lignes.filter((a) => a.actif).length} autorisé(s)</td></tr></tfoot>
         </table>
       </div>
+      {souscrire && <FenetreSouscriptionManuelle commerce={souscrire} onFermer={() => setSouscrire(null)} onFait={() => { setSouscrire(null); charger(); }} />}
       {edition && (
         <Dialog open onOpenChange={(o) => !o && setEdition(null)}>
           <DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto">

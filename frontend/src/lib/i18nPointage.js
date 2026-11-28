@@ -90,6 +90,23 @@ const EN = {
   "Préparation du fichier CSV…": "Preparing the CSV file…", "Préparation du JSON complété…": "Preparing the JSON file…",
   "{nom} téléchargé : à ouvrir avec Excel.": "{nom} downloaded: open it with Excel.", "{nom} téléchargé : à réimporter dans Aizenta.": "{nom} downloaded: import it into Aizenta.",
   "{c} ligne(s) comptée(s) sur {t}, {a} alerte(s).": "{c} line(s) counted out of {t}, {a} alert(s).",
+  // --- Souscription (lot 500)
+  "Ma souscription au pointage": "My stock count subscription", "Souscription illimitée": "Unlimited subscription",
+  "Souscription valide jusqu'au {d}": "Subscription valid until {d}", "Sans souscription valide": "No valid subscription",
+  "{n} demande(s) en attente": "{n} request(s) pending", "Souscription relue.": "Subscription reloaded.",
+  "Sans souscription vérifiée, ni l'Espace ni les téléphones ne peuvent pointer. Les saisies déjà comptées pendant une période payée peuvent encore être envoyées.":
+    "Without a verified subscription, neither the Count area nor phones can count. Entries counted during a paid period can still be sent.",
+  "Prolonger la souscription": "Extend the subscription", "Souscrire": "Subscribe", "Formule": "Plan", "Opérateur": "Operator",
+  "Semaine": "Week", "Mois": "Month", "Année": "Year", "Illimité": "Unlimited",
+  "Composer sur ce téléphone": "Dial on this phone", "Copier la séquence": "Copy the code", "Séquence copiée.": "Code copied.",
+  "Payez avec cette séquence, puis saisissez la référence (ID) de la transaction reçue par SMS.": "Pay with this code, then enter the transaction reference (ID) received by SMS.",
+  "Référence de la transaction": "Transaction reference", "Envoyer la référence pour vérification": "Send the reference for checking",
+  "Vérification du paiement en cours…": "Checking the payment…", "Paiement vérifié : souscription active.": "Payment verified: subscription active.",
+  "Demande enregistrée : elle sera vérifiée dès réception du SMS de paiement, ou par SAWALI.": "Request saved: it will be checked as soon as the payment SMS arrives, or by SAWALI.",
+  "Envoi impossible.": "Cannot send.", "Les formules ne sont pas encore proposées : contactez SAWALI.": "Plans are not available yet: contact SAWALI.",
+  "En attente de vérification": "Awaiting verification", "Vérifiée": "Verified", "Refusée": "Rejected",
+  "Le pointage de ce commerce est suspendu : souscription expirée ou pas encore vérifiée. Prévenez votre responsable.":
+    "Counting is suspended for this shop: subscription expired or not yet verified. Tell your manager.",
 };
 
 /** Texte dans la langue demandée (« fr » par défaut), avec remplacement des {variables}. */

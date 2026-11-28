@@ -10,6 +10,23 @@ Application Kotlin / Jetpack Compose (minSdk 26, Android 8+). Publiée sur Shuya
 - **Corrections de Reçus** (lecture seule) : reçus dont la validité propre à la prestation diffère de celle de la clinique, avec la date d'expiration effective.
 - **Réseau** : Internet détecté → SQL distantes via SAWALI ; sinon les **passerelles locales** du client, dont SAWALI donne les adresses et un ticket de 72 h (version 1.1) ; une adresse saisie à la main reste possible. Voir `docs/PASSERELLE_MOBILE.md` du dépôt Loois.
 
+## Pointage d'inventaire hors connexion (lot M9, version 1.8.0)
+Ouvert depuis le premier écran (« Pointage d'inventaire »), SANS autorisation de l'appareil ni compte Loois : le commerce est reconnu par le QR code
+de l'inventaire (créé sur SAWALI ou dans l'Espace pointage) et par son mot de passe.
+- **Une connexion, une seule fois** : scanner le QR code (lecteur intégré, zxing) → mot de passe du commerce → l'inventaire (lieux, produits, langue)
+  est gardé dans le téléphone (`filesDir/pointage/<jeton>.json`).
+- **Comptage sans Internet** : prénom + lieu, puis dictée (reconnaissance vocale d'Android, hors connexion si le pack de langue est installé ;
+  français ou anglais selon le commerce) ou clavier ; le nom du produit s'affiche ; « Suivant » enregistre dans le téléphone, « Annule » retire la dernière.
+- **Fichiers** : « Exporter » partage le fichier de pointage du téléphone (Bluetooth, WhatsApp, câble, Fichiers) ; le responsable « Importe » les
+  fichiers des autres téléphones : fusion SANS doublon (chaque saisie a un uid), fichier d'un autre inventaire refusé.
+- **Envoi à SAWALI** quand une connexion existe : par paquets de 200, chaque saisie garde le prénom, l'appareil et l'heure de qui a compté.
+- **Souscription** (lot M9.1, SAWALI lot 500) : le comptage n'est permis que pendant une souscription vérifiée du commerce (semaine, mois, année,
+  illimité) ; l'écran « Ma souscription » (clé + mot de passe du commerce) montre l'état, ouvre le clavier du téléphone avec la séquence USSD et envoie
+  la référence de la transaction ; expirée : export, fusion et envoi des saisies déjà faites restent possibles.
+Code : `Pointage.kt` (logique pure, dictée, fichiers, fusion, textes FR / EN), `PointageVM.kt` (stockage, réseau), `EcransPointage.kt` (écrans).
+Tests : `PointageTest.kt` ; contrat `contrat/pointage_acces.json` et `pointage_saisies.json` produits par
+`ECRIRE_CONTRAT_ANDROID=1 pytest backend/tests/test_pointage_telephone_routes_lot496.py`.
+
 ## Architecture
 `Stockage` (réglages + jeton chiffré par le Keystore Android) · `Reseau` (HTTP JSON, adresses autorisées) · `Modeles` (lecture des réponses, formats, tri) · `Etat` (ViewModel) ·
 `Ecrans` (Compose). Côté SAWALI : `backend/routes/appareils_android.py` (registre) et `backend/routes/android_loois.py` (API ; requêtes HFSQL préparées côté serveur).

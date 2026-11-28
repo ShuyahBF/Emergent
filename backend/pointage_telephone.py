@@ -571,3 +571,122 @@ def verifier_mot_de_passe(mdp: str, empreinte: Optional[str]) -> bool:
         return bool(empreinte) and bcrypt.checkpw(normaliser_mot_de_passe(mdp).encode("utf-8"), empreinte.encode("utf-8"))
     except ValueError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Lot 500 : SOUSCRIPTION AU POINTAGE (« formules à la semaine, au mois, à l'année ou illimité ; l'accès au pointage devra se faire lorsque la
+# souscription est vérifiée »). Choix du propriétaire : paiement mobile (USSD avec le code marchand) + référence de la transaction, rapprochée
+# AUTOMATIQUEMENT du SMS de paiement reçu (Transactions SMS) ou validée d'un clic par l'administrateur ; UNE souscription par commerce (clé CP-…) ;
+# elle conditionne la page web ET Loois Mobile ; à l'expiration, seules les saisies comptées PENDANT la période payée peuvent encore être envoyées.
+# Parallèle WinDev : une table « Abonnement » (début, fin, état) consultée avant chaque saisie, comme un contrôle de licence.
+# ---------------------------------------------------------------------------
+COL_SOUSCRIPTIONS = "pointage_souscriptions"
+ID_TARIFS = "pointage_tarifs"                    # fiche `settings` : prix des formules, devise, codes marchands
+FORMULES = {"semaine": 7, "mois": 30, "annee": 365, "illimite": None}     # durée en jours (None = sans fin)
+LIBELLES_FORMULES = {"semaine": "Semaine", "mois": "Mois", "annee": "Année", "illimite": "Illimité"}
+# Séquences USSD : UNE seule copie dans SAWALI, celle du paiement au comptoir des officines (routes/paiement_officine.py, CATALOGUE, dont la
+# source de référence est auRor) — jamais une copie de plus ici. Clé courte de l'opérateur → nom dans ce catalogue.
+OPERATEURS = {"orange": "Orange", "moov": "Moov Africa", "telecel": "Telecel Faso"}
+DELAI_RAPPROCHEMENT_J = 14                       # un SMS de paiement plus ancien n'est pas rapproché
+
+
+def valider_tarifs(corps: Any) -> Dict[str, Any]:
+    """Prix des formules (entiers ≥ 0 ; vide = formule non proposée), devise, code marchand par opérateur. Lève ValueError."""
+    tarifs = {}
+    for f in FORMULES:
+        v = ((corps or {}).get("tarifs") or {}).get(f)
+        if v in (None, ""):
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"prix de la formule « {LIBELLES_FORMULES[f]} » : nombre entier attendu")
+        if n < 0:
+            raise ValueError("prix négatif refusé")
+        tarifs[f] = n
+    codes = {}
+    for op in OPERATEURS:
+        c = re.sub(r"\s+", "", str(((corps or {}).get("codes") or {}).get(op) or ""))
+        if c and not re.fullmatch(r"[0-9]{3,15}", c):
+            raise ValueError(f"code marchand {OPERATEURS[op]} : chiffres seulement")
+        if c:
+            codes[op] = c
+    devise = re.sub(r"\s+", " ", str((corps or {}).get("devise") or "FCFA")).strip()[:10] or "FCFA"
+    return {"tarifs": tarifs, "codes": codes, "devise": devise}
+
+
+def sequence_ussd(operateur: str, code: str, montant: int) -> str:
+    """« *144*10*<code>*<montant># » : construite par le catalogue unique des officines."""
+    from routes.paiement_officine import construire_code
+    return construire_code(OPERATEURS[operateur], code, montant)
+
+
+def lien_ussd(sequence: str) -> str:
+    """Lien « tel: » qui ouvre le clavier du téléphone avec la séquence (le « # » encodé)."""
+    from routes.paiement_officine import lien_tel
+    return lien_tel(sequence)
+
+
+def _instant(v: Any) -> Optional[datetime]:
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def periodes_verifiees(souscriptions: List[dict]) -> List[Tuple[datetime, Optional[datetime]]]:
+    """Périodes payées et vérifiées : (début, fin) ; fin None = illimité."""
+    sortie = []
+    for s in souscriptions:
+        if s.get("statut") == "verifiee" and _instant(s.get("debut")):
+            sortie.append((_instant(s["debut"]), _instant(s.get("fin")) if s.get("fin") else None))
+    return sorted(sortie, key=lambda p: p[0])
+
+
+def couvert(souscriptions: List[dict], instant: Optional[datetime]) -> bool:
+    """Vrai si l'instant est dans une période payée et vérifiée."""
+    return bool(instant) and any(d <= instant and (f is None or instant < f) for d, f in periodes_verifiees(souscriptions))
+
+
+def etat_souscription(souscriptions: List[dict], *, quand: Optional[datetime] = None) -> Dict[str, Any]:
+    """État affiché partout (Espace, téléphones, Loois Mobile, Paramètres) : valide, fin (ou illimité), demande en attente."""
+    t = quand or maintenant()
+    periodes = periodes_verifiees(souscriptions)
+    illimite = any(f is None and d <= t for d, f in periodes)
+    fin = None
+    if not illimite:
+        # Fin de la couverture CONTINUE à partir de maintenant (périodes enchaînées)
+        for d, f in periodes:
+            if d <= (fin or t) and f and f > (fin or t):
+                fin = f
+    valide = illimite or bool(fin and fin > t)
+    return {"valide": valide, "illimite": illimite, "fin": fin.isoformat() if (valide and fin) else None,
+            "en_attente": sum(1 for s in souscriptions if s.get("statut") == "en_attente")}
+
+
+def periode_suivante(souscriptions: List[dict], formule: str, *, quand: Optional[datetime] = None) -> Tuple[str, Optional[str]]:
+    """Début et fin d'une nouvelle période : elle commence à la FIN de la période en cours (jamais de jours perdus en renouvelant tôt)."""
+    t = quand or maintenant()
+    e = etat_souscription(souscriptions, quand=t)
+    debut = _instant(e["fin"]) if e["fin"] else t
+    jours = FORMULES[formule]
+    return debut.isoformat(), ((debut + timedelta(days=jours)).isoformat() if jours else None)
+
+
+def normaliser_reference(ref: Any) -> str:
+    """Référence de transaction comparée sans espaces ni ponctuation, en majuscules (« PP2511.28.A1 » = « pp251128a1 »)."""
+    return re.sub(r"[^A-Za-z0-9]", "", str(ref or "")).upper()
+
+
+def rapprocher(reference: str, montant: int, transactions: List[dict], deja_utilisees: set, *, quand: Optional[datetime] = None) -> Optional[dict]:
+    """Transaction SMS (RECETTE) portant la même référence, d'un montant suffisant, récente et pas déjà utilisée ; None sinon."""
+    ref = normaliser_reference(reference)
+    if len(ref) < 4:
+        return None
+    limite = ((quand or maintenant()) - timedelta(days=DELAI_RAPPROCHEMENT_J)).timestamp() * 1000
+    for p in transactions:
+        if (p.get("genre") == "RECETTE" and normaliser_reference(p.get("reference")) == ref and (p.get("montant") or 0) >= montant
+                and (p.get("ms") or 0) >= limite and p.get("k") not in deja_utilisees):
+            return p
+    return None

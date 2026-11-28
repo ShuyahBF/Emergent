@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lot M9 : seul le dossier « partage » du cache est partageable (fichiers de pointage exportés), jamais les données de l'application -->
+<paths>
+    <cache-path name="partage" path="partage/" />
+</paths>

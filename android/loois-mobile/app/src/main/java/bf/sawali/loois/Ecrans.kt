@@ -47,7 +47,7 @@ fun libelleVersion() = "Version ${BuildConfig.VERSION_NAME} · déployée le ${B
 
 // ================================================================================================================ racine : navigation entre les écrans
 @Composable
-fun Racine(vm: AppViewModel) {
+fun Racine(vm: AppViewModel, pvm: PointageVM? = null) {
     val e by vm.etat.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(e.message) { e.message?.let { snack.showSnackbar(it); vm.messageAffiche() } }
@@ -65,6 +65,7 @@ fun Racine(vm: AppViewModel) {
                 Ecran.RAPIDE -> EcranRapide(e, vm)
                 Ecran.DETAIL -> EcranDetail(e, vm)
                 Ecran.PARAMETRES -> EcranParametres(e, vm)
+                Ecran.POINTAGE -> if (pvm != null) EcranPointage(pvm) { vm.retour() }
             }
             if (e.enCours) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter), color = Couleurs.Orange)   // attente visible (règle « Patientez… »)
         }
@@ -137,6 +138,9 @@ fun EcranAttente(e: UiEtat, vm: AppViewModel) {
             BoutonAction("Paramètres", Icons.Filled.Settings, plein = false) { vm.aller(Ecran.PARAMETRES) }
         }
         Spacer(Modifier.height(12.dp))
+        // Lot M9 : le pointage d'inventaire ne demande ni autorisation de l'appareil ni compte Loois (QR code + mot de passe du commerce)
+        BoutonAction("Pointage d'inventaire", Icons.Filled.Inventory, plein = false) { vm.allerPointage() }
+        Spacer(Modifier.height(12.dp))
         PastilleServeur(e.serveur, e.modeAffiche)
         PiedVersion()
     }
@@ -187,6 +191,8 @@ fun EcranConnexion(e: UiEtat, vm: AppViewModel) {
                 Spacer(Modifier.height(4.dp))
                 Row { TextButton(onClick = { vm.verifierServeur(); vm.rafraichirStatut() }) { Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Actualiser") }
                     TextButton(onClick = { vm.aller(Ecran.PARAMETRES) }) { Icon(Icons.Filled.Settings, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Paramètres") } }
+                // Lot M9 : pointage d'inventaire sans compte Loois
+                TextButton(onClick = { vm.allerPointage() }) { Icon(Icons.Filled.Inventory, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Pointage d'inventaire") }
             }
         }
         PiedVersion()
@@ -216,6 +222,7 @@ fun EcranMenu(e: UiEtat, vm: AppViewModel) {
                 TuileMenu("Corrections de Reçus", "Reçus dont la validité est à corriger", Icons.Filled.FactCheck, Couleurs.OrangeFonce) { vm.aller(Ecran.CORRECTIONS); if (e.corrections == null) vm.chargerCorrections() }
             }
             if (e.droits?.caisse != true && e.droits?.tableauDeBord != true) Text("La caisse n'est pas disponible pour cette zone (${e.utilisateur?.espace ?: ""}).", color = Couleurs.Gris)
+            TuileMenu("Pointage d'Inventaire", "Comptage au téléphone, même sans Internet ; fusion des téléphones", Icons.Filled.Inventory, Color(0xFF7C3AED)) { vm.allerPointage() }
             TuileMenu("Paramètres", "Adresses du serveur et mode de connexion", Icons.Filled.Settings, Couleurs.Gris) { vm.aller(Ecran.PARAMETRES) }
         }
         PiedVersion()

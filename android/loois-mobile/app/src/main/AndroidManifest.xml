@@ -23,5 +23,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Lot M9 : partage du fichier de pointage (Bluetooth, WhatsApp, câble…) depuis le dossier de partage de l'application -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fichiers"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/fichiers_partages" />
+        </provider>
     </application>
 </manifest>

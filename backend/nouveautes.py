@@ -18,6 +18,12 @@
 
 NOUVEAUTES = [
     {
+        "lot": "499", "date": "2026-11-28",
+        "titre": "🌍 Pointage : pays et langue de chaque commerce",
+        "description": "À la création, chaque commerce précise son pays et sa langue (français ou anglais) : Espace pointage, téléphones, dictée (« line 245, twelve, March 2027, next ») et exports suivent sa langue. Bouton « Télécharger l'application Android » (Loois mobile, ShuyahStore).",
+        "rubrique": "📱 Pointage d'inventaire par téléphone",
+    },
+    {
         "lot": "498", "date": "2026-11-28",
         "titre": "🔑 Pointage : clé et mot de passe par commerce, Espace pointage",
         "description": "Chaque commerce doit avoir sa clé de pointage (CP-…) et son mot de passe (affiché une seule fois) : générés un à un pour les officines et clients connus, aussitôt pour un commerce déclaré. Le responsable gère ses inventaires sur /pointage-espace ; chaque téléphone saisit le mot de passe après le QR code (5 essais, puis 15 min de blocage).",

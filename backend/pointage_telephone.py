@@ -38,6 +38,38 @@ MAX_LIEUX = 8
 MAX_QUANTITE = 1_000_000
 DUREE_JETON_JOURS = 3      # le QR code expire de lui-même (et à la clôture)
 LIEUX_DEFAUT = [{"nom": "Salle de vente", "colonne": "SV"}, {"nom": "Magasin", "colonne": "MG"}]
+# Lot 499 : pays et langue de l'interface choisis à la création de chaque commerce (« anglais ou français »)
+LANGUES = ("fr", "en")
+PAYS = ["Burkina Faso", "Bénin", "Burundi", "Cameroun", "Centrafrique", "Comores", "Congo", "Congo (RDC)", "Côte d'Ivoire", "Djibouti",
+        "Gabon", "Gambie", "Ghana", "Guinée", "Guinée-Bissau", "Guinée équatoriale", "Kenya", "Liberia", "Madagascar", "Mali", "Maroc",
+        "Mauritanie", "Niger", "Nigeria", "Ouganda", "Rwanda", "Sénégal", "Sierra Leone", "Tanzanie", "Tchad", "Togo", "Tunisie",
+        "Afrique du Sud", "Algérie", "Belgique", "Canada", "France", "Suisse", "Royaume-Uni", "États-Unis"]
+
+
+def valider_pays_langue(corps: Any) -> Dict[str, str]:
+    """Pays (liste ou « Autre » libre, 60 caractères) et langue fr / en ; par défaut Burkina Faso, français."""
+    pays = re.sub(r"\s+", " ", str((corps or {}).get("pays") or "")).strip()[:60] or "Burkina Faso"
+    langue = str((corps or {}).get("langue") or "fr").lower()
+    if langue not in LANGUES:
+        raise ValueError("langue attendue : fr (français) ou en (anglais)")
+    return {"pays": pays, "langue": langue}
+
+
+# Textes produits par le serveur dans la langue du commerce (alertes du suivi, en-têtes du CSV)
+TEXTES_EN = {
+    "saisie plusieurs fois dans le même lieu : quantités additionnées, à vérifier": "counted several times in the same location: quantities added up, please check",
+    "produit PÉRIMÉ": "EXPIRED product",
+    "péremption dans moins de 3 mois": "expires in less than 3 months",
+    "écart important : {compte} compté(s) pour {avant} attendu(s)": "large difference: {compte} counted, {avant} expected",
+    "N°": "No.", "Code": "Code", "Libellé": "Product", "Mesure": "Unit", "Stock théorique": "Expected stock", "Total compté": "Total counted",
+    "Écart": "Difference", "Péremption": "Expiry", "Compté par": "Counted by",
+}
+
+
+def texte(fr: str, langue: str = "fr", **valeurs) -> str:
+    """Texte en français, ou sa traduction anglaise pour un commerce en anglais."""
+    modele = TEXTES_EN.get(fr, fr) if langue == "en" else fr
+    return modele.format(**valeurs) if valeurs else modele
 
 
 def maintenant() -> datetime:
@@ -105,13 +137,13 @@ def nouveau_jeton() -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 # Liste des produits : JSON d'Aizenta ou CSV (Excel, autre logiciel de caisse)
 # ---------------------------------------------------------------------------
-_ENTETES = {   # en-têtes reconnus (sans accents ni majuscules) → champ interne
-    "chrono": ["n", "no", "num", "numero", "ordre", "n ordre", "numero d ordre", "chrono", "ligne", "rang"],
-    "code": ["code", "reference", "ref", "cip", "code barre", "code barres", "ean", "sku", "code produit"],
-    "libelle": ["libelle", "designation", "produit", "article", "nom", "description", "nom du produit"],
-    "mesure": ["mesure", "conditionnement", "cond", "unite", "format", "presentation"],
-    "stock": ["stock", "stock theorique", "quantite", "qte", "theorique", "stock actuel", "quantite en stock"],
-    "prix": ["prix", "prix public", "pv", "prix de vente", "prix unitaire", "pu"],
+_ENTETES = {   # en-têtes reconnus (sans accents ni majuscules), en français ET en anglais (lot 499) → champ interne
+    "chrono": ["n", "no", "num", "numero", "ordre", "n ordre", "numero d ordre", "chrono", "ligne", "rang", "number", "line", "line no", "item no"],
+    "code": ["code", "reference", "ref", "cip", "code barre", "code barres", "ean", "sku", "code produit", "barcode", "product code", "item code"],
+    "libelle": ["libelle", "designation", "produit", "article", "nom", "description", "nom du produit", "product", "item", "name", "product name", "item name"],
+    "mesure": ["mesure", "conditionnement", "cond", "unite", "format", "presentation", "unit", "pack", "packaging", "size"],
+    "stock": ["stock", "stock theorique", "quantite", "qte", "theorique", "stock actuel", "quantite en stock", "quantity", "qty", "on hand", "stock on hand", "expected stock"],
+    "prix": ["prix", "prix public", "pv", "prix de vente", "prix unitaire", "pu", "price", "unit price", "selling price"],
 }
 
 
@@ -148,7 +180,7 @@ def lignes_depuis_csv(texte: str) -> List[dict]:
                 colonnes[champ] = i
                 break
     if "libelle" not in colonnes:
-        raise ValueError("colonne du libellé introuvable (en-tête « Libellé », « Désignation », « Produit » ou « Article »)")
+        raise ValueError("colonne du libellé introuvable (en-tête « Libellé », « Désignation », « Produit », « Article » ou « Product »)")
     val = lambda r, c: (r[colonnes[c]].strip() if c in colonnes and colonnes[c] < len(r) else "")
     brutes = [r for r in lecteur[1:] if val(r, "libelle")]
     if not brutes:
@@ -195,16 +227,16 @@ def valider_commerce(corps: Any) -> Dict[str, Any]:
         raise ValueError("nom du commerce attendu")
     if not type_:
         raise ValueError("type de commerce attendu")
-    return {"nom": nom, "type": type_, "ville": re.sub(r"\s+", " ", str((corps or {}).get("ville") or "")).strip()[:80] or None}
+    return {"nom": nom, "type": type_, "ville": re.sub(r"\s+", " ", str((corps or {}).get("ville") or "")).strip()[:80] or None} | valider_pays_langue(corps)
 
 
 def creer_inventaire(*, ident: str, numero: str, structure: Dict[str, Any], lieux: Any, export: Any,
-                     nom_fichier: Optional[str], par: str, format_: str = "aizenta") -> Dict[str, Any]:
+                     nom_fichier: Optional[str], par: str, format_: str = "aizenta", langue: str = "fr") -> Dict[str, Any]:
     """Fiche complète d'un nouvel inventaire (sans ses saisies, rangées dans leur propre collection)."""
     lignes = valider_export(export)
     jeton, expire = nouveau_jeton()
     return {
-        "_id": ident, "id": ident, "numero": numero, "format": format_,
+        "_id": ident, "id": ident, "numero": numero, "format": format_, "langue": langue if langue in LANGUES else "fr",
         "code_inv": code_inventaire(nom_fichier), "base": code_base(nom_fichier), "nom_fichier": (nom_fichier or "")[:160],
         "structure": {k: structure.get(k) for k in ("source", "id", "code", "libelle", "type")},
         "lieux": valider_lieux(lieux), "etat": "ouvert",
@@ -271,7 +303,14 @@ def nettoyer_saisie(s: Any, *, lieux: List[dict], chronos: set) -> Dict[str, Any
         raise ValueError(f"ligne {chrono} absente de cet inventaire")
     if not (0 <= qte <= MAX_QUANTITE):
         raise ValueError("quantité hors limites")
-    return {"uid": uid, "chrono": chrono, "qte": qte, "lieu": lieu,
+    origine = {}
+    if s.get("prenom"):                       # lot 499 : fichier fusionné (Loois mobile) → chaque saisie garde le prénom de qui a compté
+        origine["prenom"] = nettoyer_prenom(s.get("prenom"))
+    if re.fullmatch(r"[A-Za-z0-9_\-]{8,64}", str(s.get("appareil") or "")):
+        origine["appareil"] = s["appareil"]
+    if s.get("le") and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[\d:.+\-Z]{5,30}", str(s["le"])):
+        origine["compte_le"] = str(s["le"])     # heure du comptage sur le téléphone (l'heure de réception reste celle du serveur)
+    return origine | {"uid": uid, "chrono": chrono, "qte": qte, "lieu": lieu,
             "peremption": peremption_hfsql(s.get("peremption")),
             "texte": str(s.get("texte") or "")[:120]}   # phrase dictée, gardée pour le contrôle
 
@@ -302,7 +341,8 @@ def totaux_par_ligne(doc: dict) -> Dict[int, Dict[str, Any]]:
 
 
 def etat(doc: dict, *, aujourd_hui: Optional[datetime] = None) -> Dict[str, Any]:
-    """Avancement et alertes affichés au responsable (aucune écriture)."""
+    """Avancement et alertes affichés au responsable (aucune écriture), dans la langue du commerce (lot 499)."""
+    langue = doc.get("langue") or "fr"
     jour = (aujourd_hui or maintenant()).strftime("%Y%m01")
     dans_3_mois = ((aujourd_hui or maintenant()) + timedelta(days=92)).strftime("%Y%m01")
     lignes = (doc.get("export") or {}).get(CLE_TABLE) or []
@@ -339,14 +379,14 @@ def etat(doc: dict, *, aujourd_hui: Optional[datetime] = None) -> Dict[str, Any]
             continue
         if tot["doublon"]:
             alertes.append({"type": "doublon", "chrono": c, "libelle": x.get("Libellé"),
-                            "message": "saisie plusieurs fois dans le même lieu : quantités additionnées, à vérifier"})
+                            "message": texte("saisie plusieurs fois dans le même lieu : quantités additionnées, à vérifier", langue)})
         if tot["peremption"] and tot["peremption"] < jour:
-            alertes.append({"type": "perime", "chrono": c, "libelle": x.get("Libellé"), "message": "produit PÉRIMÉ"})
+            alertes.append({"type": "perime", "chrono": c, "libelle": x.get("Libellé"), "message": texte("produit PÉRIMÉ", langue)})
         elif tot["peremption"] and tot["peremption"] < dans_3_mois:
-            alertes.append({"type": "proche", "chrono": c, "libelle": x.get("Libellé"), "message": "péremption dans moins de 3 mois"})
+            alertes.append({"type": "proche", "chrono": c, "libelle": x.get("Libellé"), "message": texte("péremption dans moins de 3 mois", langue)})
         if abs(compte - avant) >= max(10, abs(avant) // 2):
             alertes.append({"type": "ecart", "chrono": c, "libelle": x.get("Libellé"),
-                            "message": f"écart important : {compte} compté(s) pour {avant} attendu(s)"})
+                            "message": texte("écart important : {compte} compté(s) pour {avant} attendu(s)", langue, compte=compte, avant=avant)})
     comptees = sum(1 for d in detail if d["compte"] is not None)
     return {
         "lignes_total": len(lignes), "lignes_comptees": comptees,
@@ -391,8 +431,10 @@ def exporter_csv(doc: dict) -> bytes:
     lieux = doc.get("lieux") or []
     sortie = io.StringIO()
     w = csv.writer(sortie, delimiter=";")
-    w.writerow(["N°", "Code", "Libellé", "Mesure", "Stock théorique", *[l["nom"] for l in lieux], "Total compté", "Écart",
-                "Péremption", "Compté par"])
+    langue = doc.get("langue") or "fr"
+    t_ = lambda x: texte(x, langue)
+    w.writerow([t_("N°"), t_("Code"), t_("Libellé"), t_("Mesure"), t_("Stock théorique"), *[l["nom"] for l in lieux], t_("Total compté"),
+                t_("Écart"), t_("Péremption"), t_("Compté par")])
     for x in (doc.get("export") or {}).get(CLE_TABLE) or []:
         tot = t.get(x["Chrono"])
         avant = int(x.get("StockAvant_SV") or 0) + int(x.get("StockAvant_MG") or 0)
@@ -415,7 +457,7 @@ def fiche_liste(doc: dict) -> Dict[str, Any]:
     """Résumé d'un inventaire pour la liste (sans l'export ni les saisies)."""
     total = doc.get("lignes_total") or len((doc.get("export") or {}).get(CLE_TABLE) or [])
     comptees = len({s["chrono"] for s in _actives(doc)})
-    return {k: doc.get(k) for k in ("id", "numero", "format", "code_inv", "base", "structure", "lieux", "etat", "cree_le", "cree_par", "cloture_le", "jeton_expire")} | {
+    return {k: doc.get(k) for k in ("id", "numero", "format", "langue", "code_inv", "base", "structure", "lieux", "etat", "cree_le", "cree_par", "cloture_le", "jeton_expire")} | {
         "lignes_total": total, "lignes_comptees": comptees,
         "progression": round(100 * comptees / total, 1) if total else 0,
     }

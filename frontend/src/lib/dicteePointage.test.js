@@ -34,6 +34,11 @@ describe("dictée du pointage", () => {
     expect(r("ligne 245 et 12 boîtes")).toEqual({ chrono: 245, qte: 12 });
     expect(r("245 12 péremption 13 2027").peremption).toBeUndefined();
   });
+  test("anglais (lot 499)", () => {
+    expect(r("line 245 twelve March 2027 next")).toEqual({ chrono: 245, qte: 12, peremption: "03/2027", commande: "suivant" });
+    expect(r("two hundred and forty five, quantity twenty one")).toEqual({ chrono: 245, qte: 21 });
+    expect(r("undo")).toEqual({ commande: "annule" });
+  });
   test("le N° écrit avec le signe n°", () => {
     expect(jetons("N° 12")).toEqual([{ t: "etiquette", v: "chrono" }, { t: "nombre", v: 12, brut: "12" }]);
   });

@@ -12,6 +12,8 @@
 #     l'inventaire et à la version du mot de passe (un nouveau mot de passe ou une clé révoquée coupe aussitôt les téléphones).
 #   - Essais : 5 mots de passe faux → commerce bloqué 15 min ; 20 échecs par adresse IP en 15 min → IP refusée (HTTP 429).
 #
+# Lot 499 : chaque commerce précise son PAYS et la LANGUE de l'interface (français ou anglais) à sa création (déclaration, ou génération de
+#   sa clé pour un commerce déjà connu ; modifiables ensuite) ; les fichiers fusionnés par Loois mobile gardent le prénom de chaque saisie.
 # Administration (Paramètres → « 📱 Pointage d'inventaire par téléphone », administrateur seul) : /api/admin/pointage-…
 # Espace du responsable : /api/pointage-espace/… ; Téléphones : /api/public/pointage/{jeton}/…
 from __future__ import annotations
@@ -55,6 +57,18 @@ class Commerce(BaseModel):
     nom: str = Field(min_length=2, max_length=120)
     type: str = Field(min_length=1, max_length=60)
     ville: Optional[str] = Field(default=None, max_length=80)
+    pays: Optional[str] = Field(default=None, max_length=60)
+    langue: str = Field(default="fr", pattern="^(fr|en)$")
+
+
+class GenerationAcces(RefStructure):
+    pays: Optional[str] = Field(default=None, max_length=60)
+    langue: str = Field(default="fr", pattern="^(fr|en)$")
+
+
+class PaysLangue(BaseModel):
+    pays: Optional[str] = Field(default=None, max_length=60)
+    langue: str = Field(default="fr", pattern="^(fr|en)$")
 
 
 class Connexion(BaseModel):
@@ -164,23 +178,25 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
                 return {"source": "commerce", "id": f["id"], "code": f["cle_suivi"], "libelle": f["nom"], "type": f.get("type")}
         raise HTTPException(status_code=400, detail="Structure inconnue : choisissez-la dans la liste ou déclarez le commerce")
 
-    async def _creer_acces(structure: dict, par: str) -> Dict[str, Any]:
+    async def _creer_acces(structure: dict, par: str, pays_langue: Optional[dict] = None) -> Dict[str, Any]:
         """Génère la clé de pointage et le mot de passe d'un commerce ; le mot de passe n'est renvoyé qu'ICI (jamais relisible)."""
         mdp = pt.generer_mot_de_passe()
         empreinte = await asyncio.to_thread(pt.hacher_mot_de_passe, mdp)
         for _ in range(5):
             fiche = {"id": uuid.uuid4().hex[:12], "structure": structure, "cle": pt.generer_cle_pointage(), "mdp_hash": empreinte,
                      "version": 1, "actif": True, "echecs": 0, "cree_le": pt.maintenant().isoformat(), "cree_par": par}
+            fiche |= pays_langue or pt.valider_pays_langue({})
             try:
                 await acces_col.insert_one(dict(fiche))
-                return {"id": fiche["id"], "cle": fiche["cle"], "mot_de_passe": mdp, "structure": structure, "actif": True}
+                return {"id": fiche["id"], "cle": fiche["cle"], "mot_de_passe": mdp, "structure": structure, "actif": True,
+                        "pays": fiche["pays"], "langue": fiche["langue"]}
             except DuplicateKeyError as e:
                 if "structure" in str(e):
                     raise HTTPException(status_code=409, detail="Ce commerce a déjà sa clé de pointage (générez un nouveau mot de passe)")
         raise HTTPException(status_code=500, detail="Clé de pointage impossible à générer : réessayez")
 
     def _acces_public(a: dict) -> dict:
-        return {k: a.get(k) for k in ("id", "cle", "structure", "actif", "cree_le", "derniere_connexion", "bloque_jusqu")}
+        return {k: a.get(k) for k in ("id", "cle", "structure", "actif", "cree_le", "derniere_connexion", "bloque_jusqu", "pays")} | {"langue": a.get("langue") or "fr"}
 
     async def _avec_saisies(doc: dict) -> dict:
         """L'inventaire avec la liste de ses saisies (lecture en bloc, une seule requête : règle 7)."""
@@ -210,7 +226,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
             f["lignes_comptees"] = comptes.get(d["id"], 0)
             f["progression"] = round(100 * f["lignes_comptees"] / f["lignes_total"], 1) if f["lignes_total"] else 0
             sortie.append(f)
-        return {"inventaires": sortie, "types_commerce": pt.TYPES_COMMERCE}
+        return {"inventaires": sortie, "types_commerce": pt.TYPES_COMMERCE, "pays": pt.PAYS}
 
     async def _creer(structure: dict, corps: Creation, par: str) -> dict:
         acces = await _acces_de(structure)
@@ -224,7 +240,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         try:
             doc = pt.creer_inventaire(ident=uuid.uuid4().hex[:12], numero=pt.numero_suivant(compteur.get("valeur") or 1),
                                       structure=structure, lieux=[l.model_dump() for l in corps.lieux], export=export,
-                                      nom_fichier=corps.nom_fichier, par=par, format_=format_)
+                                      nom_fichier=corps.nom_fichier, par=par, format_=format_, langue=acces.get("langue") or "fr")
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         await inventaires.insert_one(dict(doc))
@@ -295,7 +311,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         for r in resultats:
             a = cles.get((r["source"], r["id"]))
             r["acces"] = {"cle": a["cle"], "actif": a.get("actif")} if a else None
-        return {"structures": resultats, "types_commerce": pt.TYPES_COMMERCE}
+        return {"structures": resultats, "types_commerce": pt.TYPES_COMMERCE, "pays": pt.PAYS}
 
     @api.post("/admin/pointage-structures", tags=["Pointage par téléphone"])
     async def declarer_commerce(corps: Commerce, user: dict = Depends(_admin)):
@@ -315,17 +331,37 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         else:
             raise HTTPException(status_code=500, detail="Clé de suivi impossible à générer : réessayez")
         structure = {"source": "commerce", "id": fiche["id"], "code": fiche["cle_suivi"], "libelle": fiche["nom"], "type": fiche["type"]}
-        acces = await _creer_acces(structure, user.get("email") or "admin")
-        return structure | {"ville": fiche["ville"], "acces": {"cle": acces["cle"], "actif": True}, "mot_de_passe": acces["mot_de_passe"]}
+        acces = await _creer_acces(structure, user.get("email") or "admin", {"pays": fiche["pays"], "langue": fiche["langue"]})
+        return structure | {"ville": fiche["ville"], "pays": fiche["pays"], "langue": fiche["langue"],
+                            "acces": {"cle": acces["cle"], "actif": True}, "mot_de_passe": acces["mot_de_passe"]}
 
     @api.get("/admin/pointage-acces", tags=["Pointage par téléphone"])
     async def liste_acces(_: dict = Depends(_admin)):
         return {"acces": [_acces_public(a) async for a in acces_col.find({}, {"_id": 0, "mdp_hash": 0}).sort("cree_le", -1).limit(500)]}
 
     @api.post("/admin/pointage-acces", tags=["Pointage par téléphone"])
-    async def generer_acces(corps: RefStructure, user: dict = Depends(_admin)):
-        """Génère, une à une (choix du propriétaire), la clé de pointage d'un commerce déjà connu (officine, client Loois…)."""
-        return await _creer_acces(await _structure(corps), user.get("email") or "admin")
+    async def generer_acces(corps: GenerationAcces, user: dict = Depends(_admin)):
+        """Génère, une à une (choix du propriétaire), la clé de pointage d'un commerce déjà connu (officine, client Loois…), avec son pays et sa langue."""
+        try:
+            pays_langue = pt.valider_pays_langue(corps.model_dump())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return await _creer_acces(await _structure(RefStructure(source=corps.source, id=corps.id)), user.get("email") or "admin", pays_langue)
+
+    @api.put("/admin/pointage-acces/{ident}", tags=["Pointage par téléphone"])
+    async def modifier_pays_langue(ident: str, corps: PaysLangue, _: dict = Depends(_admin)):
+        """Pays et langue d'un commerce autorisé (les inventaires suivants prennent la nouvelle langue)."""
+        try:
+            propre = pt.valider_pays_langue(corps.model_dump())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        r = await acces_col.update_one({"id": ident}, {"$set": propre})
+        if not r.matched_count:
+            raise HTTPException(status_code=404, detail="Clé de pointage introuvable")
+        a = await acces_col.find_one({"id": ident}, {"_id": 0, "mdp_hash": 0})
+        if a["structure"].get("source") == "commerce":          # commerce déclaré ici : sa fiche garde aussi le pays et la langue
+            await structures_col.update_one({"id": a["structure"]["id"]}, {"$set": propre})
+        return _acces_public(a)
 
     @api.post("/admin/pointage-acces/{ident}/mot-de-passe", tags=["Pointage par téléphone"])
     async def nouveau_mot_de_passe(ident: str, _: dict = Depends(_admin)):
@@ -446,6 +482,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         doc = await _par_jeton(jeton, {"id": 1, "numero": 1, "code_inv": 1, "structure": 1, "etat": 1, "jeton_expire": 1})
         acces = await _acces_de(doc.get("structure") or {})
         return {"numero": doc.get("numero"), "code_inv": doc.get("code_inv"), "cle_pointage": (acces or {}).get("cle"),
+                "langue": doc.get("langue") or (acces or {}).get("langue") or "fr",
                 "structure": (doc.get("structure") or {}).get("libelle") or (doc.get("structure") or {}).get("code"), "mot_de_passe_requis": True}
 
     @api.post("/public/pointage/{jeton}/acces", tags=["Pointage par téléphone"])
@@ -456,6 +493,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         acces = await _verifier_mot_de_passe(acces, corps.mot_de_passe, request)
         lignes = [{"c": x["Chrono"], "l": x.get("Libellé"), "m": x.get("Mesure")} for x in (doc.get("export") or {}).get(pt.CLE_TABLE) or []]
         return {"jeton_telephone": pt.jeton_telephone(_secret(), doc, acces), "numero": doc.get("numero"), "code_inv": doc.get("code_inv"),
+                "langue": doc.get("langue") or acces.get("langue") or "fr", "id": doc["id"], "cle_pointage": acces.get("cle"),
                 "structure": (doc.get("structure") or {}).get("libelle") or (doc.get("structure") or {}).get("code"),
                 "lieux": [{"id": l["id"], "nom": l["nom"]} for l in doc.get("lieux") or []], "lignes": lignes, "jeton_expire": doc.get("jeton_expire")}
 
@@ -479,7 +517,8 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
                 continue
             # Ligne déjà comptée dans ce lieu (par n'importe quel téléphone) : la quantité s'ajoute, le téléphone le signale
             deja = await saisies.find_one({"inventaire_id": doc["id"], "chrono": s["chrono"], "lieu": s["lieu"], "annulee": {"$ne": True}}, {"_id": 1})
-            s |= {"inventaire_id": doc["id"], "prenom": prenom, "appareil": corps.appareil, "le": pt.maintenant().isoformat(), "ip": _ip(request)}
+            # Prénom et appareil de l'envoi, sauf si la saisie porte les siens (fichier fusionné par le responsable dans Loois mobile)
+            s = {"prenom": prenom, "appareil": corps.appareil} | s | {"inventaire_id": doc["id"], "le": pt.maintenant().isoformat(), "ip": _ip(request)}
             try:
                 await saisies.insert_one(s)
                 if deja:

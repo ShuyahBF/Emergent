@@ -187,7 +187,8 @@ def test_export_csv_par_lieu():
 
 
 def test_commerce_et_cle_de_suivi():
-    assert pt.valider_commerce({"nom": " Boutique  Awa ", "type": "Boutique", "ville": "Koudougou"}) == {"nom": "Boutique Awa", "type": "Boutique", "ville": "Koudougou"}
+    assert pt.valider_commerce({"nom": " Boutique  Awa ", "type": "Boutique", "ville": "Koudougou"}) == {"nom": "Boutique Awa", "type": "Boutique", "ville": "Koudougou",
+                                                                                                 "pays": "Burkina Faso", "langue": "fr"}
     with pytest.raises(ValueError):
         pt.valider_commerce({"nom": "B", "type": "Boutique"})
     cle = pt.generer_cle_suivi()

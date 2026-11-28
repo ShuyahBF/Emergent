@@ -1,20 +1,26 @@
 // dicteePointage.js — Lot 496 : comprend une phrase dictée (ou tapée) au téléphone pendant le pointage d'inventaire.
 // « ligne 245, 12, mars 2027, suivant » → { chrono: 245, qte: 12, peremption: "03/2027", commande: "suivant" }.
 // AUCUNE IA : un simple analyseur des nombres et des mois en français (rapide, gratuit, fonctionne hors connexion).
+// Lot 499 : il comprend AUSSI l'anglais (« line 245, twelve, March 2027, next ») pour les commerces dont l'interface est en anglais.
 // Parallèle WinDev : c'est une procédure qui découpe une chaîne avec ExtraitChaîne puis convertit chaque morceau avec Val().
 
 // --- Vocabulaire ---------------------------------------------------------------------------------------------------
 const UNITES = { zero: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
-  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16 };
-const DIZAINES = { vingt: 20, vingts: 20, trente: 30, quarante: 40, cinquante: 50, soixante: 60, septante: 70, huitante: 80, octante: 80, nonante: 90 };
-const MOIS = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 };
+  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16,
+  // anglais
+  one: 1, two: 2, three: 3, four: 4, five: 5, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, oh: 0 };
+const DIZAINES = { vingt: 20, vingts: 20, trente: 30, quarante: 40, cinquante: 50, soixante: 60, septante: 70, huitante: 80, octante: 80, nonante: 90,
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const MOIS = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12,
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
 // Mots qui annoncent la valeur suivante (« quantité 12 ») ; sans eux, l'ordre fait foi : ligne, quantité, péremption
 const ETIQUETTES = { ligne: "chrono", numero: "chrono", n: "chrono", no: "chrono", ordre: "chrono", produit: "chrono",
   quantite: "qte", qte: "qte", nombre: "qte", stock: "qte", peremption: "peremption", perime: "peremption", expire: "peremption",
-  expiration: "peremption", date: "peremption", lot: "peremption" };
-const SUIVANT = new Set(["suivant", "suivante", "valider", "valide", "enregistre", "enregistrer", "ok", "okay", "next"]);
-const ANNULE = new Set(["annule", "annuler", "efface", "effacer", "corrige", "corriger", "supprime", "supprimer"]);
-const IGNORES = new Set(["et", "de", "du", "la", "le", "les", "a", "au", "en", "fin", "boite", "boites", "unite", "unites", "pieces", "piece"]);
+  expiration: "peremption", date: "peremption", lot: "peremption",
+  line: "chrono", number: "chrono", item: "chrono", quantity: "qte", qty: "qte", count: "qte", expiry: "peremption", expires: "peremption", best: "peremption" };
+const SUIVANT = new Set(["suivant", "suivante", "valider", "valide", "enregistre", "enregistrer", "ok", "okay", "next", "save", "done"]);
+const ANNULE = new Set(["annule", "annuler", "efface", "effacer", "corrige", "corriger", "supprime", "supprimer", "undo", "cancel", "delete"]);
 
 /** Minuscules, sans accents ; les signes deviennent des espaces, sauf « / » entre deux chiffres (« 03/27 »). */
 export function normaliser(texte) {
@@ -40,7 +46,7 @@ export function jetons(texte) {
     total = null; courant = 0; dernier = null;
   };
   for (const mot of mots) {
-    if (mot === "et" && total !== null) continue;          // « vingt et un » : le « et » ne coupe pas le nombre
+    if ((mot === "et" || mot === "and") && total !== null) continue;   // « vingt et un », « one hundred and five » : ne coupe pas le nombre
     if (mot in UNITES) {
       const v = UNITES[mot];
       const nouveau = total !== null && dernier !== null && dernier < 20 && !(dernier === 10 && v < 10) && dernier !== 100;
@@ -55,10 +61,10 @@ export function jetons(texte) {
       else if (dernier !== null && dernier !== 100) { finirNombre(); total = 0; courant = DIZAINES[mot]; }
       else courant += DIZAINES[mot];
       dernier = 20;
-    } else if (mot === "cent" || mot === "cents") {
+    } else if (mot === "cent" || mot === "cents" || mot === "hundred") {
       if (total === null) total = 0;
       courant = (courant || 1) * 100; dernier = 100;
-    } else if (mot === "mille") {
+    } else if (mot === "mille" || mot === "thousand") {
       if (total === null) total = 0;
       total += (courant || 1) * 1000; courant = 0; dernier = 100;
     } else {

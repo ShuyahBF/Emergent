@@ -19,7 +19,8 @@ def _export():
 
 
 def _doc(lieux=None):
-    return pt.creer_inventaire(ident="abc", numero="PT-0001", structure={"id": "s1", "code": "PPH", "libelle": "Clinique Philadelphie"},
+    # Lot 497 : les saisies vivent dans leur propre collection ; la route les ajoute sous « saisies » avant les calculs
+    return {"saisies": []} | pt.creer_inventaire(ident="abc", numero="PT-0001", structure={"id": "s1", "code": "PPH", "libelle": "Clinique Philadelphie"},
                                lieux=lieux if lieux is not None else [{"nom": "Salle de vente", "colonne": "SV"},
                                                                       {"nom": "Magasin", "colonne": "MG"},
                                                                       {"nom": "Réservés", "colonne": "MG"}],
@@ -141,3 +142,53 @@ def test_fiche_liste_sans_export():
     f = pt.fiche_liste(leger)
     assert (f["lignes_total"], f["lignes_comptees"], f["numero"]) == (3, 1, "PT-0001")
     assert "jeton" not in f and "export" not in f
+
+
+# ---------------------------------------------------------------------------- Lot 497 : tout commerce, CSV
+CSV_EXCEL = "\ufeffDésignation;Code barre;Conditionnement;Stock théorique;Prix de vente\nSavon Lux;6001;Pièce;24;350\nRiz 25 kg;6002;Sac;1 200;18 500\n;;;;\n"
+
+
+def test_csv_excel_sans_numero_d_ordre():
+    export, fmt = pt.lire_liste_produits(CSV_EXCEL, "stock_boutique.csv")
+    l1, l2 = export[pt.CLE_TABLE]
+    assert fmt == "csv" and len(export[pt.CLE_TABLE]) == 2          # ligne vide ignorée
+    assert (l1["Chrono"], l1["Code"], l1["Libellé"], l1["Mesure"], l1["StockAvant_MG"]) == (1, "6001", "Savon Lux", "Pièce", 24)
+    assert (l2["Chrono"], l2["StockAvant_MG"], l2["IPPublic"]) == (2, 1200, 18500)
+
+
+def test_csv_avec_numeros_et_virgules():
+    export, _ = pt.lire_liste_produits("N°,Article,Qté\n10,Stylo bleu,5\n12,Cahier,3\n", "x.csv")
+    assert [l["Chrono"] for l in export[pt.CLE_TABLE]] == [10, 12]
+
+
+def test_csv_sans_libelle_refuse():
+    with pytest.raises(ValueError):
+        pt.lire_liste_produits("Code;Stock\n1;2\n", "x.csv")
+
+
+def test_json_aizenta_reconnu():
+    import json
+    export, fmt = pt.lire_liste_produits("\ufeff" + json.dumps(_export()), "InventaireSélectionné_PPH_INV069.json")
+    assert fmt == "aizenta" and len(export[pt.CLE_TABLE]) == 3
+
+
+def test_export_csv_par_lieu():
+    export, _ = pt.lire_liste_produits(CSV_EXCEL, "stock_boutique.csv")
+    doc = {"saisies": []} | pt.creer_inventaire(ident="b", numero="PT-0002", structure={"source": "commerce", "id": "c1", "code": "CS-ABC234", "libelle": "Boutique Awa"},
+                                                lieux=[{"nom": "Rayon", "colonne": "SV"}, {"nom": "Réserve", "colonne": "MG"}], export=export,
+                                                nom_fichier="stock_boutique.csv", par="a", format_="csv")
+    for uid, c, q, lieu in [("u0000001", 1, 20, "L1"), ("u0000002", 1, 6, "L2")]:
+        doc["saisies"].append(pt.nettoyer_saisie({"uid": uid, "chrono": c, "qte": q, "lieu": lieu}, lieux=doc["lieux"], chronos={1, 2}) | {"prenom": "Awa"})
+    texte = pt.exporter_csv(doc).decode("utf-8-sig").splitlines()
+    assert texte[0] == "N°;Code;Libellé;Mesure;Stock théorique;Rayon;Réserve;Total compté;Écart;Péremption;Compté par"
+    assert texte[1] == "1;6001;Savon Lux;Pièce;24;20;6;26;2;;Awa"
+    assert texte[2] == "2;6002;Riz 25 kg;Sac;1200;;;;;;"
+    assert pt.nom_export(doc, "csv") == "stock_boutique.pointe.csv"
+
+
+def test_commerce_et_cle_de_suivi():
+    assert pt.valider_commerce({"nom": " Boutique  Awa ", "type": "Boutique", "ville": "Koudougou"}) == {"nom": "Boutique Awa", "type": "Boutique", "ville": "Koudougou"}
+    with pytest.raises(ValueError):
+        pt.valider_commerce({"nom": "B", "type": "Boutique"})
+    cle = pt.generer_cle_suivi()
+    assert cle.startswith("CS-") and len(cle) == 9 and not set(cle[3:]) & set("O0I1")

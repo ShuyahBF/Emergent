@@ -1,13 +1,14 @@
 // ============================================================================
 // PointageInventaireSection.jsx — Lot 496 : Paramètres → « 📱 Pointage D'Inventaire Par Téléphone ».
-// Le responsable crée un inventaire (structure ayant une clé de suivi SAWALI, export JSON d'Aizenta, lieux de stockage rattachés
-// chacun à la colonne « INV SV » ou « INV Mag »), affiche le QR code aux auxiliaires, suit le comptage en direct, puis exporte le
-// JSON complété (format WinDev, réimportable dans Aizenta).
+// Le responsable crée un inventaire pour TOUT lieu de commerce (lot 497 : client Loois, officine, ou commerce déclaré ici avec sa
+// clé de suivi « CS-… »), dépose la liste des produits (JSON d'Aizenta ou CSV d'Excel / d'un autre logiciel), déclare les lieux de
+// stockage (rattachés à « INV SV » ou « INV Mag » pour Aizenta), affiche le QR code, suit le comptage en direct, puis exporte :
+// JSON WinDev (réimportable dans Aizenta) ou CSV (Excel, pour tout commerce).
 // Backend : /api/admin/pointage-inventaires (routes/pointage_telephone.py), administrateur seul.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
-import { AlertTriangle, Copy, Download, Eye, Lock, LockOpen, Plus, QrCode, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Eye, FileSpreadsheet, Lock, LockOpen, Plus, QrCode, RefreshCw, Search, Store, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useTri } from "@/lib/tri";
@@ -18,6 +19,7 @@ const nombre = (n) => (n === null || n === undefined ? "—" : Number(n).toLocal
 const dateCourte = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 const peremption = (p) => (p ? `${p.slice(4, 6)}/${p.slice(0, 4)}` : "");   // « 20270301 » → « 03/2027 »
 const COLONNES = [{ v: "SV", l: "INV SV (salle de vente)" }, { v: "MG", l: "INV Mag (magasin)" }];
+const SOURCES = { commerce: "Commerce", loois: "Client Loois", officine: "Officine" };
 
 /** Bouton rond à pictogramme seul (règle du 27/11/2026) : info-bulle et libellé d'accessibilité. */
 function Picto({ titre, Icone, onClick, couleur = "bg-sky-600 text-white", disabled = false, testid }) {
@@ -55,8 +57,8 @@ export default function PointageInventaireSection() {
   return (
     <div className="space-y-3" data-testid="pointage-inventaire">
       <p className="text-sm text-slate-600">
-        Les auxiliaires scannent le QR code avec leur téléphone, puis dictent « ligne, quantité, péremption, suivant ».
-        Le JSON complété se réimporte dans Aizenta.
+        Pour tout lieu de commerce : les auxiliaires scannent le QR code avec leur téléphone, puis dictent « ligne, quantité,
+        péremption, suivant ». Le résultat s'exporte en JSON pour Aizenta ou en CSV pour Excel.
       </p>
       <div className="flex items-center gap-2">
         <Picto titre="Nouvel inventaire" Icone={Plus} onClick={() => setCreation(true)} couleur="bg-emerald-600 text-white" testid="pointage-nouveau" />
@@ -81,8 +83,9 @@ export default function PointageInventaireSection() {
             {lignes.map((i) => (
               <tr key={i.id} className="border-t">
                 <td className="p-2 font-semibold text-sky-700">{i.numero}</td>
-                <td className="p-2">{i.structure?.libelle || i.structure?.code}</td>
-                <td className="p-2">{i.code_inv || "—"}{i.base ? <span className="text-slate-500"> · {i.base}</span> : null}</td>
+                <td className="p-2">{i.structure?.libelle || i.structure?.code}
+                  <span className="block text-xs text-slate-500">{i.structure?.type || SOURCES[i.structure?.source] || ""}{i.structure?.code ? ` · ${i.structure.code}` : ""}</span></td>
+                <td className="p-2">{i.code_inv || (i.format === "csv" ? "Liste CSV" : "—")}{i.base ? <span className="text-slate-500"> · {i.base}</span> : null}</td>
                 <td className="p-2 text-right tabular-nums">{nombre(i.lignes_total)}</td>
                 <td className="p-2 text-right tabular-nums text-emerald-700">{nombre(i.lignes_comptees)}</td>
                 <td className="p-2 text-right tabular-nums">{i.progression} %</td>
@@ -121,22 +124,49 @@ export default function PointageInventaireSection() {
 // Création : structure (liste déroulante), fichier JSON d'Aizenta, lieux de stockage
 // ---------------------------------------------------------------------------------------------------------------------------
 function FenetreCreation({ onFermer, onCree }) {
-  const [structures, setStructures] = useState([]);
-  const [structureId, setStructureId] = useState("");
-  const [fichier, setFichier] = useState(null);      // {nom, export, lignes}
+  const [q, setQ] = useState("");
+  const [resultats, setResultats] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [structure, setStructure] = useState(null);   // {source, id, libelle, code, type}
+  const [nouveau, setNouveau] = useState(null);       // formulaire « déclarer un commerce » : {nom, type, autre, ville}
+  const [fichier, setFichier] = useState(null);       // {nom, contenu, lignes, format}
   const [lieux, setLieux] = useState([{ nom: "Salle de vente", colonne: "SV" }, { nom: "Magasin", colonne: "MG" }]);
   const [envoi, setEnvoi] = useState(false);
 
-  useEffect(() => { apiClient.get("/admin/pointage-inventaires/structures").then(({ data }) => setStructures(data.structures || [])).catch(() => toast.error("Structures illisibles.")); }, []);
+  // Recherche de la structure (clients Loois, officines, commerces déclarés), relancée 300 ms après la dernière frappe
+  useEffect(() => {
+    const t = setTimeout(() => {
+      apiClient.get("/admin/pointage-inventaires/structures", { params: { q } })
+        .then(({ data }) => { setResultats(data.structures || []); setTypes(data.types_commerce || []); })
+        .catch(() => toast.error("Recherche des structures impossible."));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
+  const declarer = async () => {
+    const t = toast.loading("Déclaration du commerce en cours…");
+    try {
+      const type = nouveau.type === "__autre" ? nouveau.autre : nouveau.type;
+      const { data } = await apiClient.post("/admin/pointage-structures", { nom: nouveau.nom, type, ville: nouveau.ville || null });
+      toast.success(`${data.libelle} déclaré : clé de suivi ${data.code}.`, { id: t });
+      setStructure(data); setNouveau(null);
+    } catch (e) { toast.error(e.response?.data?.detail || "Déclaration impossible.", { id: t }); }
+  };
+
+  // Liste des produits : JSON d'Aizenta, ou CSV (Excel → « Enregistrer sous » → CSV) ; le serveur refait le contrôle complet
   const lireFichier = async (f) => {
     if (!f) return;
     try {
-      const texte = (await f.text()).replace(/^﻿/, "");          // export WinDev : BOM éventuel
-      const exp = JSON.parse(texte);
-      const n = exp?.["REQ_DétailInventaire"]?.length;
-      if (!n) throw new Error("tableau REQ_DétailInventaire absent");
-      setFichier({ nom: f.name, export: exp, lignes: n });
+      const contenu = (await f.text()).replace(/^﻿/, "");
+      if (contenu.trimStart().startsWith("{")) {
+        const n = JSON.parse(contenu)?.["REQ_DétailInventaire"]?.length;
+        if (!n) throw new Error("tableau REQ_DétailInventaire absent (export d'Aizenta attendu)");
+        setFichier({ nom: f.name, contenu, lignes: n, format: "JSON Aizenta" });
+      } else {
+        const n = contenu.split(/\r?\n/).filter((l) => l.replace(/[;,\t\s]/g, "")).length - 1;
+        if (n < 1) throw new Error("CSV vide : une ligne d'en-têtes (dont « Libellé » ou « Désignation ») puis une ligne par produit");
+        setFichier({ nom: f.name, contenu, lignes: n, format: "CSV" });
+      }
     } catch (e) { toast.error(`Fichier refusé : ${e.message}`); setFichier(null); }
   };
 
@@ -144,7 +174,8 @@ function FenetreCreation({ onFermer, onCree }) {
     setEnvoi(true);
     const t = toast.loading("Création de l'inventaire en cours…");
     try {
-      const { data } = await apiClient.post("/admin/pointage-inventaires", { structure_id: structureId, lieux, nom_fichier: fichier.nom, export: fichier.export });
+      const { data } = await apiClient.post("/admin/pointage-inventaires", {
+        structure: { source: structure.source, id: structure.id }, lieux, nom_fichier: fichier.nom, contenu: fichier.contenu });
       toast.success(`Inventaire ${data.numero} créé (${data.lignes_total} lignes).`, { id: t });
       onCree(data);
     } catch (e) { toast.error(e.response?.data?.detail || "Création impossible.", { id: t }); setEnvoi(false); }
@@ -154,22 +185,72 @@ function FenetreCreation({ onFermer, onCree }) {
     <Dialog open onOpenChange={(o) => !o && onFermer()}>
       <DialogContent className="max-h-[85dvh] max-w-xl overflow-y-auto" data-testid="pointage-creation">
         <DialogHeader><DialogTitle>Nouvel inventaire par téléphone</DialogTitle></DialogHeader>
-        <label className="block text-sm font-semibold">Structure (clé de suivi SAWALI)
-          <select value={structureId} onChange={(e) => setStructureId(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2">
-            <option value="">— Choisir —</option>
-            {structures.map((s) => <option key={s.id} value={s.id}>{s.libelle || s.code} ({s.code})</option>)}
-          </select>
-        </label>
-        {!structures.length && <p className="text-xs text-orange-700">Aucune structure : créez d'abord sa clé (Plateformes → Loois → Synchro → Clés clients).</p>}
 
+        {/* 1. Structure : n'importe quel lieu de commerce */}
+        <p className="text-sm font-semibold">Lieu de commerce</p>
+        {structure ? (
+          <div className="flex items-center gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-50 p-2">
+            <Store className="h-5 w-5 text-emerald-700" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-sm"><b>{structure.libelle}</b> <span className="text-slate-600">· {structure.type || SOURCES[structure.source]} · clé de suivi <b className="text-sky-700">{structure.code}</b></span></span>
+            <button type="button" onClick={() => setStructure(null)} title="Changer de lieu de commerce" aria-label="Changer de lieu de commerce"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-700"><X className="h-4 w-4" aria-hidden="true" /></button>
+          </div>
+        ) : nouveau ? (
+          <div className="space-y-2 rounded-xl border p-3">
+            <input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} placeholder="Boutique Wend Panga" maxLength={120}
+                   className="w-full rounded-lg border px-3 py-2" aria-label="Nom du commerce" />
+            <div className="flex gap-2">
+              <select value={nouveau.type} onChange={(e) => setNouveau({ ...nouveau, type: e.target.value })} className="min-w-0 flex-1 rounded-lg border px-2 py-2" aria-label="Type de commerce">
+                <option value="">— Type de commerce —</option>
+                {types.map((t) => <option key={t} value={t}>{t}</option>)}
+                <option value="__autre">Autre…</option>
+              </select>
+              <input value={nouveau.ville} onChange={(e) => setNouveau({ ...nouveau, ville: e.target.value })} placeholder="Ouagadougou" maxLength={80}
+                     className="w-36 rounded-lg border px-3 py-2" aria-label="Ville" />
+            </div>
+            {nouveau.type === "__autre" && <input value={nouveau.autre} onChange={(e) => setNouveau({ ...nouveau, autre: e.target.value })} placeholder="Pressing" maxLength={60}
+                                                  className="w-full rounded-lg border px-3 py-2" aria-label="Autre type de commerce" />}
+            <div className="flex justify-end gap-2">
+              <Picto titre="Annuler" Icone={X} onClick={() => setNouveau(null)} couleur="bg-slate-100 text-slate-700" />
+              <Picto titre="Déclarer ce commerce (clé de suivi générée)" Icone={Check} onClick={declarer} couleur="bg-emerald-600 text-white"
+                     disabled={nouveau.nom.trim().length < 2 || !nouveau.type || (nouveau.type === "__autre" && !nouveau.autre.trim())} />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 rounded-lg border px-3">
+              <Search className="h-4 w-4 text-slate-400" aria-hidden="true" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom, ville ou clé de suivi" className="min-w-0 flex-1 py-2 outline-none" aria-label="Rechercher le lieu de commerce" />
+            </div>
+            <ul className="max-h-44 divide-y overflow-y-auto rounded-lg border text-sm">
+              {resultats.map((r) => (
+                <li key={`${r.source}-${r.id}`}>
+                  <button type="button" onClick={() => setStructure(r)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-sky-50">
+                    <Store className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate"><b>{r.libelle}</b>{r.ville ? ` · ${r.ville}` : ""}</span>
+                    <span className="shrink-0 text-xs text-slate-500">{r.type || SOURCES[r.source]} · {r.code}</span>
+                  </button>
+                </li>
+              ))}
+              {!resultats.length && <li className="px-3 py-2 text-slate-500">Aucun lieu trouvé : déclarez-le ci-dessous.</li>}
+            </ul>
+            <button type="button" onClick={() => setNouveau({ nom: q, type: "", autre: "", ville: "" })} className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700">
+              <Plus className="h-4 w-4" aria-hidden="true" />Déclarer un nouveau commerce
+            </button>
+          </div>
+        )}
+
+        {/* 2. Liste des produits */}
         <label className="mt-2 flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-3 hover:bg-sky-50">
           <Upload className="h-6 w-6 text-sky-600" aria-hidden="true" />
-          <span className="text-sm">{fichier ? <><b className="text-sky-700">{fichier.nom}</b> · {nombre(fichier.lignes)} lignes</> : "Export JSON d'Aizenta (InventaireSélectionné_…_INVxxx.json)"}</span>
-          <input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => lireFichier(e.target.files?.[0])} />
+          <span className="text-sm">{fichier ? <><b className="text-sky-700">{fichier.nom}</b> · {fichier.format} · {nombre(fichier.lignes)} produits</>
+            : <>Liste des produits : <b>JSON d'Aizenta</b> ou <b>CSV</b> (Excel : colonnes « Libellé » ou « Désignation », et si possible « N° », « Code », « Stock »)</>}</span>
+          <input type="file" accept=".json,.csv,.txt,application/json,text/csv" className="sr-only" onChange={(e) => lireFichier(e.target.files?.[0])} />
         </label>
 
-        <p className="mt-2 text-sm font-semibold">Lieux de stockage et colonne Aizenta</p>
-        <p className="text-xs text-slate-500">Aizenta n'a que deux colonnes de comptage : chaque lieu s'y additionne. Le détail par lieu reste visible ici.</p>
+        {/* 3. Lieux de stockage */}
+        <p className="mt-2 text-sm font-semibold">Lieux de stockage</p>
+        <p className="text-xs text-slate-500">Pour Aizenta, chaque lieu s'ajoute à l'une de ses deux colonnes (INV SV ou INV Mag). L'export CSV garde une colonne par lieu.</p>
         <div className="space-y-2">
           {lieux.map((l, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -194,7 +275,7 @@ function FenetreCreation({ onFermer, onCree }) {
         <div className="mt-4 flex justify-end gap-2">
           <Picto titre="Fermer" Icone={X} onClick={onFermer} couleur="bg-slate-100 text-slate-700" />
           <Picto titre="Créer l'inventaire" Icone={Plus} onClick={creer} couleur="bg-emerald-600 text-white" testid="pointage-creer"
-                 disabled={envoi || !structureId || !fichier || lieux.some((l) => !l.nom.trim())} />
+                 disabled={envoi || !structure || !fichier || lieux.some((l) => !l.nom.trim())} />
         </div>
       </DialogContent>
     </Dialog>
@@ -227,13 +308,13 @@ function FenetreSuivi({ ident, onFermer }) {
     try { await apiClient.post(`/admin/pointage-inventaires/${ident}/${chemin}`); toast.success(message, { id: t }); charger(); }
     catch (e) { toast.error(e.response?.data?.detail || "Action impossible.", { id: t }); }
   };
-  const exporter = async () => {
-    const t = toast.loading("Préparation du JSON complété…");
+  const exporter = async (format) => {
+    const t = toast.loading(format === "csv" ? "Préparation du fichier CSV…" : "Préparation du JSON complété…");
     try {
-      const r = await apiClient.get(`/admin/pointage-inventaires/${ident}/export`, { responseType: "blob" });
-      const nom = /filename="([^"]+)"/.exec(r.headers["content-disposition"] || "")?.[1] || "inventaire.pointe.json";
+      const r = await apiClient.get(`/admin/pointage-inventaires/${ident}/export`, { params: { format }, responseType: "blob" });
+      const nom = /filename="([^"]+)"/.exec(r.headers["content-disposition"] || "")?.[1] || `inventaire.pointe.${format}`;
       const a = document.createElement("a"); a.href = URL.createObjectURL(r.data); a.download = nom; a.click(); URL.revokeObjectURL(a.href);
-      toast.success(`${nom} téléchargé : à réimporter dans Aizenta.`, { id: t });
+      toast.success(format === "csv" ? `${nom} téléchargé : à ouvrir avec Excel.` : `${nom} téléchargé : à réimporter dans Aizenta.`, { id: t });
     } catch { toast.error("Export impossible.", { id: t }); }
   };
 
@@ -251,7 +332,7 @@ function FenetreSuivi({ ident, onFermer }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onFermer()}>
       <DialogContent className="max-h-[85dvh] max-w-xl overflow-y-auto" data-testid="pointage-suivi">
-        <DialogHeader><DialogTitle>{d ? `${d.numero} · ${d.structure?.libelle || d.structure?.code} · ${d.code_inv || ""}` : "Patientez…"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{d ? `${d.numero} · ${d.structure?.libelle || d.structure?.code}${d.code_inv ? ` · ${d.code_inv}` : ""}` : "Patientez…"}</DialogTitle></DialogHeader>
         {d && (
           <>
             {/* Avancement */}
@@ -261,7 +342,8 @@ function FenetreSuivi({ ident, onFermer }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Picto titre="Actualiser" Icone={RefreshCw} onClick={() => charger(true)} couleur="bg-slate-100 text-slate-700" />
-              <Picto titre="Exporter le JSON complété (Aizenta)" Icone={Download} onClick={exporter} couleur="bg-emerald-600 text-white" testid="pointage-export" />
+              {d.format !== "csv" && <Picto titre="Exporter le JSON complété (à réimporter dans Aizenta)" Icone={Download} onClick={() => exporter("json")} couleur="bg-emerald-600 text-white" testid="pointage-export" />}
+              <Picto titre="Exporter en CSV (Excel : une colonne par lieu, écart, péremption)" Icone={FileSpreadsheet} onClick={() => exporter("csv")} couleur="bg-teal-100 text-teal-800" testid="pointage-export-csv" />
               {d.etat === "ouvert" ? <>
                 <Picto titre="Nouveau QR code (l'ancien ne marche plus)" Icone={QrCode} onClick={() => action("jeton", "Nouveau QR code créé.")} couleur="bg-violet-100 text-violet-700" />
                 <Picto titre="Clôturer l'inventaire" Icone={Lock} onClick={() => window.confirm("Clôturer ? Les téléphones ne pourront plus saisir.") && action("cloturer", "Inventaire clôturé.")} couleur="bg-rose-100 text-rose-700" />

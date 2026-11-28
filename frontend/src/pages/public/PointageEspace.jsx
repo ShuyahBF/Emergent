@@ -16,6 +16,7 @@ import PasswordInput from "@/components/PasswordInput";
 import EtatConnexion from "@/components/EtatConnexion";
 import PointageInventaireSection from "@/pages/admin/sections/PointageInventaireSection";
 import { URL_APP_ANDROID, traducteur } from "@/lib/i18nPointage";
+import { SouscriptionEspace } from "@/pages/admin/sections/PointageSouscription";   // lot 500 : « Ma souscription »
 
 const CLE_SESSION = "pointage:espace";
 const lire = () => { try { return JSON.parse(sessionStorage.getItem(CLE_SESSION) || "null"); } catch { return null; } };
@@ -97,7 +98,9 @@ export default function PointageEspace() {
         <button type="button" onClick={() => deconnecter("Déconnecté.")} title={t("Se déconnecter")} aria-label={t("Se déconnecter")}
                 className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-rose-100 text-rose-700"><LogOut className="h-5 w-5" aria-hidden="true" /></button>
       </header>
-      <div className="mx-auto max-w-5xl p-4">
+      <div className="mx-auto max-w-5xl space-y-4 p-4">
+        {/* Lot 500 : la souscription vérifiée conditionne le pointage (web et Loois Mobile) : affichée EN HAUT */}
+        <SouscriptionEspace espace={espace} t={t} />
         <PointageInventaireSection espace={espace} />
         <EtatConnexion className="mt-6 justify-center" compact />
       </div>

@@ -196,6 +196,10 @@ export default function PointageTelephone() {
   if (!inv) {
     return (
       <Ecran t={t} titre={`${info.structure} · ${info.code_inv || info.numero}`}>
+        {/* Lot 500 : sans souscription vérifiée du commerce, le pointage est fermé (le message le dit avant même le mot de passe) */}
+        {info.souscription && !info.souscription.valide && (
+          <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">{t("Le pointage de ce commerce est suspendu : souscription expirée ou pas encore vérifiée. Prévenez votre responsable.")}</p>
+        )}
         <div className="rounded-2xl border bg-white p-4">
           <p className="flex items-center gap-2 font-semibold text-slate-800"><KeyRound className="h-5 w-5 text-violet-600" aria-hidden="true" />{t("Mot de passe du commerce")}</p>
           <p className="mt-1 text-sm text-slate-600">{t("Clé de pointage {cle}. Demandez le mot de passe à votre responsable.", { cle: info.cle_pointage })}</p>

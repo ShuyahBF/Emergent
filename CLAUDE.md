@@ -360,4 +360,12 @@ Cette méthode s'applique à TOUTES les plateformes et à tout projet à venir, 
   heure de comptage (fichiers fusionnés par le responsable dans Loois mobile).
 - Pointage hors connexion dans LOOIS MOBILE (choix du propriétaire, lot M9) : chaque téléphone télécharge l'inventaire en ligne une fois (QR + mot de passe), pointe sans Internet,
   exporte un fichier de pointage partagé (Bluetooth, WhatsApp, câble, Fichiers) ; le responsable importe, fusionne (sans doublon : uid) et envoie à SAWALI quand le réseau revient.
+- Lot 500 — SOUSCRIPTION (« formules à la semaine, au mois, à l'année ou illimité ; l'accès au pointage devra se faire lorsque la souscription est vérifiée ») :
+  collection `pointage_souscriptions`, UNE souscription par commerce (clé CP-…), elle conditionne la page web ET Loois Mobile. Vérification : le commerce paie par USSD
+  (code marchand ; séquences du catalogue UNIQUE `routes/paiement_officine.CATALOGUE`, source auRor) puis donne la référence de la transaction, RAPPROCHÉE automatiquement
+  du SMS de paiement (Transactions SMS, fiches `transactions-sms:AAAA-MM`, RECETTE, montant suffisant, 14 jours, un SMS ne sert qu'une fois : index unique `sms_k`),
+  sinon l'administrateur valide d'un clic (ou enregistre une souscription payée en espèces). Les périodes s'ENCHAÎNENT (renouveler tôt ne perd aucun jour).
+  Sans souscription valide : 402 à la création dans l'Espace, au téléchargement par un téléphone, et pour toute saisie SAUF celles comptées pendant une période payée
+  (« finir l'envoi seulement » : heure de comptage du téléphone, déclarée). Prix / codes marchands : fiche `settings` `pointage_tarifs`. Écrans : `PointageSouscription.jsx`.
+  Tests : `tests/test_pointage_souscription_lot500.py`. Loois Mobile : écran « Ma souscription », comptage fermé hors souscription (lot M9.1).
 - Logique pure `backend/pointage_telephone.py`, routes `backend/routes/pointage_telephone.py`, tests `tests/test_pointage_telephone_lot496.py` et `tests/test_pointage_telephone_routes_lot496.py`.

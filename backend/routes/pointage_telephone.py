@@ -14,6 +14,9 @@
 #
 # Lot 499 : chaque commerce précise son PAYS et la LANGUE de l'interface (français ou anglais) à sa création (déclaration, ou génération de
 #   sa clé pour un commerce déjà connu ; modifiables ensuite) ; les fichiers fusionnés par Loois mobile gardent le prénom de chaque saisie.
+# Lot 500 : SOUSCRIPTION AU POINTAGE (semaine, mois, année, illimité) par commerce, vérifiée (référence du paiement mobile rapprochée du SMS reçu,
+#   ou validée par l'administrateur) ; sans souscription valide : pas de nouvel inventaire dans l'Espace, pas de téléchargement par un téléphone,
+#   pas de nouvelle saisie (une saisie comptée PENDANT une période payée peut encore être envoyée après l'expiration). Collection pointage_souscriptions.
 # Administration (Paramètres → « 📱 Pointage d'inventaire par téléphone », administrateur seul) : /api/admin/pointage-…
 # Espace du responsable : /api/pointage-espace/… ; Téléphones : /api/public/pointage/{jeton}/…
 from __future__ import annotations
@@ -86,6 +89,24 @@ class Envoi(BaseModel):
     saisies: List[Dict[str, Any]] = Field(default_factory=list, max_length=200)
 
 
+class Tarifs(BaseModel):
+    tarifs: Dict[str, Any] = Field(default_factory=dict)
+    codes: Dict[str, Any] = Field(default_factory=dict)
+    devise: Optional[str] = Field(default="FCFA", max_length=10)
+
+
+class DemandeSouscription(BaseModel):
+    formule: str = Field(pattern="^(semaine|mois|annee|illimite)$")
+    operateur: str = Field(pattern="^(orange|moov|telecel)$")
+    reference: str = Field(min_length=4, max_length=60)
+
+
+class SouscriptionManuelle(BaseModel):
+    acces_id: str = Field(min_length=4, max_length=40)
+    formule: str = Field(pattern="^(semaine|mois|annee|illimite)$")
+    note: Optional[str] = Field(default=None, max_length=200)
+
+
 class Annulation(BaseModel):
     appareil: str = Field(min_length=8, max_length=64)
     uid: str = Field(min_length=8, max_length=64)
@@ -93,6 +114,7 @@ class Annulation(BaseModel):
 
 def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
     inventaires, saisies, structures_col, acces_col = (db[pt.COL_INVENTAIRES], db[pt.COL_SAISIES], db[pt.COL_STRUCTURES], db[pt.COL_ACCES])
+    souscriptions_col = db[pt.COL_SOUSCRIPTIONS]
     etat_init = {"fait": False}
     echecs_ip: Dict[str, List[float]] = {}          # adresse IP → instants des mots de passe faux (15 dernières minutes)
 
@@ -113,6 +135,8 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         await structures_col.create_index("cle_suivi", unique=True, name="ux_pointage_cle_suivi")
         await acces_col.create_index("cle", unique=True, name="ux_pointage_acces_cle")
         await acces_col.create_index([("structure.source", 1), ("structure.id", 1)], unique=True, name="ux_pointage_acces_structure")
+        await souscriptions_col.create_index([("acces_id", 1), ("demandee_le", -1)], name="ix_pointage_souscription_commerce")
+        await souscriptions_col.create_index("sms_k", unique=True, sparse=True, name="ux_pointage_souscription_sms")
         async for ancien in db.settings.find({"_id": {"$regex": "^" + re.escape(pt.PREFIXE_ID)}}):
             anciennes = ancien.pop("saisies", []) or []
             ident = ancien.get("id") or ancien["_id"][len(pt.PREFIXE_ID):]
@@ -212,6 +236,66 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         if not doc:
             raise HTTPException(status_code=404, detail="Inventaire introuvable")
         return doc
+
+    # ------------------------------------------------------------------ souscriptions (lot 500)
+    async def _souscriptions(acces_id: Optional[str]) -> List[dict]:
+        if not acces_id:
+            return []
+        return [x async for x in souscriptions_col.find({"acces_id": acces_id}, {"_id": 0}).sort("demandee_le", -1).limit(200)]
+
+    async def _etat_souscription(acces: Optional[dict]) -> Dict[str, Any]:
+        return pt.etat_souscription(await _souscriptions((acces or {}).get("id")))
+
+    async def _exiger_souscription(acces: Optional[dict]) -> None:
+        """402 si le commerce n'a pas de souscription au pointage valide (message clair, dans la langue du commerce)."""
+        if not (await _etat_souscription(acces))["valide"]:
+            en = (acces or {}).get("langue") == "en"
+            raise HTTPException(status_code=402, detail="Stock count subscription expired or not yet verified: renew it in the Count area."
+                                if en else "Souscription au pointage expirée ou pas encore vérifiée : renouvelez-la dans l'Espace pointage.")
+
+    async def _tarifs() -> Dict[str, Any]:
+        f = await db.settings.find_one({"_id": pt.ID_TARIFS}, {"_id": 0}) or {}
+        return {"tarifs": f.get("tarifs") or {}, "codes": f.get("codes") or {}, "devise": f.get("devise") or "FCFA"}
+
+    async def _transactions_recentes() -> List[dict]:
+        """Paiements reçus (SMS lus par Concentration, module Transactions SMS) du mois en cours et du mois précédent."""
+        t = pt.maintenant()
+        mois = {t.strftime("%Y-%m"), (t.replace(day=1) - pt.timedelta(days=1)).strftime("%Y-%m")}
+        sortie: List[dict] = []
+        async for d in db.settings.find({"_id": {"$in": [f"transactions-sms:{m}" for m in mois]}}, {"items": 1}):
+            sortie += d.get("items") or []
+        return sortie
+
+    async def _verifier_automatiquement(sous: dict) -> dict:
+        """Cherche le SMS de paiement de cette demande ; s'il existe : souscription vérifiée, période enchaînée. Renvoie la fiche à jour."""
+        utilisees = {x["sms_k"] async for x in souscriptions_col.find({"sms_k": {"$ne": None}}, {"_id": 0, "sms_k": 1})}
+        p = pt.rapprocher(sous["reference"], sous["montant"], await _transactions_recentes(), utilisees)
+        if not p:
+            return sous
+        return await _activer(sous, par="SMS de paiement (automatique)", sms_k=p.get("k"))
+
+    async def _activer(sous: dict, *, par: str, sms_k: Optional[str] = None) -> dict:
+        debut, fin = pt.periode_suivante(await _souscriptions(sous["acces_id"]), sous["formule"])
+        maj = {"statut": "verifiee", "debut": debut, "fin": fin, "verifiee_le": pt.maintenant().isoformat(), "verifiee_par": par}
+        if sms_k:
+            maj["sms_k"] = sms_k
+        try:
+            await souscriptions_col.update_one({"id": sous["id"], "statut": "en_attente"}, {"$set": maj})
+        except DuplicateKeyError:                          # même SMS déjà utilisé par une autre demande (course) : reste en attente
+            return sous
+        return await souscriptions_col.find_one({"id": sous["id"]}, {"_id": 0})
+
+    def _sequences(tarifs: dict, formule: Optional[str] = None) -> List[dict]:
+        """Pour chaque opérateur dont le code marchand est réglé : séquence USSD et lien « tel: » de chaque formule proposée."""
+        sortie = []
+        for op, nom in pt.OPERATEURS.items():
+            code = tarifs["codes"].get(op)
+            if not code:
+                continue
+            par_formule = {f: {"montant": m, "sequence": pt.sequence_ussd(op, code, m), "lien": pt.lien_ussd(pt.sequence_ussd(op, code, m))}
+                           for f, m in tarifs["tarifs"].items() if m and (formule is None or f == formule)}
+            sortie.append({"id": op, "nom": nom, "formules": par_formule})
+        return sortie
 
     # ------------------------------------------------------------------ opérations communes (administrateur et Espace pointage)
     async def _liste(filtre: dict) -> dict:
@@ -333,11 +417,71 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         structure = {"source": "commerce", "id": fiche["id"], "code": fiche["cle_suivi"], "libelle": fiche["nom"], "type": fiche["type"]}
         acces = await _creer_acces(structure, user.get("email") or "admin", {"pays": fiche["pays"], "langue": fiche["langue"]})
         return structure | {"ville": fiche["ville"], "pays": fiche["pays"], "langue": fiche["langue"],
-                            "acces": {"cle": acces["cle"], "actif": True}, "mot_de_passe": acces["mot_de_passe"]}
+                            "acces": {"id": acces["id"], "cle": acces["cle"], "actif": True}, "mot_de_passe": acces["mot_de_passe"]}
 
     @api.get("/admin/pointage-acces", tags=["Pointage par téléphone"])
     async def liste_acces(_: dict = Depends(_admin)):
-        return {"acces": [_acces_public(a) async for a in acces_col.find({}, {"_id": 0, "mdp_hash": 0}).sort("cree_le", -1).limit(500)]}
+        liste = [_acces_public(a) async for a in acces_col.find({}, {"_id": 0, "mdp_hash": 0}).sort("cree_le", -1).limit(500)]
+        # État de la souscription de chaque commerce : UNE lecture en bloc (règle 7)
+        par_acces: Dict[str, List[dict]] = {}
+        async for x in souscriptions_col.find({"acces_id": {"$in": [a["id"] for a in liste]}}, {"_id": 0}):
+            par_acces.setdefault(x["acces_id"], []).append(x)
+        for a in liste:
+            a["souscription"] = pt.etat_souscription(par_acces.get(a["id"], []))
+        return {"acces": liste}
+
+    # ---------------- souscriptions : tarifs, demandes, validation (lot 500)
+    @api.get("/admin/pointage-tarifs", tags=["Pointage par téléphone"])
+    async def lire_tarifs(_: dict = Depends(_admin)):
+        return await _tarifs() | {"formules": pt.LIBELLES_FORMULES, "operateurs": pt.OPERATEURS}
+
+    @api.put("/admin/pointage-tarifs", tags=["Pointage par téléphone"])
+    async def ecrire_tarifs(corps: Tarifs, _: dict = Depends(_admin)):
+        try:
+            propre = pt.valider_tarifs(corps.model_dump())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        await db.settings.update_one({"_id": pt.ID_TARIFS}, {"$set": propre}, upsert=True)
+        return propre
+
+    @api.get("/admin/pointage-souscriptions", tags=["Pointage par téléphone"])
+    async def liste_souscriptions(_: dict = Depends(_admin)):
+        liste = [x async for x in souscriptions_col.find({}, {"_id": 0}).sort("demandee_le", -1).limit(300)]
+        noms = {a["id"]: a async for a in acces_col.find({"id": {"$in": list({x["acces_id"] for x in liste})}}, {"_id": 0, "id": 1, "cle": 1, "structure": 1})}
+        for x in liste:
+            a = noms.get(x["acces_id"]) or {}
+            x["commerce"] = (a.get("structure") or {}).get("libelle")
+            x["cle"] = a.get("cle")
+        liste.sort(key=lambda x: (x.get("statut") != "en_attente", ""))      # demandes à vérifier EN HAUT (règle 8)
+        return {"souscriptions": liste, "formules": pt.LIBELLES_FORMULES}
+
+    @api.post("/admin/pointage-souscriptions", tags=["Pointage par téléphone"])
+    async def souscription_manuelle(corps: SouscriptionManuelle, user: dict = Depends(_admin)):
+        """Souscription enregistrée par l'administrateur (paiement en espèces, virement…) : vérifiée aussitôt."""
+        if not await acces_col.find_one({"id": corps.acces_id}, {"_id": 1}):
+            raise HTTPException(status_code=404, detail="Commerce introuvable")
+        tarifs = await _tarifs()
+        sous = {"id": uuid.uuid4().hex[:12], "acces_id": corps.acces_id, "formule": corps.formule, "montant": tarifs["tarifs"].get(corps.formule) or 0,
+                "devise": tarifs["devise"], "operateur": None, "reference": (corps.note or "Enregistrée par l'administrateur")[:60],
+                "statut": "en_attente", "demandee_le": pt.maintenant().isoformat(), "demandee_par": user.get("email")}
+        await souscriptions_col.insert_one(dict(sous))
+        return await _activer(sous, par=user.get("email") or "administrateur")
+
+    @api.post("/admin/pointage-souscriptions/{ident}/{action}", tags=["Pointage par téléphone"])
+    async def decider_souscription(ident: str, action: str, user: dict = Depends(_admin)):
+        sous = await souscriptions_col.find_one({"id": ident}, {"_id": 0})
+        if not sous:
+            raise HTTPException(status_code=404, detail="Souscription introuvable")
+        if sous.get("statut") != "en_attente":
+            raise HTTPException(status_code=409, detail="Cette demande a déjà été traitée")
+        if action == "valider":
+            return await _activer(sous, par=user.get("email") or "administrateur")
+        if action == "refuser":
+            await souscriptions_col.update_one({"id": ident}, {"$set": {"statut": "refusee", "refusee_le": pt.maintenant().isoformat(), "refusee_par": user.get("email")}})
+            return {"statut": "refusee"}
+        if action == "verifier":                          # relance du rapprochement avec les SMS reçus depuis la demande
+            return await _verifier_automatiquement(sous)
+        raise HTTPException(status_code=404, detail="Action inconnue")
 
     @api.post("/admin/pointage-acces", tags=["Pointage par téléphone"])
     async def generer_acces(corps: GenerationAcces, user: dict = Depends(_admin)):
@@ -437,7 +581,34 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
 
     @api.post("/pointage-espace/inventaires", tags=["Pointage par téléphone"])
     async def espace_creer(corps: Creation, acces: dict = Depends(_espace)):
+        await _exiger_souscription(acces)                          # lot 500 : pas de nouvel inventaire sans souscription vérifiée
         return await _creer(acces["structure"], corps, f"Espace pointage {acces['cle']}")      # structure imposée par la connexion
+
+    @api.get("/pointage-espace/souscription", tags=["Pointage par téléphone"])
+    async def espace_souscription(acces: dict = Depends(_espace)):
+        """État de la souscription du commerce, formules et prix, séquences USSD par opérateur, historique des demandes."""
+        tarifs = await _tarifs()
+        liste = await _souscriptions(acces["id"])
+        return {"etat": pt.etat_souscription(liste), "tarifs": tarifs["tarifs"], "devise": tarifs["devise"], "formules": pt.LIBELLES_FORMULES,
+                "operateurs": _sequences(tarifs), "historique": [{k: x.get(k) for k in ("id", "formule", "montant", "devise", "operateur", "reference",
+                                                                                         "statut", "debut", "fin", "demandee_le", "verifiee_le")} for x in liste]}
+
+    @api.post("/pointage-espace/souscription", tags=["Pointage par téléphone"])
+    async def espace_souscrire(corps: DemandeSouscription, acces: dict = Depends(_espace)):
+        """Après le paiement mobile : la référence de la transaction est rapprochée du SMS reçu (vérification automatique), sinon l'administrateur valide."""
+        tarifs = await _tarifs()
+        montant = tarifs["tarifs"].get(corps.formule)
+        if not montant:
+            raise HTTPException(status_code=400, detail="Formule non proposée pour le moment")
+        if await souscriptions_col.count_documents({"acces_id": acces["id"], "statut": "en_attente"}) >= 5:
+            raise HTTPException(status_code=429, detail="Trop de demandes en attente : patientez leur vérification")
+        sous = {"id": uuid.uuid4().hex[:12], "acces_id": acces["id"], "formule": corps.formule, "montant": montant, "devise": tarifs["devise"],
+                "operateur": corps.operateur, "reference": corps.reference.strip()[:60], "statut": "en_attente",
+                "demandee_le": pt.maintenant().isoformat(), "demandee_par": f"Espace pointage {acces['cle']}"}
+        await souscriptions_col.insert_one(dict(sous))
+        sous = await _verifier_automatiquement(sous)
+        return {"souscription": {k: sous.get(k) for k in ("id", "formule", "montant", "devise", "statut", "debut", "fin")},
+                "etat": await _etat_souscription(acces)}
 
     @api.get("/pointage-espace/inventaires/{ident}", tags=["Pointage par téléphone"])
     async def espace_detail(ident: str, acces: dict = Depends(_espace)):
@@ -482,7 +653,7 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         doc = await _par_jeton(jeton, {"id": 1, "numero": 1, "code_inv": 1, "structure": 1, "etat": 1, "jeton_expire": 1})
         acces = await _acces_de(doc.get("structure") or {})
         return {"numero": doc.get("numero"), "code_inv": doc.get("code_inv"), "cle_pointage": (acces or {}).get("cle"),
-                "langue": doc.get("langue") or (acces or {}).get("langue") or "fr",
+                "langue": doc.get("langue") or (acces or {}).get("langue") or "fr", "souscription": await _etat_souscription(acces),
                 "structure": (doc.get("structure") or {}).get("libelle") or (doc.get("structure") or {}).get("code"), "mot_de_passe_requis": True}
 
     @api.post("/public/pointage/{jeton}/acces", tags=["Pointage par téléphone"])
@@ -491,16 +662,25 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
         doc = await _par_jeton(jeton)
         acces = await _acces_de(doc.get("structure") or {})
         acces = await _verifier_mot_de_passe(acces, corps.mot_de_passe, request)
+        await _exiger_souscription(acces)                          # lot 500 : pas de téléchargement de l'inventaire sans souscription vérifiée
         lignes = [{"c": x["Chrono"], "l": x.get("Libellé"), "m": x.get("Mesure")} for x in (doc.get("export") or {}).get(pt.CLE_TABLE) or []]
         return {"jeton_telephone": pt.jeton_telephone(_secret(), doc, acces), "numero": doc.get("numero"), "code_inv": doc.get("code_inv"),
                 "langue": doc.get("langue") or acces.get("langue") or "fr", "id": doc["id"], "cle_pointage": acces.get("cle"),
                 "structure": (doc.get("structure") or {}).get("libelle") or (doc.get("structure") or {}).get("code"),
-                "lieux": [{"id": l["id"], "nom": l["nom"]} for l in doc.get("lieux") or []], "lignes": lignes, "jeton_expire": doc.get("jeton_expire")}
+                "lieux": [{"id": l["id"], "nom": l["nom"]} for l in doc.get("lieux") or []], "lignes": lignes, "jeton_expire": doc.get("jeton_expire"),
+                "souscription": await _etat_souscription(acces)}
 
     @api.post("/public/pointage/{jeton}/saisies", tags=["Pointage par téléphone"])
     async def saisir(jeton: str, corps: Envoi, request: Request):
-        doc = await _par_jeton(jeton, {"id": 1, "export." + pt.CLE_TABLE + ".Chrono": 1, "lieux": 1, "etat": 1, "jeton_expire": 1})
+        doc = await _par_jeton(jeton, {"id": 1, "export." + pt.CLE_TABLE + ".Chrono": 1, "lieux": 1, "etat": 1, "jeton_expire": 1, "structure": 1})
         await _telephone(request, doc)
+        # Lot 500 : souscription. Valide → tout passe ; expirée → seules les saisies COMPTÉES pendant une période payée passent (heure du téléphone,
+        # jamais dans le futur ni avant la création de l'inventaire : « finir l'envoi seulement », choix du propriétaire)
+        acces_c = await _acces_de(doc.get("structure") or {})
+        liste_sous = await _souscriptions((acces_c or {}).get("id"))
+        valide_maintenant = pt.etat_souscription(liste_sous)["valide"]
+        message_expire = ("Counted after the subscription ended: not accepted." if (acces_c or {}).get("langue") == "en"
+                          else "Comptée après la fin de la souscription : non acceptée.")
         try:
             prenom = pt.nettoyer_prenom(corps.prenom)
         except ValueError as e:
@@ -515,6 +695,11 @@ def setup_pointage_telephone_routes(*, db, api, get_current_user) -> None:
             except ValueError as e:
                 refusees.append({"uid": str((brute or {}).get("uid") or ""), "erreur": str(e)})
                 continue
+            if not valide_maintenant:
+                compte = pt._instant(s.get("compte_le"))
+                if not (compte and compte <= pt.maintenant() and pt.couvert(liste_sous, compte)):
+                    refusees.append({"uid": s["uid"], "erreur": message_expire})
+                    continue
             # Ligne déjà comptée dans ce lieu (par n'importe quel téléphone) : la quantité s'ajoute, le téléphone le signale
             deja = await saisies.find_one({"inventaire_id": doc["id"], "chrono": s["chrono"], "lieu": s["lieu"], "annulee": {"$ne": True}}, {"_id": 1})
             # Prénom et appareil de l'envoi, sauf si la saisie porte les siens (fichier fusionné par le responsable dans Loois mobile)

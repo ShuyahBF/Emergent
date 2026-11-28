@@ -1,0 +1,38 @@
+{
+  "jeton_telephone": "JETON-TELEPHONE-DE-TEST",
+  "numero": "PT-0001",
+  "code_inv": null,
+  "langue": "en",
+  "id": "c783e54281b1",
+  "cle_pointage": "CP-AQ6WUA",
+  "structure": "Corner Shop",
+  "lieux": [
+    {
+      "id": "L1",
+      "nom": "Salle de vente"
+    },
+    {
+      "id": "L2",
+      "nom": "Magasin"
+    }
+  ],
+  "lignes": [
+    {
+      "c": 1,
+      "l": "Soap",
+      "m": ""
+    },
+    {
+      "c": 2,
+      "l": "Rice",
+      "m": ""
+    }
+  ],
+  "jeton_expire": "2026-12-01T10:18:32.078208+00:00",
+  "souscription": {
+    "valide": true,
+    "illimite": true,
+    "fin": null,
+    "en_attente": 0
+  }
+}

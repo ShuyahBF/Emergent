@@ -15,7 +15,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Écrans de l'application. */
-enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, TABLEAU, RAPIDE, PARAMETRES }
+enum class Ecran { DEMARRAGE, ATTENTE_AUTORISATION, CONNEXION, MENU, HISTORIQUE, DETAIL, CORRECTIONS, TABLEAU, RAPIDE, PARAMETRES, POINTAGE }   // POINTAGE : lot M9
 
 /** Tout ce que l'interface affiche (un seul objet : l'écran se redessine quand il change). */
 data class UiEtat(
@@ -50,6 +50,7 @@ data class UiEtat(
     val rapide: List<LiaisonRapide> = emptyList(),    // connexions rapides activées (liste de SAWALI)
     val configRapide: ConfigRapide? = null,
     val retourDetail: Ecran = Ecran.HISTORIQUE,
+    val retourPointage: Ecran = Ecran.CONNEXION,     // lot M9 : écran d'où l'on a ouvert le pointage (sans compte Loois)
     val selection: String? = null,                // reçu sélectionné (orange, règle 3)
     val tri: Tri = Tri(),
     val urlSawali: String = "",
@@ -359,8 +360,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------------------------------------------------ navigation
     fun aller(e: Ecran) = maj { it.copy(ecran = e) }
+    /** Lot M9 : ouvre le pointage d'inventaire depuis n'importe quel écran (aucune connexion Loois nécessaire) et retient où revenir. */
+    fun allerPointage() = maj { it.copy(retourPointage = it.ecran, ecran = Ecran.POINTAGE) }
     fun retour() = maj {
-        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.RAPIDE, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
+        it.copy(ecran = when (it.ecran) { Ecran.DETAIL -> it.retourDetail; Ecran.POINTAGE -> it.retourPointage; Ecran.HISTORIQUE, Ecran.CORRECTIONS, Ecran.TABLEAU, Ecran.RAPIDE, Ecran.PARAMETRES -> if (it.utilisateur != null) Ecran.MENU else Ecran.CONNEXION; else -> it.ecran })
     }
     fun changerJour(jour: String) = maj { it.copy(jour = jour) }
     fun changerCaissier(c: String) = maj { it.copy(caissierFiltre = c) }

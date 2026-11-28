@@ -13,9 +13,9 @@ plugins {
 }
 
 // Version et numéro de lot affichés dans l'application (règle 1 : mis à jour à CHAQUE publication)
-val versionApp = "1.7.1"
-val codeVersion = 13
-val lotApp = "M8.1"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
+val versionApp = "1.8.0"
+val codeVersion = 14
+val lotApp = "M9.1"   // numérotation propre à Loois Mobile (préfixe M) : jamais confondue avec les lots de SAWALI (nombres simples) ni de Loois Windows (préfixe L)
 // Date et heure de compilation (heure du Burkina Faso = UTC), affichées « déployée le JJ/MM/AAAA HH:MM » (règle 2)
 val dateCompilation: String = SimpleDateFormat("dd/MM/yyyy HH:mm").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
 
@@ -85,6 +85,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")              // lot M9 : lecture du QR code du pointage (sans Internet ni services Google)
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
